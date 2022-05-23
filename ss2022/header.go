@@ -1,0 +1,263 @@
+package ss2022
+
+import (
+	"bytes"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"math/rand"
+	"time"
+
+	"github.com/database64128/shadowsocks-go/socks5"
+)
+
+const (
+	HeaderTypeClientStream = 0
+	HeaderTypeServerStream = 1
+
+	HeaderTypeClientPacket = 0
+	HeaderTypeServerPacket = 1
+
+	MinPaddingLength = 0
+	MaxPaddingLength = 900
+
+	// type + unix epoch timestamp + u16be length
+	TCPRequestFixedLengthHeaderLength = 1 + 8 + 2
+
+	// SOCKS address + padding length + padding
+	TCPRequestVariableLengthHeaderNoPayloadMaxLength = socks5.MaxAddrLen + 2 + MaxPaddingLength
+
+	// type + unix epoch timestamp + request salt + u16be length
+	TCPResponseHeaderMaxLength = 1 + 8 + 32 + 2
+
+	// server session id + packet id + type + timestamp + client session id + padding length
+	UDPServerMessageHeaderFixedLength = 8 + 8 + 1 + 8 + 8 + 2
+
+	// client session id + packet id + type + timestamp + padding length
+	UDPClientMessageHeaderFixedLength = 8 + 8 + 1 + 8 + 2
+
+	// MaxEpochDiff is the maximum allowed time difference between a received timestamp and system time.
+	MaxEpochDiff = 30
+
+	// MaxTimeDiff is the maximum allowed time difference between a received timestamp and system time.
+	MaxTimeDiff = MaxEpochDiff * time.Second
+
+	// ReplayWindowDuration defines the amount of time during which a salt check is necessary.
+	ReplayWindowDuration = MaxTimeDiff * 2
+)
+
+var (
+	ErrIncompleteHeaderInFirstChunk = errors.New("header in first chunk is missing or incomplete")
+	ErrPaddingExceedChunkBorder     = errors.New("padding in first chunk is shorter than advertised")
+	ErrBadTimestamp                 = errors.New("time diff is over 30 seconds")
+	ErrTypeMismatch                 = errors.New("header type mismatch")
+	ErrPaddingLengthOutOfRange      = errors.New("padding length is less than 0 or greater than 900")
+	ErrClientSaltMismatch           = errors.New("client salt in response header does not match request")
+	ErrClientSessionIDMismatch      = errors.New("client session ID in server message header does not match current session")
+	ErrTooManyServerSessions        = errors.New("server session changed more than once during the last minute")
+)
+
+type HeaderError[T any] struct {
+	Err      error
+	Expected T
+	Got      T
+}
+
+func (e *HeaderError[T]) Unwrap() error {
+	return e.Err
+}
+
+func (e *HeaderError[T]) Error() string {
+	return fmt.Sprintf("%s: expected %v, got %v", e.Err.Error(), e.Expected, e.Got)
+}
+
+// ValidateUnixEpochTimestamp validates the Unix Epoch timestamp in the buffer
+// and returns an error if the timestamp exceeds the allowed time difference from system time.
+//
+// This function does not check buffer length. Make sure it's exactly 8 bytes long.
+func ValidateUnixEpochTimestamp(b []byte) error {
+	tsEpoch := int64(binary.BigEndian.Uint64(b))
+	nowEpoch := time.Now().Unix()
+	diff := tsEpoch - nowEpoch
+	if diff < -MaxEpochDiff || diff > MaxEpochDiff {
+		return &HeaderError[int64]{ErrBadTimestamp, nowEpoch, tsEpoch}
+	}
+	return nil
+}
+
+// ParseTCPRequestFixedLengthHeader parses a TCP request fixed-length header and returns the length
+// of the variable-length header, or an error if header validation fails.
+//
+// The buffer must be exactly 11 bytes long. No buffer length checks are performed.
+//
+// Request fixed-length header:
+// 	+------+---------------+--------+
+// 	| type |   timestamp   | length |
+// 	+------+---------------+--------+
+// 	|  1B  | 8B unix epoch |  u16be |
+// 	+------+---------------+--------+
+func ParseTCPRequestFixedLengthHeader(b []byte) (n int, err error) {
+	// Type
+	if b[0] != HeaderTypeClientStream {
+		err = &HeaderError[byte]{ErrTypeMismatch, HeaderTypeClientStream, b[0]}
+		return
+	}
+
+	// Timestamp
+	err = ValidateUnixEpochTimestamp(b[1:])
+	if err != nil {
+		return
+	}
+
+	// Length
+	n = int(binary.BigEndian.Uint16(b[1+8:]))
+
+	return
+}
+
+// WriteTCPRequestFixedLengthHeader writes a TCP request fixed-length header into the buffer.
+//
+// The buffer must be at least 11 bytes long. No buffer length checks are performed.
+func WriteTCPRequestFixedLengthHeader(b []byte, length uint16) {
+	// Type
+	b[0] = HeaderTypeClientStream
+
+	// Timestamp
+	binary.BigEndian.PutUint64(b[1:], uint64(time.Now().Unix()))
+
+	// Length
+	binary.BigEndian.PutUint16(b[1+8:], length)
+}
+
+// ParseTCPRequestVariableLengthHeader parses a TCP request variable-length header and returns
+// the target address, the initial payload if available, or an error if header validation fails.
+//
+// This function does buffer length checks and returns ErrIncompleteHeaderInFirstChunk if the buffer is too short.
+//
+// Request variable-length header:
+// 	+------+----------+-------+----------------+----------+-----------------+
+// 	| ATYP |  address |  port | padding length |  padding | initial payload |
+// 	+------+----------+-------+----------------+----------+-----------------+
+// 	|  1B  | variable | u16be |     u16be      | variable |    variable     |
+// 	+------+----------+-------+----------------+----------+-----------------+
+func ParseTCPRequestVariableLengthHeader(b []byte) (address string, payload []byte, err error) {
+	// SOCKS address
+	targetAddr, err := socks5.SplitAddr(b)
+	if err != nil {
+		return
+	}
+	address = targetAddr.String()
+	n := len(targetAddr)
+
+	// Make sure the remaining length > 2 (padding length + either padding or payload)
+	if len(b)-n <= 2 {
+		err = ErrIncompleteHeaderInFirstChunk
+		return
+	}
+
+	// Padding length
+	paddingLen := int(binary.BigEndian.Uint16(b[n:]))
+	if paddingLen < MinPaddingLength || paddingLen > MaxPaddingLength {
+		err = &HeaderError[int]{ErrPaddingLengthOutOfRange, MaxPaddingLength, paddingLen}
+		return
+	}
+	n += 2
+
+	// Padding
+	n += paddingLen
+	if n > len(b) {
+		err = &HeaderError[int]{ErrPaddingExceedChunkBorder, len(b), n}
+		return
+	}
+
+	// Initial payload
+	payload = b[n:]
+
+	return
+}
+
+// WriteTCPRequestVariableLengthHeader writes a TCP request variable-length header into the buffer
+// and returns the number of bytes written.
+//
+// This function does not check buffer length.
+// The buffer must be at least len(targetAddr) + 2 + MaxPaddingLength bytes long if there's no payload,
+// or len(targetAddr) + 2 + len(payload) bytes long.
+func WriteTCPRequestVariableLengthHeader(b []byte, targetAddr socks5.Addr, payload []byte) (n int) {
+	// SOCKS address
+	n = copy(b, targetAddr)
+
+	// Padding length
+	var paddingLen int
+	if len(payload) == 0 {
+		paddingLen = rand.Intn(MaxPaddingLength + 1)
+	}
+	binary.BigEndian.PutUint16(b[n:], uint16(paddingLen))
+	n += 2
+
+	// Padding
+	n += paddingLen
+
+	// Initial payload
+	n += copy(b[n:], payload)
+
+	return
+}
+
+// ParseTCPResponseHeader parses a TCP response fixed-length header and returns the length
+// of the next payload chunk, or an error if header validation fails.
+//
+// The buffer must be exactly 1 + 8 + salt length + 2 bytes long. No buffer length checks are performed.
+//
+// Response fixed-length header:
+// 	+------+---------------+----------------+--------+
+// 	| type |   timestamp   |  request salt  | length |
+// 	+------+---------------+----------------+--------+
+// 	|  1B  | 8B unix epoch |     16/32B     |  u16be |
+// 	+------+---------------+----------------+--------+
+func ParseTCPResponseHeader(b []byte, requestSalt []byte) (n int, err error) {
+	// Type
+	if b[0] != HeaderTypeServerStream {
+		err = &HeaderError[byte]{ErrTypeMismatch, HeaderTypeServerStream, b[0]}
+		return
+	}
+
+	// Timestamp
+	err = ValidateUnixEpochTimestamp(b[1 : 1+8])
+	if err != nil {
+		return
+	}
+
+	// Request salt
+	rSalt := b[1+8 : 1+8+len(requestSalt)]
+	if !bytes.Equal(requestSalt, rSalt) {
+		err = &HeaderError[[]byte]{ErrClientSaltMismatch, requestSalt, rSalt}
+		return
+	}
+
+	// Length
+	n = int(binary.BigEndian.Uint16(b[1+8+len(requestSalt):]))
+
+	return
+}
+
+// WriteTCPResponseHeader writes a TCP response fixed-length header into the buffer
+// and returns the number of bytes written.
+//
+// This function does not check buffer length.
+// The buffer must be at least 1 + 8 + salt length + 2 bytes long.
+func WriteTCPResponseHeader(b []byte, requestSalt []byte, length uint16) (n int) {
+	// Type
+	b[0] = HeaderTypeServerStream
+
+	// Timestamp
+	binary.BigEndian.PutUint64(b[1:], uint64(time.Now().Unix()))
+
+	// Request salt
+	n = 1 + 8
+	n += copy(b[n:], requestSalt)
+
+	// Length
+	binary.BigEndian.PutUint16(b[n:], length)
+	n += 2
+	return
+}

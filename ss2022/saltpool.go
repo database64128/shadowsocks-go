@@ -17,10 +17,6 @@ type SaltPool[T comparable] struct {
 // and adds the salt to the pool if the salt is not already in the pool.
 // Server time, instead of the header timestamp, is used, to prevent potential issues when cleaning up.
 func (p *SaltPool[T]) Add(salt T) bool {
-	if p == nil {
-		return true
-	}
-
 	now := time.Now()
 
 	p.mu.Lock()
