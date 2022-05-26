@@ -34,6 +34,26 @@ var (
 	addrDomainNameString = "example.com:443"
 )
 
+func TestAddrToPort(t *testing.T) {
+	port := Addr(addr4).Port()
+	eport := addr4addrport.Port()
+	if port != eport {
+		t.Fatalf("Expected: %d\nGot: %d", eport, port)
+	}
+
+	port = Addr(addr6).Port()
+	eport = addr6addrport.Port()
+	if port != eport {
+		t.Fatalf("Expected: %d\nGot: %d", eport, port)
+	}
+
+	port = Addr(addrDomainName).Port()
+	eport = 443
+	if port != eport {
+		t.Fatalf("Expected: %d\nGot: %d", eport, port)
+	}
+}
+
 func TestAddrFromAndToAddrPort(t *testing.T) {
 	addr := AddrFromAddrPort(addr4addrport)
 	if !bytes.Equal(addr, addr4) {

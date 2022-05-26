@@ -47,35 +47,60 @@ const (
 )
 
 // Addr represents a SOCKS address as defined in RFC 1928 section 5.
+//
+// Do not convert []byte directly to Addr. Use one of the following functions
+// that returns an Addr.
 type Addr []byte
 
-func (a Addr) AddrPort(preferIPv6 bool) (netip.AddrPort, error) {
+// Port returns the port number of the SOCKS address.
+func (a Addr) Port() uint16 {
 	switch a[0] {
 	case AtypDomainName:
-		addr, err := conn.ResolveAddr(string(a[2:2+int(a[1])]), preferIPv6)
-		port := (uint16(a[2+int(a[1])]) << 8) | uint16(a[2+int(a[1])+1])
-		return netip.AddrPortFrom(addr, port), err
+		domainLen := int(a[1])
+		return binary.BigEndian.Uint16(a[2+domainLen:])
 	case AtypIPv4:
-		ip4 := (*[4]byte)(a[1 : 1+4])
-		addr := netip.AddrFrom4(*ip4)
-		port := binary.BigEndian.Uint16(a[1+4 : 1+4+2])
-		return netip.AddrPortFrom(addr, port), nil
+		return binary.BigEndian.Uint16(a[1+4:])
 	case AtypIPv6:
-		ip6 := (*[16]byte)(a[1 : 1+16])
-		addr := netip.AddrFrom16(*ip6)
-		port := binary.BigEndian.Uint16(a[1+16 : 1+16+2])
-		return netip.AddrPortFrom(addr, port), nil
+		return binary.BigEndian.Uint16(a[1+16:])
 	default:
-		return netip.AddrPort{}, fmt.Errorf("unknown atyp %v", a[0])
+		panic(fmt.Errorf("unknown atyp %v", a[0]))
 	}
 }
 
+// AddrPort converts the SOCKS address to netip.AddrPort.
+// An error is returned only when the SOCKS address is a domain name
+// and name resolution fails.
+func (a Addr) AddrPort(preferIPv6 bool) (netip.AddrPort, error) {
+	switch a[0] {
+	case AtypDomainName:
+		domainLen := int(a[1])
+		domain := string(a[2 : 2+domainLen])
+		addr, err := conn.ResolveAddr(domain, preferIPv6)
+		port := binary.BigEndian.Uint16(a[2+domainLen:])
+		return netip.AddrPortFrom(addr, port), err
+	case AtypIPv4:
+		ip4 := (*[4]byte)(a[1:])
+		addr := netip.AddrFrom4(*ip4)
+		port := binary.BigEndian.Uint16(a[1+4:])
+		return netip.AddrPortFrom(addr, port), nil
+	case AtypIPv6:
+		ip6 := (*[16]byte)(a[1:])
+		addr := netip.AddrFrom16(*ip6)
+		port := binary.BigEndian.Uint16(a[1+16:])
+		return netip.AddrPortFrom(addr, port), nil
+	default:
+		panic(fmt.Errorf("unknown atyp %v", a[0]))
+	}
+}
+
+// String returns the string representation of the SOCKS address.
 func (a Addr) String() string {
 	switch a[0] {
 	case AtypDomainName:
-		host := string(a[2 : 2+int(a[1])])
-		port := strconv.Itoa((int(a[2+int(a[1])]) << 8) | int(a[2+int(a[1])+1]))
-		return net.JoinHostPort(host, port)
+		domainLen := int(a[1])
+		domain := string(a[2 : 2+domainLen])
+		port := binary.BigEndian.Uint16(a[2+domainLen:])
+		return fmt.Sprintf("%s:%d", domain, port)
 	case AtypIPv4, AtypIPv6:
 		addrPort, _ := a.AddrPort(true)
 		return addrPort.String()
@@ -234,7 +259,8 @@ func AddrFromReader(r io.Reader) (Addr, error) {
 	return dst[:n], nil
 }
 
-// SplitAddr slices a SOCKS address from beginning of b. Returns nil if failed.
+// SplitAddr slices a SOCKS address from the beginning of b and returns the SOCKS address,
+// or an error if no valid SOCKS address is found.
 func SplitAddr(b []byte) (Addr, error) {
 	addrLen := 1
 	if len(b) < addrLen {
