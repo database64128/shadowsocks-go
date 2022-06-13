@@ -1,6 +1,8 @@
 // Package zerocopy defines interfaces and helper functions for zero-copy read/write operations.
 package zerocopy
 
+import "errors"
+
 // Headroom is implemented by readers and writers that require extra buffer space as headroom in read/write calls.
 type Headroom interface {
 	// FrontHeadroom returns the minimum space required at the beginning of the buffer before payload.
@@ -22,3 +24,5 @@ func (z ZeroHeadroom) FrontHeadroom() int {
 func (z ZeroHeadroom) RearHeadroom() int {
 	return 0
 }
+
+var ErrHeadroomTooSmall = errors.New("buffer does not have enough headroom")

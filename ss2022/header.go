@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/socks5"
+	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
 const (
@@ -21,6 +22,8 @@ const (
 	MinPaddingLength = 0
 	MaxPaddingLength = 900
 
+	IdentityHeaderLength = 16
+
 	// type + unix epoch timestamp + u16be length
 	TCPRequestFixedLengthHeaderLength = 1 + 8 + 2
 
@@ -29,6 +32,9 @@ const (
 
 	// type + unix epoch timestamp + request salt + u16be length
 	TCPResponseHeaderMaxLength = 1 + 8 + 32 + 2
+
+	// session ID + packet ID
+	UDPSeparateHeaderLength = 8 + 8
 
 	// type + unix epoch timestamp + padding length
 	UDPClientMessageHeaderFixedLength = 1 + 8 + 2
@@ -63,6 +69,7 @@ var (
 	ErrTooManyServerSessions        = errors.New("server session changed more than once during the last minute")
 	ErrPacketIncompleteHeader       = errors.New("packet contains incomplete header")
 	ErrPacketMissingPayload         = errors.New("packet has no payload")
+	ErrReplay                       = errors.New("detected replay")
 )
 
 type HeaderError[T any] struct {
@@ -304,7 +311,7 @@ func WriteSessionIDAndPacketID(b []byte, sid, pid uint64) {
 // 	+------+---------------+----------------+----------+------+----------+-------+----------+
 // 	|  1B  | 8B unix epoch |     u16be      | variable |  1B  | variable | u16be | variable |
 // 	+------+---------------+----------------+----------+------+----------+-------+----------+
-func ParseUDPClientMessageHeader(b []byte) (targetAddr socks5.Addr, payload []byte, err error) {
+func ParseUDPClientMessageHeader(b []byte) (targetAddr socks5.Addr, payloadStart, payloadLen int, err error) {
 	// Make sure buffer has type + timestamp + padding length.
 	if len(b) < UDPClientMessageHeaderFixedLength {
 		err = ErrPacketIncompleteHeader
@@ -331,43 +338,46 @@ func ParseUDPClientMessageHeader(b []byte) (targetAddr socks5.Addr, payload []by
 	}
 
 	// Padding
-	b = b[UDPClientMessageHeaderFixedLength:]
-	if len(b) < paddingLen {
+	payloadStart = UDPClientMessageHeaderFixedLength + paddingLen
+	if payloadStart > len(b) {
 		err = ErrPacketIncompleteHeader
 		return
 	}
-	b = b[paddingLen:]
 
 	// SOCKS address
-	targetAddr, err = socks5.SplitAddr(b)
+	targetAddr, err = socks5.SplitAddr(b[payloadStart:])
 	if err != nil {
 		return
 	}
-	b = b[len(targetAddr):]
+	payloadStart += len(targetAddr)
 
 	// Payload
-	if len(b) == 0 {
+	payloadLen = len(b) - payloadStart
+	if payloadLen == 0 {
 		err = ErrPacketMissingPayload
-		return
 	}
-	payload = b
 	return
 }
 
 // WriteUDPClientMessageHeader writes a UDP client message header into the buffer,
 // starting from the end of the buffer towards the beginning, and returns the number of bytes written.
 //
-// This function does not check buffer length.
+// This function checks buffer length and adds padding with best efforts.
 // The buffer must be at least 1 + 8 + 2 + len(targetAddr) bytes long.
-func WriteUDPClientMessageHeader(b []byte, targetAddr socks5.Addr, shouldPad func(socks5.Addr) bool) (n int) {
+func WriteUDPClientMessageHeader(b []byte, targetAddr socks5.Addr, shouldPad func(socks5.Addr) bool) (n int, err error) {
+	// Check buffer length.
+	addrStart := len(b) - len(targetAddr)
+	roomForPadding := addrStart - UDPClientMessageHeaderFixedLength
+	if roomForPadding < 0 {
+		err = zerocopy.ErrHeadroomTooSmall
+		return
+	}
+
 	// SOCKS address
-	n = len(targetAddr)
-	addrOffset := len(b) - n
-	bAddr := b[addrOffset:]
-	copy(bAddr, targetAddr)
+	bAddr := b[addrStart:]
+	n = copy(bAddr, targetAddr)
 
 	// Padding
-	roomForPadding := addrOffset - UDPClientMessageHeaderFixedLength
 	if roomForPadding > MaxPaddingLength {
 		roomForPadding = MaxPaddingLength
 	}
@@ -378,7 +388,7 @@ func WriteUDPClientMessageHeader(b []byte, targetAddr socks5.Addr, shouldPad fun
 	}
 
 	n += UDPClientMessageHeaderFixedLength + paddingLen
-	typeOffset := addrOffset - UDPClientMessageHeaderFixedLength - paddingLen
+	typeOffset := addrStart - UDPClientMessageHeaderFixedLength - paddingLen
 	hdr := b[typeOffset:]
 
 	// Type
@@ -404,7 +414,7 @@ func WriteUDPClientMessageHeader(b []byte, targetAddr socks5.Addr, shouldPad fun
 // 	+------+---------------+-------------------+----------------+----------+------+----------+-------+----------+
 // 	|  1B  | 8B unix epoch |         8B        |     u16be      | variable |  1B  | variable | u16be | variable |
 // 	+------+---------------+-------------------+----------------+----------+------+----------+-------+----------+
-func ParseUDPServerMessageHeader(b []byte, csid uint64) (targetAddr socks5.Addr, payload []byte, err error) {
+func ParseUDPServerMessageHeader(b []byte, csid uint64) (targetAddr socks5.Addr, payloadStart, payloadLen int, err error) {
 	// Make sure buffer has type + timestamp + client session ID + padding length.
 	if len(b) < UDPServerMessageHeaderFixedLength {
 		err = ErrPacketIncompleteHeader
@@ -438,43 +448,46 @@ func ParseUDPServerMessageHeader(b []byte, csid uint64) (targetAddr socks5.Addr,
 	}
 
 	// Padding
-	b = b[UDPServerMessageHeaderFixedLength:]
-	if len(b) < paddingLen {
+	payloadStart = UDPServerMessageHeaderFixedLength + paddingLen
+	if payloadStart > len(b) {
 		err = ErrPacketIncompleteHeader
 		return
 	}
-	b = b[paddingLen:]
 
 	// SOCKS address
-	targetAddr, err = socks5.SplitAddr(b)
+	targetAddr, err = socks5.SplitAddr(b[payloadStart:])
 	if err != nil {
 		return
 	}
-	b = b[len(targetAddr):]
+	payloadStart += len(targetAddr)
 
 	// Payload
-	if len(b) == 0 {
+	payloadLen = len(b) - payloadStart
+	if payloadLen == 0 {
 		err = ErrPacketMissingPayload
-		return
 	}
-	payload = b
 	return
 }
 
 // WriteUDPServerMessageHeader writes a UDP server message header into the buffer,
 // starting from the end of the buffer towards the beginning, and returns the number of bytes written.
 //
-// This function does not check buffer length.
+// This function checks buffer length and adds padding with best efforts.
 // The buffer must be at least 1 + 8 + 8 + 2 + len(targetAddr) bytes long.
-func WriteUDPServerMessageHeader(b []byte, csid uint64, targetAddr socks5.Addr, shouldPad func(socks5.Addr) bool) (n int) {
+func WriteUDPServerMessageHeader(b []byte, csid uint64, targetAddr socks5.Addr, shouldPad func(socks5.Addr) bool) (n int, err error) {
+	// Check buffer length.
+	addrStart := len(b) - len(targetAddr)
+	roomForPadding := addrStart - UDPServerMessageHeaderFixedLength
+	if roomForPadding < 0 {
+		err = zerocopy.ErrHeadroomTooSmall
+		return
+	}
+
 	// SOCKS address
-	n = len(targetAddr)
-	addrOffset := len(b) - n
-	bAddr := b[addrOffset:]
-	copy(bAddr, targetAddr)
+	bAddr := b[addrStart:]
+	n = copy(bAddr, targetAddr)
 
 	// Padding
-	roomForPadding := addrOffset - UDPServerMessageHeaderFixedLength
 	if roomForPadding > MaxPaddingLength {
 		roomForPadding = MaxPaddingLength
 	}
@@ -485,7 +498,7 @@ func WriteUDPServerMessageHeader(b []byte, csid uint64, targetAddr socks5.Addr, 
 	}
 
 	n += UDPServerMessageHeaderFixedLength + paddingLen
-	typeOffset := addrOffset - UDPServerMessageHeaderFixedLength - paddingLen
+	typeOffset := addrStart - UDPServerMessageHeaderFixedLength - paddingLen
 	hdr := b[typeOffset:]
 
 	// Type
