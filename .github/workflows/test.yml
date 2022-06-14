@@ -1,0 +1,47 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - '**'
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+
+jobs:
+  test:
+    name: Test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: ^1.18
+
+      - name: Build
+        run: |
+          export GOAMD64=v3
+          go build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go
+
+      - name: Test
+        run: go test -v -benchmem -bench . ./...
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v3
+        with:
+          name: shadowsocks-go-${{ github.sha }}-${{ matrix.os }}-x86-64-v3
+          path: shadowsocks-go*

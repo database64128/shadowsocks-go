@@ -2,14 +2,175 @@ package ss2022
 
 import (
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"io"
+
+	"github.com/database64128/shadowsocks-go/socks5"
 )
 
 var (
 	ErrZeroLengthChunk = errors.New("length in length chunk is zero")
+	ErrFirstRead       = errors.New("failed to read fixed-length header in one read call")
 )
+
+// ShadowStreamServerReadWriter implements the necessary methods for a Shadowsocks TCP server.
+type ShadowStreamServerReadWriter struct {
+	r            *ShadowStreamReader
+	w            *ShadowStreamWriter
+	cipherConfig *CipherConfig
+	requestSalt  []byte
+}
+
+// NewShadowStreamServerReadWriter reads the request headers from rw to establish a session.
+func NewShadowStreamServerReadWriter(rw io.ReadWriter, cipherConfig *CipherConfig) (sssrw *ShadowStreamServerReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
+	saltLen := len(cipherConfig.PSK)
+	bufferLen := saltLen + TCPRequestFixedLengthHeaderLength + 16
+	b := make([]byte, bufferLen)
+
+	// Read fixed-length header.
+	n, err := rw.Read(b)
+	if err != nil {
+		return
+	}
+	if n < bufferLen {
+		err = &HeaderError[int]{ErrFirstRead, bufferLen, n}
+		return
+	}
+
+	// Derive key and create cipher.
+	salt := b[:saltLen]
+	ciphertext := b[saltLen:]
+	aead := cipherConfig.NewAEAD(salt)
+	nonce := make([]byte, aead.NonceSize())
+	shadowStreamCipher := ShadowStreamCipher{
+		aead:  aead,
+		nonce: nonce,
+	}
+
+	// AEAD open.
+	plaintext, err := shadowStreamCipher.DecryptInPlace(ciphertext)
+	if err != nil {
+		return
+	}
+
+	// Parse fixed-length header.
+	vhlen, err := ParseTCPRequestFixedLengthHeader(plaintext)
+	if err != nil {
+		return
+	}
+
+	b = make([]byte, vhlen+16)
+
+	// Read variable-length header.
+	_, err = io.ReadFull(rw, b)
+	if err != nil {
+		return
+	}
+
+	// AEAD open.
+	plaintext, err = shadowStreamCipher.DecryptInPlace(b)
+	if err != nil {
+		return
+	}
+
+	// Parse variable-length header.
+	targetAddr, payload, err = ParseTCPRequestVariableLengthHeader(plaintext)
+	if err != nil {
+		return
+	}
+
+	r := ShadowStreamReader{
+		reader: rw,
+		ssc:    &shadowStreamCipher,
+	}
+	sssrw = &ShadowStreamServerReadWriter{
+		r:            &r,
+		cipherConfig: cipherConfig,
+		requestSalt:  salt,
+	}
+	return
+}
+
+// FrontHeadroom implements the Writer FrontHeadroom method.
+func (rw *ShadowStreamServerReadWriter) FrontHeadroom() int {
+	return rw.r.FrontHeadroom()
+}
+
+// RearHeadroom implements the Writer RearHeadroom method.
+func (rw *ShadowStreamServerReadWriter) RearHeadroom() int {
+	return rw.r.RearHeadroom()
+}
+
+// MaximumPayloadBufferSize implements the Writer MaximumPayloadBufferSize method.
+func (rw *ShadowStreamServerReadWriter) MaximumPayloadBufferSize() int {
+	return rw.r.MinimumPayloadBufferSize()
+}
+
+// MinimumPayloadBufferSize implements the Reader MinimumPayloadBufferSize method.
+func (rw *ShadowStreamServerReadWriter) MinimumPayloadBufferSize() int {
+	return rw.r.MinimumPayloadBufferSize()
+}
+
+// WriteZeroCopy implements the Writer WriteZeroCopy method.
+func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (int, error) {
+	if rw.w == nil { // first write
+		saltLen := len(rw.cipherConfig.PSK)
+		bufferLen := saltLen + TCPRequestFixedLengthHeaderLength + saltLen + 16 + 2 + 16 + payloadLen + 16
+		b := make([]byte, bufferLen)
+		salt := b[:saltLen]
+		responseHeaderPlaintextEnd := saltLen + TCPRequestFixedLengthHeaderLength + saltLen
+		responseHeader := b[saltLen:responseHeaderPlaintextEnd]
+		payloadBufStart := responseHeaderPlaintextEnd + 16
+
+		// Random salt.
+		_, err := rand.Read(salt)
+		if err != nil {
+			return 0, err
+		}
+
+		// Write response header.
+		_ = WriteTCPResponseHeader(responseHeader, rw.requestSalt, uint16(payloadLen))
+
+		// Create AEAD cipher.
+		aead := rw.cipherConfig.NewAEAD(salt)
+		nonce := make([]byte, aead.NonceSize())
+		shadowStreamCipher := ShadowStreamCipher{
+			aead:  aead,
+			nonce: nonce,
+		}
+
+		// Seal response header.
+		shadowStreamCipher.EncryptInPlace(responseHeader)
+
+		// Seal payload.
+		aead.Seal(b[payloadBufStart:payloadBufStart], nonce, b[payloadStart:payloadStart+payloadLen], nil)
+		increment(nonce)
+
+		// Write out.
+		w := rw.r.reader.(io.Writer)
+		_, err = w.Write(b)
+		if err != nil {
+			return 0, err
+		}
+
+		// Create writer.
+		rw.w = &ShadowStreamWriter{
+			writer: w,
+			ssc:    &shadowStreamCipher,
+		}
+
+		return payloadLen, nil
+	}
+
+	return rw.w.WriteZeroCopy(b, payloadStart, payloadLen)
+}
+
+// ReadZeroCopy implements the Reader ReadZeroCopy method.
+func (rw *ShadowStreamServerReadWriter) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (int, error) {
+	return rw.r.ReadZeroCopy(b, payloadBufStart, payloadBufLen)
+}
 
 // ShadowStreamWriter wraps an io.Writer and feeds an encrypted Shadowsocks stream to it.
 //
@@ -100,7 +261,7 @@ func (r *ShadowStreamReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufL
 	}
 
 	// Open sealed length chunk.
-	err = r.ssc.DecryptInPlace(sealedLengthChunkBuf)
+	_, err = r.ssc.DecryptInPlace(sealedLengthChunkBuf)
 	if err != nil {
 		return
 	}
@@ -121,7 +282,7 @@ func (r *ShadowStreamReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufL
 	}
 
 	// Open sealed payload chunk.
-	err = r.ssc.DecryptInPlace(sealedPayloadChunkBuf)
+	_, err = r.ssc.DecryptInPlace(sealedPayloadChunkBuf)
 	if err != nil {
 		payloadLen = 0
 	}
@@ -142,14 +303,15 @@ func (c *ShadowStreamCipher) Overhead() int {
 }
 
 // EncryptInPlace encrypts and authenticates plaintext in-place.
-func (c *ShadowStreamCipher) EncryptInPlace(plaintext []byte) {
-	c.aead.Seal(plaintext[:0], c.nonce, plaintext, nil)
+func (c *ShadowStreamCipher) EncryptInPlace(plaintext []byte) (ciphertext []byte) {
+	ciphertext = c.aead.Seal(plaintext[:0], c.nonce, plaintext, nil)
 	increment(c.nonce)
+	return
 }
 
 // DecryptInplace decrypts and authenticates ciphertext in-place.
-func (c *ShadowStreamCipher) DecryptInPlace(ciphertext []byte) (err error) {
-	_, err = c.aead.Open(ciphertext[:0], c.nonce, ciphertext, nil)
+func (c *ShadowStreamCipher) DecryptInPlace(ciphertext []byte) (plaintext []byte, err error) {
+	plaintext, err = c.aead.Open(ciphertext[:0], c.nonce, ciphertext, nil)
 	if err == nil {
 		increment(c.nonce)
 	}

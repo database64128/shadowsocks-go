@@ -8,9 +8,27 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/database64128/tfo-go"
 	"go.uber.org/zap"
 	"golang.org/x/sys/unix"
 )
+
+// NewDialer returns a tfo.Dialer with the specified options applied.
+func NewDialer(dialerTFO bool, dialerFwmark int) (dialer tfo.Dialer) {
+	dialer.DisableTFO = !dialerTFO
+	if dialerFwmark != 0 {
+		dialer.Control = func(network, address string, c syscall.RawConn) (err error) {
+			cerr := c.Control(func(fd uintptr) {
+				err = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, dialerFwmark)
+			})
+			if err == nil {
+				err = cerr
+			}
+			return
+		}
+	}
+	return
+}
 
 // ListenUDP wraps Go's net.ListenConfig.ListenPacket and sets socket options on supported platforms.
 //

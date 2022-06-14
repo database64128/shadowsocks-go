@@ -3,6 +3,7 @@ module github.com/database64128/shadowsocks-go
 go 1.18
 
 require (
+	github.com/database64128/tfo-go v1.0.4
 	go.uber.org/zap v1.21.0
 	golang.org/x/sys v0.0.0-20220517195934-5e4e11fc645e
 	golang.zx2c4.com/wireguard v0.0.0-20220601130007-6a08d81f6bc4
