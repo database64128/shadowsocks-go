@@ -158,7 +158,7 @@ func (c *CipherConfig) NewUDPIdentityHeaderServerCipher() cipher.Block {
 }
 
 // ClientPSKHashes returns the BLAKE3 hashes of c.PSKs[1:] and c.PSK.
-func (c *CipherConfig) ClientPSKHashes() [][16]byte {
+func (c *CipherConfig) ClientPSKHashes() [][IdentityHeaderLength]byte {
 	hashes := make([][16]byte, len(c.PSKs))
 
 	for i := 1; i < len(c.PSKs); i++ {

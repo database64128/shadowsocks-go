@@ -9,12 +9,14 @@ import (
 
 // TCPClient implements the zerocopy TCPClient interface.
 type TCPClient struct {
+	address      string
 	dialer       tfo.Dialer
 	cipherConfig *CipherConfig
 }
 
-func NewTCPClient(dialerTFO bool, dialerFwmark int, cipherConfig *CipherConfig) *TCPClient {
+func NewTCPClient(address string, dialerTFO bool, dialerFwmark int, cipherConfig *CipherConfig) *TCPClient {
 	return &TCPClient{
+		address:      address,
 		dialer:       conn.NewDialer(dialerTFO, dialerFwmark),
 		cipherConfig: cipherConfig,
 	}
@@ -22,7 +24,7 @@ func NewTCPClient(dialerTFO bool, dialerFwmark int, cipherConfig *CipherConfig) 
 
 // Dial implements the zerocopy.TCPClient Dial method.
 func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (n int, rw zerocopy.ReadWriter, err error) {
-	n, conn, err := conn.DialTFOWithPayload(&c.dialer, targetAddr.String(), payload)
+	n, conn, err := conn.DialTFOWithPayload(&c.dialer, c.address, payload)
 	if err != nil {
 		return
 	}
