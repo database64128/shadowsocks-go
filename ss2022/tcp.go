@@ -9,28 +9,46 @@ import (
 
 // TCPClient implements the zerocopy TCPClient interface.
 type TCPClient struct {
-	dialer tfo.Dialer
+	dialer       tfo.Dialer
+	cipherConfig *CipherConfig
 }
 
-func NewTCPClient(dialerTFO bool, dialerFwmark int) *TCPClient {
+func NewTCPClient(dialerTFO bool, dialerFwmark int, cipherConfig *CipherConfig) *TCPClient {
 	return &TCPClient{
-		dialer: conn.NewDialer(dialerTFO, dialerFwmark),
+		dialer:       conn.NewDialer(dialerTFO, dialerFwmark),
+		cipherConfig: cipherConfig,
 	}
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *TCPClient) Dial(targetAddr socks5.Addr) (zerocopy.ReadWriter, error) {
-	return nil, nil
+func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (n int, rw zerocopy.ReadWriter, err error) {
+	n, conn, err := conn.DialTFOWithPayload(&c.dialer, targetAddr.String(), payload)
+	if err != nil {
+		return
+	}
+
+	rw, err = NewShadowStreamClientReadWriter(conn, c.cipherConfig, targetAddr, payload)
+	return
 }
 
 // TCPServer implements the zerocopy TCPServer interface.
-type TCPServer struct{}
+type TCPServer struct {
+	cipherConfig *CipherConfig
+	saltPool     *SaltPool[string]
+}
 
-func NewTCPServer() *TCPServer {
-	return nil
+func NewTCPServer(cipherConfig *CipherConfig) *TCPServer {
+	return &TCPServer{
+		cipherConfig: cipherConfig,
+		saltPool:     NewSaltPool[string](ReplayWindowDuration),
+	}
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *TCPServer) Accept(conn tfo.Conn) (targetAddr socks5.Addr, rw zerocopy.ReadWriter, err error) {
-	return nil, nil, nil
+func (s *TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
+	return NewShadowStreamServerReadWriter(conn, s.cipherConfig, s.saltPool)
+}
+
+func (s *TCPServer) NativeInitialPayload() bool {
+	return true
 }

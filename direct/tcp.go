@@ -19,13 +19,13 @@ func NewTCPClient(dialerTFO bool, dialerFwmark int) *TCPClient {
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *TCPClient) Dial(targetAddr socks5.Addr) (zerocopy.ReadWriter, error) {
-	conn, err := c.dialer.Dial("tcp", targetAddr.String())
+func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (int, zerocopy.ReadWriter, error) {
+	n, conn, err := conn.DialTFOWithPayload(&c.dialer, targetAddr.String(), payload)
 	if err != nil {
-		return nil, err
+		return n, nil, err
 	}
 
-	return &DirectStreamReadWriter{
+	return n, &DirectStreamReadWriter{
 		rw: conn,
 	}, nil
 }
@@ -47,8 +47,12 @@ func NewTCPServer(targetAddress string) (*TCPServer, error) {
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *TCPServer) Accept(conn tfo.Conn) (targetAddr socks5.Addr, rw zerocopy.ReadWriter, err error) {
-	return s.targetAddr, &DirectStreamReadWriter{
+func (s *TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
+	return &DirectStreamReadWriter{
 		rw: conn,
-	}, nil
+	}, s.targetAddr, nil, nil
+}
+
+func (s *TCPServer) NativeInitialPayload() bool {
+	return false
 }

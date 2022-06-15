@@ -6,6 +6,8 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+
+	"github.com/database64128/tfo-go"
 )
 
 // ResolveAddr resolves a domain name string into netip.Addr.
@@ -45,4 +47,24 @@ func ResolveAddr(host string, preferIPv6 bool) (netip.Addr, error) {
 	}
 
 	return ip, nil
+}
+
+// DialTFOWithPayload uses a TFO dialer to dial the target and writes the initial payload.
+// TFO is disabled if initial payload is empty.
+func DialTFOWithPayload(dialer *tfo.Dialer, address string, payload []byte) (n int, conn net.Conn, err error) {
+	dialerDisableTFO := dialer.DisableTFO
+	disableTFO := dialerDisableTFO || len(payload) == 0
+	dialer.DisableTFO = disableTFO
+
+	conn, err = dialer.Dial("tcp", address)
+	if err != nil {
+		return
+	}
+
+	if len(payload) > 0 {
+		n, err = conn.Write(payload)
+	}
+
+	dialer.DisableTFO = dialerDisableTFO
+	return
 }
