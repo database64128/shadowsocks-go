@@ -74,6 +74,15 @@ func (c *CipherConfig) NewAEAD(salt []byte) cipher.AEAD {
 	return aead
 }
 
+func (c *CipherConfig) NewShadowStreamCipher(salt []byte) *ShadowStreamCipher {
+	aead := c.NewAEAD(salt)
+	nonce := make([]byte, aead.NonceSize())
+	return &ShadowStreamCipher{
+		aead:  aead,
+		nonce: nonce,
+	}
+}
+
 func (c *CipherConfig) NewBlock() cipher.Block {
 	block, err := aes.NewCipher(c.PSK)
 	if err != nil {
