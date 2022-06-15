@@ -102,6 +102,21 @@ func TestAddrDomainNameToAddrPort(t *testing.T) {
 	if port != 443 {
 		t.Fatalf("Expected port number: %d\nGot: %d", 443, port)
 	}
+
+	addrPort, err = Addr(addrDomainName).AddrPort(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	addr = addrPort.Addr()
+	if addr.Is4() || addr.Is4In6() {
+		t.Fatalf("preferIPv6: true returned IPv4: %s", addr)
+	}
+
+	port = addrPort.Port()
+	if port != 443 {
+		t.Fatalf("Expected port number: %d\nGot: %d", 443, port)
+	}
 }
 
 func TestAddrParseAndToString(t *testing.T) {

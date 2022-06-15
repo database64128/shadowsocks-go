@@ -24,9 +24,9 @@ func ResolveAddr(host string, preferIPv6 bool) (netip.Addr, error) {
 
 	for _, ip := range ips {
 		switch {
-		case preferIPv6 && ip.Is6() || !preferIPv6 && ip.Is4(): // Prefer 6/4 and got 6/4
+		case preferIPv6 && !ip.Is4() && !ip.Is4In6() || !preferIPv6 && (ip.Is4() || ip.Is4In6()): // Prefer 6/4 and got 6/4
 			primaries = append(primaries, ip)
-		case preferIPv6 && ip.Is4() || !preferIPv6 && ip.Is6(): // Prefer 6/4 and got 4/6
+		case preferIPv6 && (ip.Is4() || ip.Is4In6()) || !preferIPv6 && !ip.Is4() && !ip.Is4In6(): // Prefer 6/4 and got 4/6
 			fallbacks = append(fallbacks, ip)
 		default:
 			return netip.Addr{}, errors.New("ip is neither 4 nor 6")
