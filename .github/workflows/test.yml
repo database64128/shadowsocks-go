@@ -38,6 +38,7 @@ jobs:
           go build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go
 
       - name: Test
+        if: matrix.os != 'windows-latest'
         run: go test -v -benchmem -bench . ./...
 
       - name: Upload Binaries
