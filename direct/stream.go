@@ -10,7 +10,7 @@ import (
 // directly from/to the wrapped io.ReadWriter.
 type DirectStreamReadWriter struct {
 	zerocopy.ZeroHeadroom
-	rw io.ReadWriter
+	rw zerocopy.DirectReadWriteCloser
 }
 
 // MaximumPayloadBufferSize implements the Writer MaximumPayloadBufferSize method.
@@ -24,8 +24,8 @@ func (rw *DirectStreamReadWriter) WriteZeroCopy(b []byte, payloadStart, payloadL
 	return
 }
 
-// DirectWriter implements the DirectWriter DirectWriter method.
-func (rw *DirectStreamReadWriter) DirectWriter() io.Writer {
+// DirectWriteCloser implements the DirectWriteCloser DirectWriteCloser method.
+func (rw *DirectStreamReadWriter) DirectWriteCloser() io.WriteCloser {
 	return rw.rw
 }
 
@@ -40,7 +40,22 @@ func (rw *DirectStreamReadWriter) ReadZeroCopy(b []byte, payloadBufStart, payloa
 	return
 }
 
-// DirectReader implements the DirectReader DirectReader method.
-func (rw *DirectStreamReadWriter) DirectReader() io.Reader {
+// DirectReadCloser implements the DirectReadCloser DirectReadCloser method.
+func (rw *DirectStreamReadWriter) DirectReadCloser() io.ReadCloser {
 	return rw.rw
+}
+
+// CloseWrite implements the ReadWriter CloseWrite method.
+func (rw *DirectStreamReadWriter) CloseWrite() error {
+	return rw.rw.CloseWrite()
+}
+
+// CloseRead implements the ReadWriter CloseRead method.
+func (rw *DirectStreamReadWriter) CloseRead() error {
+	return rw.rw.CloseRead()
+}
+
+// Close implements the ReadWriter Close method.
+func (rw *DirectStreamReadWriter) Close() error {
+	return rw.rw.Close()
 }

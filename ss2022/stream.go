@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/database64128/shadowsocks-go/socks5"
+	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
 var (
@@ -25,7 +26,7 @@ type ShadowStreamServerReadWriter struct {
 }
 
 // NewShadowStreamServerReadWriter reads the request headers from rw to establish a session.
-func NewShadowStreamServerReadWriter(rw io.ReadWriter, cipherConfig *CipherConfig, saltPool *SaltPool[string]) (sssrw *ShadowStreamServerReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
+func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, saltPool *SaltPool[string]) (sssrw *ShadowStreamServerReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
 	saltLen := len(cipherConfig.PSK)
 	bufferLen := saltLen + TCPRequestFixedLengthHeaderLength + 16
 	b := make([]byte, bufferLen)
@@ -147,7 +148,7 @@ func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, pa
 		shadowStreamCipher.EncryptTo(dst, plaintext)
 
 		// Write out.
-		w := rw.r.reader.(io.Writer)
+		w := rw.r.reader.(io.WriteCloser)
 		_, err = w.Write(hb)
 		if err != nil {
 			return 0, err
@@ -170,6 +171,26 @@ func (rw *ShadowStreamServerReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 	return rw.r.ReadZeroCopy(b, payloadBufStart, payloadBufLen)
 }
 
+// CloseRead implements the ReadWriter CloseRead method.
+func (rw *ShadowStreamServerReadWriter) CloseRead() error {
+	return rw.r.Close()
+}
+
+// CloseWrite implements the ReadWriter CloseWrite method.
+func (rw *ShadowStreamServerReadWriter) CloseWrite() error {
+	return rw.w.Close()
+}
+
+// Close implements the ReadWriter Close method.
+func (rw *ShadowStreamServerReadWriter) Close() error {
+	crErr := rw.r.Close()
+	cwErr := rw.w.Close()
+	if crErr != nil {
+		return crErr
+	}
+	return cwErr
+}
+
 // ShadowStreamClientReadWriter implements Shadowsocks stream client.
 type ShadowStreamClientReadWriter struct {
 	r            *ShadowStreamReader
@@ -179,7 +200,7 @@ type ShadowStreamClientReadWriter struct {
 }
 
 // NewShadowStreamClientReadWriter writes request headers to rw and returns a Shadowsocks stream client ready for reads and writes.
-func NewShadowStreamClientReadWriter(rw io.ReadWriter, cipherConfig *CipherConfig, targetAddr socks5.Addr, payload []byte) (sscrw *ShadowStreamClientReadWriter, err error) {
+func NewShadowStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, targetAddr socks5.Addr, payload []byte) (sscrw *ShadowStreamClientReadWriter, err error) {
 	payloadOrPaddingMaxLen := len(payload)
 	if payloadOrPaddingMaxLen == 0 {
 		payloadOrPaddingMaxLen = MaxPaddingLength
@@ -312,7 +333,27 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 	return rw.r.ReadZeroCopy(b, payloadBufStart, payloadBufLen)
 }
 
-// ShadowStreamWriter wraps an io.Writer and feeds an encrypted Shadowsocks stream to it.
+// CloseRead implements the ReadWriter CloseRead method.
+func (rw *ShadowStreamClientReadWriter) CloseRead() error {
+	return rw.r.Close()
+}
+
+// CloseWrite implements the ReadWriter CloseWrite method.
+func (rw *ShadowStreamClientReadWriter) CloseWrite() error {
+	return rw.w.Close()
+}
+
+// Close implements the ReadWriter Close method.
+func (rw *ShadowStreamClientReadWriter) Close() error {
+	crErr := rw.r.Close()
+	cwErr := rw.w.Close()
+	if crErr != nil {
+		return crErr
+	}
+	return cwErr
+}
+
+// ShadowStreamWriter wraps an io.WriteCloser and feeds an encrypted Shadowsocks stream to it.
 //
 // Wire format:
 // 	+------------------------+---------------------------+
@@ -321,7 +362,7 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 // 	|  2B length + 16B tag   | variable length + 16B tag |
 // 	+------------------------+---------------------------+
 type ShadowStreamWriter struct {
-	writer io.Writer
+	writer io.WriteCloser
 	ssc    *ShadowStreamCipher
 }
 
@@ -367,9 +408,14 @@ func (w *ShadowStreamWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen in
 	return
 }
 
-// ShadowStreamReader wraps an io.Reader and reads from it as an encrypted Shadowsocks stream.
+// Close implements the Writer Close method.
+func (w *ShadowStreamWriter) Close() error {
+	return w.writer.Close()
+}
+
+// ShadowStreamReader wraps an io.ReadCloser and reads from it as an encrypted Shadowsocks stream.
 type ShadowStreamReader struct {
-	reader io.Reader
+	reader io.ReadCloser
 	ssc    *ShadowStreamCipher
 }
 
@@ -428,6 +474,11 @@ func (r *ShadowStreamReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufL
 	}
 
 	return
+}
+
+// Close implements the Reader Close method.
+func (r *ShadowStreamReader) Close() error {
+	return r.reader.Close()
 }
 
 // ShadowStreamCipher wraps an AEAD cipher and provides methods that transparently increments

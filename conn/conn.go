@@ -51,15 +51,16 @@ func ResolveAddr(host string, preferIPv6 bool) (netip.Addr, error) {
 
 // DialTFOWithPayload uses a TFO dialer to dial the target and writes the initial payload.
 // TFO is disabled if initial payload is empty.
-func DialTFOWithPayload(dialer *tfo.Dialer, address string, payload []byte) (n int, conn net.Conn, err error) {
+func DialTFOWithPayload(dialer *tfo.Dialer, address string, payload []byte) (n int, conn tfo.Conn, err error) {
 	dialerDisableTFO := dialer.DisableTFO
 	disableTFO := dialerDisableTFO || len(payload) == 0
 	dialer.DisableTFO = disableTFO
 
-	conn, err = dialer.Dial("tcp", address)
+	nconn, err := dialer.Dial("tcp", address)
 	if err != nil {
 		return
 	}
+	conn = nconn.(tfo.Conn)
 
 	if len(payload) > 0 {
 		n, err = conn.Write(payload)

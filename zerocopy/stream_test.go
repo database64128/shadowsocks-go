@@ -7,10 +7,18 @@ import (
 	"testing"
 )
 
+type testBytesReadCloser struct {
+	*bytes.Reader
+}
+
+func (r *testBytesReadCloser) Close() error {
+	return nil
+}
+
 type testReader struct {
 	ZeroHeadroom
 	t *testing.T
-	r *bytes.Reader
+	r *testBytesReadCloser
 }
 
 func newTestReader(t *testing.T) (*testReader, []byte) {
@@ -23,7 +31,7 @@ func newTestReader(t *testing.T) (*testReader, []byte) {
 	copy(bcopy, b)
 	return &testReader{
 		t: t,
-		r: bytes.NewReader(b),
+		r: &testBytesReadCloser{bytes.NewReader(b)},
 	}, bcopy
 }
 
@@ -35,6 +43,10 @@ func (r *testReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) 
 	readBuf := b[payloadBufStart : payloadBufStart+payloadBufLen]
 	payloadLen, err = r.r.Read(readBuf)
 	return
+}
+
+func (r *testReader) Close() error {
+	return nil
 }
 
 type testBigReader struct {
@@ -59,37 +71,45 @@ func (r *testBigReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen in
 	return r.testReader.ReadZeroCopy(b, payloadBufStart, payloadBufLen)
 }
 
-type testDirectReader struct {
+type testDirectReadCloser struct {
 	*testReader
 }
 
-func newTestDirectReader(t *testing.T) (*testDirectReader, []byte) {
+func newTestDirectReadCloser(t *testing.T) (*testDirectReadCloser, []byte) {
 	r, b := newTestReader(t)
-	return &testDirectReader{
+	return &testDirectReadCloser{
 		testReader: r,
 	}, b
 }
 
-func (r *testDirectReader) DirectReader() io.Reader {
+func (r *testDirectReadCloser) DirectReadCloser() io.ReadCloser {
 	return r.r
 }
 
-func (r *testDirectReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
+func (r *testDirectReadCloser) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
 	r.t.Error("Buffered relay method is used!")
 	return
+}
+
+type testBytesBufferCloser struct {
+	*bytes.Buffer
+}
+
+func (w *testBytesBufferCloser) Close() error {
+	return nil
 }
 
 type testWriter struct {
 	ZeroHeadroom
 	t *testing.T
-	w *bytes.Buffer
+	w *testBytesBufferCloser
 }
 
 func newTestWriter(t *testing.T) *testWriter {
 	b := make([]byte, 0, 1024)
 	return &testWriter{
 		t: t,
-		w: bytes.NewBuffer(b),
+		w: &testBytesBufferCloser{bytes.NewBuffer(b)},
 	}
 }
 
@@ -101,6 +121,10 @@ func (w *testWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payl
 	writeBuf := b[payloadStart : payloadStart+payloadLen]
 	payloadWritten, err = w.w.Write(writeBuf)
 	return
+}
+
+func (w *testWriter) Close() error {
+	return nil
 }
 
 func (w *testWriter) Bytes() []byte {
@@ -128,21 +152,21 @@ func (w *testSmallWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) 
 	return w.testWriter.WriteZeroCopy(b, payloadStart, payloadLen)
 }
 
-type testDirectWriter struct {
+type testDirectWriteCloser struct {
 	*testWriter
 }
 
-func newTestDirectWriter(t *testing.T) *testDirectWriter {
-	return &testDirectWriter{
+func newTestDirectWriteCloser(t *testing.T) *testDirectWriteCloser {
+	return &testDirectWriteCloser{
 		testWriter: newTestWriter(t),
 	}
 }
 
-func (w *testDirectWriter) DirectWriter() io.Writer {
+func (w *testDirectWriteCloser) DirectWriteCloser() io.WriteCloser {
 	return w.w
 }
 
-func (w *testDirectWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
+func (w *testDirectWriteCloser) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
 	w.t.Error("Buffered relay method is used!")
 	return
 }
@@ -169,6 +193,23 @@ func (rw *testReadWriterImpl) RearHeadroom() int {
 	return 0
 }
 
+func (rw *testReadWriterImpl) CloseRead() error {
+	return rw.Reader.Close()
+}
+
+func (rw *testReadWriterImpl) CloseWrite() error {
+	return rw.Writer.Close()
+}
+
+func (rw *testReadWriterImpl) Close() error {
+	crErr := rw.Reader.Close()
+	cwErr := rw.Writer.Close()
+	if crErr != nil {
+		return crErr
+	}
+	return cwErr
+}
+
 func (rw *testReadWriterImpl) Bytes() []byte {
 	return rw.Writer.(getBytes).Bytes()
 }
@@ -190,8 +231,8 @@ func newTestBigReaderSmallWriter(t *testing.T) (*testReadWriterImpl, []byte) {
 }
 
 type testDirectReadWriter struct {
-	*testDirectReader
-	*testDirectWriter
+	*testDirectReadCloser
+	*testDirectWriteCloser
 }
 
 func (rw *testDirectReadWriter) FrontHeadroom() int {
@@ -202,19 +243,36 @@ func (rw *testDirectReadWriter) RearHeadroom() int {
 	return 0
 }
 
+func (rw *testDirectReadWriter) CloseRead() error {
+	return rw.testDirectReadCloser.Close()
+}
+
+func (rw *testDirectReadWriter) CloseWrite() error {
+	return rw.testDirectWriteCloser.Close()
+}
+
+func (rw *testDirectReadWriter) Close() error {
+	crErr := rw.testDirectReadCloser.Close()
+	cwErr := rw.testDirectWriteCloser.Close()
+	if crErr != nil {
+		return crErr
+	}
+	return cwErr
+}
+
 func (rw *testDirectReadWriter) Bytes() []byte {
 	return rw.w.Bytes()
 }
 
 func newTestDirectReadWriter(t *testing.T) (*testDirectReadWriter, []byte) {
-	r, b := newTestDirectReader(t)
+	r, b := newTestDirectReadCloser(t)
 	return &testDirectReadWriter{
-		testDirectReader: r,
-		testDirectWriter: newTestDirectWriter(t),
+		testDirectReadCloser:  r,
+		testDirectWriteCloser: newTestDirectWriteCloser(t),
 	}, b
 }
 
-func testReadWriterFunc(t *testing.T, l, r testReadWriter, ldata, rdata []byte) {
+func testTwoWayRelay(t *testing.T, l, r testReadWriter, ldata, rdata []byte) {
 	nl2r, nr2l, err := TwoWayRelay(l, r)
 	if err != nil {
 		t.Error(err)
@@ -237,20 +295,20 @@ func testReadWriterFunc(t *testing.T, l, r testReadWriter, ldata, rdata []byte) 
 	}
 }
 
-func TestReadWriter(t *testing.T) {
+func TestTwoWayRelayBuffered(t *testing.T) {
 	l, ldata := newTestTypicalReadWriter(t)
 	r, rdata := newTestTypicalReadWriter(t)
-	testReadWriterFunc(t, l, r, ldata, rdata)
+	testTwoWayRelay(t, l, r, ldata, rdata)
 }
 
-func TestReadWriterFallbackRelay(t *testing.T) {
+func TestTwoWayRelayFallback(t *testing.T) {
 	l, ldata := newTestBigReaderSmallWriter(t)
 	r, rdata := newTestBigReaderSmallWriter(t)
-	testReadWriterFunc(t, l, r, ldata, rdata)
+	testTwoWayRelay(t, l, r, ldata, rdata)
 }
 
-func TestDirectReadWriter(t *testing.T) {
+func TestTwoWayRelayDirect(t *testing.T) {
 	l, ldata := newTestDirectReadWriter(t)
 	r, rdata := newTestDirectReadWriter(t)
-	testReadWriterFunc(t, l, r, ldata, rdata)
+	testTwoWayRelay(t, l, r, ldata, rdata)
 }

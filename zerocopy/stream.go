@@ -1,7 +1,9 @@
 package zerocopy
 
 import (
+	"bytes"
 	"io"
+	"testing"
 )
 
 // Reader provides a stream interface for reading.
@@ -25,6 +27,8 @@ type Reader interface {
 	//
 	// If no error occurs, the returned payload is b[payloadBufStart : payloadBufStart+payloadLen].
 	ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error)
+
+	io.Closer
 }
 
 // Writer provides a stream interface for writing.
@@ -47,29 +51,35 @@ type Writer interface {
 	//
 	// The write operation may use the whole space of b.
 	WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error)
+
+	io.Closer
 }
 
-// DirectReader provides access to the underlying io.Reader.
-type DirectReader interface {
-	// DirectReader returns the underlying reader for direct reads.
-	DirectReader() io.Reader
+// DirectReadCloser provides access to the underlying io.ReadCloser.
+type DirectReadCloser interface {
+	// DirectReadCloser returns the underlying reader for direct reads.
+	DirectReadCloser() io.ReadCloser
 }
 
-// DirectWriter provides access to the underlying io.Writer.
-type DirectWriter interface {
-	// DirectWriter returns the underlying writer for direct writes.
-	DirectWriter() io.Writer
+// DirectWriteCloser provides access to the underlying io.WriteCloser.
+type DirectWriteCloser interface {
+	// DirectWriteCloser returns the underlying writer for direct writes.
+	DirectWriteCloser() io.WriteCloser
 }
 
 // Relay reads from r and writes to w using zero-copy methods.
 // It returns the number of bytes transferred, and any error occurred during transfer.
 func Relay(w Writer, r Reader) (n int64, err error) {
 	// Use direct read/write when possible.
-	if dr, ok := r.(DirectReader); ok {
-		if dw, ok := w.(DirectWriter); ok {
-			r := dr.DirectReader()
-			w := dw.DirectWriter()
+	if dr, ok := r.(DirectReadCloser); ok {
+		if dw, ok := w.(DirectWriteCloser); ok {
+			r := dr.DirectReadCloser()
+			w := dw.DirectWriteCloser()
 			n, err = io.Copy(w, r)
+			cwErr := w.Close()
+			if err == nil {
+				err = cwErr
+			}
 			return
 		}
 	}
@@ -178,29 +188,226 @@ func relayFallback(w Writer, r Reader, frontHeadroom, rearHeadroom, readPayloadB
 	}
 }
 
+// CloseRead provides the CloseRead method.
+type CloseRead interface {
+	// CloseRead indicates to the underlying reader that no further reads will happen.
+	CloseRead() error
+}
+
+// CloseWrite provides the CloseWrite method.
+type CloseWrite interface {
+	// CloseWrite indicates to the underlying writer that no further writes will happen.
+	CloseWrite() error
+}
+
 // ReadWriter provides a stream interface for reading and writing.
 type ReadWriter interface {
 	Reader
 	Writer
+	CloseRead
+	CloseWrite
 }
 
 // TwoWayRelay relays data between left and right using zero-copy methods.
 // It returns the number of bytes sent from left to right, from right to left,
 // and any error occurred during transfer.
 func TwoWayRelay(left, right ReadWriter) (nl2r, nr2l int64, err error) {
-	var l2rErr error
+	var (
+		l2rErr error
+		lcwErr error
+		rcwErr error
+	)
+
 	ctrlCh := make(chan struct{})
 
 	go func() {
 		nl2r, l2rErr = Relay(right, left)
+		rcwErr = right.CloseWrite()
 		ctrlCh <- struct{}{}
 	}()
 
 	nr2l, err = Relay(left, right)
+	lcwErr = left.CloseWrite()
 	<-ctrlCh
 
-	if l2rErr != nil {
+	switch {
+	case err != nil:
+	case l2rErr != nil:
 		err = l2rErr
+	case lcwErr != nil:
+		err = lcwErr
+	case rcwErr != nil:
+		err = rcwErr
 	}
 	return
+}
+
+// DirectReadWriteCloser extends io.ReadWriteCloser with CloseRead and CloseWrite.
+type DirectReadWriteCloser interface {
+	io.ReadWriteCloser
+	CloseRead
+	CloseWrite
+}
+
+// ReadWriterTestFunc tests the left and right ReadWriters by performing 2 writes
+// on each ReadWriter and validating the read results.
+//
+// The left and right ReadWriters must be connected with a duplex pipe.
+func ReadWriterTestFunc(t *testing.T, l, r ReadWriter) {
+	var (
+		hello = []byte{'h', 'e', 'l', 'l', 'o'}
+		world = []byte{'w', 'o', 'r', 'l', 'd'}
+	)
+
+	lfh := l.FrontHeadroom()
+	lrh := l.RearHeadroom()
+	lmax := l.MaximumPayloadBufferSize()
+	if lmax == 0 {
+		lmax = 5
+	}
+	lmin := l.MinimumPayloadBufferSize()
+	if lmin == 0 {
+		lmin = 5
+	}
+	lwbuf := make([]byte, lfh+lmax+lrh)
+	lrbuf := make([]byte, lfh+lmin+lrh)
+
+	rfh := r.FrontHeadroom()
+	rrh := r.RearHeadroom()
+	rmax := r.MaximumPayloadBufferSize()
+	if rmax == 0 {
+		rmax = 5
+	}
+	rmin := r.MinimumPayloadBufferSize()
+	if rmin == 0 {
+		rmin = 5
+	}
+	rwbuf := make([]byte, rfh+rmax+rrh)
+	rrbuf := make([]byte, rfh+rmin+rrh)
+
+	ctrlCh := make(chan struct{})
+
+	// Start read goroutines.
+	go func() {
+		pl, err := l.ReadZeroCopy(lrbuf, lfh, lmax)
+		if err != nil {
+			t.Error(err)
+		}
+		if pl != 5 {
+			t.Errorf("Expected payloadLen 5, got %d", pl)
+		}
+		p := lrbuf[lfh : lfh+pl]
+		if !bytes.Equal(p, world) {
+			t.Errorf("Expected payload %v, got %v", world, p)
+		}
+
+		pl, err = l.ReadZeroCopy(lrbuf, lfh, lmax)
+		if err != nil {
+			t.Error(err)
+		}
+		if pl != 5 {
+			t.Errorf("Expected payloadLen 5, got %d", pl)
+		}
+		p = lrbuf[lfh : lfh+pl]
+		if !bytes.Equal(p, hello) {
+			t.Errorf("Expected payload %v, got %v", hello, p)
+		}
+
+		pl, err = l.ReadZeroCopy(lrbuf, lfh, lmax)
+		if err != io.EOF {
+			t.Errorf("Expected io.EOF, got %v", err)
+		}
+		if pl != 0 {
+			t.Errorf("Expected payloadLen 0, got %v", pl)
+		}
+
+		ctrlCh <- struct{}{}
+	}()
+
+	go func() {
+		pl, err := r.ReadZeroCopy(rrbuf, rfh, rmin)
+		if err != nil {
+			t.Error(err)
+		}
+		if pl != 5 {
+			t.Errorf("Expected payloadLen 5, got %d", pl)
+		}
+		p := rrbuf[rfh : rfh+pl]
+		if !bytes.Equal(p, hello) {
+			t.Errorf("Expected payload %v, got %v", hello, p)
+		}
+
+		pl, err = r.ReadZeroCopy(rrbuf, rfh, rmin)
+		if err != nil {
+			t.Error(err)
+		}
+		if pl != 5 {
+			t.Errorf("Expected payloadLen 5, got %d", pl)
+		}
+		p = rrbuf[rfh : rfh+pl]
+		if !bytes.Equal(p, world) {
+			t.Errorf("Expected payload %v, got %v", world, p)
+		}
+
+		pl, err = r.ReadZeroCopy(rrbuf, rfh, rmin)
+		if err != io.EOF {
+			t.Errorf("Expected io.EOF, got %v", err)
+		}
+		if pl != 0 {
+			t.Errorf("Expected payloadLen 0, got %v", pl)
+		}
+
+		ctrlCh <- struct{}{}
+	}()
+
+	// Write from left to right.
+	n := copy(lwbuf[lfh:], hello)
+	written, err := l.WriteZeroCopy(lwbuf, lfh, n)
+	if err != nil {
+		t.Error(err)
+	}
+	if written != n {
+		t.Errorf("Expected bytes written: %d, got %d", n, written)
+	}
+
+	n = copy(lwbuf[lfh:], world)
+	written, err = l.WriteZeroCopy(lwbuf, lfh, n)
+	if err != nil {
+		t.Error(err)
+	}
+	if written != n {
+		t.Errorf("Expected bytes written: %d, got %d", n, written)
+	}
+
+	err = l.CloseWrite()
+	if err != nil {
+		t.Error(err)
+	}
+
+	// Write from right to left.
+	n = copy(rwbuf[rfh:], world)
+	written, err = r.WriteZeroCopy(rwbuf, rfh, n)
+	if err != nil {
+		t.Error(err)
+	}
+	if written != n {
+		t.Errorf("Expected bytes written: %d, got %d", n, written)
+	}
+
+	n = copy(rwbuf[rfh:], hello)
+	written, err = r.WriteZeroCopy(rwbuf, rfh, n)
+	if err != nil {
+		t.Error(err)
+	}
+	if written != n {
+		t.Errorf("Expected bytes written: %d, got %d", n, written)
+	}
+
+	err = r.CloseWrite()
+	if err != nil {
+		t.Error(err)
+	}
+
+	<-ctrlCh
+	<-ctrlCh
 }
