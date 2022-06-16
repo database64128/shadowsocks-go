@@ -6,6 +6,11 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
+var (
+	_ zerocopy.DirectReadCloser  = (*DirectStreamReadWriter)(nil)
+	_ zerocopy.DirectWriteCloser = (*DirectStreamReadWriter)(nil)
+)
+
 // DirectStreamReadWriter implements the zerocopy ReadWriter interface and reads/writes everything
 // directly from/to the wrapped io.ReadWriter.
 type DirectStreamReadWriter struct {
