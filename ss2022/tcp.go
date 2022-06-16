@@ -12,6 +12,7 @@ type TCPClient struct {
 	address      string
 	dialer       tfo.Dialer
 	cipherConfig *CipherConfig
+	eihPSKHashes [][IdentityHeaderLength]byte
 }
 
 func NewTCPClient(address string, dialerTFO bool, dialerFwmark int, cipherConfig *CipherConfig) *TCPClient {
@@ -19,6 +20,7 @@ func NewTCPClient(address string, dialerTFO bool, dialerFwmark int, cipherConfig
 		address:      address,
 		dialer:       conn.NewDialer(dialerTFO, dialerFwmark),
 		cipherConfig: cipherConfig,
+		eihPSKHashes: cipherConfig.ClientPSKHashes(),
 	}
 }
 
@@ -29,7 +31,7 @@ func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (n int, rw zero
 		return
 	}
 
-	rw, err = NewShadowStreamClientReadWriter(conn, c.cipherConfig, targetAddr, payload)
+	rw, err = NewShadowStreamClientReadWriter(conn, c.cipherConfig, c.eihPSKHashes, targetAddr, payload)
 	return
 }
 
@@ -37,18 +39,20 @@ func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (n int, rw zero
 type TCPServer struct {
 	cipherConfig *CipherConfig
 	saltPool     *SaltPool[string]
+	uPSKMap      map[[IdentityHeaderLength]byte][]byte
 }
 
 func NewTCPServer(cipherConfig *CipherConfig) *TCPServer {
 	return &TCPServer{
 		cipherConfig: cipherConfig,
 		saltPool:     NewSaltPool[string](ReplayWindowDuration),
+		uPSKMap:      cipherConfig.ServerPSKHashMap(),
 	}
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
 func (s *TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
-	return NewShadowStreamServerReadWriter(conn, s.cipherConfig, s.saltPool)
+	return NewShadowStreamServerReadWriter(conn, s.cipherConfig, s.saltPool, s.uPSKMap)
 }
 
 func (s *TCPServer) NativeInitialPayload() bool {

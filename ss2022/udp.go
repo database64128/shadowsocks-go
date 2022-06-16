@@ -14,6 +14,8 @@ type UDPClient struct {
 	block        cipher.Block
 	cipherConfig *CipherConfig
 	shouldPad    func(socks5.Addr) bool
+	eihCiphers   []cipher.Block
+	eihPSKHashes [][IdentityHeaderLength]byte
 }
 
 func NewUDPClient(cipherConfig *CipherConfig, shouldPad func(socks5.Addr) bool) *UDPClient {
@@ -21,6 +23,8 @@ func NewUDPClient(cipherConfig *CipherConfig, shouldPad func(socks5.Addr) bool) 
 		block:        cipherConfig.NewBlock(),
 		cipherConfig: cipherConfig,
 		shouldPad:    shouldPad,
+		eihCiphers:   cipherConfig.NewUDPIdentityHeaderClientCiphers(),
+		eihPSKHashes: cipherConfig.ClientPSKHashes(),
 	}
 }
 
@@ -39,8 +43,8 @@ func (c *UDPClient) NewSession() (zerocopy.Packer, zerocopy.Unpacker, error) {
 			aead:         c.cipherConfig.NewAEAD(salt),
 			block:        c.block,
 			shouldPad:    c.shouldPad,
-			eihCiphers:   c.cipherConfig.NewUDPIdentityHeaderClientCiphers(),
-			eihPSKHashes: c.cipherConfig.ClientPSKHashes(),
+			eihCiphers:   c.eihCiphers,
+			eihPSKHashes: c.eihPSKHashes,
 		}, &ShadowPacketClientUnpacker{
 			csid:         csid,
 			block:        c.block,

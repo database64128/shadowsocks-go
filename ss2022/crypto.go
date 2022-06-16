@@ -159,7 +159,7 @@ func (c *CipherConfig) NewUDPIdentityHeaderServerCipher() cipher.Block {
 
 // ClientPSKHashes returns the BLAKE3 hashes of c.PSKs[1:] and c.PSK.
 func (c *CipherConfig) ClientPSKHashes() [][IdentityHeaderLength]byte {
-	hashes := make([][16]byte, len(c.PSKs))
+	hashes := make([][IdentityHeaderLength]byte, len(c.PSKs))
 
 	for i := 1; i < len(c.PSKs); i++ {
 		hash := blake3.Sum512(c.PSKs[i])
@@ -172,14 +172,15 @@ func (c *CipherConfig) ClientPSKHashes() [][IdentityHeaderLength]byte {
 	return hashes
 }
 
-// ServerPSKHashes returns the BLAKE3 hashes of c.PSKs.
-func (c *CipherConfig) ServerPSKHashes() [][16]byte {
-	hashes := make([][16]byte, len(c.PSKs))
+// ServerPSKHashMap returns a uPSKHash-uPSK map.
+func (c *CipherConfig) ServerPSKHashMap() map[[IdentityHeaderLength]byte][]byte {
+	uPSKMap := make(map[[IdentityHeaderLength]byte][]byte, len(c.PSKs))
 
-	for i := range hashes {
-		hash := blake3.Sum512(c.PSKs[i])
-		copy(hashes[i][:], hash[:])
+	for _, psk := range c.PSKs {
+		hash := blake3.Sum512(psk)
+		truncatedHash := *(*[IdentityHeaderLength]byte)(hash[:])
+		uPSKMap[truncatedHash] = psk
 	}
 
-	return hashes
+	return uPSKMap
 }

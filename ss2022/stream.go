@@ -26,12 +26,17 @@ type ShadowStreamServerReadWriter struct {
 }
 
 // NewShadowStreamServerReadWriter reads the request headers from rw to establish a session.
-func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, saltPool *SaltPool[string]) (sssrw *ShadowStreamServerReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
+func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, saltPool *SaltPool[string], uPSKMap map[[IdentityHeaderLength]byte][]byte) (sssrw *ShadowStreamServerReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
+	var identityHeaderLen int
+	if len(uPSKMap) > 0 {
+		identityHeaderLen = IdentityHeaderLength
+	}
+
 	saltLen := len(cipherConfig.PSK)
-	bufferLen := saltLen + TCPRequestFixedLengthHeaderLength + 16
+	bufferLen := saltLen + identityHeaderLen + TCPRequestFixedLengthHeaderLength + 16
 	b := make([]byte, bufferLen)
 
-	// Read fixed-length header.
+	// Read salt, identity header, fixed-length header.
 	n, err := rw.Read(b)
 	if err != nil {
 		return
@@ -41,10 +46,29 @@ func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 		return
 	}
 
-	// Derive key and create cipher.
 	salt := b[:saltLen]
-	ciphertext := b[saltLen:]
-	shadowStreamCipher := cipherConfig.NewShadowStreamCipher(salt)
+	ciphertext := b[saltLen+identityHeaderLen:]
+
+	// Derive key and create cipher.
+	var shadowStreamCipher *ShadowStreamCipher
+
+	if identityHeaderLen == 0 {
+		shadowStreamCipher = cipherConfig.NewShadowStreamCipher(salt)
+	} else {
+		identityHeader := b[saltLen : saltLen+identityHeaderLen]
+		identityHeaderCipher := cipherConfig.NewTCPIdentityHeaderServerCipher(salt)
+		identityHeaderCipher.Decrypt(identityHeader, identityHeader)
+
+		uPSKHash := *(*[IdentityHeaderLength]byte)(identityHeader)
+		uPSK, ok := uPSKMap[uPSKHash]
+		if !ok {
+			err = ErrIdentityHeaderUserPSKNotFound
+			return
+		}
+
+		uPSKCipherConfig := CipherConfig{uPSK, nil}
+		shadowStreamCipher = uPSKCipherConfig.NewShadowStreamCipher(salt)
+	}
 
 	// AEAD open.
 	plaintext, err := shadowStreamCipher.DecryptInPlace(ciphertext)
@@ -200,25 +224,37 @@ type ShadowStreamClientReadWriter struct {
 }
 
 // NewShadowStreamClientReadWriter writes request headers to rw and returns a Shadowsocks stream client ready for reads and writes.
-func NewShadowStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, targetAddr socks5.Addr, payload []byte) (sscrw *ShadowStreamClientReadWriter, err error) {
+func NewShadowStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte, targetAddr socks5.Addr, payload []byte) (sscrw *ShadowStreamClientReadWriter, err error) {
 	payloadOrPaddingMaxLen := len(payload)
 	if payloadOrPaddingMaxLen == 0 {
 		payloadOrPaddingMaxLen = MaxPaddingLength
 	}
 
 	saltLen := len(cipherConfig.PSK)
-	variableLengthHeaderStart := saltLen + TCPRequestFixedLengthHeaderLength + 16
+	identityHeadersLen := IdentityHeaderLength * len(eihPSKHashes)
+	fixedLengthHeaderStart := saltLen + identityHeadersLen
+	fixedLengthHeaderEnd := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength
+	variableLengthHeaderStart := fixedLengthHeaderEnd + 16
 	variableLengthHeaderEnd := variableLengthHeaderStart + len(targetAddr) + 2 + payloadOrPaddingMaxLen
 	bufferLen := variableLengthHeaderEnd + 16
 	b := make([]byte, bufferLen)
 	salt := b[:saltLen]
-	fixedLengthHeaderPlaintext := b[saltLen : saltLen+TCPRequestFixedLengthHeaderLength]
+	identityHeaders := b[saltLen:fixedLengthHeaderStart]
+	fixedLengthHeaderPlaintext := b[fixedLengthHeaderStart:fixedLengthHeaderEnd]
 	variableLengthHeaderPlaintext := b[variableLengthHeaderStart:variableLengthHeaderEnd]
 
 	// Random salt.
 	_, err = rand.Read(salt)
 	if err != nil {
 		return
+	}
+
+	// Write and encrypt identity headers.
+	eihCiphers := cipherConfig.NewTCPIdentityHeaderClientCiphers(salt)
+
+	for i := range eihPSKHashes {
+		identityHeader := identityHeaders[i*IdentityHeaderLength : (i+1)*IdentityHeaderLength]
+		eihCiphers[i].Encrypt(identityHeader, eihPSKHashes[i][:])
 	}
 
 	// Write variable-length header.

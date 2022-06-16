@@ -137,21 +137,11 @@ type ShadowPacketServerPacker struct {
 
 	// Padding policy.
 	shouldPad func(socks5.Addr) bool
-
-	// EIH block ciphers.
-	// Must include a cipher for each iPSK.
-	// Must have the same length as eihPSKHashes.
-	eihCiphers []cipher.Block
-
-	// EIH PSK hashes.
-	// These are first 16 bytes of BLAKE3 hashes of iPSK1 all the way up to uPSK.
-	// Must have the same length as eihCiphers.
-	eihPSKHashes [][IdentityHeaderLength]byte
 }
 
 // FrontHeadroom implements the Packer FrontHeadroom method.
 func (p *ShadowPacketServerPacker) FrontHeadroom() int {
-	return UDPSeparateHeaderLength + IdentityHeaderLength*len(p.eihCiphers) + UDPServerMessageHeaderMaxLength
+	return UDPSeparateHeaderLength + UDPServerMessageHeaderMaxLength
 }
 
 // RearHeadroom implements the Packer RearHeadroom method.
@@ -161,33 +151,22 @@ func (p *ShadowPacketServerPacker) RearHeadroom() int {
 
 // PackInPlace implements the Packer PackInPlace method.
 func (p *ShadowPacketServerPacker) PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen int) (packetStart, packetLen int, err error) {
-	nonAEADHeaderLength := UDPSeparateHeaderLength + IdentityHeaderLength*len(p.eihCiphers)
-
 	// Write message header.
-	n, err := WriteUDPServerMessageHeader(b[nonAEADHeaderLength:payloadStart], p.csid, targetAddr, p.shouldPad)
+	n, err := WriteUDPServerMessageHeader(b[UDPSeparateHeaderLength:payloadStart], p.csid, targetAddr, p.shouldPad)
 	if err != nil {
 		return
 	}
 
 	messageHeaderStart := payloadStart - n
-	packetStart = messageHeaderStart - nonAEADHeaderLength
-	packetLen = nonAEADHeaderLength + n + payloadLen + p.aead.Overhead()
-	identityHeadersStart := packetStart + UDPSeparateHeaderLength
-	separateHeader := b[packetStart:identityHeadersStart]
+	packetStart = messageHeaderStart - UDPSeparateHeaderLength
+	packetLen = UDPSeparateHeaderLength + n + payloadLen + p.aead.Overhead()
+	separateHeader := b[packetStart:messageHeaderStart]
 	nonce := separateHeader[4:16]
 	plaintext := b[messageHeaderStart : payloadStart+payloadLen]
 
 	// Write separate header.
 	WriteSessionIDAndPacketID(separateHeader, p.ssid, p.spid)
 	p.spid++
-
-	// Write and encrypt identity headers.
-	for i := range p.eihCiphers {
-		start := identityHeadersStart + i*IdentityHeaderLength
-		identityHeader := b[start : start+IdentityHeaderLength]
-		magic.XORWords(identityHeader, p.eihPSKHashes[0][:], separateHeader)
-		p.eihCiphers[i].Encrypt(identityHeader, identityHeader)
-	}
 
 	// AEAD seal.
 	p.aead.Seal(plaintext[:0], nonce, plaintext, nil)
