@@ -19,13 +19,13 @@ func NewTCPClient(dialerTFO bool, dialerFwmark int) *TCPClient {
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (int, zerocopy.ReadWriter, error) {
-	n, conn, err := conn.DialTFOWithPayload(&c.dialer, targetAddr.String(), payload)
+func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (zerocopy.ReadWriter, error) {
+	_, conn, err := conn.DialTFOWithPayload(&c.dialer, targetAddr.String(), payload)
 	if err != nil {
-		return n, nil, err
+		return nil, err
 	}
 
-	return n, &DirectStreamReadWriter{
+	return &DirectStreamReadWriter{
 		rw: conn,
 	}, nil
 }

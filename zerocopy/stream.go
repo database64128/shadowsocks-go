@@ -254,6 +254,9 @@ type DirectReadWriteCloser interface {
 //
 // The left and right ReadWriters must be connected with a duplex pipe.
 func ReadWriterTestFunc(t *testing.T, l, r ReadWriter) {
+	defer r.Close()
+	defer l.Close()
+
 	var (
 		hello = []byte{'h', 'e', 'l', 'l', 'o'}
 		world = []byte{'w', 'o', 'r', 'l', 'd'}

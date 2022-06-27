@@ -9,7 +9,7 @@ import (
 type TCPClient interface {
 	// Dial creates a connection to the target address under the protocol's
 	// encapsulation and returns a ReadWriter for read-write access.
-	Dial(targetAddr socks5.Addr, payload []byte) (n int, rw ReadWriter, err error)
+	Dial(targetAddr socks5.Addr, payload []byte) (rw ReadWriter, err error)
 }
 
 // TCPServer provides a protocol's TCP service.

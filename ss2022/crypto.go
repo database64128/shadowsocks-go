@@ -3,6 +3,7 @@ package ss2022
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -47,6 +48,26 @@ func NewCipherConfig(method string, psk []byte, psks [][]byte) (*CipherConfig, e
 	}
 
 	return &CipherConfig{psk, psks}, nil
+}
+
+func NewRandomCipherConfig(method string, keySize int, eihCount int) (cipherConfig *CipherConfig, err error) {
+	psk := make([]byte, keySize)
+	_, err = rand.Read(psk)
+	if err != nil {
+		return
+	}
+
+	psks := make([][]byte, eihCount)
+	for i := range psks {
+		psks[i] = make([]byte, keySize)
+		_, err = rand.Read(psks[i])
+		if err != nil {
+			return
+		}
+	}
+
+	cipherConfig, err = NewCipherConfig(method, psk, psks)
+	return
 }
 
 func (c *CipherConfig) NewAEAD(salt []byte) cipher.AEAD {
@@ -123,7 +144,7 @@ func (c *CipherConfig) NewTCPIdentityHeaderServerCipher(salt []byte) cipher.Bloc
 	copy(keyMaterial, c.PSK)
 	copy(keyMaterial[len(c.PSK):], salt)
 	key := make([]byte, len(c.PSK))
-	blake3.DeriveKey(key, "shadowsocks 2022 session subkey", keyMaterial)
+	blake3.DeriveKey(key, "shadowsocks 2022 identity subkey", keyMaterial)
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -159,6 +180,11 @@ func (c *CipherConfig) NewUDPIdentityHeaderServerCipher() cipher.Block {
 
 // ClientPSKHashes returns the BLAKE3 hashes of c.PSKs[1:] and c.PSK.
 func (c *CipherConfig) ClientPSKHashes() [][IdentityHeaderLength]byte {
+	// Skip if no uPSKs.
+	if len(c.PSKs) == 0 {
+		return nil
+	}
+
 	hashes := make([][IdentityHeaderLength]byte, len(c.PSKs))
 
 	for i := 1; i < len(c.PSKs); i++ {

@@ -21,6 +21,7 @@ var (
 type ShadowStreamServerReadWriter struct {
 	r            *ShadowStreamReader
 	w            *ShadowStreamWriter
+	rawRW        zerocopy.DirectReadWriteCloser
 	cipherConfig *CipherConfig
 	requestSalt  []byte
 }
@@ -49,12 +50,7 @@ func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 	salt := b[:saltLen]
 	ciphertext := b[saltLen+identityHeaderLen:]
 
-	// Derive key and create cipher.
-	var shadowStreamCipher *ShadowStreamCipher
-
-	if identityHeaderLen == 0 {
-		shadowStreamCipher = cipherConfig.NewShadowStreamCipher(salt)
-	} else {
+	if identityHeaderLen != 0 {
 		identityHeader := b[saltLen : saltLen+identityHeaderLen]
 		identityHeaderCipher := cipherConfig.NewTCPIdentityHeaderServerCipher(salt)
 		identityHeaderCipher.Decrypt(identityHeader, identityHeader)
@@ -66,9 +62,11 @@ func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 			return
 		}
 
-		uPSKCipherConfig := CipherConfig{uPSK, nil}
-		shadowStreamCipher = uPSKCipherConfig.NewShadowStreamCipher(salt)
+		cipherConfig = &CipherConfig{uPSK, nil}
 	}
+
+	// Derive key and create cipher.
+	shadowStreamCipher := cipherConfig.NewShadowStreamCipher(salt)
 
 	// AEAD open.
 	plaintext, err := shadowStreamCipher.DecryptInPlace(ciphertext)
@@ -114,6 +112,7 @@ func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 	}
 	sssrw = &ShadowStreamServerReadWriter{
 		r:            &r,
+		rawRW:        rw,
 		cipherConfig: cipherConfig,
 		requestSalt:  salt,
 	}
@@ -163,6 +162,12 @@ func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, pa
 		// Create AEAD cipher.
 		shadowStreamCipher := rw.cipherConfig.NewShadowStreamCipher(salt)
 
+		// Create writer.
+		rw.w = &ShadowStreamWriter{
+			writer: rw.rawRW,
+			ssc:    shadowStreamCipher,
+		}
+
 		// Seal response header.
 		shadowStreamCipher.EncryptInPlace(responseHeader)
 
@@ -172,16 +177,9 @@ func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, pa
 		shadowStreamCipher.EncryptTo(dst, plaintext)
 
 		// Write out.
-		w := rw.r.reader.(io.WriteCloser)
-		_, err = w.Write(hb)
+		_, err = rw.rawRW.Write(hb)
 		if err != nil {
 			return 0, err
-		}
-
-		// Create writer.
-		rw.w = &ShadowStreamWriter{
-			writer: w,
-			ssc:    shadowStreamCipher,
 		}
 
 		return payloadLen, nil
@@ -197,18 +195,18 @@ func (rw *ShadowStreamServerReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 
 // CloseRead implements the ReadWriter CloseRead method.
 func (rw *ShadowStreamServerReadWriter) CloseRead() error {
-	return rw.r.Close()
+	return rw.rawRW.CloseRead()
 }
 
 // CloseWrite implements the ReadWriter CloseWrite method.
 func (rw *ShadowStreamServerReadWriter) CloseWrite() error {
-	return rw.w.Close()
+	return rw.rawRW.CloseWrite()
 }
 
 // Close implements the ReadWriter Close method.
 func (rw *ShadowStreamServerReadWriter) Close() error {
-	crErr := rw.r.Close()
-	cwErr := rw.w.Close()
+	crErr := rw.CloseRead()
+	cwErr := rw.CloseWrite()
 	if crErr != nil {
 		return crErr
 	}
@@ -219,14 +217,27 @@ func (rw *ShadowStreamServerReadWriter) Close() error {
 type ShadowStreamClientReadWriter struct {
 	r            *ShadowStreamReader
 	w            *ShadowStreamWriter
+	rawRW        zerocopy.DirectReadWriteCloser
 	cipherConfig *CipherConfig
 	requestSalt  []byte
 }
 
 // NewShadowStreamClientReadWriter writes request headers to rw and returns a Shadowsocks stream client ready for reads and writes.
 func NewShadowStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte, targetAddr socks5.Addr, payload []byte) (sscrw *ShadowStreamClientReadWriter, err error) {
-	payloadOrPaddingMaxLen := len(payload)
-	if payloadOrPaddingMaxLen == 0 {
+	var (
+		payloadOrPaddingMaxLen int
+		excessivePayload       []byte
+	)
+
+	roomForPayload := 0xFFFF - len(targetAddr) - 2
+
+	switch {
+	case len(payload) > roomForPayload:
+		payloadOrPaddingMaxLen = roomForPayload
+		excessivePayload = payload[roomForPayload:]
+	case len(payload) > 0:
+		payloadOrPaddingMaxLen = len(payload)
+	default:
 		payloadOrPaddingMaxLen = MaxPaddingLength
 	}
 
@@ -283,8 +294,19 @@ func NewShadowStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 		writer: rw,
 		ssc:    shadowStreamCipher,
 	}
+
+	// Write excessive payload.
+	if len(excessivePayload) > 0 {
+		copy(payload[2+16:], excessivePayload)
+		_, err = w.WriteZeroCopy(payload, 2+16, len(excessivePayload))
+		if err != nil {
+			return
+		}
+	}
+
 	return &ShadowStreamClientReadWriter{
 		w:            &w,
+		rawRW:        rw,
 		cipherConfig: cipherConfig,
 		requestSalt:  salt,
 	}, nil
@@ -321,10 +343,9 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 		saltLen := len(rw.cipherConfig.PSK)
 		bufferLen := saltLen + TCPRequestFixedLengthHeaderLength + saltLen + 16
 		hb := make([]byte, bufferLen)
-		r := rw.w.writer.(io.Reader)
 
 		// Read response header.
-		n, err := r.Read(hb)
+		n, err := rw.rawRW.Read(hb)
 		if err != nil {
 			return 0, err
 		}
@@ -336,6 +357,12 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 		salt := hb[:saltLen]
 		ciphertext := hb[saltLen:]
 		shadowStreamCipher := rw.cipherConfig.NewShadowStreamCipher(salt)
+
+		// Create reader.
+		rw.r = &ShadowStreamReader{
+			reader: rw.rawRW,
+			ssc:    shadowStreamCipher,
+		}
 
 		// AEAD open.
 		plaintext, err := shadowStreamCipher.DecryptInPlace(ciphertext)
@@ -352,7 +379,7 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 		payloadBuf := b[payloadBufStart : payloadBufStart+n+16]
 
 		// Read payload chunk.
-		_, err = io.ReadFull(r, payloadBuf)
+		_, err = io.ReadFull(rw.rawRW, payloadBuf)
 		if err != nil {
 			return 0, err
 		}
@@ -371,18 +398,18 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 
 // CloseRead implements the ReadWriter CloseRead method.
 func (rw *ShadowStreamClientReadWriter) CloseRead() error {
-	return rw.r.Close()
+	return rw.rawRW.CloseRead()
 }
 
 // CloseWrite implements the ReadWriter CloseWrite method.
 func (rw *ShadowStreamClientReadWriter) CloseWrite() error {
-	return rw.w.Close()
+	return rw.rawRW.CloseWrite()
 }
 
 // Close implements the ReadWriter Close method.
 func (rw *ShadowStreamClientReadWriter) Close() error {
-	crErr := rw.r.Close()
-	cwErr := rw.w.Close()
+	crErr := rw.CloseRead()
+	cwErr := rw.CloseWrite()
 	if crErr != nil {
 		return crErr
 	}
