@@ -4,12 +4,10 @@ import (
 	"crypto/cipher"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/magic"
 	"github.com/database64128/shadowsocks-go/socks5"
-	wgreplay "golang.zx2c4.com/wireguard/replay"
 )
 
 type ShadowPacketReplayError struct {
@@ -200,7 +198,7 @@ type ShadowPacketClientUnpacker struct {
 	currentServerSessionAEAD cipher.AEAD
 
 	// Current server session sliding window filter.
-	currentServerSessionFilter *wgreplay.Filter
+	currentServerSessionFilter *Filter
 
 	// Old server session ID.
 	oldServerSessionID uint64
@@ -209,7 +207,7 @@ type ShadowPacketClientUnpacker struct {
 	oldServerSessionAEAD cipher.AEAD
 
 	// Old server session sliding window filter.
-	oldServerSessionFilter *wgreplay.Filter
+	oldServerSessionFilter *Filter
 
 	// Old server session last seen time.
 	oldServerSessionLastSeenTime time.Time
@@ -233,7 +231,7 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetStart, packet
 		ssid          uint64
 		spid          uint64
 		saead         cipher.AEAD
-		sfilter       *wgreplay.Filter
+		sfilter       *Filter
 		sessionStatus int
 	)
 
@@ -274,6 +272,12 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetStart, packet
 		sessionStatus = newServerSession
 	}
 
+	// Check spid.
+	if sfilter != nil && !sfilter.IsOk(spid) {
+		err = &ShadowPacketReplayError{ssid, spid}
+		return
+	}
+
 	// AEAD open.
 	plaintext, err := saead.Open(ciphertext[:0], nonce, ciphertext, nil)
 	if err != nil {
@@ -287,15 +291,11 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetStart, packet
 	}
 	payloadStart += messageHeaderStart
 
-	// Check spid.
+	// Add spid to filter.
 	if sessionStatus == newServerSession {
-		sfilter = &wgreplay.Filter{}
+		sfilter = &Filter{}
 	}
-
-	if !sfilter.ValidateCounter(spid, math.MaxUint64) {
-		err = &ShadowPacketReplayError{ssid, spid}
-		return
-	}
+	sfilter.MustAdd(spid)
 
 	// Update session status.
 	switch sessionStatus {
@@ -323,7 +323,7 @@ type ShadowPacketServerUnpacker struct {
 	aead cipher.AEAD
 
 	// Client session sliding window filter.
-	filter *wgreplay.Filter
+	filter *Filter
 
 	// The number of uPSKs.
 	uPSKCount int
@@ -360,13 +360,9 @@ func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, packetStart, packet
 	}
 	payloadStart += messageHeaderStart
 
-	// Check cpid.
+	// Add cpid to filter.
 	cpid := binary.BigEndian.Uint64(separateHeader[8:])
-	if !p.filter.ValidateCounter(cpid, math.MaxUint64) {
-		csid := binary.BigEndian.Uint64(separateHeader)
-		err = &ShadowPacketReplayError{csid, cpid}
-		return
-	}
+	p.filter.MustAdd(cpid)
 
 	return
 }
