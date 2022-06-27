@@ -50,7 +50,7 @@ func NewCipherConfig(method string, psk []byte, psks [][]byte) (*CipherConfig, e
 	return &CipherConfig{psk, psks}, nil
 }
 
-func NewRandomCipherConfig(method string, keySize int, eihCount int) (cipherConfig *CipherConfig, err error) {
+func NewRandomCipherConfig(method string, keySize, eihCount int) (cipherConfig *CipherConfig, err error) {
 	psk := make([]byte, keySize)
 	_, err = rand.Read(psk)
 	if err != nil {
