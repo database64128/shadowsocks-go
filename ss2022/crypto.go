@@ -198,14 +198,14 @@ func (c *CipherConfig) ClientPSKHashes() [][IdentityHeaderLength]byte {
 	return hashes
 }
 
-// ServerPSKHashMap returns a uPSKHash-uPSK map.
-func (c *CipherConfig) ServerPSKHashMap() map[[IdentityHeaderLength]byte][]byte {
-	uPSKMap := make(map[[IdentityHeaderLength]byte][]byte, len(c.PSKs))
+// ServerPSKHashMap returns a uPSKHash-*CipherConfig map.
+func (c *CipherConfig) ServerPSKHashMap() map[[IdentityHeaderLength]byte]*CipherConfig {
+	uPSKMap := make(map[[IdentityHeaderLength]byte]*CipherConfig, len(c.PSKs))
 
 	for _, psk := range c.PSKs {
 		hash := blake3.Sum512(psk)
 		truncatedHash := *(*[IdentityHeaderLength]byte)(hash[:])
-		uPSKMap[truncatedHash] = psk
+		uPSKMap[truncatedHash] = &CipherConfig{psk, nil}
 	}
 
 	return uPSKMap

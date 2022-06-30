@@ -27,7 +27,7 @@ type ShadowStreamServerReadWriter struct {
 }
 
 // NewShadowStreamServerReadWriter reads the request headers from rw to establish a session.
-func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, saltPool *SaltPool[string], uPSKMap map[[IdentityHeaderLength]byte][]byte) (sssrw *ShadowStreamServerReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
+func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, saltPool *SaltPool[string], uPSKMap map[[IdentityHeaderLength]byte]*CipherConfig) (sssrw *ShadowStreamServerReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
 	var identityHeaderLen int
 	if len(uPSKMap) > 0 {
 		identityHeaderLen = IdentityHeaderLength
@@ -56,13 +56,12 @@ func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 		identityHeaderCipher.Decrypt(identityHeader, identityHeader)
 
 		uPSKHash := *(*[IdentityHeaderLength]byte)(identityHeader)
-		uPSK, ok := uPSKMap[uPSKHash]
+		userCipherConfig, ok := uPSKMap[uPSKHash]
 		if !ok {
 			err = ErrIdentityHeaderUserPSKNotFound
 			return
 		}
-
-		cipherConfig = &CipherConfig{uPSK, nil}
+		cipherConfig = userCipherConfig
 	}
 
 	// Derive key and create cipher.

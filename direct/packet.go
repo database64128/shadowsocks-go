@@ -11,10 +11,12 @@ type DirectPacketPackUnpacker struct {
 	targetAddr socks5.Addr
 }
 
+// NewDirectClient creates a direct client that passes packets through without doing anything.
 func NewDirectClient() *DirectPacketPackUnpacker {
 	return &DirectPacketPackUnpacker{}
 }
 
+// NewDirectServer creates a direct server that forwards packets to the specified target address.
 func NewDirectServer(targetAddr socks5.Addr) *DirectPacketPackUnpacker {
 	return &DirectPacketPackUnpacker{
 		targetAddr: targetAddr,

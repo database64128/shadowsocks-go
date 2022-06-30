@@ -3,12 +3,15 @@ package ss2022
 import (
 	"crypto/cipher"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/magic"
 	"github.com/database64128/shadowsocks-go/socks5"
 )
+
+var ErrPacketTooSmall = errors.New("packet too small")
 
 type ShadowPacketReplayError struct {
 	// Session ID.
@@ -100,7 +103,7 @@ func (p *ShadowPacketClientPacker) PackInPlace(b []byte, targetAddr socks5.Addr,
 	for i := range p.eihCiphers {
 		start := identityHeadersStart + i*IdentityHeaderLength
 		identityHeader := b[start : start+IdentityHeaderLength]
-		magic.XORWords(identityHeader, p.eihPSKHashes[0][:], separateHeader)
+		magic.XORWords(identityHeader, p.eihPSKHashes[i][:], separateHeader)
 		p.eihCiphers[i].Encrypt(identityHeader, identityHeader)
 	}
 
@@ -236,8 +239,8 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetStart, packet
 	)
 
 	// Check length.
-	if packetLen < UDPSeparateHeaderLength+p.currentServerSessionAEAD.Overhead() {
-		err = fmt.Errorf("packet too small: %d", packetLen)
+	if packetLen < UDPSeparateHeaderLength+16 {
+		err = fmt.Errorf("%w: %d", ErrPacketTooSmall, packetLen)
 		return
 	}
 
@@ -319,14 +322,20 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetStart, packet
 //
 // ShadowPacketServerUnpacker implements the zerocopy.Unpacker interface.
 type ShadowPacketServerUnpacker struct {
+	// Client session ID.
+	csid uint64
+
 	// Body AEAD cipher.
 	aead cipher.AEAD
 
 	// Client session sliding window filter.
+	//
+	// This filter instance should be created during the first successful unpack operation.
+	// We trade 2 extra nil checks during unpacking for better performance when the server is flooded by invalid packets.
 	filter *Filter
 
-	// The number of uPSKs.
-	uPSKCount int
+	// Whether incoming packets have an identity header.
+	hasEIH bool
 }
 
 // UnpackInPlace unpacks the AEAD encrypted part of a Shadowsocks client packet
@@ -334,18 +343,28 @@ type ShadowPacketServerUnpacker struct {
 //
 // UnpackInPlace implements the Unpacker UnpackInPlace method.
 func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, payloadStart, payloadLen int, err error) {
-	nonAEADHeaderLength := UDPSeparateHeaderLength + p.uPSKCount*IdentityHeaderLength
+	var identityHeaderLen int
+	if p.hasEIH {
+		identityHeaderLen = IdentityHeaderLength
+	}
 
 	// Check length.
-	if packetLen < nonAEADHeaderLength+p.aead.Overhead() {
-		err = fmt.Errorf("packet too small: %d", packetLen)
+	if packetLen < UDPSeparateHeaderLength+identityHeaderLen+p.aead.Overhead() {
+		err = fmt.Errorf("%w: %d", ErrPacketTooSmall, packetLen)
 		return
 	}
 
-	messageHeaderStart := packetStart + nonAEADHeaderLength
+	messageHeaderStart := packetStart + UDPSeparateHeaderLength + identityHeaderLen
 	separateHeader := b[packetStart : packetStart+UDPSeparateHeaderLength]
 	nonce := separateHeader[4:16]
 	ciphertext := b[messageHeaderStart : packetStart+packetLen]
+
+	// Check cpid.
+	cpid := binary.BigEndian.Uint64(separateHeader[8:])
+	if p.filter != nil && !p.filter.IsOk(cpid) {
+		err = &ShadowPacketReplayError{p.csid, cpid}
+		return
+	}
 
 	// AEAD open.
 	plaintext, err := p.aead.Open(ciphertext[:0], nonce, ciphertext, nil)
@@ -361,7 +380,9 @@ func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, packetStart, packet
 	payloadStart += messageHeaderStart
 
 	// Add cpid to filter.
-	cpid := binary.BigEndian.Uint64(separateHeader[8:])
+	if p.filter == nil {
+		p.filter = &Filter{}
+	}
 	p.filter.MustAdd(cpid)
 
 	return

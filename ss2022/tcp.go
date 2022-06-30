@@ -15,12 +15,12 @@ type TCPClient struct {
 	eihPSKHashes [][IdentityHeaderLength]byte
 }
 
-func NewTCPClient(address string, dialerTFO bool, dialerFwmark int, cipherConfig *CipherConfig) *TCPClient {
+func NewTCPClient(address string, dialerTFO bool, dialerFwmark int, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte) *TCPClient {
 	return &TCPClient{
 		address:      address,
 		dialer:       conn.NewDialer(dialerTFO, dialerFwmark),
 		cipherConfig: cipherConfig,
-		eihPSKHashes: cipherConfig.ClientPSKHashes(),
+		eihPSKHashes: eihPSKHashes,
 	}
 }
 
@@ -39,14 +39,14 @@ func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (rw zerocopy.Re
 type TCPServer struct {
 	cipherConfig *CipherConfig
 	saltPool     *SaltPool[string]
-	uPSKMap      map[[IdentityHeaderLength]byte][]byte
+	uPSKMap      map[[IdentityHeaderLength]byte]*CipherConfig
 }
 
-func NewTCPServer(cipherConfig *CipherConfig) *TCPServer {
+func NewTCPServer(cipherConfig *CipherConfig, uPSKMap map[[IdentityHeaderLength]byte]*CipherConfig) *TCPServer {
 	return &TCPServer{
 		cipherConfig: cipherConfig,
 		saltPool:     NewSaltPool[string](ReplayWindowDuration),
-		uPSKMap:      cipherConfig.ServerPSKHashMap(),
+		uPSKMap:      uPSKMap,
 	}
 }
 
