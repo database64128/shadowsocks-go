@@ -55,6 +55,7 @@ func (s *TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr so
 	return NewShadowStreamServerReadWriter(conn, s.cipherConfig, s.saltPool, s.uPSKMap)
 }
 
+// NativeInitialPayload implements the zerocopy.TCPServer NativeInitialPayload method.
 func (s *TCPServer) NativeInitialPayload() bool {
 	return true
 }

@@ -6,13 +6,13 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/database64128/shadowsocks-go/pipe"
 	"github.com/database64128/shadowsocks-go/socks5"
-	"github.com/database64128/shadowsocks-go/test"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
 func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientInitialPayload []byte) {
-	pl, pr := test.NewDuplexPipe()
+	pl, pr := pipe.NewDuplexPipe()
 
 	saltPool := NewSaltPool[string](ReplayWindowDuration)
 

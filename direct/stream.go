@@ -3,6 +3,7 @@ package direct
 import (
 	"io"
 
+	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
@@ -63,4 +64,53 @@ func (rw *DirectStreamReadWriter) CloseRead() error {
 // Close implements the ReadWriter Close method.
 func (rw *DirectStreamReadWriter) Close() error {
 	return rw.rw.Close()
+}
+
+// NewDirectStreamReadWriter returns a ReadWriter that passes all reads and writes directly to the underlying stream.
+func NewDirectStreamReadWriter(rw zerocopy.DirectReadWriteCloser) *DirectStreamReadWriter {
+	return &DirectStreamReadWriter{
+		rw: rw,
+	}
+}
+
+// NewShadowsocksNoneStreamClientReadWriter creates a ReadWriter that acts as a Shadowsocks none method client.
+func NewShadowsocksNoneStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr socks5.Addr) (*DirectStreamReadWriter, error) {
+	if _, err := rw.Write(targetAddr); err != nil {
+		return nil, err
+	}
+	return &DirectStreamReadWriter{
+		rw: rw,
+	}, nil
+}
+
+// NewShadowsocksNoneStreamServerReadWriter creates a ReadWriter that acts as a Shadowsocks none method server.
+func NewShadowsocksNoneStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser) (*DirectStreamReadWriter, socks5.Addr, error) {
+	addr, err := socks5.AddrFromReader(rw)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &DirectStreamReadWriter{
+		rw: rw,
+	}, addr, nil
+}
+
+// NewSocks5StreamClientReadWriter writes a SOCKS5 CONNECT request to rw and wraps rw into a ReadWriter ready for use.
+func NewSocks5StreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr socks5.Addr) (*DirectStreamReadWriter, error) {
+	if err := socks5.ClientConnect(rw, targetAddr); err != nil {
+		return nil, err
+	}
+	return &DirectStreamReadWriter{
+		rw: rw,
+	}, nil
+}
+
+// NewSocks5StreamServerReadWriter handles a SOCKS5 request from rw and wraps rw into a ReadWriter ready for use.
+func NewSocks5StreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, enableTCP, enableUDP bool, bndAddr socks5.Addr) (dsrw *DirectStreamReadWriter, addr socks5.Addr, err error) {
+	addr, err = socks5.ServerAccept(rw, enableTCP, enableUDP, bndAddr)
+	if addr != nil { // Only CONNECT returns a non-nil addr.
+		dsrw = &DirectStreamReadWriter{
+			rw: rw,
+		}
+	}
+	return
 }
