@@ -27,3 +27,20 @@ type UDPServer interface {
 	// and returns the server session's packer, or an error.
 	NewPacker(csid uint64) (Packer, error)
 }
+
+// SimpleUDPClient wraps a PackUnpacker and uses it for all sessions.
+//
+// SimpleUDPClient implements the zerocopy UDPClient interface.
+type SimpleUDPClient struct {
+	p PackUnpacker
+}
+
+// NewSimpleUDPClient wraps a PackUnpacker into a UDPClient and uses it for all sessions.
+func NewSimpleUDPClient(p PackUnpacker) *SimpleUDPClient {
+	return &SimpleUDPClient{p}
+}
+
+// NewSession implements the zerocopy.UDPClient NewSession method.
+func (c *SimpleUDPClient) NewSession() (Packer, Unpacker, error) {
+	return c.p, c.p, nil
+}

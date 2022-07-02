@@ -89,7 +89,7 @@ func NewUDPServer(cipherConfig *CipherConfig, shouldPad func(socks5.Addr) bool, 
 // SessionInfo implements the zerocopy.UDPServer SessionInfo method.
 func (s *UDPServer) SessionInfo(b []byte) (csid uint64, err error) {
 	if len(b) < UDPSeparateHeaderLength {
-		err = fmt.Errorf("%w: %d", ErrPacketTooSmall, len(b))
+		err = fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, len(b))
 		return
 	}
 
@@ -108,7 +108,7 @@ func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.Unpacker, error
 	}
 
 	if len(b) < UDPSeparateHeaderLength+identityHeaderLen {
-		return nil, fmt.Errorf("%w: %d", ErrPacketTooSmall, len(b))
+		return nil, fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, len(b))
 	}
 
 	// Process identity header.

@@ -3,11 +3,14 @@ package zerocopy
 import (
 	"bytes"
 	"crypto/rand"
+	"errors"
 	"net/netip"
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/socks5"
 )
+
+var ErrPacketTooSmall = errors.New("packet too small")
 
 // Packer processes raw payload into packets.
 type Packer interface {
@@ -76,4 +79,10 @@ func PackerUnpackerTestFunc(t *testing.T, packer Packer, unpacker Unpacker) {
 	if !bytes.Equal(payloadBackup, p) {
 		t.Errorf("Payload mismatch: c: %v, s: %v", payloadBackup, p)
 	}
+}
+
+// PackUnpacker implements both Packer and Unpacker interfaces.
+type PackUnpacker interface {
+	Packer
+	Unpacker
 }

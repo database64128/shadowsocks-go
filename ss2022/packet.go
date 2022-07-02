@@ -3,15 +3,13 @@ package ss2022
 import (
 	"crypto/cipher"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/magic"
 	"github.com/database64128/shadowsocks-go/socks5"
+	"github.com/database64128/shadowsocks-go/zerocopy"
 )
-
-var ErrPacketTooSmall = errors.New("packet too small")
 
 type ShadowPacketReplayError struct {
 	// Session ID.
@@ -240,7 +238,7 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetStart, packet
 
 	// Check length.
 	if packetLen < UDPSeparateHeaderLength+16 {
-		err = fmt.Errorf("%w: %d", ErrPacketTooSmall, packetLen)
+		err = fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, packetLen)
 		return
 	}
 
@@ -350,7 +348,7 @@ func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, packetStart, packet
 
 	// Check length.
 	if packetLen < UDPSeparateHeaderLength+identityHeaderLen+p.aead.Overhead() {
-		err = fmt.Errorf("%w: %d", ErrPacketTooSmall, packetLen)
+		err = fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, packetLen)
 		return
 	}
 
