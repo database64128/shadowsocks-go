@@ -15,9 +15,8 @@ type ServerConfig struct {
 	ListenerTFO bool `json:"listenerTFO"`
 
 	// UDP
-	EnableUDP       bool `json:"enableUDP"`
-	DisableSendmmsg bool `json:"disableSendmmsg"`
-	MTU             int  `json:"mtu"`
+	EnableUDP bool `json:"enableUDP"`
+	MTU       int  `json:"mtu"`
 
 	// Shadowsocks
 	PSK   []byte   `json:"psk"`

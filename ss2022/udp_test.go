@@ -10,10 +10,30 @@ import (
 )
 
 func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientShouldPad, serverShouldPad func(socks5.Addr) bool) {
-	const packetSize = 1452
+	const (
+		mtu        = 1500
+		packetSize = 1452
+		fwmark     = 10240
+	)
 
-	c := NewUDPClient(clientCipherConfig, clientShouldPad, clientCipherConfig.ClientPSKHashes())
+	addrPort := netip.AddrPortFrom(netip.IPv6Unspecified(), 53)
+
+	c := NewUDPClient(addrPort, mtu, fwmark, clientCipherConfig, clientShouldPad, clientCipherConfig.ClientPSKHashes())
 	s := NewUDPServer(serverCipherConfig, serverShouldPad, serverCipherConfig.ServerPSKHashMap())
+
+	fixedAddrPort, fixedMTU, fixedFwmark, ok := c.AddrPort()
+	if !ok {
+		t.Error("AddrPort() returned !ok.")
+	}
+	if fixedFwmark != fwmark {
+		t.Errorf("Fixed fwmark mismatch: in: %d, out: %d", fwmark, fixedFwmark)
+	}
+	if fixedMTU != mtu {
+		t.Errorf("Fixed MTU mismatch: in: %d, out: %d", mtu, fixedFwmark)
+	}
+	if fixedAddrPort != addrPort {
+		t.Errorf("Fixed address mismatch: in: %s, out: %s", addrPort, fixedAddrPort)
+	}
 
 	clientPacker, clientUnpacker, err := c.NewSession()
 	if err != nil {
@@ -30,7 +50,7 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 	payloadStart := frontHeadroom
 	payloadLen := packetSize - frontHeadroom - rearHeadroom
 	payload := b[payloadStart : payloadStart+payloadLen]
-	targetAddr := socks5.AddrFromAddrPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+	targetAddr := socks5.AddrFromAddrPort(addrPort)
 
 	// Fill random payload.
 	_, err = rand.Read(payload)

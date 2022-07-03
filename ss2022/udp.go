@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"net/netip"
 
 	"github.com/database64128/shadowsocks-go/magic"
 	"github.com/database64128/shadowsocks-go/socks5"
@@ -13,6 +14,9 @@ import (
 
 // UDPClient implements the zerocopy UDPClient interface.
 type UDPClient struct {
+	addrPort     netip.AddrPort
+	mtu          int
+	fwmark       int
 	block        cipher.Block
 	cipherConfig *CipherConfig
 	shouldPad    func(socks5.Addr) bool
@@ -20,7 +24,7 @@ type UDPClient struct {
 	eihPSKHashes [][IdentityHeaderLength]byte
 }
 
-func NewUDPClient(cipherConfig *CipherConfig, shouldPad func(socks5.Addr) bool, eihPSKHashes [][IdentityHeaderLength]byte) *UDPClient {
+func NewUDPClient(addrPort netip.AddrPort, mtu, fwmark int, cipherConfig *CipherConfig, shouldPad func(socks5.Addr) bool, eihPSKHashes [][IdentityHeaderLength]byte) *UDPClient {
 	eihCiphers := cipherConfig.NewUDPIdentityHeaderClientCiphers()
 
 	var block cipher.Block
@@ -31,6 +35,9 @@ func NewUDPClient(cipherConfig *CipherConfig, shouldPad func(socks5.Addr) bool, 
 	}
 
 	return &UDPClient{
+		addrPort:     addrPort,
+		mtu:          mtu,
+		fwmark:       fwmark,
 		block:        block,
 		cipherConfig: cipherConfig,
 		shouldPad:    shouldPad,
@@ -61,6 +68,11 @@ func (c *UDPClient) NewSession() (zerocopy.Packer, zerocopy.Unpacker, error) {
 			block:        c.block,
 			cipherConfig: c.cipherConfig,
 		}, nil
+}
+
+// AddrPort implements the UDPClient AddrPort method.
+func (c *UDPClient) AddrPort() (netip.AddrPort, int, int, bool) {
+	return c.addrPort, c.mtu, c.fwmark, true
 }
 
 // UDPServer implements the zerocopy UDPServer interface.

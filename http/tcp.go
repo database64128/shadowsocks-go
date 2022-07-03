@@ -22,13 +22,19 @@ func NewProxyClient(address string, dialerTFO bool, dialerFwmark int) *ProxyClie
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *ProxyClient) Dial(targetAddr socks5.Addr, payload []byte) (zerocopy.ReadWriter, error) {
-	conn, err := c.dialer.Dial("tcp", c.address)
+func (c *ProxyClient) Dial(targetAddr socks5.Addr, payload []byte) (zerocopy.Conn, error) {
+	netConn, err := c.dialer.Dial("tcp", c.address)
+	if err != nil {
+		return nil, err
+	}
+	tfoConn := netConn.(tfo.Conn)
+
+	rw, err := NewHttpStreamClientReadWriter(tfoConn, targetAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewHttpStreamClientReadWriter(conn.(tfo.Conn), targetAddr)
+	return zerocopy.NewTFOConn(rw, tfoConn), nil
 }
 
 // ProxyServer implements the zerocopy TCPServer interface.

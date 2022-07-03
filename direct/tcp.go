@@ -19,15 +19,13 @@ func NewTCPClient(dialerTFO bool, dialerFwmark int) *TCPClient {
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (zerocopy.ReadWriter, error) {
+func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (zerocopy.Conn, error) {
 	_, conn, err := conn.DialTFOWithPayload(&c.dialer, targetAddr.String(), payload)
 	if err != nil {
 		return nil, err
 	}
 
-	return &DirectStreamReadWriter{
-		rw: conn,
-	}, nil
+	return zerocopy.NewTFOConn(&DirectStreamReadWriter{rw: conn}, conn), nil
 }
 
 // TCPServer is the client-side tunnel server.
@@ -74,13 +72,19 @@ func NewShadowsocksNoneTCPClient(address string, dialerTFO bool, dialerFwmark in
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *ShadowsocksNoneTCPClient) Dial(targetAddr socks5.Addr, payload []byte) (zerocopy.ReadWriter, error) {
-	conn, err := c.dialer.Dial("tcp", c.address)
+func (c *ShadowsocksNoneTCPClient) Dial(targetAddr socks5.Addr, payload []byte) (zerocopy.Conn, error) {
+	netConn, err := c.dialer.Dial("tcp", c.address)
+	if err != nil {
+		return nil, err
+	}
+	tfoConn := netConn.(tfo.Conn)
+
+	rw, err := NewShadowsocksNoneStreamClientReadWriter(tfoConn, targetAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewShadowsocksNoneStreamClientReadWriter(conn.(tfo.Conn), targetAddr)
+	return zerocopy.NewTFOConn(rw, tfoConn), nil
 }
 
 // ShadowsocksNoneTCPServer implements the zerocopy TCPServer interface.
@@ -115,13 +119,19 @@ func NewSocks5TCPClient(address string, dialerTFO bool, dialerFwmark int) *Socks
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *Socks5TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (zerocopy.ReadWriter, error) {
-	conn, err := c.dialer.Dial("tcp", c.address)
+func (c *Socks5TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (zerocopy.Conn, error) {
+	netConn, err := c.dialer.Dial("tcp", c.address)
+	if err != nil {
+		return nil, err
+	}
+	tfoConn := netConn.(tfo.Conn)
+
+	rw, err := NewSocks5StreamClientReadWriter(tfoConn, targetAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewSocks5StreamClientReadWriter(conn.(tfo.Conn), targetAddr)
+	return zerocopy.NewTFOConn(rw, tfoConn), nil
 }
 
 // Socks5TCPServer implements the zerocopy TCPServer interface.

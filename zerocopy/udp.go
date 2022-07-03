@@ -1,10 +1,16 @@
 package zerocopy
 
+import "net/netip"
+
 // UDPClient stores the necessary information for creating new sessions.
 type UDPClient interface {
 	// NewSession creates a new session and returns the packet packer
 	// and unpacker for the session, or an error.
 	NewSession() (Packer, Unpacker, error)
+
+	// AddrPort returns the fixed target address and port of packed outgoing packets,
+	// or false if individual packet's target address should be used.
+	AddrPort() (addrPort netip.AddrPort, mtu, fwmark int, ok bool)
 }
 
 // UDPServer deals with incoming sessions.
@@ -30,17 +36,26 @@ type UDPServer interface {
 
 // SimpleUDPClient wraps a PackUnpacker and uses it for all sessions.
 //
-// SimpleUDPClient implements the zerocopy UDPClient interface.
+// SimpleUDPClient implements the UDPClient interface.
 type SimpleUDPClient struct {
-	p PackUnpacker
+	p           PackUnpacker
+	addrPort    netip.AddrPort
+	mtu         int
+	fwmark      int
+	hasAddrPort bool
 }
 
 // NewSimpleUDPClient wraps a PackUnpacker into a UDPClient and uses it for all sessions.
-func NewSimpleUDPClient(p PackUnpacker) *SimpleUDPClient {
-	return &SimpleUDPClient{p}
+func NewSimpleUDPClient(p PackUnpacker, addrPort netip.AddrPort, mtu, fwmark int, hasAddrPort bool) *SimpleUDPClient {
+	return &SimpleUDPClient{p, addrPort, mtu, fwmark, hasAddrPort}
 }
 
-// NewSession implements the zerocopy.UDPClient NewSession method.
+// NewSession implements the UDPClient NewSession method.
 func (c *SimpleUDPClient) NewSession() (Packer, Unpacker, error) {
 	return c.p, c.p, nil
+}
+
+// AddrPort implements the UDPClient AddrPort method.
+func (c *SimpleUDPClient) AddrPort() (netip.AddrPort, int, int, bool) {
+	return c.addrPort, c.mtu, c.fwmark, c.hasAddrPort
 }

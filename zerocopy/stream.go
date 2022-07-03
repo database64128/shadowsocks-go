@@ -414,3 +414,72 @@ func ReadWriterTestFunc(t *testing.T, l, r ReadWriter) {
 	<-ctrlCh
 	<-ctrlCh
 }
+
+// CopyReadWriter wraps a ReadWriter and provides the io.ReadWriter Read and Write methods
+// by copying from and to internal buffers and using the zerocopy methods on them.
+type CopyReadWriter struct {
+	ReadWriter
+
+	frontHeadroom int
+	rearHeadroom  int
+
+	readBuf       []byte
+	readBufStart  int
+	readBufLength int
+
+	writeBuf []byte
+}
+
+func NewCopyReadWriter(rw ReadWriter) *CopyReadWriter {
+	readBufSize := rw.MinimumPayloadBufferSize()
+	if readBufSize == 0 {
+		readBufSize = 32768
+	}
+
+	writeBufSize := rw.MaximumPayloadBufferSize()
+	if writeBufSize == 0 {
+		writeBufSize = 32768
+	}
+
+	return &CopyReadWriter{
+		ReadWriter:    rw,
+		frontHeadroom: rw.FrontHeadroom(),
+		rearHeadroom:  rw.RearHeadroom(),
+		readBuf:       make([]byte, readBufSize),
+		writeBuf:      make([]byte, writeBufSize),
+	}
+}
+
+// Read implements the io.Reader Read method.
+func (rw *CopyReadWriter) Read(b []byte) (n int, err error) {
+	if rw.readBufLength == 0 {
+		rw.readBufStart = rw.frontHeadroom
+		rw.readBufLength = len(rw.readBuf) - rw.frontHeadroom - rw.rearHeadroom
+		rw.readBufLength, err = rw.ReadWriter.ReadZeroCopy(rw.readBuf, rw.readBufStart, rw.readBufLength)
+		if err != nil {
+			return
+		}
+	}
+
+	n = copy(b, rw.readBuf[rw.readBufStart:rw.readBufStart+rw.readBufLength])
+	rw.readBufStart += n
+	rw.readBufLength -= n
+	return n, nil
+}
+
+// Write implements the io.Writer Write method.
+func (rw *CopyReadWriter) Write(b []byte) (n int, err error) {
+	payloadBuf := rw.writeBuf[rw.frontHeadroom : len(rw.writeBuf)-rw.rearHeadroom]
+
+	for n < len(b) {
+		payloadLength := copy(payloadBuf, b[n:])
+		var payloadWritten int
+		payloadWritten, err = rw.ReadWriter.WriteZeroCopy(rw.writeBuf, rw.frontHeadroom, payloadLength)
+		n += payloadWritten
+		if err != nil {
+			return
+		}
+	}
+
+	return
+}

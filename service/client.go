@@ -17,9 +17,8 @@ type ClientConfig struct {
 	DialerTFO bool `json:"dialerTFO"`
 
 	// UDP
-	EnableUDP       bool `json:"enableUDP"`
-	DisableSendmmsg bool `json:"disableSendmmsg"`
-	MTU             int  `json:"mtu"`
+	EnableUDP bool `json:"enableUDP"`
+	MTU       int  `json:"mtu"`
 
 	// Simple tunnel
 	TunnelRemoteAddress string `json:"tunnelRemoteAddress"`
