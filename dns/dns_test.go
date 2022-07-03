@@ -18,6 +18,12 @@ func testResolver(t *testing.T, serverAddrPort netip.AddrPort, tcpClient zerocop
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(uncachedResult.IPv4) == 0 {
+		t.Error("Expected at least one IPv4 address")
+	}
+	if len(uncachedResult.IPv6) == 0 {
+		t.Error("Expected at least one IPv6 address")
+	}
 
 	// Cached lookup.
 	cachedResult, err := r.Lookup("example.com")
