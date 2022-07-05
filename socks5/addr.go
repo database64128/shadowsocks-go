@@ -32,6 +32,58 @@ const (
 // that returns an Addr.
 type Addr []byte
 
+// IsDomain returns whether the address is a domain name.
+func (a Addr) IsDomain() bool {
+	return a[0] == AtypDomainName
+}
+
+// IsIPv4 returns whether the address is an IPv4 address.
+func (a Addr) IsIPv4() bool {
+	return a[0] == AtypIPv4
+}
+
+// IsIPv6 returns whether the address is an IPv6 address.
+func (a Addr) IsIPv6() bool {
+	return a[0] == AtypIPv6
+}
+
+// Host returns the host name of the SOCKS address.
+func (a Addr) Host() string {
+	switch a[0] {
+	case AtypDomainName:
+		domainLen := int(a[1])
+		return string(a[2 : 2+domainLen])
+	case AtypIPv4:
+		ip4 := (*[4]byte)(a[1:])
+		return netip.AddrFrom4(*ip4).String()
+	case AtypIPv6:
+		ip6 := (*[16]byte)(a[1:])
+		return netip.AddrFrom16(*ip6).String()
+	default:
+		panic(fmt.Errorf("unknown atyp %v", a[0]))
+	}
+}
+
+// Addr converts the SOCKS address to a netip.Addr.
+// An error is returned only when the SOCKS address is a domain name
+// and name resolution fails.
+func (a Addr) Addr(preferIPv6 bool) (netip.Addr, error) {
+	switch a[0] {
+	case AtypDomainName:
+		domainLen := int(a[1])
+		domain := string(a[2 : 2+domainLen])
+		return conn.ResolveAddr(domain, preferIPv6)
+	case AtypIPv4:
+		ip4 := (*[4]byte)(a[1:])
+		return netip.AddrFrom4(*ip4), nil
+	case AtypIPv6:
+		ip6 := (*[16]byte)(a[1:])
+		return netip.AddrFrom16(*ip6), nil
+	default:
+		panic(fmt.Errorf("unknown atyp %v", a[0]))
+	}
+}
+
 // Port returns the port number of the SOCKS address.
 func (a Addr) Port() uint16 {
 	switch a[0] {

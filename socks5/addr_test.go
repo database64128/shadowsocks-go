@@ -10,21 +10,24 @@ import (
 // Test IPv4 address.
 var (
 	addr4         = []byte{AtypIPv4, 127, 0, 0, 1, 4, 56}
-	addr4addrport = netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 1080)
+	addr4addr     = netip.AddrFrom4([4]byte{127, 0, 0, 1})
+	addr4addrport = netip.AddrPortFrom(addr4addr, 1080)
 	addr4str      = "127.0.0.1:1080"
 )
 
 // Test IPv4-mapped IPv6 address.
 var (
 	addr4in6         = addr4
-	addr4in6addrport = netip.AddrPortFrom(netip.AddrFrom16([16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1}), 1080)
+	addr4in6addr     = netip.AddrFrom16([16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1})
+	addr4in6addrport = netip.AddrPortFrom(addr4in6addr, 1080)
 	addr4in6str      = "[::ffff:127.0.0.1]:1080"
 )
 
 // Test IPv6 address.
 var (
 	addr6         = []byte{AtypIPv6, 0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e, 4, 56}
-	addr6addrport = netip.AddrPortFrom(netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e}), 1080)
+	addr6addr     = netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e})
+	addr6addrport = netip.AddrPortFrom(addr6addr, 1080)
 	addr6str      = "[2001:db8:fad6:572:acbe:7143:14e5:7a6e]:1080"
 )
 
@@ -34,40 +37,146 @@ var (
 	addrDomainNameString = "example.com:443"
 )
 
+func TestAddrIsDomainIP(t *testing.T) {
+	if Addr(addr4).IsDomain() {
+		t.Error("addr4.IsDomain() returned true.")
+	}
+	if !Addr(addr4).IsIPv4() {
+		t.Error("addr4.IsIPv4() returned false.")
+	}
+	if Addr(addr4).IsIPv6() {
+		t.Error("addr4.IsIPv6() returned true.")
+	}
+
+	if Addr(addr4in6).IsDomain() {
+		t.Error("addr4in6.IsDomain() returned true.")
+	}
+	if !Addr(addr4in6).IsIPv4() {
+		t.Error("addr4in6.IsIPv4() returned false.")
+	}
+	if Addr(addr4in6).IsIPv6() {
+		t.Error("addr4in6.IsIPv6() returned true.")
+	}
+
+	if Addr(addr6).IsDomain() {
+		t.Error("addr6.IsDomain() returned true.")
+	}
+	if Addr(addr6).IsIPv4() {
+		t.Error("addr6.IsIPv4() returned true.")
+	}
+	if !Addr(addr6).IsIPv6() {
+		t.Error("addr6.IsIPv6() returned false.")
+	}
+
+	if !Addr(addrDomainName).IsDomain() {
+		t.Error("addrDomainName.IsDomain() returned false.")
+	}
+	if Addr(addrDomainName).IsIPv4() {
+		t.Error("addrDomainName.IsIPv4() returned true.")
+	}
+	if Addr(addrDomainName).IsIPv6() {
+		t.Error("addrDomainName.IsIPv6() returned true.")
+	}
+}
+
+func TestAddrToHost(t *testing.T) {
+	host := Addr(addr4).Host()
+	if host != "127.0.0.1" {
+		t.Errorf("Expected: 127.0.0.1\nGot: %s", host)
+	}
+
+	host = Addr(addr4in6).Host()
+	if host != "127.0.0.1" {
+		t.Errorf("Expected: 127.0.0.1\nGot: %s", host)
+	}
+
+	host = Addr(addr6).Host()
+	if host != "2001:db8:fad6:572:acbe:7143:14e5:7a6e" {
+		t.Errorf("Expected: 2001:db8:fad6:572:acbe:7143:14e5:7a6e\nGot: %s", host)
+	}
+
+	host = Addr(addrDomainName).Host()
+	if host != "example.com" {
+		t.Errorf("Expected: example.com\nGot: %s", host)
+	}
+}
+
+func TestAddrToAddr(t *testing.T) {
+	addr, err := Addr(addr4).Addr(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if addr != addr4addr {
+		t.Errorf("Expected: %v\nGot: %v", addr4addr, addr)
+	}
+
+	addr, err = Addr(addr4in6).Addr(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if addr != addr4addr {
+		t.Errorf("Expected: %v\nGot: %v", addr4addr, addr)
+	}
+
+	addr, err = Addr(addr6).Addr(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if addr != addr6addr {
+		t.Errorf("Expected: %v\nGot: %v", addr6addr, addr)
+	}
+
+	addr, err = Addr(addrDomainName).Addr(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !addr.Is4() && !addr.Is4In6() {
+		t.Errorf("preferIPv6: false returned IPv6: %s", addr)
+	}
+
+	addr, err = Addr(addrDomainName).Addr(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if addr.Is4() || addr.Is4In6() {
+		t.Errorf("preferIPv6: true returned IPv4: %s", addr)
+	}
+}
+
 func TestAddrToPort(t *testing.T) {
 	port := Addr(addr4).Port()
 	eport := addr4addrport.Port()
 	if port != eport {
-		t.Fatalf("Expected: %d\nGot: %d", eport, port)
+		t.Errorf("Expected: %d\nGot: %d", eport, port)
 	}
 
 	port = Addr(addr6).Port()
 	eport = addr6addrport.Port()
 	if port != eport {
-		t.Fatalf("Expected: %d\nGot: %d", eport, port)
+		t.Errorf("Expected: %d\nGot: %d", eport, port)
 	}
 
 	port = Addr(addrDomainName).Port()
 	eport = 443
 	if port != eport {
-		t.Fatalf("Expected: %d\nGot: %d", eport, port)
+		t.Errorf("Expected: %d\nGot: %d", eport, port)
 	}
 }
 
 func TestAddrFromAndToAddrPort(t *testing.T) {
 	addr := AddrFromAddrPort(addr4addrport)
 	if !bytes.Equal(addr, addr4) {
-		t.Fatalf("Expected: %v\nGot: %v", addr4, []byte(addr))
+		t.Errorf("Expected: %v\nGot: %v", addr4, []byte(addr))
 	}
 
 	addr = AddrFromAddrPort(addr4in6addrport)
 	if !bytes.Equal(addr, addr4) {
-		t.Fatalf("Expected: %v\nGot: %v", addr4, []byte(addr))
+		t.Errorf("Expected: %v\nGot: %v", addr4, []byte(addr))
 	}
 
 	addr = AddrFromAddrPort(addr6addrport)
 	if !bytes.Equal(addr, addr6) {
-		t.Fatalf("Expected: %v\nGot: %v", addr6, []byte(addr))
+		t.Errorf("Expected: %v\nGot: %v", addr6, []byte(addr))
 	}
 
 	addrPort, err := Addr(addr4).AddrPort(true)
@@ -75,7 +184,7 @@ func TestAddrFromAndToAddrPort(t *testing.T) {
 		t.Fatal(err)
 	}
 	if addrPort != addr4addrport {
-		t.Fatalf("Expected: %s\nGot: %s", addr4addrport, addrPort)
+		t.Errorf("Expected: %s\nGot: %s", addr4addrport, addrPort)
 	}
 
 	addrPort, err = Addr(addr6).AddrPort(true)
@@ -83,7 +192,7 @@ func TestAddrFromAndToAddrPort(t *testing.T) {
 		t.Fatal(err)
 	}
 	if addrPort != addr6addrport {
-		t.Fatalf("Expected: %s\nGot: %s", addr6addrport, addrPort)
+		t.Errorf("Expected: %s\nGot: %s", addr6addrport, addrPort)
 	}
 }
 
@@ -95,12 +204,12 @@ func TestAddrDomainNameToAddrPort(t *testing.T) {
 
 	addr := addrPort.Addr()
 	if !addr.Is4() && !addr.Is4In6() {
-		t.Fatalf("preferIPv6: false returned IPv6: %s", addr)
+		t.Errorf("preferIPv6: false returned IPv6: %s", addr)
 	}
 
 	port := addrPort.Port()
 	if port != 443 {
-		t.Fatalf("Expected port number: %d\nGot: %d", 443, port)
+		t.Errorf("Expected port number: %d\nGot: %d", 443, port)
 	}
 
 	addrPort, err = Addr(addrDomainName).AddrPort(true)
@@ -110,12 +219,12 @@ func TestAddrDomainNameToAddrPort(t *testing.T) {
 
 	addr = addrPort.Addr()
 	if addr.Is4() || addr.Is4In6() {
-		t.Fatalf("preferIPv6: true returned IPv4: %s", addr)
+		t.Errorf("preferIPv6: true returned IPv4: %s", addr)
 	}
 
 	port = addrPort.Port()
 	if port != 443 {
-		t.Fatalf("Expected port number: %d\nGot: %d", 443, port)
+		t.Errorf("Expected port number: %d\nGot: %d", 443, port)
 	}
 }
 
@@ -125,7 +234,7 @@ func TestAddrParseAndToString(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(addr, addr4) {
-		t.Fatalf("Expected: %v\nGot: %v", addr4, []byte(addr))
+		t.Errorf("Expected: %v\nGot: %v", addr4, []byte(addr))
 	}
 
 	addr, err = ParseAddr(addr4in6str)
@@ -133,7 +242,7 @@ func TestAddrParseAndToString(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(addr, addr4) {
-		t.Fatalf("Expected: %v\nGot: %v", addr4, []byte(addr))
+		t.Errorf("Expected: %v\nGot: %v", addr4, []byte(addr))
 	}
 
 	addr, err = ParseAddr(addr6str)
@@ -141,7 +250,7 @@ func TestAddrParseAndToString(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(addr, addr6) {
-		t.Fatalf("Expected: %v\nGot: %v", addr6, []byte(addr))
+		t.Errorf("Expected: %v\nGot: %v", addr6, []byte(addr))
 	}
 
 	_, err = ParseAddr("abc123")
@@ -151,22 +260,22 @@ func TestAddrParseAndToString(t *testing.T) {
 
 	address := Addr(addr4).String()
 	if address != addr4str {
-		t.Fatalf("Expected: %s\nGot: %s", addr4str, address)
+		t.Errorf("Expected: %s\nGot: %s", addr4str, address)
 	}
 
 	address = Addr(addr4in6).String()
 	if address != addr4str {
-		t.Fatalf("Expected: %s\nGot: %s", addr4str, address)
+		t.Errorf("Expected: %s\nGot: %s", addr4str, address)
 	}
 
 	address = Addr(addr6).String()
 	if address != addr6str {
-		t.Fatalf("Expected: %s\nGot: %s", addr6str, address)
+		t.Errorf("Expected: %s\nGot: %s", addr6str, address)
 	}
 
 	address = Addr(addrDomainName).String()
 	if address != addrDomainNameString {
-		t.Fatalf("Expected: %s\nGot: %s", addrDomainNameString, address)
+		t.Errorf("Expected: %s\nGot: %s", addrDomainNameString, address)
 	}
 }
 
@@ -183,7 +292,7 @@ func testAddrSplitAndFromReader(t *testing.T, addr []byte) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(addr, raddr) {
-		t.Fatalf("Expected: %v\nGot: %v", addr, raddr)
+		t.Errorf("Expected: %v\nGot: %v", addr, raddr)
 	}
 
 	r := bytes.NewReader(b)
@@ -192,7 +301,7 @@ func testAddrSplitAndFromReader(t *testing.T, addr []byte) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(addr, raddr) {
-		t.Fatalf("Expected: %v\nGot: %v", addr, raddr)
+		t.Errorf("Expected: %v\nGot: %v", addr, raddr)
 	}
 }
 
