@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/router"
 	"go.uber.org/zap"
 )
@@ -27,10 +28,11 @@ type Service interface {
 // Call the Start method to start all configured services.
 // Call the Stop method to properly close all running services.
 type ServiceConfig struct {
-	Servers      []ServerConfig       `json:"servers"`
-	Clients      []ClientConfig       `json:"clients"`
-	Routes       []router.RouteConfig `json:"routes"`
-	UDPBatchMode string               `json:"udpBatchMode"`
+	Servers      []ServerConfig        `json:"servers"`
+	Clients      []ClientConfig        `json:"clients"`
+	DNS          []dns.ResolverConfig  `json:"dns"`
+	Router       []router.RouterConfig `json:"router"`
+	UDPBatchMode string                `json:"udpBatchMode"`
 
 	services []Service
 	//router   Router
