@@ -387,6 +387,13 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 
 			// Set minimum TTL.
 			if answerHeader.TTL < minTTL {
+				r.logger.Debug("Updating minimum TTL",
+					zap.String("name", nameString),
+					zap.Stringer("serverAddrPort", r.serverAddrPort),
+					zap.Stringer("targetAddrPort", targetAddrPort),
+					zap.Uint32("oldMinTTL", minTTL),
+					zap.Uint32("newMinTTL", answerHeader.TTL),
+				)
 				minTTL = answerHeader.TTL
 			}
 
@@ -403,7 +410,16 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 					)
 					return
 				}
-				result.IPv4 = append(result.IPv4, netip.AddrFrom4(arr.A))
+
+				addr4 := netip.AddrFrom4(arr.A)
+				r.logger.Debug("Processing A RR",
+					zap.String("name", nameString),
+					zap.Stringer("serverAddrPort", r.serverAddrPort),
+					zap.Stringer("targetAddrPort", targetAddrPort),
+					zap.Stringer("addr", addr4),
+				)
+
+				result.IPv4 = append(result.IPv4, addr4)
 
 			case dnsmessage.TypeAAAA:
 				aaaarr, err := parser.AAAAResource()
@@ -416,7 +432,16 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 					)
 					return
 				}
-				result.IPv6 = append(result.IPv6, netip.AddrFrom16(aaaarr.AAAA))
+
+				addr6 := netip.AddrFrom16(aaaarr.AAAA)
+				r.logger.Debug("Processing AAAA RR",
+					zap.String("name", nameString),
+					zap.Stringer("serverAddrPort", r.serverAddrPort),
+					zap.Stringer("targetAddrPort", targetAddrPort),
+					zap.Stringer("addr", addr6),
+				)
+
+				result.IPv6 = append(result.IPv6, addr6)
 
 			default:
 				continue
@@ -596,6 +621,12 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 
 			// Set minimum TTL.
 			if answerHeader.TTL < minTTL {
+				r.logger.Debug("Updating minimum TTL",
+					zap.String("name", nameString),
+					zap.Stringer("serverAddrPort", r.serverAddrPort),
+					zap.Uint32("oldMinTTL", minTTL),
+					zap.Uint32("newMinTTL", answerHeader.TTL),
+				)
 				minTTL = answerHeader.TTL
 			}
 
@@ -611,7 +642,15 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 					)
 					return
 				}
-				result.IPv4 = append(result.IPv4, netip.AddrFrom4(arr.A))
+
+				addr4 := netip.AddrFrom4(arr.A)
+				r.logger.Debug("Processing A RR",
+					zap.String("name", nameString),
+					zap.Stringer("serverAddrPort", r.serverAddrPort),
+					zap.Stringer("addr", addr4),
+				)
+
+				result.IPv4 = append(result.IPv4, addr4)
 
 			case dnsmessage.TypeAAAA:
 				aaaarr, err := parser.AAAAResource()
@@ -623,7 +662,15 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 					)
 					return
 				}
-				result.IPv6 = append(result.IPv6, netip.AddrFrom16(aaaarr.AAAA))
+
+				addr6 := netip.AddrFrom16(aaaarr.AAAA)
+				r.logger.Debug("Processing AAAA RR",
+					zap.String("name", nameString),
+					zap.Stringer("serverAddrPort", r.serverAddrPort),
+					zap.Stringer("addr", addr6),
+				)
+
+				result.IPv6 = append(result.IPv6, addr6)
 
 			default:
 				continue
