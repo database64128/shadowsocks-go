@@ -25,6 +25,6 @@ type ServerConfig struct {
 
 // NewServerService creates a server service from the specified server config.
 // Call the Start method on the returned service to start it.
-func NewServerService(config ServerConfig, logger *zap.Logger) Service {
+func NewServerService(config ServerConfig, logger *zap.Logger) Relay {
 	return nil
 }

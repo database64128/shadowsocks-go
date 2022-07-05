@@ -52,7 +52,7 @@ type ShadowPacketClientPacker struct {
 	block cipher.Block
 
 	// Padding policy.
-	shouldPad func(socks5.Addr) bool
+	shouldPad PaddingPolicy
 
 	// EIH block ciphers.
 	// Must include a cipher for each iPSK.
@@ -135,7 +135,7 @@ type ShadowPacketServerPacker struct {
 	block cipher.Block
 
 	// Padding policy.
-	shouldPad func(socks5.Addr) bool
+	shouldPad PaddingPolicy
 }
 
 // FrontHeadroom implements the Packer FrontHeadroom method.

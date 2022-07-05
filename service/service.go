@@ -9,17 +9,19 @@ import (
 	"go.uber.org/zap"
 )
 
-// Service is implemented by client and server protocol handlers
-// to provide service over a connection or other abstractions.
-type Service interface {
-	// String returns the service's name.
+// Relay is a relay service that accepts incoming connections/sessions on a server
+// and dispatches them to a client selected by the router.
+//
+// Both TCPRelay and UDPRelay implement this interface.
+type Relay interface {
+	// String returns the relay service's name.
 	// This method may be called on a nil pointer.
 	String() string
 
-	// Start starts the service.
+	// Start starts the relay service.
 	Start() error
 
-	// Stop stops the service.
+	// Stop stops the relay service.
 	Stop() error
 }
 
@@ -34,7 +36,7 @@ type ServiceConfig struct {
 	Router       []router.RouterConfig `json:"router"`
 	UDPBatchMode string                `json:"udpBatchMode"`
 
-	services []Service
+	services []Relay
 	//router   Router
 	logger *zap.Logger
 }
@@ -42,6 +44,8 @@ type ServiceConfig struct {
 // Start starts all configured server (interface) and client (peer) services.
 func (sc *ServiceConfig) Start(logger *zap.Logger) error {
 	sc.logger = logger
+
+	// Initialization order: clients -> DNS -> router -> servers
 	serverCount := len(sc.Servers)
 	clientCount := len(sc.Clients)
 	serviceCount := serverCount + clientCount
@@ -49,7 +53,7 @@ func (sc *ServiceConfig) Start(logger *zap.Logger) error {
 		return errors.New("no services to start")
 	}
 
-	sc.services = make([]Service, serviceCount)
+	sc.services = make([]Relay, serviceCount)
 
 	for i := range sc.Servers {
 		s := NewServerService(sc.Servers[i], logger)

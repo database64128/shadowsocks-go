@@ -182,7 +182,7 @@ func (r *Router) getClientName(network, serverName string, sourceAddrPort netip.
 			zap.String("network", network),
 			zap.String("serverName", serverName),
 			zap.Stringer("sourceAddrPort", sourceAddrPort),
-			zap.Stringer("targetAddr", targetAddr),
+			zap.Stringer("targetAddress", targetAddr),
 			zap.String("routeName", route.Name),
 			zap.String("clientName", route.ClientName),
 		)

@@ -107,7 +107,7 @@ func NewSocks5StreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAd
 // NewSocks5StreamServerReadWriter handles a SOCKS5 request from rw and wraps rw into a ReadWriter ready for use.
 func NewSocks5StreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, enableTCP, enableUDP bool, bndAddr socks5.Addr) (dsrw *DirectStreamReadWriter, addr socks5.Addr, err error) {
 	addr, err = socks5.ServerAccept(rw, enableTCP, enableUDP, bndAddr)
-	if addr != nil { // Only CONNECT returns a non-nil addr.
+	if err == nil {
 		dsrw = &DirectStreamReadWriter{
 			rw: rw,
 		}

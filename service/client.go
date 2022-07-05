@@ -30,6 +30,6 @@ type ClientConfig struct {
 
 // NewClientService creates a client service from the specified client config.
 // Call the Start method on the returned service to start it.
-func NewClientService(config ClientConfig, logger *zap.Logger) Service {
+func NewClientService(config ClientConfig, logger *zap.Logger) Relay {
 	return nil
 }

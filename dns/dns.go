@@ -22,10 +22,18 @@ var ErrLookup = errors.New("name lookup failed")
 type ResolverConfig struct {
 	// Name is the resolver's name.
 	// The name must be unique among all resolvers.
-	Name string
+	Name string `json:"name"`
 
 	// AddrPort is the upstream server's address and port.
 	AddrPort netip.AddrPort `json:"addrPort"`
+
+	// TCPClientName is the name of the TCPClient to use.
+	// Leave empty to disable TCP.
+	TCPClientName string `json:"tcpClientName"`
+
+	// UDPClientName is the name of the UDPClient to use.
+	// Leave empty to disable UDP.
+	UDPClientName string `json:"udpClientName"`
 }
 
 // Result represents the result of name resolution.

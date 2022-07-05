@@ -58,6 +58,11 @@ func (s *TCPServer) NativeInitialPayload() bool {
 	return false
 }
 
+// DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
+func (s *TCPServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
+	return nil
+}
+
 // ShadowsocksNoneTCPClient implements the zerocopy TCPClient interface.
 type ShadowsocksNoneTCPClient struct {
 	address string
@@ -103,6 +108,11 @@ func (s *ShadowsocksNoneTCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter
 // NativeInitialPayload implements the zerocopy.TCPServer NativeInitialPayload method.
 func (s *ShadowsocksNoneTCPServer) NativeInitialPayload() bool {
 	return false
+}
+
+// DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
+func (s *ShadowsocksNoneTCPServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
+	return nil
 }
 
 // Socks5TCPClient implements the zerocopy TCPClient interface.
@@ -158,4 +168,9 @@ func (s *Socks5TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetA
 // NativeInitialPayload implements the zerocopy.TCPServer NativeInitialPayload method.
 func (s *Socks5TCPServer) NativeInitialPayload() bool {
 	return false
+}
+
+// DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
+func (s *Socks5TCPServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
+	return nil
 }

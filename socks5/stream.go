@@ -42,6 +42,7 @@ var (
 	ErrUnsupportedSocksVersion         = errors.New("unsupported SOCKS version")
 	ErrUnsupportedAuthenticationMethod = errors.New("unsupported authentication method")
 	ErrUnsupportedCommand              = errors.New("unsupported command")
+	ErrUDPAssociateHold                = errors.New("hold the connection to keep the UDP association open")
 )
 
 // replyWithStatus writes a reply to w with the REP field set to status.
@@ -195,6 +196,9 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, udpBoundAddr Addr
 		b[1] = Succeeded
 		n := copy(b[3:], udpBoundAddr)
 		_, err = rw.Write(b[:3+n])
+		if err == nil {
+			err = ErrUDPAssociateHold
+		}
 		return nil, err
 
 	default:

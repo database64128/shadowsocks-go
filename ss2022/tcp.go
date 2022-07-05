@@ -65,3 +65,8 @@ func (s *TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr so
 func (s *TCPServer) NativeInitialPayload() bool {
 	return true
 }
+
+// DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
+func (s *TCPServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
+	return zerocopy.ForceReset
+}

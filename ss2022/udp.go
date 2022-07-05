@@ -8,7 +8,6 @@ import (
 	"net/netip"
 
 	"github.com/database64128/shadowsocks-go/magic"
-	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
@@ -19,12 +18,12 @@ type UDPClient struct {
 	fwmark       int
 	block        cipher.Block
 	cipherConfig *CipherConfig
-	shouldPad    func(socks5.Addr) bool
+	shouldPad    PaddingPolicy
 	eihCiphers   []cipher.Block
 	eihPSKHashes [][IdentityHeaderLength]byte
 }
 
-func NewUDPClient(addrPort netip.AddrPort, mtu, fwmark int, cipherConfig *CipherConfig, shouldPad func(socks5.Addr) bool, eihPSKHashes [][IdentityHeaderLength]byte) *UDPClient {
+func NewUDPClient(addrPort netip.AddrPort, mtu, fwmark int, cipherConfig *CipherConfig, shouldPad PaddingPolicy, eihPSKHashes [][IdentityHeaderLength]byte) *UDPClient {
 	eihCiphers := cipherConfig.NewUDPIdentityHeaderClientCiphers()
 
 	var block cipher.Block
@@ -79,7 +78,7 @@ func (c *UDPClient) AddrPort() (netip.AddrPort, int, int, bool) {
 type UDPServer struct {
 	block        cipher.Block
 	cipherConfig *CipherConfig
-	shouldPad    func(socks5.Addr) bool
+	shouldPad    PaddingPolicy
 	uPSKMap      map[[IdentityHeaderLength]byte]*CipherConfig
 
 	// Initialized as the same main cipher config referenced by cipherConfig.
@@ -88,7 +87,7 @@ type UDPServer struct {
 	currentUserCipherConfig *CipherConfig
 }
 
-func NewUDPServer(cipherConfig *CipherConfig, shouldPad func(socks5.Addr) bool, uPSKMap map[[IdentityHeaderLength]byte]*CipherConfig) *UDPServer {
+func NewUDPServer(cipherConfig *CipherConfig, shouldPad PaddingPolicy, uPSKMap map[[IdentityHeaderLength]byte]*CipherConfig) *UDPServer {
 	return &UDPServer{
 		block:                   cipherConfig.NewBlock(),
 		cipherConfig:            cipherConfig,

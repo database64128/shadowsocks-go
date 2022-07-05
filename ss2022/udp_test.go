@@ -9,7 +9,7 @@ import (
 	"github.com/database64128/shadowsocks-go/socks5"
 )
 
-func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientShouldPad, serverShouldPad func(socks5.Addr) bool) {
+func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientShouldPad, serverShouldPad PaddingPolicy) {
 	const (
 		mtu        = 1500
 		packetSize = 1452

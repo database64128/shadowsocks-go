@@ -1,11 +1,13 @@
 package zerocopy
 
 import (
+	"io"
 	"net"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/tfo-go"
+	"go.uber.org/zap"
 )
 
 // Conn extends the ReadWriter interface with features from TCP connections.
@@ -155,4 +157,62 @@ type TCPServer interface {
 	// NativeInitialPayload reports whether the protocol natively supports
 	// sending the initial payload within or along with the request header.
 	NativeInitialPayload() bool
+
+	// DefaultTCPConnCloser returns the default function to handle the closing
+	// of a potentially malicious TCP connection.
+	//
+	// If no special handling is required, return nil.
+	DefaultTCPConnCloser() TCPConnCloser
+}
+
+// TCPConnCloser handles a potentially malicious TCP connection.
+// Upon returning, the TCP connection is safe to close.
+type TCPConnCloser func(conn *net.TCPConn, serverName, listenAddress, clientAddress string, logger *zap.Logger)
+
+// Do invokes the TCPConnCloser if it's not nil.
+func (c TCPConnCloser) Do(conn *net.TCPConn, serverName, listenAddress, clientAddress string, logger *zap.Logger) {
+	if c != nil {
+		c(conn, serverName, listenAddress, clientAddress, logger)
+	}
+}
+
+// ForceReset forces a reset of the TCP connection, regardless of
+// whether there's unread data or not.
+func ForceReset(conn *net.TCPConn, serverName, listenAddress, clientAddress string, logger *zap.Logger) {
+	if err := conn.SetLinger(0); err != nil {
+		logger.Warn("Failed to set SO_LINGER on TCP connection",
+			zap.String("server", serverName),
+			zap.String("listenAddress", listenAddress),
+			zap.String("clientAddress", clientAddress),
+			zap.Error(err),
+		)
+	}
+
+	logger.Info("Forcing RST on TCP connection",
+		zap.String("server", serverName),
+		zap.String("listenAddress", listenAddress),
+		zap.String("clientAddress", clientAddress),
+	)
+}
+
+// CloseWriteDrain closes the write end of the TCP connection,
+// then drain the read end.
+func CloseWriteDrain(conn *net.TCPConn, serverName, listenAddress, clientAddress string, logger *zap.Logger) {
+	if err := conn.CloseWrite(); err != nil {
+		logger.Warn("Failed to close write half of TCP connection",
+			zap.String("server", serverName),
+			zap.String("listenAddress", listenAddress),
+			zap.String("clientAddress", clientAddress),
+			zap.Error(err),
+		)
+	}
+
+	n, err := io.Copy(io.Discard, conn)
+	logger.Info("Drained TCP connection",
+		zap.String("server", serverName),
+		zap.String("listenAddress", listenAddress),
+		zap.String("clientAddress", clientAddress),
+		zap.Int64("bytesRead", n),
+		zap.Error(err),
+	)
 }

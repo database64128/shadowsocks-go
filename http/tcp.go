@@ -56,3 +56,8 @@ func (s *ProxyServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr 
 func (s *ProxyServer) NativeInitialPayload() bool {
 	return false
 }
+
+// DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
+func (s *ProxyServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
+	return nil
+}
