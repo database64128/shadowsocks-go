@@ -160,6 +160,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 		)
 		return
 	}
+	defer remoteConn.Close()
 
 	// Two-way relay.
 	nl2r, nr2l, err := zerocopy.TwoWayRelay(rw, remoteConn)
