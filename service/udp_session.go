@@ -17,8 +17,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// natEntry is an entry in the NAT table.
-type natEntry struct {
+// session keeps track of a UDP session.
+type session struct {
+	clientAddrPort                netip.AddrPort
 	clientOobCache                []byte
 	natConn                       *net.UDPConn
 	natConnMTU                    int
@@ -29,38 +30,38 @@ type natEntry struct {
 	natConnUseFixedTargetAddrPort bool
 	natConnLastTargetAddr         socks5.Addr
 	natConnLastTargetAddrPort     netip.AddrPort
+	serverConnPacker              zerocopy.Packer
+	serverConnUnpacker            zerocopy.Unpacker
 	maxClientPacketSize           int
 }
 
-// UDPNATRelay is an address-based UDP relay service.
+// UDPSessionRelay is a session-based UDP relay service.
 //
-// Incoming UDP packets are dispatched to NAT sessions based on the source address and port.
-type UDPNATRelay struct {
+// Incoming UDP packets are dispatched to NAT sessions based on the client session ID.
+type UDPSessionRelay struct {
 	batchMode      string
 	serverName     string
 	listenAddress  string
 	listenerFwmark int
 	mtu            int
 	preferIPv6     bool
-	serverPacker   zerocopy.Packer
-	serverUnpacker zerocopy.Unpacker
+	server         zerocopy.UDPServer
 	serverConn     *net.UDPConn
 	router         *router.Router
 	logger         *zap.Logger
 	packetBufPool  *sync.Pool
 	mu             sync.Mutex
 	wg             sync.WaitGroup
-	table          map[netip.AddrPort]*natEntry
+	table          map[uint64]*session
 }
 
-func NewUDPNATRelay(
+func NewUDPSessionRelay(
 	batchMode, serverName, listenAddress string,
 	listenerFwmark, mtu int,
-	serverPacker zerocopy.Packer,
-	serverUnpacker zerocopy.Unpacker,
+	server zerocopy.UDPServer,
 	router *router.Router,
 	logger *zap.Logger,
-) (*UDPNATRelay, error) {
+) (*UDPSessionRelay, error) {
 	if mtu < 1280 {
 		return nil, ErrMTUTooSmall
 	}
@@ -73,28 +74,27 @@ func NewUDPNATRelay(
 		},
 	}
 
-	return &UDPNATRelay{
+	return &UDPSessionRelay{
 		batchMode:      batchMode,
 		serverName:     serverName,
 		listenAddress:  listenAddress,
 		listenerFwmark: listenerFwmark,
 		mtu:            mtu,
-		serverPacker:   serverPacker,
-		serverUnpacker: serverUnpacker,
+		server:         server,
 		router:         router,
 		logger:         logger,
 		packetBufPool:  packetBufPool,
-		table:          make(map[netip.AddrPort]*natEntry),
+		table:          make(map[uint64]*session),
 	}, nil
 }
 
 // String implements the Service String method.
-func (s *UDPNATRelay) String() string {
-	return fmt.Sprintf("UDP NAT relay service for %s", s.serverName)
+func (s *UDPSessionRelay) String() string {
+	return fmt.Sprintf("UDP session relay service for %s", s.serverName)
 }
 
 // Start implements the Service Start method.
-func (s *UDPNATRelay) Start() error {
+func (s *UDPSessionRelay) Start() error {
 	serverConn, err, serr := conn.ListenUDP("udp", s.listenAddress, true, s.listenerFwmark)
 	if err != nil {
 		return err
@@ -144,13 +144,14 @@ func (s *UDPNATRelay) Start() error {
 				s.packetBufPool.Put(packetBufp)
 				continue
 			}
+			packet := packetBuf[:n]
 
 			// Workaround for https://github.com/golang/go/issues/52264
 			clientAddrPort = conn.Tov4Mappedv6(clientAddrPort)
 
-			targetAddr, payloadStart, payloadLength, err := s.serverUnpacker.UnpackInPlace(packetBuf, 0, n)
+			csid, err := s.server.SessionInfo(packet)
 			if err != nil {
-				s.logger.Warn("Failed to unpack packet",
+				s.logger.Warn("Failed to extract session info from packet",
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
@@ -162,10 +163,46 @@ func (s *UDPNATRelay) Start() error {
 				continue
 			}
 
+			var (
+				targetAddr    socks5.Addr
+				payloadStart  int
+				payloadLength int
+			)
+
 			s.mu.Lock()
 
-			entry := s.table[clientAddrPort]
+			entry := s.table[csid]
 			if entry == nil {
+				serverConnUnpacker, err := s.server.NewUnpacker(packet, csid)
+				if err != nil {
+					s.logger.Warn("Failed to create unpacker for client session",
+						zap.String("server", s.serverName),
+						zap.String("listenAddress", s.listenAddress),
+						zap.Stringer("clientAddress", clientAddrPort),
+						zap.Uint64("clientSessionID", csid),
+						zap.Int("packetLength", n),
+						zap.Error(err),
+					)
+
+					s.packetBufPool.Put(packetBufp)
+					continue
+				}
+
+				targetAddr, payloadStart, payloadLength, err = serverConnUnpacker.UnpackInPlace(packetBuf, 0, n)
+				if err != nil {
+					s.logger.Warn("Failed to unpack packet",
+						zap.String("server", s.serverName),
+						zap.String("listenAddress", s.listenAddress),
+						zap.Stringer("clientAddress", clientAddrPort),
+						zap.Uint64("clientSessionID", csid),
+						zap.Int("packetLength", n),
+						zap.Error(err),
+					)
+
+					s.packetBufPool.Put(packetBufp)
+					continue
+				}
+
 				c, err := s.router.GetUDPClient(s.serverName, clientAddrPort, targetAddr)
 				if err != nil {
 					s.logger.Warn("Failed to get UDP client for new NAT session",
@@ -173,6 +210,7 @@ func (s *UDPNATRelay) Start() error {
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
+						zap.Uint64("clientSessionID", csid),
 						zap.Error(err),
 					)
 
@@ -189,6 +227,7 @@ func (s *UDPNATRelay) Start() error {
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
+						zap.Uint64("clientSessionID", csid),
 						zap.Error(err),
 					)
 
@@ -200,6 +239,21 @@ func (s *UDPNATRelay) Start() error {
 				// Workaround for https://github.com/golang/go/issues/52264
 				natConnFixedTargetAddrPort = conn.Tov4Mappedv6(natConnFixedTargetAddrPort)
 
+				serverConnPacker, err := s.server.NewPacker(csid)
+				if err != nil {
+					s.logger.Warn("Failed to create packer for client session",
+						zap.String("server", s.serverName),
+						zap.String("listenAddress", s.listenAddress),
+						zap.Stringer("clientAddress", clientAddrPort),
+						zap.Uint64("clientSessionID", csid),
+						zap.Error(err),
+					)
+
+					s.packetBufPool.Put(packetBufp)
+					s.mu.Unlock()
+					continue
+				}
+
 				natConn, err, serr := conn.ListenUDP("udp", "", false, natConnFwmark)
 				if err != nil {
 					s.logger.Warn("Failed to create UDP socket for new NAT session",
@@ -207,6 +261,7 @@ func (s *UDPNATRelay) Start() error {
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
+						zap.Uint64("clientSessionID", csid),
 						zap.Error(err),
 					)
 
@@ -220,6 +275,7 @@ func (s *UDPNATRelay) Start() error {
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
+						zap.Uint64("clientSessionID", csid),
 						zap.Error(serr),
 					)
 				}
@@ -231,6 +287,7 @@ func (s *UDPNATRelay) Start() error {
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
+						zap.Uint64("clientSessionID", csid),
 						zap.Error(err),
 					)
 
@@ -239,7 +296,8 @@ func (s *UDPNATRelay) Start() error {
 					continue
 				}
 
-				entry = &natEntry{
+				entry = &session{
+					clientAddrPort:                clientAddrPort,
 					natConn:                       natConn,
 					natConnMTU:                    natConnMTU,
 					natConnSendCh:                 make(chan queuedPacket, sendChannelCapacity),
@@ -247,6 +305,8 @@ func (s *UDPNATRelay) Start() error {
 					natConnUnpacker:               natConnUnpacker,
 					natConnFixedTargetAddrPort:    natConnFixedTargetAddrPort,
 					natConnUseFixedTargetAddrPort: natConnUseFixedTargetAddrPort,
+					serverConnPacker:              serverConnPacker,
+					serverConnUnpacker:            serverConnUnpacker,
 				}
 
 				if addr := clientAddrPort.Addr(); addr.Is4() || addr.Is4In6() {
@@ -255,33 +315,51 @@ func (s *UDPNATRelay) Start() error {
 					entry.maxClientPacketSize = s.mtu - IPv6HeaderLength - UDPHeaderLength
 				}
 
-				s.table[clientAddrPort] = entry
+				s.table[csid] = entry
 
 				s.wg.Add(2)
 
 				go func() {
-					s.relayNatConnToServerConnGeneric(clientAddrPort, entry)
+					s.relayNatConnToServerConnGeneric(csid, entry)
 
 					s.mu.Lock()
 					close(entry.natConnSendCh)
-					delete(s.table, clientAddrPort)
+					delete(s.table, csid)
 					s.mu.Unlock()
 
 					s.wg.Done()
 				}()
 
 				go func() {
-					s.relayServerConnToNatConnGeneric(clientAddrPort, entry)
+					s.relayServerConnToNatConnGeneric(csid, entry)
 					entry.natConn.Close()
 					s.wg.Done()
 				}()
 
-				s.logger.Info("New UDP NAT session",
+				s.logger.Info("New UDP session",
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
 					zap.Stringer("targetAddress", targetAddr),
+					zap.Uint64("clientSessionID", csid),
 				)
+			} else {
+				targetAddr, payloadStart, payloadLength, err = entry.serverConnUnpacker.UnpackInPlace(packetBuf, 0, n)
+				if err != nil {
+					s.logger.Warn("Failed to unpack packet",
+						zap.String("server", s.serverName),
+						zap.String("listenAddress", s.listenAddress),
+						zap.Stringer("clientAddress", clientAddrPort),
+						zap.Uint64("clientSessionID", csid),
+						zap.Int("packetLength", n),
+						zap.Error(err),
+					)
+
+					s.packetBufPool.Put(packetBufp)
+					continue
+				}
+
+				entry.clientAddrPort = clientAddrPort
 			}
 
 			entry.clientOobCache, err = conn.UpdateOobCache(entry.clientOobCache, oobBuf[:oobn], s.logger)
@@ -291,6 +369,7 @@ func (s *UDPNATRelay) Start() error {
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
 					zap.Stringer("targetAddress", targetAddr),
+					zap.Uint64("clientSessionID", csid),
 					zap.Error(err),
 				)
 			}
@@ -303,6 +382,7 @@ func (s *UDPNATRelay) Start() error {
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
 					zap.Stringer("targetAddress", targetAddr),
+					zap.Uint64("clientSessionID", csid),
 				)
 
 				s.packetBufPool.Put(packetBufp)
@@ -312,7 +392,7 @@ func (s *UDPNATRelay) Start() error {
 		}
 	}()
 
-	s.logger.Info("Started UDP NAT relay service",
+	s.logger.Info("Started UDP session relay service",
 		zap.String("server", s.serverName),
 		zap.String("listenAddress", s.listenAddress),
 		zap.Int("listenerFwmark", s.listenerFwmark),
@@ -321,7 +401,7 @@ func (s *UDPNATRelay) Start() error {
 	return nil
 }
 
-func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrPort, entry *natEntry) {
+func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(csid uint64, entry *session) {
 	for {
 		queuedPacket, ok := <-entry.natConnSendCh
 		if !ok {
@@ -333,8 +413,9 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrP
 			s.logger.Warn("Failed to pack packet",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Stringer("clientAddress", entry.clientAddrPort),
 				zap.Stringer("targetAddress", queuedPacket.targetAddr),
+				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)
 
@@ -353,8 +434,9 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrP
 					s.logger.Warn("Failed to get target address port",
 						zap.String("server", s.serverName),
 						zap.String("listenAddress", s.listenAddress),
-						zap.Stringer("clientAddress", clientAddrPort),
+						zap.Stringer("clientAddress", entry.clientAddrPort),
 						zap.Stringer("targetAddress", queuedPacket.targetAddr),
+						zap.Uint64("clientSessionID", csid),
 						zap.Error(err),
 					)
 
@@ -375,9 +457,10 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrP
 			s.logger.Warn("Failed to write packet to natConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Stringer("clientAddress", entry.clientAddrPort),
 				zap.Stringer("targetAddress", queuedPacket.targetAddr),
 				zap.Stringer("writeTargetAddress", targetAddrPort),
+				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)
 		}
@@ -386,9 +469,9 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrP
 	}
 }
 
-func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrPort, entry *natEntry) {
-	serverFrontHeadroom := s.serverPacker.FrontHeadroom()
-	serverRearHeadroom := s.serverPacker.RearHeadroom()
+func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *session) {
+	serverFrontHeadroom := entry.serverConnPacker.FrontHeadroom()
+	serverRearHeadroom := entry.serverConnPacker.RearHeadroom()
 	clientFrontHeadroom := entry.natConnPacker.FrontHeadroom()
 	clientRearHeadroom := entry.natConnPacker.RearHeadroom()
 
@@ -413,7 +496,8 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 			s.logger.Warn("Failed to read packet from natConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Stringer("clientAddress", entry.clientAddrPort),
+				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)
 			continue
@@ -423,8 +507,9 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 			s.logger.Warn("Failed to read packet from natConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Stringer("clientAddress", entry.clientAddrPort),
 				zap.Stringer("packetFromAddress", packetFromAddrPort),
+				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)
 			continue
@@ -435,28 +520,30 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 			s.logger.Warn("Failed to unpack packet",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Stringer("clientAddress", entry.clientAddrPort),
 				zap.Stringer("packetFromAddress", packetFromAddrPort),
+				zap.Uint64("clientSessionID", csid),
 				zap.Int("packetLength", n),
 				zap.Error(err),
 			)
 			continue
 		}
 
-		packetStart, packetLength, err := s.serverPacker.PackInPlace(packetBuf, targetAddr, payloadStart, payloadLength)
+		packetStart, packetLength, err := entry.serverConnPacker.PackInPlace(packetBuf, targetAddr, payloadStart, payloadLength)
 		if err != nil {
 			s.logger.Warn("Failed to pack packet",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Stringer("clientAddress", entry.clientAddrPort),
 				zap.Stringer("targetAddress", targetAddr),
 				zap.Stringer("packetFromAddress", packetFromAddrPort),
+				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)
 			continue
 		}
 
-		_, _, err = s.serverConn.WriteMsgUDPAddrPort(packetBuf[packetStart:packetStart+packetLength], entry.clientOobCache, clientAddrPort)
+		_, _, err = s.serverConn.WriteMsgUDPAddrPort(packetBuf[packetStart:packetStart+packetLength], entry.clientOobCache, entry.clientAddrPort)
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				break
@@ -465,9 +552,10 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 			s.logger.Warn("Failed to write packet to serverConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Stringer("clientAddress", entry.clientAddrPort),
 				zap.Stringer("targetAddress", targetAddr),
 				zap.Stringer("packetFromAddress", packetFromAddrPort),
+				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)
 		}
@@ -475,7 +563,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 }
 
 // Stop implements the Service Stop method.
-func (s *UDPNATRelay) Stop() error {
+func (s *UDPSessionRelay) Stop() error {
 	if s.serverConn == nil {
 		return nil
 	}
@@ -484,12 +572,13 @@ func (s *UDPNATRelay) Stop() error {
 	now := time.Now()
 
 	s.mu.Lock()
-	for clientAddrPort, entry := range s.table {
+	for csid, entry := range s.table {
 		if err := entry.natConn.SetReadDeadline(now); err != nil {
 			s.logger.Warn("Failed to set read deadline on natConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Stringer("clientAddress", entry.clientAddrPort),
+				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)
 		}
