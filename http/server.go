@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -18,8 +19,8 @@ import (
 
 // NewHttpStreamServerReadWriter handles a HTTP request from rw and wraps rw into a ReadWriter ready for use.
 func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *zap.Logger) (*direct.DirectStreamReadWriter, socks5.Addr, error) {
-	br := bufio.NewReader(rw)
-	req, err := magic.ReadRequest(br)
+	rwbr := bufio.NewReader(rw)
+	req, err := magic.ReadRequest(rwbr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -53,6 +54,8 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 	// and read responses from pl.
 	go func() {
 		plbr := bufio.NewReader(pl)
+		plbw := bufio.NewWriter(pl)
+		rwbw := bufio.NewWriter(rw)
 
 		for {
 			// Delete hop-by-hop headers specified in Connection.
@@ -66,10 +69,24 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 			}
 			delete(req.Header, "Connection")
 
+			delete(req.Header, "Proxy-Connection")
+
 			// Write request.
-			err := req.Write(pl)
+			err := req.Write(plbw)
 			if err != nil {
 				logger.Warn("Failed to write HTTP request",
+					zap.String("proto", req.Proto),
+					zap.String("method", req.Method),
+					zap.String("url", req.RequestURI),
+					zap.Error(err),
+				)
+				break
+			}
+
+			// Flush request.
+			err = plbw.Flush()
+			if err != nil {
+				logger.Warn("Failed to flush HTTP request",
 					zap.String("proto", req.Proto),
 					zap.String("method", req.Method),
 					zap.String("url", req.RequestURI),
@@ -90,10 +107,43 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 				break
 			}
 
+			// Add Connection: close if response is 301, 302, or 307,
+			// and Location points to a different host.
+			switch resp.StatusCode {
+			case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect:
+				location := resp.Header["Location"]
+				if len(location) != 1 {
+					break
+				}
+
+				url, err := url.Parse(location[0])
+				if err != nil {
+					break
+				}
+
+				switch url.Host {
+				case req.Host, "":
+				default:
+					resp.Close = true
+				}
+			}
+
 			// Write response.
-			err = resp.Write(rw)
+			err = resp.Write(rwbw)
 			if err != nil {
 				logger.Warn("Failed to write HTTP response",
+					zap.String("proto", resp.Proto),
+					zap.String("status", resp.Status),
+					zap.String("proto", resp.Proto),
+					zap.Error(err),
+				)
+				break
+			}
+
+			// Flush response.
+			err = rwbw.Flush()
+			if err != nil {
+				logger.Warn("Failed to flush HTTP response",
 					zap.String("proto", resp.Proto),
 					zap.String("status", resp.Status),
 					zap.String("proto", resp.Proto),
@@ -107,9 +157,11 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 			}
 
 			// Read request.
-			req, err = magic.ReadRequest(br)
+			req, err = magic.ReadRequest(rwbr)
 			if err != nil {
-				logger.Warn("Failed to read HTTP request", zap.Error(err))
+				if err != io.EOF {
+					logger.Warn("Failed to read HTTP request", zap.Error(err))
+				}
 				break
 			}
 		}
