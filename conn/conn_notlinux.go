@@ -9,3 +9,9 @@ func NewDialer(dialerTFO bool, dialerFwmark int) (dialer tfo.Dialer) {
 	dialer.DisableTFO = !dialerTFO
 	return
 }
+
+// NewListenConfig returns a tfo.ListenConfig with the specified options applied.
+func NewListenConfig(listenerTFO bool, listenerFwmark int) (lc tfo.ListenConfig) {
+	lc.DisableTFO = !listenerTFO
+	return
+}

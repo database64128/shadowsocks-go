@@ -24,8 +24,14 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 		return nil, nil, err
 	}
 
+	var targetAddr socks5.Addr
+
 	// Host -> targetAddr
-	targetAddr, err := socks5.ParseAddr(req.Host)
+	if strings.IndexByte(req.Host, ':') != -1 {
+		targetAddr, err = socks5.ParseAddr(req.Host)
+	} else {
+		targetAddr, err = socks5.ParseHostPort(req.Host, 80)
+	}
 	if err != nil {
 		send418(rw)
 		return nil, nil, err

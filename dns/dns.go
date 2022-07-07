@@ -3,6 +3,7 @@ package dns
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/netip"
@@ -34,6 +35,29 @@ type ResolverConfig struct {
 	// UDPClientName is the name of the UDPClient to use.
 	// Leave empty to disable UDP.
 	UDPClientName string `json:"udpClientName"`
+}
+
+func (rc *ResolverConfig) Resolver(tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, logger *zap.Logger) (*Resolver, error) {
+	var (
+		tcpClient zerocopy.TCPClient
+		udpClient zerocopy.UDPClient
+	)
+
+	if rc.TCPClientName != "" {
+		tcpClient = tcpClientMap[rc.TCPClientName]
+		if tcpClient == nil {
+			return nil, fmt.Errorf("unknown TCP client: %s", rc.TCPClientName)
+		}
+	}
+
+	if rc.UDPClientName != "" {
+		udpClient = udpClientMap[rc.UDPClientName]
+		if udpClient == nil {
+			return nil, fmt.Errorf("unknown UDP client: %s", rc.UDPClientName)
+		}
+	}
+
+	return NewResolver(rc.AddrPort, tcpClient, udpClient, logger), nil
 }
 
 // Result represents the result of name resolution.

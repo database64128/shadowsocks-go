@@ -56,19 +56,16 @@ type UDPNATRelay struct {
 func NewUDPNATRelay(
 	batchMode, serverName, listenAddress string,
 	listenerFwmark, mtu int,
+	preferIPv6 bool,
 	serverPacker zerocopy.Packer,
 	serverUnpacker zerocopy.Unpacker,
 	router *router.Router,
 	logger *zap.Logger,
 ) (*UDPNATRelay, error) {
-	if mtu < 1280 {
-		return nil, ErrMTUTooSmall
-	}
-
 	packetBufSize := mtu - IPv4HeaderLength - UDPHeaderLength
 	packetBufPool := &sync.Pool{
 		New: func() any {
-			b := make([]byte, packetBufSize)
+			b := make([]byte, fixedFrontHeadroom+packetBufSize+fixedRearHeadroom)
 			return &b
 		},
 	}
@@ -79,6 +76,7 @@ func NewUDPNATRelay(
 		listenAddress:  listenAddress,
 		listenerFwmark: listenerFwmark,
 		mtu:            mtu,
+		preferIPv6:     preferIPv6,
 		serverPacker:   serverPacker,
 		serverUnpacker: serverUnpacker,
 		router:         router,
@@ -115,8 +113,9 @@ func (s *UDPNATRelay) Start() error {
 		for {
 			packetBufp := s.packetBufPool.Get().(*[]byte)
 			packetBuf := *packetBufp
+			recvBuf := packetBuf[fixedFrontHeadroom : len(packetBuf)-fixedRearHeadroom]
 
-			n, oobn, flags, clientAddrPort, err := s.serverConn.ReadMsgUDPAddrPort(packetBuf, oobBuf)
+			n, oobn, flags, clientAddrPort, err := s.serverConn.ReadMsgUDPAddrPort(recvBuf, oobBuf)
 			if err != nil {
 				if errors.Is(err, net.ErrClosed) {
 					s.packetBufPool.Put(packetBufp)
@@ -148,7 +147,7 @@ func (s *UDPNATRelay) Start() error {
 			// Workaround for https://github.com/golang/go/issues/52264
 			clientAddrPort = conn.Tov4Mappedv6(clientAddrPort)
 
-			targetAddr, payloadStart, payloadLength, err := s.serverUnpacker.UnpackInPlace(packetBuf, 0, n)
+			targetAddr, payloadStart, payloadLength, err := s.serverUnpacker.UnpackInPlace(packetBuf, fixedFrontHeadroom, n)
 			if err != nil {
 				s.logger.Warn("Failed to unpack packet",
 					zap.String("server", s.serverName),
@@ -196,9 +195,6 @@ func (s *UDPNATRelay) Start() error {
 					s.mu.Unlock()
 					continue
 				}
-
-				// Workaround for https://github.com/golang/go/issues/52264
-				natConnFixedTargetAddrPort = conn.Tov4Mappedv6(natConnFixedTargetAddrPort)
 
 				natConn, err, serr := conn.ListenUDP("udp", "", false, natConnFwmark)
 				if err != nil {

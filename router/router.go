@@ -81,6 +81,33 @@ type Router struct {
 	udpClientMap  map[string]zerocopy.UDPClient
 }
 
+func NewRouter(logger *zap.Logger, config RouterConfig, resolverNames []string, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient) *Router {
+	if len(resolverNames) == 0 {
+		config.DisableNameResolutionForIPRules = true
+	}
+
+	if config.DefaultTCPClientName == "" && len(tcpClientMap) == 1 {
+		for name := range tcpClientMap {
+			config.DefaultTCPClientName = name
+		}
+	}
+
+	if config.DefaultUDPClientName == "" && len(udpClientMap) == 1 {
+		for name := range udpClientMap {
+			config.DefaultUDPClientName = name
+		}
+	}
+
+	return &Router{
+		logger:        logger,
+		config:        config,
+		resolverNames: resolverNames,
+		resolverMap:   resolverMap,
+		tcpClientMap:  tcpClientMap,
+		udpClientMap:  udpClientMap,
+	}
+}
+
 // GetTCPClient returns the zerocopy.TCPClient for a TCP request received by serverName
 // from sourceAddrPort to targetAddr.
 func (r *Router) GetTCPClient(serverName string, sourceAddrPort netip.AddrPort, targetAddr socks5.Addr) (zerocopy.TCPClient, error) {
@@ -147,7 +174,7 @@ func (r *Router) getClientName(network, serverName string, sourceAddrPort netip.
 		}
 
 		// Domains
-		if len(route.Domains) > 0 && targetAddr.IsDomain() && !slices.Contains(route.Domains, targetAddr.Host()) != route.InvertDomains {
+		if len(route.Domains) > 0 && (!targetAddr.IsDomain() || !slices.Contains(route.Domains, targetAddr.Host()) != route.InvertDomains) {
 			continue
 		}
 

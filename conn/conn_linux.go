@@ -30,6 +30,23 @@ func NewDialer(dialerTFO bool, dialerFwmark int) (dialer tfo.Dialer) {
 	return
 }
 
+// NewListenConfig returns a tfo.ListenConfig with the specified options applied.
+func NewListenConfig(listenerTFO bool, listenerFwmark int) (lc tfo.ListenConfig) {
+	lc.DisableTFO = !listenerTFO
+	if listenerFwmark != 0 {
+		lc.Control = func(network, address string, c syscall.RawConn) (err error) {
+			cerr := c.Control(func(fd uintptr) {
+				err = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, listenerFwmark)
+			})
+			if err == nil {
+				err = cerr
+			}
+			return
+		}
+	}
+	return
+}
+
 // ListenUDP wraps Go's net.ListenConfig.ListenPacket and sets socket options on supported platforms.
 //
 // On Linux and Windows, IP_MTU_DISCOVER and IPV6_MTU_DISCOVER are set to IP_PMTUDISC_DO to disable IP fragmentation

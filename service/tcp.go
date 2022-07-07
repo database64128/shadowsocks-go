@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -25,11 +26,26 @@ type TCPRelay struct {
 	listenAddress  string
 	listenerFwmark int
 	listenerTFO    bool
+	listenConfig   tfo.ListenConfig
 	server         zerocopy.TCPServer
 	connCloser     zerocopy.TCPConnCloser
 	router         *router.Router
 	listener       *net.TCPListener
 	logger         *zap.Logger
+}
+
+func NewTCPRelay(serverName, listenAddress string, listenerFwmark int, listenerTFO bool, server zerocopy.TCPServer, connCloser zerocopy.TCPConnCloser, router *router.Router, logger *zap.Logger) *TCPRelay {
+	return &TCPRelay{
+		serverName:     serverName,
+		listenAddress:  listenAddress,
+		listenerFwmark: listenerFwmark,
+		listenerTFO:    listenerTFO,
+		listenConfig:   conn.NewListenConfig(listenerTFO, listenerFwmark),
+		server:         server,
+		connCloser:     connCloser,
+		router:         router,
+		logger:         logger,
+	}
 }
 
 // String implements the Service String method.
@@ -39,10 +55,7 @@ func (s *TCPRelay) String() string {
 
 // Start implements the Service Start method.
 func (s *TCPRelay) Start() error {
-	lc := tfo.ListenConfig{
-		DisableTFO: !s.listenerTFO,
-	}
-	l, err := lc.Listen(context.Background(), "tcp", s.listenAddress)
+	l, err := s.listenConfig.Listen(context.Background(), "tcp", s.listenAddress)
 	if err != nil {
 		return err
 	}

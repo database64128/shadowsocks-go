@@ -179,6 +179,58 @@ func AddrFromAddrPort(addrPort netip.AddrPort) Addr {
 	return b[:n]
 }
 
+// WriteHostPortAsSocksAddr parses a host string combines it with a port number
+// into a SOCKS address and stores it in the buffer.
+//
+// IPv4-mapped IPv6 addresses are converted to IPv4 addresses.
+//
+// The destination slice must be big enough to hold the SOCKS address.
+// Otherwise, this function might panic.
+func WriteHostPortAsSocksAddr(b []byte, host string, port uint16) (n int, err error) {
+	if host == "" {
+		b[n] = AtypIPv6
+		n += 1 + 16
+	} else if ip, err := netip.ParseAddr(host); err == nil {
+		switch {
+		case ip.Is4() || ip.Is4In6():
+			b[n] = AtypIPv4
+			n++
+			ip4 := ip.As4()
+			n += copy(b[n:], ip4[:])
+		case ip.Is6():
+			b[n] = AtypIPv6
+			n++
+			ip6 := ip.As16()
+			n += copy(b[n:], ip6[:])
+		}
+	} else {
+		if len(host) > 255 {
+			return n, fmt.Errorf("host is too long: %d, must not be greater than 255", len(host))
+		}
+		b[n] = AtypDomainName
+		n++
+		b[n] = byte(len(host))
+		n++
+		n += copy(b[n:], host)
+	}
+
+	binary.BigEndian.PutUint16(b[n:], port)
+	n += 2
+	return
+}
+
+// ParseHostPort parses a host string and combines it with a port number
+// into a SOCKS address.
+//
+// IPv4-mapped IPv6 addresses are converted to IPv4 addresses.
+//
+// To avoid allocations, call WriteHostPortAsSocksAddr directly.
+func ParseHostPort(host string, port uint16) (Addr, error) {
+	b := make([]byte, MaxAddrLen)
+	n, err := WriteHostPortAsSocksAddr(b, host, port)
+	return b[:n], err
+}
+
 // WriteStringAsSocksAddr parses an address string into a SOCKS address
 // and stores it in the destination slice.
 //
@@ -186,48 +238,21 @@ func AddrFromAddrPort(addrPort netip.AddrPort) Addr {
 //
 // The destination slice must be big enough to hold the SOCKS address.
 // Otherwise, this function might panic.
-func WriteStringAsSocksAddr(dst []byte, s string) (n int, host string, port int, err error) {
+func WriteStringAsSocksAddr(dst []byte, s string) (n int, host string, port uint16, err error) {
 	host, portString, err := net.SplitHostPort(s)
 	if err != nil {
 		err = fmt.Errorf("failed to split host:port: %w", err)
 		return
 	}
 
-	ip, err := netip.ParseAddr(host)
-	if err == nil {
-		switch {
-		case ip.Is4() || ip.Is4In6():
-			dst[n] = AtypIPv4
-			n++
-			ip4 := ip.As4()
-			n += copy(dst[n:], ip4[:])
-		case ip.Is6():
-			dst[n] = AtypIPv6
-			n++
-			ip6 := ip.As16()
-			n += copy(dst[n:], ip6[:])
-		}
-	} else {
-		if len(host) > 255 {
-			err = fmt.Errorf("host is too long: %d, must not be greater than 255", len(host))
-			return
-		}
-		dst[n] = AtypDomainName
-		n++
-		dst[n] = byte(len(host))
-		n++
-		n += copy(dst[n:], host)
-	}
-
-	portnum, err := strconv.ParseUint(portString, 10, 16)
+	portNumber, err := strconv.ParseUint(portString, 10, 16)
 	if err != nil {
 		err = fmt.Errorf("failed to parse port string: %w", err)
 		return
 	}
-	binary.BigEndian.PutUint16(dst[n:], uint16(portnum))
-	n += 2
-	port = int(portnum)
+	port = uint16(portNumber)
 
+	n, err = WriteHostPortAsSocksAddr(dst, host, port)
 	return
 }
 

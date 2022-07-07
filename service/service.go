@@ -6,8 +6,11 @@ import (
 
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/router"
+	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
+
+var errNetworkDisabled = errors.New("this network (tcp or udp) is disabled")
 
 // Relay is a relay service that accepts incoming connections/sessions on a server
 // and dispatches them to a client selected by the router.
@@ -15,7 +18,6 @@ import (
 // Both TCPRelay and UDPRelay implement this interface.
 type Relay interface {
 	// String returns the relay service's name.
-	// This method may be called on a nil pointer.
 	String() string
 
 	// Start starts the relay service.
@@ -25,53 +27,115 @@ type Relay interface {
 	Stop() error
 }
 
-// ServiceConfig stores configurations for client and server services.
+// ServiceConfig is the main configuration structure.
 // It may be marshaled as or unmarshaled from JSON.
 // Call the Start method to start all configured services.
 // Call the Stop method to properly close all running services.
 type ServiceConfig struct {
-	Servers      []ServerConfig        `json:"servers"`
-	Clients      []ClientConfig        `json:"clients"`
-	DNS          []dns.ResolverConfig  `json:"dns"`
-	Router       []router.RouterConfig `json:"router"`
-	UDPBatchMode string                `json:"udpBatchMode"`
+	Servers       []ServerConfig       `json:"servers"`
+	Clients       []ClientConfig       `json:"clients"`
+	DNS           []dns.ResolverConfig `json:"dns"`
+	Router        router.RouterConfig  `json:"router"`
+	UDPBatchMode  string               `json:"udpBatchMode"`
+	UDPPreferIPv6 bool                 `json:"udpPreferIPv6"`
 
 	services []Relay
-	//router   Router
-	logger *zap.Logger
+	router   *router.Router
+	logger   *zap.Logger
 }
 
-// Start starts all configured server (interface) and client (peer) services.
+// Start starts all configured services.
+//
+// Initialization order: clients -> DNS -> router -> servers
 func (sc *ServiceConfig) Start(logger *zap.Logger) error {
-	sc.logger = logger
-
-	// Initialization order: clients -> DNS -> router -> servers
-	serverCount := len(sc.Servers)
-	clientCount := len(sc.Clients)
-	serviceCount := serverCount + clientCount
-	if serviceCount == 0 {
+	if len(sc.Servers) == 0 {
 		return errors.New("no services to start")
 	}
 
-	sc.services = make([]Relay, serviceCount)
-
-	for i := range sc.Servers {
-		s := NewServerService(sc.Servers[i], logger)
-		sc.services[i] = s
-
-		err := s.Start()
-		if err != nil {
-			return fmt.Errorf("failed to start %s: %w", s.String(), err)
+	if len(sc.Clients) == 0 {
+		sc.Clients = []ClientConfig{
+			{
+				Name:      "direct",
+				Protocol:  "direct",
+				EnableTCP: true,
+				DialerTFO: true,
+				EnableUDP: true,
+				MTU:       1500,
+			},
 		}
 	}
 
-	for i := range sc.Clients {
-		c := NewClientService(sc.Clients[i], logger)
-		sc.services[serverCount+i] = c
+	switch sc.UDPBatchMode {
+	case "", "no", "sendmmsg":
+	default:
+		return fmt.Errorf("unknown UDP batch mode: %s", sc.UDPBatchMode)
+	}
 
-		err := c.Start()
+	sc.logger = logger
+
+	tcpClientMap := make(map[string]zerocopy.TCPClient, len(sc.Clients))
+	udpClientMap := make(map[string]zerocopy.UDPClient, len(sc.Clients))
+
+	for _, clientConfig := range sc.Clients {
+		tcpClient, err := clientConfig.TCPClient(logger)
+		switch err {
+		case errNetworkDisabled:
+		case nil:
+			tcpClientMap[clientConfig.Name] = tcpClient
+		default:
+			return fmt.Errorf("failed to create TCP client for %s: %w", clientConfig.Name, err)
+		}
+
+		udpClient, err := clientConfig.UDPClient(logger, sc.UDPPreferIPv6)
+		switch err {
+		case errNetworkDisabled:
+		case nil:
+			udpClientMap[clientConfig.Name] = udpClient
+		default:
+			return fmt.Errorf("failed to create UDP client for %s: %w", clientConfig.Name, err)
+		}
+	}
+
+	resolverNames := make([]string, len(sc.DNS))
+	resolverMap := make(map[string]*dns.Resolver, len(sc.DNS))
+
+	for i, resolverConfig := range sc.DNS {
+		resolver, err := resolverConfig.Resolver(tcpClientMap, udpClientMap, logger)
 		if err != nil {
-			return fmt.Errorf("failed to start %s: %w", c.String(), err)
+			return fmt.Errorf("failed to create DNS resolver %s: %w", resolverConfig.Name, err)
+		}
+
+		resolverNames[i] = resolverConfig.Name
+		resolverMap[resolverConfig.Name] = resolver
+	}
+
+	sc.router = router.NewRouter(logger, sc.Router, resolverNames, resolverMap, tcpClientMap, udpClientMap)
+
+	sc.services = make([]Relay, 0, 2*len(sc.Servers))
+
+	for _, serverConfig := range sc.Servers {
+		tcpRelay, err := serverConfig.TCPRelay(sc.router, logger)
+		switch err {
+		case errNetworkDisabled:
+		case nil:
+			sc.services = append(sc.services, tcpRelay)
+		default:
+			return fmt.Errorf("failed to create TCP relay service for %s: %w", serverConfig.Name, err)
+		}
+
+		udpRelay, err := serverConfig.UDPRelay(sc.UDPBatchMode, sc.UDPPreferIPv6, sc.router, logger)
+		switch err {
+		case errNetworkDisabled:
+		case nil:
+			sc.services = append(sc.services, udpRelay)
+		default:
+			return fmt.Errorf("failed to create UDP relay service for %s: %w", serverConfig.Name, err)
+		}
+	}
+
+	for _, service := range sc.services {
+		if err := service.Start(); err != nil {
+			return fmt.Errorf("failed to start %s: %w", service.String(), err)
 		}
 	}
 

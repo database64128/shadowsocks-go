@@ -8,11 +8,20 @@ import (
 )
 
 const (
+	// minimumMTU is the minimum allowed MTU.
+	minimumMTU = 1280
+
 	// sendChannelCapacity defines NAT entry's send channel capacity.
 	sendChannelCapacity = 1024
 
 	// natTimeout is the duration after which an inactive NAT entry is evicted.
 	natTimeout = 5 * time.Minute
+
+	// fixedFrontHeadroom is the fixed amount of bytes to reserve at the front of the receive buffer.
+	fixedFrontHeadroom = 1024
+
+	// fixedRearHeadroom is the fixed amount of bytes to reserve at the back of the receive buffer.
+	fixedRearHeadroom = 16
 )
 
 // Used in packet size calculations.

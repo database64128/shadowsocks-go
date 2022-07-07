@@ -35,15 +35,10 @@ type TCPServer struct {
 	targetAddr socks5.Addr
 }
 
-func NewTCPServer(targetAddress string) (*TCPServer, error) {
-	targetAddr, err := socks5.ParseAddr(targetAddress)
-	if err != nil {
-		return nil, err
-	}
-
+func NewTCPServer(targetAddr socks5.Addr) *TCPServer {
 	return &TCPServer{
 		targetAddr: targetAddr,
-	}, nil
+	}
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.

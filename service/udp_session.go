@@ -58,18 +58,15 @@ type UDPSessionRelay struct {
 func NewUDPSessionRelay(
 	batchMode, serverName, listenAddress string,
 	listenerFwmark, mtu int,
+	preferIPv6 bool,
 	server zerocopy.UDPServer,
 	router *router.Router,
 	logger *zap.Logger,
 ) (*UDPSessionRelay, error) {
-	if mtu < 1280 {
-		return nil, ErrMTUTooSmall
-	}
-
 	packetBufSize := mtu - IPv4HeaderLength - UDPHeaderLength
 	packetBufPool := &sync.Pool{
 		New: func() any {
-			b := make([]byte, packetBufSize)
+			b := make([]byte, fixedFrontHeadroom+packetBufSize+fixedRearHeadroom)
 			return &b
 		},
 	}
@@ -80,6 +77,7 @@ func NewUDPSessionRelay(
 		listenAddress:  listenAddress,
 		listenerFwmark: listenerFwmark,
 		mtu:            mtu,
+		preferIPv6:     preferIPv6,
 		server:         server,
 		router:         router,
 		logger:         logger,
@@ -115,8 +113,9 @@ func (s *UDPSessionRelay) Start() error {
 		for {
 			packetBufp := s.packetBufPool.Get().(*[]byte)
 			packetBuf := *packetBufp
+			recvBuf := packetBuf[fixedFrontHeadroom : len(packetBuf)-fixedRearHeadroom]
 
-			n, oobn, flags, clientAddrPort, err := s.serverConn.ReadMsgUDPAddrPort(packetBuf, oobBuf)
+			n, oobn, flags, clientAddrPort, err := s.serverConn.ReadMsgUDPAddrPort(recvBuf, oobBuf)
 			if err != nil {
 				if errors.Is(err, net.ErrClosed) {
 					s.packetBufPool.Put(packetBufp)
@@ -188,7 +187,7 @@ func (s *UDPSessionRelay) Start() error {
 					continue
 				}
 
-				targetAddr, payloadStart, payloadLength, err = serverConnUnpacker.UnpackInPlace(packetBuf, 0, n)
+				targetAddr, payloadStart, payloadLength, err = serverConnUnpacker.UnpackInPlace(packetBuf, fixedFrontHeadroom, n)
 				if err != nil {
 					s.logger.Warn("Failed to unpack packet",
 						zap.String("server", s.serverName),
@@ -235,9 +234,6 @@ func (s *UDPSessionRelay) Start() error {
 					s.mu.Unlock()
 					continue
 				}
-
-				// Workaround for https://github.com/golang/go/issues/52264
-				natConnFixedTargetAddrPort = conn.Tov4Mappedv6(natConnFixedTargetAddrPort)
 
 				serverConnPacker, err := s.server.NewPacker(csid)
 				if err != nil {
