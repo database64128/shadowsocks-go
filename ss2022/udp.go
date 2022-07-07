@@ -13,35 +13,38 @@ import (
 
 // UDPClient implements the zerocopy UDPClient interface.
 type UDPClient struct {
-	addrPort     netip.AddrPort
-	mtu          int
-	fwmark       int
-	block        cipher.Block
-	cipherConfig *CipherConfig
-	shouldPad    PaddingPolicy
-	eihCiphers   []cipher.Block
-	eihPSKHashes [][IdentityHeaderLength]byte
+	addrPort      netip.AddrPort
+	mtu           int
+	fwmark        int
+	packerBlock   cipher.Block
+	unpackerBlock cipher.Block
+	cipherConfig  *CipherConfig
+	shouldPad     PaddingPolicy
+	eihCiphers    []cipher.Block
+	eihPSKHashes  [][IdentityHeaderLength]byte
 }
 
 func NewUDPClient(addrPort netip.AddrPort, mtu, fwmark int, cipherConfig *CipherConfig, shouldPad PaddingPolicy, eihPSKHashes [][IdentityHeaderLength]byte) *UDPClient {
 	eihCiphers := cipherConfig.NewUDPIdentityHeaderClientCiphers()
+	unpackerBlock := cipherConfig.NewBlock()
 
-	var block cipher.Block
+	var packerBlock cipher.Block
 	if len(eihCiphers) > 0 {
-		block = eihCiphers[0]
+		packerBlock = eihCiphers[0]
 	} else {
-		block = cipherConfig.NewBlock()
+		packerBlock = unpackerBlock
 	}
 
 	return &UDPClient{
-		addrPort:     addrPort,
-		mtu:          mtu,
-		fwmark:       fwmark,
-		block:        block,
-		cipherConfig: cipherConfig,
-		shouldPad:    shouldPad,
-		eihCiphers:   eihCiphers,
-		eihPSKHashes: eihPSKHashes,
+		addrPort:      addrPort,
+		mtu:           mtu,
+		fwmark:        fwmark,
+		packerBlock:   packerBlock,
+		unpackerBlock: unpackerBlock,
+		cipherConfig:  cipherConfig,
+		shouldPad:     shouldPad,
+		eihCiphers:    eihCiphers,
+		eihPSKHashes:  eihPSKHashes,
 	}
 }
 
@@ -58,13 +61,13 @@ func (c *UDPClient) NewSession() (zerocopy.Packer, zerocopy.Unpacker, error) {
 	return &ShadowPacketClientPacker{
 			csid:         csid,
 			aead:         c.cipherConfig.NewAEAD(salt),
-			block:        c.block,
+			block:        c.packerBlock,
 			shouldPad:    c.shouldPad,
 			eihCiphers:   c.eihCiphers,
 			eihPSKHashes: c.eihPSKHashes,
 		}, &ShadowPacketClientUnpacker{
 			csid:         csid,
-			block:        c.block,
+			block:        c.unpackerBlock,
 			cipherConfig: c.cipherConfig,
 		}, nil
 }
@@ -157,7 +160,7 @@ func (s *UDPServer) NewPacker(csid uint64) (zerocopy.Packer, error) {
 		ssid:      ssid,
 		csid:      csid,
 		aead:      s.currentUserCipherConfig.NewAEAD(salt),
-		block:     s.block,
+		block:     s.currentUserCipherConfig.NewBlock(),
 		shouldPad: s.shouldPad,
 	}, nil
 }
