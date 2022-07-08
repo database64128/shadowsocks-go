@@ -24,6 +24,9 @@ type CipherConfig struct {
 	// Client: iPSKs
 	// Server: uPSKs
 	PSKs [][]byte
+
+	// bufferedBlock buffers the block cipher returned by NewBlock.
+	bufferedBlock cipher.Block
 }
 
 func NewCipherConfig(method string, psk []byte, psks [][]byte) (*CipherConfig, error) {
@@ -47,7 +50,7 @@ func NewCipherConfig(method string, psk []byte, psks [][]byte) (*CipherConfig, e
 		}
 	}
 
-	return &CipherConfig{psk, psks}, nil
+	return &CipherConfig{psk, psks, nil}, nil
 }
 
 func NewRandomCipherConfig(method string, keySize, eihCount int) (cipherConfig *CipherConfig, err error) {
@@ -105,11 +108,14 @@ func (c *CipherConfig) NewShadowStreamCipher(salt []byte) *ShadowStreamCipher {
 }
 
 func (c *CipherConfig) NewBlock() cipher.Block {
-	block, err := aes.NewCipher(c.PSK)
-	if err != nil {
-		panic(err)
+	if c.bufferedBlock == nil {
+		var err error
+		c.bufferedBlock, err = aes.NewCipher(c.PSK)
+		if err != nil {
+			panic(err)
+		}
 	}
-	return block
+	return c.bufferedBlock
 }
 
 // NewTCPIdentityHeaderClientCiphers creates block ciphers for a client TCP session's identity headers.
@@ -205,7 +211,7 @@ func (c *CipherConfig) ServerPSKHashMap() map[[IdentityHeaderLength]byte]*Cipher
 	for _, psk := range c.PSKs {
 		hash := blake3.Sum512(psk)
 		truncatedHash := *(*[IdentityHeaderLength]byte)(hash[:])
-		uPSKMap[truncatedHash] = &CipherConfig{psk, nil}
+		uPSKMap[truncatedHash] = &CipherConfig{psk, nil, nil}
 	}
 
 	return uPSKMap
