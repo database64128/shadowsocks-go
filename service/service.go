@@ -109,7 +109,11 @@ func (sc *ServiceConfig) Start(logger *zap.Logger) error {
 		resolverMap[resolverConfig.Name] = resolver
 	}
 
-	sc.router = router.NewRouter(logger, sc.Router, resolverNames, resolverMap, tcpClientMap, udpClientMap)
+	var err error
+	sc.router, err = sc.Router.Router(logger, resolverNames, resolverMap, tcpClientMap, udpClientMap)
+	if err != nil {
+		return fmt.Errorf("failed to create router: %w", err)
+	}
 
 	sc.services = make([]Relay, 0, 2*len(sc.Servers))
 
@@ -145,13 +149,16 @@ func (sc *ServiceConfig) Start(logger *zap.Logger) error {
 // Stop stops all running services.
 func (sc *ServiceConfig) Stop() {
 	for _, s := range sc.services {
-		err := s.Stop()
-		if err != nil {
+		if err := s.Stop(); err != nil {
 			sc.logger.Warn("An error occurred while stopping service",
 				zap.Stringer("service", s),
 				zap.NamedError("stopError", err),
 			)
 		}
 		sc.logger.Info("Stopped service", zap.Stringer("service", s))
+	}
+
+	if err := sc.router.Stop(); err != nil {
+		sc.logger.Warn("An error occurred while stopping router", zap.NamedError("stopError", err))
 	}
 }

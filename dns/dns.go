@@ -106,6 +106,13 @@ func (r *Resolver) Lookup(name string) (Result, error) {
 	r.mu.RUnlock()
 
 	if ok && result.TTL.After(time.Now()) {
+		r.logger.Debug("DNS lookup got result from cache",
+			zap.String("name", name),
+			zap.Time("ttl", result.TTL),
+			zap.Int("v4Count", len(result.IPv4)),
+			zap.Int("v6Count", len(result.IPv6)),
+		)
+
 		return result, nil
 	}
 
@@ -170,6 +177,14 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 	// Try UDP first if available.
 	if r.udpClient != nil {
 		result, minTTL, handled = r.sendQueriesUDP(nameString, q4Pkt, q6Pkt)
+
+		r.logger.Debug("DNS lookup sent queries via UDP",
+			zap.String("name", nameString),
+			zap.Uint32("minTTL", minTTL),
+			zap.Bool("handled", handled),
+			zap.Int("v4Count", len(result.IPv4)),
+			zap.Int("v6Count", len(result.IPv6)),
+		)
 	}
 
 	// Fallback to TCP if UDP failed or is unavailable.
@@ -181,6 +196,14 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 		binary.BigEndian.PutUint16(q6LenBuf, uint16(len(q6Pkt)))
 
 		result, minTTL, handled = r.sendQueriesTCP(nameString, qBuf[:q6PktEnd])
+
+		r.logger.Debug("DNS lookup sent queries via TCP",
+			zap.String("name", nameString),
+			zap.Uint32("minTTL", minTTL),
+			zap.Bool("handled", handled),
+			zap.Int("v4Count", len(result.IPv4)),
+			zap.Int("v6Count", len(result.IPv6)),
+		)
 	}
 
 	if !handled {
@@ -213,12 +236,22 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	}
 
 	// Workaround for https://github.com/golang/go/issues/52264
-	if targetAddrPort.Addr().Is4() {
-		addr6 := targetAddrPort.Addr().As16()
-		ip := netip.AddrFrom16(addr6)
-		port := targetAddrPort.Port()
-		targetAddrPort = netip.AddrPortFrom(ip, port)
+	targetAddrPort = conn.Tov4Mappedv6(targetAddrPort)
+
+	// Create client session.
+	packer, unpacker, err := r.udpClient.NewSession()
+	if err != nil {
+		r.logger.Warn("Failed to create new UDP client session",
+			zap.Stringer("serverAddrPort", r.serverAddrPort),
+			zap.Stringer("targetAddrPort", targetAddrPort),
+			zap.Int("fwmark", fwmark),
+			zap.Error(err),
+		)
+		return
 	}
+
+	frontHeadroom := packer.FrontHeadroom()
+	rearHeadroom := packer.RearHeadroom()
 
 	// Prepare UDP socket.
 	conn, err, serr := conn.ListenUDP("udp", "", false, fwmark)
@@ -257,9 +290,24 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	// Each sender will keep sending at 2s intervals until the stop signal
 	// is received or after 10 iterations.
 	sendFunc := func(pkt []byte, ctrlCh <-chan struct{}) {
+		b := make([]byte, frontHeadroom+len(pkt)+rearHeadroom)
+		serverAddr := socks5.AddrFromAddrPort(r.serverAddrPort)
+
 	write:
 		for i := 0; i < 10; i++ {
-			_, err := conn.WriteToUDPAddrPort(pkt, targetAddrPort)
+			copy(b[frontHeadroom:], pkt)
+			packetStart, packetLength, err := packer.PackInPlace(b, serverAddr, frontHeadroom, len(pkt))
+			if err != nil {
+				r.logger.Warn("Failed to pack packet",
+					zap.String("name", nameString),
+					zap.Stringer("serverAddrPort", r.serverAddrPort),
+					zap.Stringer("targetAddrPort", targetAddrPort),
+					zap.Error(err),
+				)
+				goto cleanup
+			}
+
+			_, err = conn.WriteToUDPAddrPort(b[packetStart:packetStart+packetLength], targetAddrPort)
 			if err != nil {
 				r.logger.Warn("Failed to write query",
 					zap.String("name", nameString),
@@ -268,17 +316,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 					zap.Int("fwmark", fwmark),
 					zap.Error(err),
 				)
-				err = conn.SetReadDeadline(time.Now())
-				if err != nil {
-					r.logger.Warn("Failed to set read deadline",
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Stringer("targetAddrPort", targetAddrPort),
-						zap.Int("fwmark", fwmark),
-						zap.Error(err),
-					)
-				}
-				break
+				goto cleanup
 			}
 
 			time.Sleep(2 * time.Second)
@@ -287,7 +325,21 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 			case <-ctrlCh:
 				break write
 			default:
+				continue write
 			}
+
+		cleanup:
+			err = conn.SetReadDeadline(time.Now())
+			if err != nil {
+				r.logger.Warn("Failed to set read deadline",
+					zap.String("name", nameString),
+					zap.Stringer("serverAddrPort", r.serverAddrPort),
+					zap.Stringer("targetAddrPort", targetAddrPort),
+					zap.Int("fwmark", fwmark),
+					zap.Error(err),
+				)
+			}
+			break
 		}
 	}
 
@@ -326,8 +378,21 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 			continue
 		}
 
+		_, payloadStart, payloadLength, err := unpacker.UnpackInPlace(recvBuf, 0, n)
+		if err != nil {
+			r.logger.Warn("Failed to unpack packet",
+				zap.String("name", nameString),
+				zap.Stringer("serverAddrPort", r.serverAddrPort),
+				zap.Stringer("targetAddrPort", targetAddrPort),
+				zap.Int("fwmark", fwmark),
+				zap.Error(err),
+			)
+			continue
+		}
+		payload := recvBuf[payloadStart : payloadStart+payloadLength]
+
 		// Parse header.
-		header, err := parser.Start(recvBuf[:n])
+		header, err := parser.Start(payload)
 		if err != nil {
 			r.logger.Warn("Failed to parse query response header",
 				zap.String("name", nameString),
