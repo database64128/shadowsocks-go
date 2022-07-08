@@ -491,6 +491,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
 					zap.Stringer("targetAddrPort", targetAddrPort),
+					zap.Stringer("answerType", answerHeader.Type),
 					zap.Uint32("oldMinTTL", minTTL),
 					zap.Uint32("newMinTTL", answerHeader.TTL),
 				)
@@ -544,7 +545,17 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 				result.IPv6 = append(result.IPv6, addr6)
 
 			default:
-				continue
+				err = parser.SkipAnswer()
+				if err != nil {
+					r.logger.Warn("Failed to skip answer",
+						zap.String("name", nameString),
+						zap.Stringer("serverAddrPort", r.serverAddrPort),
+						zap.Stringer("targetAddrPort", targetAddrPort),
+						zap.Stringer("answerType", answerHeader.Type),
+						zap.Error(err),
+					)
+					return
+				}
 			}
 		}
 
@@ -724,6 +735,7 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 				r.logger.Debug("Updating minimum TTL",
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
+					zap.Stringer("answerType", answerHeader.Type),
 					zap.Uint32("oldMinTTL", minTTL),
 					zap.Uint32("newMinTTL", answerHeader.TTL),
 				)
@@ -773,7 +785,16 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 				result.IPv6 = append(result.IPv6, addr6)
 
 			default:
-				continue
+				err = parser.SkipAnswer()
+				if err != nil {
+					r.logger.Warn("Failed to skip answer",
+						zap.String("name", nameString),
+						zap.Stringer("serverAddrPort", r.serverAddrPort),
+						zap.Stringer("answerType", answerHeader.Type),
+						zap.Error(err),
+					)
+					return
+				}
 			}
 		}
 
