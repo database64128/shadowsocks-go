@@ -284,6 +284,14 @@ func TestAddrParseAndToString(t *testing.T) {
 		t.Errorf("Expected: %v\nGot: %v", addr6, []byte(addr))
 	}
 
+	addr, err = ParseAddr(addrDomainNameString)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(addr, addrDomainName) {
+		t.Errorf("Expected: %v\nGot: %v", addrDomainName, []byte(addr))
+	}
+
 	_, err = ParseAddr("abc123")
 	if err == nil {
 		t.Fatal("Parsing invalid address string should return error.")
@@ -306,6 +314,79 @@ func TestAddrParseAndToString(t *testing.T) {
 
 	address = Addr(addrDomainName).String()
 	if address != addrDomainNameString {
+		t.Errorf("Expected: %s\nGot: %s", addrDomainNameString, address)
+	}
+}
+
+func TestAddrUnmarshalAndMarshalText(t *testing.T) {
+	var addr Addr
+
+	err := addr.UnmarshalText([]byte(addr4str))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(addr, addr4) {
+		t.Errorf("Expected: %v\nGot: %v", addr4, []byte(addr))
+	}
+
+	err = addr.UnmarshalText([]byte(addr4in6str))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(addr, addr4) {
+		t.Errorf("Expected: %v\nGot: %v", addr4, []byte(addr))
+	}
+
+	err = addr.UnmarshalText([]byte(addr6str))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(addr, addr6) {
+		t.Errorf("Expected: %v\nGot: %v", addr6, []byte(addr))
+	}
+
+	err = addr.UnmarshalText([]byte(addrDomainNameString))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(addr, addrDomainName) {
+		t.Errorf("Expected: %v\nGot: %v", addrDomainName, []byte(addr))
+	}
+
+	err = addr.UnmarshalText([]byte("abc123"))
+	if err == nil {
+		t.Fatal("Parsing invalid address string should return error.")
+	}
+
+	address, err := Addr(addr4).MarshalText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(address) != addr4str {
+		t.Errorf("Expected: %s\nGot: %s", addr4str, address)
+	}
+
+	address, err = Addr(addr4in6).MarshalText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(address) != addr4str {
+		t.Errorf("Expected: %s\nGot: %s", addr4str, address)
+	}
+
+	address, err = Addr(addr6).MarshalText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(address) != addr6str {
+		t.Errorf("Expected: %s\nGot: %s", addr6str, address)
+	}
+
+	address, err = Addr(addrDomainName).MarshalText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(address) != addrDomainNameString {
 		t.Errorf("Expected: %s\nGot: %s", addrDomainNameString, address)
 	}
 }

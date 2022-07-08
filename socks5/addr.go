@@ -141,6 +141,21 @@ func (a Addr) String() string {
 	}
 }
 
+// MarshalText implements the encoding.TextMarshaler interface.
+func (a Addr) MarshalText() ([]byte, error) {
+	return []byte(a.String()), nil
+}
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface.
+func (a *Addr) UnmarshalText(text []byte) error {
+	addr, err := ParseAddr(string(text))
+	if err != nil {
+		return err
+	}
+	*a = addr
+	return nil
+}
+
 // WriteAddrPortAsSocksAddr converts a netip.AddrPort into a SOCKS address
 // and stores it in the buffer.
 //
