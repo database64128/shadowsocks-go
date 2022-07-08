@@ -275,7 +275,10 @@ func NewRouter(disableNameResolutionForIPRules bool, geoip *geoip2.Reader, logge
 
 // Stop stops the router.
 func (r *Router) Stop() error {
-	return r.geoip.Close()
+	if r.geoip != nil {
+		return r.geoip.Close()
+	}
+	return nil
 }
 
 // GetTCPClient returns the zerocopy.TCPClient for a TCP request received by serverName
