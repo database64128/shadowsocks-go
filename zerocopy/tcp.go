@@ -14,6 +14,9 @@ import (
 type Conn interface {
 	ReadWriter
 
+	// Unwrap returns the underlying ReadWriter.
+	Unwrap() ReadWriter
+
 	// LocalAddr returns the local network address, if known.
 	LocalAddr() net.Addr
 
@@ -94,6 +97,11 @@ func NewTFOConn(rw ReadWriter, conn tfo.Conn) *TFOConn {
 		ReadWriter: rw,
 		conn:       conn,
 	}
+}
+
+// Unwrap implements the Conn Unwrap method.
+func (c *TFOConn) Unwrap() ReadWriter {
+	return c.ReadWriter
 }
 
 // LocalAddr implements the Conn LocalAddr method.
