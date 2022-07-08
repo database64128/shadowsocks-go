@@ -35,7 +35,7 @@ func newTestReader(t *testing.T) (*testReader, []byte) {
 	}, bcopy
 }
 
-func (r *testReader) MinimumPayloadBufferSize() int {
+func (r *testReader) MinPayloadBufferSizePerRead() int {
 	return 0
 }
 
@@ -60,7 +60,7 @@ func newTestBigReader(t *testing.T) (*testBigReader, []byte) {
 	}, b
 }
 
-func (r *testBigReader) MinimumPayloadBufferSize() int {
+func (r *testBigReader) MinPayloadBufferSizePerRead() int {
 	return 64
 }
 
@@ -113,7 +113,7 @@ func newTestWriter(t *testing.T) *testWriter {
 	}
 }
 
-func (w *testWriter) MaximumPayloadBufferSize() int {
+func (w *testWriter) MaxPayloadSizePerWrite() int {
 	return 0
 }
 
@@ -141,7 +141,7 @@ func newTestSmallWriter(t *testing.T) *testSmallWriter {
 	}
 }
 
-func (w *testSmallWriter) MaximumPayloadBufferSize() int {
+func (w *testSmallWriter) MaxPayloadSizePerWrite() int {
 	return 32
 }
 

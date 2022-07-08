@@ -10,17 +10,19 @@ import (
 type Reader interface {
 	Headroom
 
-	// MinimumPayloadBufferSize returns the minimum size of payload buffer
-	// the ReadZeroCopy method requires.
+	// MinPayloadBufferSizePerRead returns the minimum size of payload buffer
+	// the ReadZeroCopy method requires for an unbuffered read.
 	//
 	// This is usually required by chunk-based protocols to be able to read
 	// whole chunks without needing internal caching.
-	MinimumPayloadBufferSize() int
+	MinPayloadBufferSizePerRead() int
 
 	// ReadZeroCopy uses b as buffer space to initiate a read operation.
 	//
 	// b must have at least FrontOverhead() bytes before payloadBufStart
 	// and RearOverhead() bytes after payloadBufStart + payloadBufLen.
+	//
+	// payloadBufLen must be at least MinPayloadBufferSizePerRead().
 	//
 	// The read operation may use the whole space of b.
 	// The actual payload will be confined in [payloadBufStart, payloadBufLen).
@@ -35,19 +37,21 @@ type Reader interface {
 type Writer interface {
 	Headroom
 
-	// MaximumPayloadBufferSize returns the maximum size of payload buffer
-	// the WriteZeroCopy method can accept.
+	// MaxPayloadSizePerWrite returns the maximum size of payload
+	// the WriteZeroCopy method can write at a time.
 	//
 	// This is usually required by chunk-based protocols to be able to write
 	// one chunk at a time without needing to break up the payload.
 	//
 	// If there isn't a maximum limit, return 0.
-	MaximumPayloadBufferSize() int
+	MaxPayloadSizePerWrite() int
 
 	// WriteZeroCopy uses b as buffer space to initiate a write operation.
 	//
 	// b must have at least FrontOverhead() bytes before payloadBufStart
 	// and RearOverhead() bytes after payloadBufStart + payloadBufLen.
+	//
+	// payloadLen must not be greater than MaxPayloadSizePerWrite().
 	//
 	// The write operation may use the whole space of b.
 	WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error)
@@ -99,25 +103,25 @@ func Relay(w Writer, r Reader) (n int64, err error) {
 	}
 
 	// Check payload buffer size requirement compatibility.
-	minPayloadBufSize := r.MinimumPayloadBufferSize()
-	maxPayloadBufSize := w.MaximumPayloadBufferSize()
-	if maxPayloadBufSize == 0 {
-		maxPayloadBufSize = minPayloadBufSize
-		if maxPayloadBufSize == 0 {
-			maxPayloadBufSize = 32768 // The same default buffer size as io.Copy.
+	readMaxPayloadSize := r.MinPayloadBufferSizePerRead()
+	writeMaxPayloadSize := w.MaxPayloadSizePerWrite()
+	if writeMaxPayloadSize == 0 {
+		writeMaxPayloadSize = readMaxPayloadSize
+		if writeMaxPayloadSize == 0 {
+			writeMaxPayloadSize = 32768 // The same default buffer size as io.Copy.
 		}
 	}
-	if minPayloadBufSize > maxPayloadBufSize {
-		return relayFallback(w, r, frontHeadroom, rearHeadroom, minPayloadBufSize, maxPayloadBufSize)
+	if readMaxPayloadSize > writeMaxPayloadSize {
+		return relayFallback(w, r, frontHeadroom, rearHeadroom, readMaxPayloadSize, writeMaxPayloadSize)
 	}
 
 	// Make buffer.
-	b := make([]byte, frontHeadroom+maxPayloadBufSize+rearHeadroom)
+	b := make([]byte, frontHeadroom+writeMaxPayloadSize+rearHeadroom)
 
 	// Main relay loop.
 	for {
 		var payloadLen int
-		payloadLen, err = r.ReadZeroCopy(b, frontHeadroom, maxPayloadBufSize)
+		payloadLen, err = r.ReadZeroCopy(b, frontHeadroom, writeMaxPayloadSize)
 		if payloadLen == 0 {
 			if err == io.EOF {
 				err = nil
@@ -141,13 +145,13 @@ func Relay(w Writer, r Reader) (n int64, err error) {
 }
 
 // relayFallback uses copying to handle situations where the reader requires more payload buffer space than the writer can handle in one write call.
-func relayFallback(w Writer, r Reader, frontHeadroom, rearHeadroom, readPayloadBufSize, writePayloadBufSize int) (n int64, err error) {
-	br := make([]byte, frontHeadroom+readPayloadBufSize+rearHeadroom)
-	bw := make([]byte, frontHeadroom+writePayloadBufSize+rearHeadroom)
+func relayFallback(w Writer, r Reader, frontHeadroom, rearHeadroom, readMaxPayloadSize, writeMaxPayloadSize int) (n int64, err error) {
+	br := make([]byte, frontHeadroom+readMaxPayloadSize+rearHeadroom)
+	bw := make([]byte, frontHeadroom+writeMaxPayloadSize+rearHeadroom)
 
 	for {
 		var payloadLen int
-		payloadLen, err = r.ReadZeroCopy(br, frontHeadroom, readPayloadBufSize)
+		payloadLen, err = r.ReadZeroCopy(br, frontHeadroom, readMaxPayloadSize)
 		if payloadLen == 0 {
 			if err == io.EOF {
 				err = nil
@@ -156,7 +160,7 @@ func relayFallback(w Writer, r Reader, frontHeadroom, rearHeadroom, readPayloadB
 		}
 
 		// Short-circuit to avoid copying if payload can fit in one write.
-		if payloadLen <= writePayloadBufSize {
+		if payloadLen <= writeMaxPayloadSize {
 			payloadWritten, werr := w.WriteZeroCopy(br, frontHeadroom, payloadLen)
 			n += int64(payloadWritten)
 			if werr != nil {
@@ -170,7 +174,7 @@ func relayFallback(w Writer, r Reader, frontHeadroom, rearHeadroom, readPayloadB
 
 		// Loop until all of br[frontHeadroom : frontHeadroom+payloadLen] is written.
 		for i, j := 0, 0; i < payloadLen; i += j {
-			j = copy(bw[frontHeadroom:frontHeadroom+writePayloadBufSize], br[frontHeadroom+i:frontHeadroom+payloadLen])
+			j = copy(bw[frontHeadroom:frontHeadroom+writeMaxPayloadSize], br[frontHeadroom+i:frontHeadroom+payloadLen])
 			payloadWritten, werr := w.WriteZeroCopy(bw, frontHeadroom, j)
 			n += int64(payloadWritten)
 			if werr != nil {
@@ -264,11 +268,11 @@ func ReadWriterTestFunc(t *testing.T, l, r ReadWriter) {
 
 	lfh := l.FrontHeadroom()
 	lrh := l.RearHeadroom()
-	lmax := l.MaximumPayloadBufferSize()
+	lmax := l.MaxPayloadSizePerWrite()
 	if lmax == 0 {
 		lmax = 5
 	}
-	lmin := l.MinimumPayloadBufferSize()
+	lmin := l.MinPayloadBufferSizePerRead()
 	if lmin == 0 {
 		lmin = 5
 	}
@@ -277,11 +281,11 @@ func ReadWriterTestFunc(t *testing.T, l, r ReadWriter) {
 
 	rfh := r.FrontHeadroom()
 	rrh := r.RearHeadroom()
-	rmax := r.MaximumPayloadBufferSize()
+	rmax := r.MaxPayloadSizePerWrite()
 	if rmax == 0 {
 		rmax = 5
 	}
-	rmin := r.MinimumPayloadBufferSize()
+	rmin := r.MinPayloadBufferSizePerRead()
 	if rmin == 0 {
 		rmin = 5
 	}
@@ -431,12 +435,12 @@ type CopyReadWriter struct {
 }
 
 func NewCopyReadWriter(rw ReadWriter) *CopyReadWriter {
-	readBufSize := rw.MinimumPayloadBufferSize()
+	readBufSize := rw.MinPayloadBufferSizePerRead()
 	if readBufSize == 0 {
 		readBufSize = 32768
 	}
 
-	writeBufSize := rw.MaximumPayloadBufferSize()
+	writeBufSize := rw.MaxPayloadSizePerWrite()
 	if writeBufSize == 0 {
 		writeBufSize = 32768
 	}

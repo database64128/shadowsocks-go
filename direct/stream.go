@@ -19,8 +19,8 @@ type DirectStreamReadWriter struct {
 	rw zerocopy.DirectReadWriteCloser
 }
 
-// MaximumPayloadBufferSize implements the Writer MaximumPayloadBufferSize method.
-func (rw *DirectStreamReadWriter) MaximumPayloadBufferSize() int {
+// MaxPayloadSizePerWrite implements the Writer MaxPayloadSizePerWrite method.
+func (rw *DirectStreamReadWriter) MaxPayloadSizePerWrite() int {
 	return 0
 }
 
@@ -35,8 +35,8 @@ func (rw *DirectStreamReadWriter) DirectWriteCloser() io.WriteCloser {
 	return rw.rw
 }
 
-// MinimumPayloadBufferSize implements the Reader MinimumPayloadBufferSize method.
-func (rw *DirectStreamReadWriter) MinimumPayloadBufferSize() int {
+// MinPayloadBufferSizePerRead implements the Reader MinPayloadBufferSizePerRead method.
+func (rw *DirectStreamReadWriter) MinPayloadBufferSizePerRead() int {
 	return 0
 }
 

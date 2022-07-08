@@ -11,6 +11,8 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
+const MaxPayloadSize = 0xFFFF
+
 var (
 	ErrZeroLengthChunk = errors.New("length in length chunk is zero")
 	ErrFirstRead       = errors.New("failed to read fixed-length header in one read call")
@@ -128,14 +130,14 @@ func (rw *ShadowStreamServerReadWriter) RearHeadroom() int {
 	return rw.r.RearHeadroom()
 }
 
-// MaximumPayloadBufferSize implements the Writer MaximumPayloadBufferSize method.
-func (rw *ShadowStreamServerReadWriter) MaximumPayloadBufferSize() int {
-	return rw.r.MinimumPayloadBufferSize()
+// MaxPayloadSizePerWrite implements the Writer MaxPayloadSizePerWrite method.
+func (rw *ShadowStreamServerReadWriter) MaxPayloadSizePerWrite() int {
+	return rw.r.MinPayloadBufferSizePerRead()
 }
 
-// MinimumPayloadBufferSize implements the Reader MinimumPayloadBufferSize method.
-func (rw *ShadowStreamServerReadWriter) MinimumPayloadBufferSize() int {
-	return rw.r.MinimumPayloadBufferSize()
+// MinPayloadBufferSizePerRead implements the Reader MinPayloadBufferSizePerRead method.
+func (rw *ShadowStreamServerReadWriter) MinPayloadBufferSizePerRead() int {
+	return rw.r.MinPayloadBufferSizePerRead()
 }
 
 // WriteZeroCopy implements the Writer WriteZeroCopy method.
@@ -228,7 +230,7 @@ func NewShadowStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 		excessivePayload       []byte
 	)
 
-	roomForPayload := 0xFFFF - len(targetAddr) - 2
+	roomForPayload := MaxPayloadSize - len(targetAddr) - 2
 
 	switch {
 	case len(payload) > roomForPayload:
@@ -321,14 +323,14 @@ func (rw *ShadowStreamClientReadWriter) RearHeadroom() int {
 	return rw.w.RearHeadroom()
 }
 
-// MaximumPayloadBufferSize implements the Writer MaximumPayloadBufferSize method.
-func (rw *ShadowStreamClientReadWriter) MaximumPayloadBufferSize() int {
-	return rw.w.MaximumPayloadBufferSize()
+// MaxPayloadSizePerWrite implements the Writer MaxPayloadSizePerWrite method.
+func (rw *ShadowStreamClientReadWriter) MaxPayloadSizePerWrite() int {
+	return rw.w.MaxPayloadSizePerWrite()
 }
 
-// MinimumPayloadBufferSize implements the Reader MinimumPayloadBufferSize method.
-func (rw *ShadowStreamClientReadWriter) MinimumPayloadBufferSize() int {
-	return rw.w.MaximumPayloadBufferSize()
+// MinPayloadBufferSizePerRead implements the Reader MinPayloadBufferSizePerRead method.
+func (rw *ShadowStreamClientReadWriter) MinPayloadBufferSizePerRead() int {
+	return rw.w.MaxPayloadSizePerWrite()
 }
 
 // WriteZeroCopy implements the Writer WriteZeroCopy method.
@@ -438,9 +440,9 @@ func (w *ShadowStreamWriter) RearHeadroom() int {
 	return w.ssc.Overhead()
 }
 
-// MaximumPayloadBufferSize implements the Writer MaximumPayloadBufferSize method.
-func (w *ShadowStreamWriter) MaximumPayloadBufferSize() int {
-	return w.FrontHeadroom() + 0xFFFF + w.RearHeadroom()
+// MaxPayloadSizePerWrite implements the Writer MaxPayloadSizePerWrite method.
+func (w *ShadowStreamWriter) MaxPayloadSizePerWrite() int {
+	return MaxPayloadSize
 }
 
 // WriteZeroCopy implements the Writer WriteZeroCopy method.
@@ -491,9 +493,9 @@ func (r *ShadowStreamReader) RearHeadroom() int {
 	return r.ssc.Overhead()
 }
 
-// MinimumPayloadBufferSize implements the Reader MinimumPayloadBufferSize method.
-func (r *ShadowStreamReader) MinimumPayloadBufferSize() int {
-	return r.FrontHeadroom() + 0xFFFF + r.RearHeadroom()
+// MinPayloadBufferSizePerRead implements the Reader MinPayloadBufferSizePerRead method.
+func (r *ShadowStreamReader) MinPayloadBufferSizePerRead() int {
+	return MaxPayloadSize
 }
 
 // ReadZeroCopy implements the Reader ReadZeroCopy method.
