@@ -76,6 +76,9 @@ type Resolver struct {
 	// cache is the DNS cache map.
 	cache map[string]Result
 
+	// serverAddr is the upstream server's address and port in SOCKS address format.
+	serverAddr socks5.Addr
+
 	// serverAddrPort is the upstream server's address and port.
 	serverAddrPort netip.AddrPort
 
@@ -92,6 +95,7 @@ type Resolver struct {
 func NewResolver(serverAddrPort netip.AddrPort, tcpClient zerocopy.TCPClient, udpClient zerocopy.UDPClient, logger *zap.Logger) *Resolver {
 	return &Resolver{
 		cache:          make(map[string]Result),
+		serverAddr:     socks5.AddrFromAddrPort(serverAddrPort),
 		serverAddrPort: serverAddrPort,
 		tcpClient:      tcpClient,
 		udpClient:      udpClient,
@@ -291,12 +295,11 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	// is received or after 10 iterations.
 	sendFunc := func(pkt []byte, ctrlCh <-chan struct{}) {
 		b := make([]byte, frontHeadroom+len(pkt)+rearHeadroom)
-		serverAddr := socks5.AddrFromAddrPort(r.serverAddrPort)
 
 	write:
 		for i := 0; i < 10; i++ {
 			copy(b[frontHeadroom:], pkt)
-			packetStart, packetLength, err := packer.PackInPlace(b, serverAddr, frontHeadroom, len(pkt))
+			packetStart, packetLength, err := packer.PackInPlace(b, r.serverAddr, frontHeadroom, len(pkt))
 			if err != nil {
 				r.logger.Warn("Failed to pack packet",
 					zap.String("name", nameString),
@@ -583,7 +586,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 // It's the caller's responsibility to examine the minTTL and decide whether to cache the result.
 func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Result, minTTL uint32, handled bool) {
 	// Write.
-	rwConn, err := r.tcpClient.Dial(socks5.AddrFromAddrPort(r.serverAddrPort), queries)
+	rwConn, err := r.tcpClient.Dial(r.serverAddr, queries)
 	if err != nil {
 		r.logger.Warn("Failed to dial DNS server",
 			zap.String("name", nameString),
