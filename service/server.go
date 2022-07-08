@@ -157,9 +157,9 @@ func (sc *ServerConfig) UDPRelay(batchMode string, preferIPv6 bool, router *rout
 
 	switch sc.Protocol {
 	case "direct", "none", "plain", "socks5":
-		return NewUDPNATRelay(batchMode, sc.Name, sc.Listen, sc.ListenerFwmark, sc.MTU, preferIPv6, serverPackUnpacker, serverPackUnpacker, router, logger)
+		return NewUDPNATRelay(batchMode, sc.Name, sc.Listen, sc.ListenerFwmark, sc.MTU, preferIPv6, serverPackUnpacker, serverPackUnpacker, router, logger), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		return NewUDPSessionRelay(batchMode, sc.Name, sc.Listen, sc.ListenerFwmark, sc.MTU, preferIPv6, server, router, logger)
+		return NewUDPSessionRelay(batchMode, sc.Name, sc.Listen, sc.ListenerFwmark, sc.MTU, preferIPv6, server, router, logger), nil
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}

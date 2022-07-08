@@ -27,8 +27,6 @@ type natEntry struct {
 	natConnUnpacker               zerocopy.Unpacker
 	natConnFixedTargetAddrPort    netip.AddrPort
 	natConnUseFixedTargetAddrPort bool
-	natConnLastTargetAddr         socks5.Addr
-	natConnLastTargetAddrPort     netip.AddrPort
 	maxClientPacketSize           int
 }
 
@@ -36,21 +34,22 @@ type natEntry struct {
 //
 // Incoming UDP packets are dispatched to NAT sessions based on the source address and port.
 type UDPNATRelay struct {
-	batchMode      string
-	serverName     string
-	listenAddress  string
-	listenerFwmark int
-	mtu            int
-	preferIPv6     bool
-	serverPacker   zerocopy.Packer
-	serverUnpacker zerocopy.Unpacker
-	serverConn     *net.UDPConn
-	router         *router.Router
-	logger         *zap.Logger
-	packetBufPool  *sync.Pool
-	mu             sync.Mutex
-	wg             sync.WaitGroup
-	table          map[netip.AddrPort]*natEntry
+	serverName               string
+	listenAddress            string
+	listenerFwmark           int
+	mtu                      int
+	preferIPv6               bool
+	serverPacker             zerocopy.Packer
+	serverUnpacker           zerocopy.Unpacker
+	serverConn               *net.UDPConn
+	router                   *router.Router
+	logger                   *zap.Logger
+	packetBufPool            *sync.Pool
+	mu                       sync.Mutex
+	wg                       sync.WaitGroup
+	table                    map[netip.AddrPort]*natEntry
+	relayServerConnToNatConn func(clientAddrPort netip.AddrPort, entry *natEntry)
+	relayNatConnToServerConn func(clientAddrPort netip.AddrPort, entry *natEntry)
 }
 
 func NewUDPNATRelay(
@@ -61,7 +60,7 @@ func NewUDPNATRelay(
 	serverUnpacker zerocopy.Unpacker,
 	router *router.Router,
 	logger *zap.Logger,
-) (*UDPNATRelay, error) {
+) *UDPNATRelay {
 	packetBufSize := mtu - IPv4HeaderLength - UDPHeaderLength
 	packetBufPool := &sync.Pool{
 		New: func() any {
@@ -69,9 +68,7 @@ func NewUDPNATRelay(
 			return &b
 		},
 	}
-
-	return &UDPNATRelay{
-		batchMode:      batchMode,
+	s := UDPNATRelay{
 		serverName:     serverName,
 		listenAddress:  listenAddress,
 		listenerFwmark: listenerFwmark,
@@ -83,7 +80,10 @@ func NewUDPNATRelay(
 		logger:         logger,
 		packetBufPool:  packetBufPool,
 		table:          make(map[netip.AddrPort]*natEntry),
-	}, nil
+	}
+	s.setRelayServerConnToNatConnFunc(batchMode)
+	s.setRelayNatConnToServerConnFunc(batchMode)
+	return &s
 }
 
 // String implements the Service String method.
@@ -256,7 +256,7 @@ func (s *UDPNATRelay) Start() error {
 				s.wg.Add(2)
 
 				go func() {
-					s.relayNatConnToServerConnGeneric(clientAddrPort, entry)
+					s.relayNatConnToServerConn(clientAddrPort, entry)
 
 					s.mu.Lock()
 					close(entry.natConnSendCh)
@@ -267,7 +267,7 @@ func (s *UDPNATRelay) Start() error {
 				}()
 
 				go func() {
-					s.relayServerConnToNatConnGeneric(clientAddrPort, entry)
+					s.relayServerConnToNatConn(clientAddrPort, entry)
 					entry.natConn.Close()
 					s.wg.Done()
 				}()
@@ -318,6 +318,16 @@ func (s *UDPNATRelay) Start() error {
 }
 
 func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrPort, entry *natEntry) {
+	// Cache the last used target address.
+	//
+	// When the target address is a domain, it is very likely that the target address won't change
+	// throughout the lifetime of the session. In this case, caching the target address can eliminate
+	// the per-packet DNS lookup overhead.
+	var (
+		cachedTargetAddr     socks5.Addr
+		cachedTargetAddrPort netip.AddrPort = entry.natConnFixedTargetAddrPort
+	)
+
 	for {
 		queuedPacket, ok := <-entry.natConnSendCh
 		if !ok {
@@ -338,42 +348,36 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrP
 			continue
 		}
 
-		targetAddrPort := entry.natConnFixedTargetAddrPort
-		if !entry.natConnUseFixedTargetAddrPort {
-			// Try cached targetAddrPort first.
-			if bytes.Equal(entry.natConnLastTargetAddr, queuedPacket.targetAddr) {
-				targetAddrPort = entry.natConnLastTargetAddrPort
-			} else {
-				targetAddrPort, err = queuedPacket.targetAddr.AddrPort(s.preferIPv6)
-				if err != nil {
-					s.logger.Warn("Failed to get target address port",
-						zap.String("server", s.serverName),
-						zap.String("listenAddress", s.listenAddress),
-						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", queuedPacket.targetAddr),
-						zap.Error(err),
-					)
+		if !entry.natConnUseFixedTargetAddrPort && !bytes.Equal(cachedTargetAddr, queuedPacket.targetAddr) {
+			targetAddrPort, err := queuedPacket.targetAddr.AddrPort(s.preferIPv6)
+			if err != nil {
+				s.logger.Warn("Failed to get target address port",
+					zap.String("server", s.serverName),
+					zap.String("listenAddress", s.listenAddress),
+					zap.Stringer("clientAddress", clientAddrPort),
+					zap.Stringer("targetAddress", queuedPacket.targetAddr),
+					zap.Error(err),
+				)
 
-					s.packetBufPool.Put(queuedPacket.bufp)
-					continue
-				}
-
-				// Workaround for https://github.com/golang/go/issues/52264
-				targetAddrPort = conn.Tov4Mappedv6(targetAddrPort)
-
-				entry.natConnLastTargetAddr = queuedPacket.targetAddr
-				entry.natConnLastTargetAddrPort = targetAddrPort
+				s.packetBufPool.Put(queuedPacket.bufp)
+				continue
 			}
+
+			// Workaround for https://github.com/golang/go/issues/52264
+			targetAddrPort = conn.Tov4Mappedv6(targetAddrPort)
+
+			cachedTargetAddr = queuedPacket.targetAddr
+			cachedTargetAddrPort = targetAddrPort
 		}
 
-		_, err = entry.natConn.WriteToUDPAddrPort((*queuedPacket.bufp)[packetStart:packetStart+packetLength], targetAddrPort)
+		_, err = entry.natConn.WriteToUDPAddrPort((*queuedPacket.bufp)[packetStart:packetStart+packetLength], cachedTargetAddrPort)
 		if err != nil {
 			s.logger.Warn("Failed to write packet to natConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
 				zap.Stringer("targetAddress", queuedPacket.targetAddr),
-				zap.Stringer("writeTargetAddress", targetAddrPort),
+				zap.Stringer("writeTargetAddress", cachedTargetAddrPort),
 				zap.Error(err),
 			)
 		}
