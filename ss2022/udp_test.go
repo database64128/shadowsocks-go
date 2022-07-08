@@ -78,9 +78,14 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 	if err != nil {
 		t.Fatal(err)
 	}
-	ta, ps, pl, err := serverUnpacker.UnpackInPlace(b, pkts, pktl)
+	ta, hta, ps, pl, err := serverUnpacker.UnpackInPlace(b, pkts, pktl)
 	if err != nil {
 		t.Error(err)
+	}
+
+	// Check hasTargetAddr.
+	if !hta {
+		t.Error("hasTargetAddr should be true.")
 	}
 
 	// Check target address.
@@ -112,9 +117,14 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 	}
 
 	// Client unpacks.
-	ta, ps, pl, err = clientUnpacker.UnpackInPlace(b, pkts, pktl)
+	ta, hta, ps, pl, err = clientUnpacker.UnpackInPlace(b, pkts, pktl)
 	if err != nil {
 		t.Error(err)
+	}
+
+	// Check hasTargetAddr.
+	if !hta {
+		t.Error("hasTargetAddr should be true.")
 	}
 
 	// Check target address.

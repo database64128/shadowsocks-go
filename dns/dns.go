@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -381,7 +382,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 			continue
 		}
 
-		_, payloadStart, payloadLength, err := unpacker.UnpackInPlace(recvBuf, 0, n)
+		serverAddr, hasServerAddr, payloadStart, payloadLength, err := unpacker.UnpackInPlace(recvBuf, 0, n)
 		if err != nil {
 			r.logger.Warn("Failed to unpack packet",
 				zap.String("name", nameString),
@@ -389,6 +390,14 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 				zap.Stringer("targetAddrPort", targetAddrPort),
 				zap.Int("fwmark", fwmark),
 				zap.Error(err),
+			)
+			continue
+		}
+		if hasServerAddr && !bytes.Equal(serverAddr, r.serverAddr) {
+			r.logger.Warn("Ignoring packet from unknown server",
+				zap.String("name", nameString),
+				zap.Stringer("serverAddrPort", r.serverAddrPort),
+				zap.Stringer("packetAddrPort", serverAddr),
 			)
 			continue
 		}

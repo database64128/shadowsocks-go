@@ -147,7 +147,7 @@ func (s *UDPNATRelay) Start() error {
 			// Workaround for https://github.com/golang/go/issues/52264
 			clientAddrPort = conn.Tov4Mappedv6(clientAddrPort)
 
-			targetAddr, payloadStart, payloadLength, err := s.serverUnpacker.UnpackInPlace(packetBuf, fixedFrontHeadroom, n)
+			targetAddr, hasTargetAddr, payloadStart, payloadLength, err := s.serverUnpacker.UnpackInPlace(packetBuf, fixedFrontHeadroom, n)
 			if err != nil {
 				s.logger.Warn("Failed to unpack packet",
 					zap.String("server", s.serverName),
@@ -159,6 +159,9 @@ func (s *UDPNATRelay) Start() error {
 
 				s.packetBufPool.Put(packetBufp)
 				continue
+			}
+			if !hasTargetAddr { // Unlikely for server unpackers.
+				targetAddr = socks5.AddrFromAddrPort(clientAddrPort)
 			}
 
 			s.mu.Lock()
@@ -400,6 +403,11 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 		rearHeadroom = serverRearHeadroom - clientRearHeadroom
 	}
 
+	var (
+		cachedTargetAddr         socks5.Addr
+		cachedPacketFromAddrPort netip.AddrPort
+	)
+
 	packetBuf := make([]byte, frontHeadroom+entry.maxClientPacketSize+rearHeadroom)
 	recvBuf := packetBuf[frontHeadroom : frontHeadroom+entry.maxClientPacketSize]
 
@@ -430,7 +438,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 			continue
 		}
 
-		targetAddr, payloadStart, payloadLength, err := entry.natConnUnpacker.UnpackInPlace(packetBuf, frontHeadroom, n)
+		targetAddr, hasTargetAddr, payloadStart, payloadLength, err := entry.natConnUnpacker.UnpackInPlace(packetBuf, frontHeadroom, n)
 		if err != nil {
 			s.logger.Warn("Failed to unpack packet",
 				zap.String("server", s.serverName),
@@ -441,6 +449,15 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 				zap.Error(err),
 			)
 			continue
+		}
+		if !hasTargetAddr {
+			if packetFromAddrPort == cachedPacketFromAddrPort {
+				targetAddr = cachedTargetAddr
+			} else {
+				targetAddr = socks5.AddrFromAddrPort(packetFromAddrPort)
+				cachedPacketFromAddrPort = packetFromAddrPort
+				cachedTargetAddr = targetAddr
+			}
 		}
 
 		packetStart, packetLength, err := s.serverPacker.PackInPlace(packetBuf, targetAddr, payloadStart, payloadLength)

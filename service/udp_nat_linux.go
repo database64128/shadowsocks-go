@@ -169,6 +169,11 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 		rearHeadroom = serverRearHeadroom - clientRearHeadroom
 	}
 
+	var (
+		cachedTargetAddr         socks5.Addr
+		cachedPacketFromAddrPort netip.AddrPort
+	)
+
 	name, namelen := conn.AddrPortToSockaddr(clientAddrPort)
 	savec := make([]unix.RawSockaddrInet6, vecSize)
 	bufvec := make([][]byte, vecSize)
@@ -240,7 +245,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 				continue
 			}
 
-			targetAddr, payloadStart, payloadLength, err := entry.natConnUnpacker.UnpackInPlace(bufvec[i], frontHeadroom, int(msg.Msglen))
+			targetAddr, hasTargetAddr, payloadStart, payloadLength, err := entry.natConnUnpacker.UnpackInPlace(bufvec[i], frontHeadroom, int(msg.Msglen))
 			if err != nil {
 				s.logger.Warn("Failed to unpack packet",
 					zap.String("server", s.serverName),
@@ -251,6 +256,15 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 					zap.Error(err),
 				)
 				continue
+			}
+			if !hasTargetAddr {
+				if packetFromAddrPort == cachedPacketFromAddrPort {
+					targetAddr = cachedTargetAddr
+				} else {
+					targetAddr = socks5.AddrFromAddrPort(packetFromAddrPort)
+					cachedPacketFromAddrPort = packetFromAddrPort
+					cachedTargetAddr = targetAddr
+				}
 			}
 
 			packetStart, packetLength, err := s.serverPacker.PackInPlace(bufvec[i], targetAddr, payloadStart, payloadLength)

@@ -26,8 +26,9 @@ type Unpacker interface {
 	// UnpackInPlace unpacks the packet in-place and returns target address, payload start offset, payload length,
 	// or an error if unpacking fails.
 	//
-	// The returned targetAddr may be nil, in which case the packet's source address should be used instead.
-	UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, payloadStart, payloadLen int, err error)
+	// If the packed packet does not contain information about the target address, hasTargetAddr should be false,
+	// and the packet's source address should be used instead.
+	UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, hasTargetAddr bool, payloadStart, payloadLen int, err error)
 }
 
 // PackerUnpackerTestFunc tests the packer and the unpacker by using the packer to pack a random payload
@@ -64,9 +65,14 @@ func PackerUnpackerTestFunc(t *testing.T, packer Packer, unpacker Unpacker) {
 	}
 
 	// Unpack.
-	ta, ps, pl, err := unpacker.UnpackInPlace(b, pkts, pktl)
+	ta, hta, ps, pl, err := unpacker.UnpackInPlace(b, pkts, pktl)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	// Check hasTargetAddr.
+	if !hta {
+		t.Error("Expected hasTargetAddr to be true")
 	}
 
 	// Check target address.

@@ -143,7 +143,7 @@ func (s *UDPSessionRelay) Start() error {
 				s.packetBufPool.Put(packetBufp)
 				continue
 			}
-			packet := packetBuf[:n]
+			packet := recvBuf[:n]
 
 			// Workaround for https://github.com/golang/go/issues/52264
 			clientAddrPort = conn.Tov4Mappedv6(clientAddrPort)
@@ -164,6 +164,7 @@ func (s *UDPSessionRelay) Start() error {
 
 			var (
 				targetAddr    socks5.Addr
+				hasTargetAddr bool
 				payloadStart  int
 				payloadLength int
 			)
@@ -184,10 +185,11 @@ func (s *UDPSessionRelay) Start() error {
 					)
 
 					s.packetBufPool.Put(packetBufp)
+					s.mu.Unlock()
 					continue
 				}
 
-				targetAddr, payloadStart, payloadLength, err = serverConnUnpacker.UnpackInPlace(packetBuf, fixedFrontHeadroom, n)
+				targetAddr, hasTargetAddr, payloadStart, payloadLength, err = serverConnUnpacker.UnpackInPlace(packetBuf, fixedFrontHeadroom, n)
 				if err != nil {
 					s.logger.Warn("Failed to unpack packet",
 						zap.String("server", s.serverName),
@@ -199,7 +201,11 @@ func (s *UDPSessionRelay) Start() error {
 					)
 
 					s.packetBufPool.Put(packetBufp)
+					s.mu.Unlock()
 					continue
+				}
+				if !hasTargetAddr { // Unlikely for server unpackers.
+					targetAddr = socks5.AddrFromAddrPort(clientAddrPort)
 				}
 
 				c, err := s.router.GetUDPClient(s.serverName, clientAddrPort, targetAddr)
@@ -340,7 +346,7 @@ func (s *UDPSessionRelay) Start() error {
 					zap.Uint64("clientSessionID", csid),
 				)
 			} else {
-				targetAddr, payloadStart, payloadLength, err = entry.serverConnUnpacker.UnpackInPlace(packetBuf, 0, n)
+				targetAddr, hasTargetAddr, payloadStart, payloadLength, err = entry.serverConnUnpacker.UnpackInPlace(packetBuf, fixedFrontHeadroom, n)
 				if err != nil {
 					s.logger.Warn("Failed to unpack packet",
 						zap.String("server", s.serverName),
@@ -352,7 +358,11 @@ func (s *UDPSessionRelay) Start() error {
 					)
 
 					s.packetBufPool.Put(packetBufp)
+					s.mu.Unlock()
 					continue
+				}
+				if !hasTargetAddr { // Unlikely for server unpackers.
+					targetAddr = socks5.AddrFromAddrPort(clientAddrPort)
 				}
 
 				entry.clientAddrPort = clientAddrPort
@@ -483,6 +493,11 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 		rearHeadroom = serverRearHeadroom - clientRearHeadroom
 	}
 
+	var (
+		cachedTargetAddr         socks5.Addr
+		cachedPacketFromAddrPort netip.AddrPort
+	)
+
 	packetBuf := make([]byte, frontHeadroom+entry.maxClientPacketSize+rearHeadroom)
 	recvBuf := packetBuf[frontHeadroom : frontHeadroom+entry.maxClientPacketSize]
 
@@ -515,7 +530,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 			continue
 		}
 
-		targetAddr, payloadStart, payloadLength, err := entry.natConnUnpacker.UnpackInPlace(packetBuf, frontHeadroom, n)
+		targetAddr, hasTargetAddr, payloadStart, payloadLength, err := entry.natConnUnpacker.UnpackInPlace(packetBuf, frontHeadroom, n)
 		if err != nil {
 			s.logger.Warn("Failed to unpack packet",
 				zap.String("server", s.serverName),
@@ -527,6 +542,15 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 				zap.Error(err),
 			)
 			continue
+		}
+		if !hasTargetAddr {
+			if packetFromAddrPort == cachedPacketFromAddrPort {
+				targetAddr = cachedTargetAddr
+			} else {
+				targetAddr = socks5.AddrFromAddrPort(packetFromAddrPort)
+				cachedPacketFromAddrPort = packetFromAddrPort
+				cachedTargetAddr = targetAddr
+			}
 		}
 
 		packetStart, packetLength, err := entry.serverConnPacker.PackInPlace(packetBuf, targetAddr, payloadStart, payloadLength)

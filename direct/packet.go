@@ -39,8 +39,9 @@ func (p *DirectPacketPackUnpacker) PackInPlace(b []byte, targetAddr socks5.Addr,
 }
 
 // UnpackInPlace implements the Unpacker UnpackInPlace method.
-func (p *DirectPacketPackUnpacker) UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, payloadStart, payloadLen int, err error) {
+func (p *DirectPacketPackUnpacker) UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, hasTargetAddr bool, payloadStart, payloadLen int, err error) {
 	targetAddr = p.targetAddr
+	hasTargetAddr = targetAddr != nil
 	payloadStart = packetStart
 	payloadLen = packetLen
 	return
@@ -68,8 +69,9 @@ func (p *ShadowsocksNonePacketPackUnpacker) PackInPlace(b []byte, targetAddr soc
 }
 
 // UnpackInPlace implements the Unpacker UnpackInPlace method.
-func (p *ShadowsocksNonePacketPackUnpacker) UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, payloadStart, payloadLen int, err error) {
+func (p *ShadowsocksNonePacketPackUnpacker) UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, hasTargetAddr bool, payloadStart, payloadLen int, err error) {
 	targetAddr, err = socks5.SplitAddr(b[packetStart : packetStart+packetLen])
+	hasTargetAddr = true
 	payloadStart = packetStart + len(targetAddr)
 	payloadLen = packetLen - len(targetAddr)
 	return
@@ -99,7 +101,7 @@ func (p *Socks5PacketPackUnpacker) PackInPlace(b []byte, targetAddr socks5.Addr,
 }
 
 // UnpackInPlace implements the Unpacker UnpackInPlace method.
-func (p *Socks5PacketPackUnpacker) UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, payloadStart, payloadLen int, err error) {
+func (p *Socks5PacketPackUnpacker) UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, hasTargetAddr bool, payloadStart, payloadLen int, err error) {
 	if packetLen < 3 {
 		err = fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, packetLen)
 		return
@@ -112,6 +114,7 @@ func (p *Socks5PacketPackUnpacker) UnpackInPlace(b []byte, packetStart, packetLe
 	}
 
 	targetAddr, err = socks5.SplitAddr(pkt[3:])
+	hasTargetAddr = true
 	payloadStart = packetStart + len(targetAddr) + 3
 	payloadLen = packetLen - len(targetAddr) - 3
 	return

@@ -221,7 +221,7 @@ type ShadowPacketClientUnpacker struct {
 }
 
 // UnpackInPlace implements the Unpacker UnpackInPlace method.
-func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, payloadStart, payloadLen int, err error) {
+func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, hasTargetAddr bool, payloadStart, payloadLen int, err error) {
 	const (
 		currentServerSession = iota
 		oldServerSession
@@ -290,6 +290,7 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetStart, packet
 	if err != nil {
 		return
 	}
+	hasTargetAddr = true
 	payloadStart += messageHeaderStart
 
 	// Add spid to filter.
@@ -340,7 +341,7 @@ type ShadowPacketServerUnpacker struct {
 // and returns target address, payload start offset and payload length, or an error.
 //
 // UnpackInPlace implements the Unpacker UnpackInPlace method.
-func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, payloadStart, payloadLen int, err error) {
+func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, hasTargetAddr bool, payloadStart, payloadLen int, err error) {
 	var identityHeaderLen int
 	if p.hasEIH {
 		identityHeaderLen = IdentityHeaderLength
@@ -375,6 +376,7 @@ func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, packetStart, packet
 	if err != nil {
 		return
 	}
+	hasTargetAddr = true
 	payloadStart += messageHeaderStart
 
 	// Add cpid to filter.
