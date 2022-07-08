@@ -88,5 +88,5 @@ func (ds DomainSet) Match(domain string) bool {
 }
 
 func matchDomainSuffix(domain, suffix string) bool {
-	return domain == suffix || len(domain) > len(suffix) && domain[0] == '.' && domain[1:] == suffix
+	return domain == suffix || len(domain) > len(suffix) && domain[len(domain)-len(suffix)-1] == '.' && domain[len(domain)-len(suffix):] == suffix
 }
