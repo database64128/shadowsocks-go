@@ -34,6 +34,13 @@ func (c *ProxyClient) Dial(targetAddr socks5.Addr, payload []byte) (zerocopy.Con
 		return nil, err
 	}
 
+	if len(payload) > 0 {
+		_, err = zerocopy.CopyWriteOnce(rw, payload)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return zerocopy.NewTFOConn(rw, tfoConn), nil
 }
 

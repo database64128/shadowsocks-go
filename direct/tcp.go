@@ -84,6 +84,13 @@ func (c *ShadowsocksNoneTCPClient) Dial(targetAddr socks5.Addr, payload []byte) 
 		return nil, err
 	}
 
+	if len(payload) > 0 {
+		_, err = zerocopy.CopyWriteOnce(rw, payload)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return zerocopy.NewTFOConn(rw, tfoConn), nil
 }
 
@@ -134,6 +141,13 @@ func (c *Socks5TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (zerocopy
 	rw, err := NewSocks5StreamClientReadWriter(tfoConn, targetAddr)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(payload) > 0 {
+		_, err = zerocopy.CopyWriteOnce(rw, payload)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return zerocopy.NewTFOConn(rw, tfoConn), nil

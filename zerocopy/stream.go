@@ -6,6 +6,11 @@ import (
 	"testing"
 )
 
+// defaultBufferSize is the default buffer size to use
+// when neither the reader nor the writer has buffer size requirements.
+// It's the same default as io.Copy.
+const defaultBufferSize = 32768
+
 // Reader provides a stream interface for reading.
 type Reader interface {
 	Headroom
@@ -108,7 +113,7 @@ func Relay(w Writer, r Reader) (n int64, err error) {
 	if writeMaxPayloadSize == 0 {
 		writeMaxPayloadSize = readMaxPayloadSize
 		if writeMaxPayloadSize == 0 {
-			writeMaxPayloadSize = 32768 // The same default buffer size as io.Copy.
+			writeMaxPayloadSize = defaultBufferSize
 		}
 	}
 	if readMaxPayloadSize > writeMaxPayloadSize {
@@ -435,22 +440,25 @@ type CopyReadWriter struct {
 }
 
 func NewCopyReadWriter(rw ReadWriter) *CopyReadWriter {
+	frontHeadroom := rw.FrontHeadroom()
+	rearHeadroom := rw.RearHeadroom()
+
 	readBufSize := rw.MinPayloadBufferSizePerRead()
 	if readBufSize == 0 {
-		readBufSize = 32768
+		readBufSize = defaultBufferSize
 	}
 
 	writeBufSize := rw.MaxPayloadSizePerWrite()
 	if writeBufSize == 0 {
-		writeBufSize = 32768
+		writeBufSize = defaultBufferSize
 	}
 
 	return &CopyReadWriter{
 		ReadWriter:    rw,
-		frontHeadroom: rw.FrontHeadroom(),
-		rearHeadroom:  rw.RearHeadroom(),
-		readBuf:       make([]byte, readBufSize),
-		writeBuf:      make([]byte, writeBufSize),
+		frontHeadroom: frontHeadroom,
+		rearHeadroom:  rearHeadroom,
+		readBuf:       make([]byte, frontHeadroom+readBufSize+rearHeadroom),
+		writeBuf:      make([]byte, frontHeadroom+writeBufSize+rearHeadroom),
 	}
 }
 
@@ -479,6 +487,31 @@ func (rw *CopyReadWriter) Write(b []byte) (n int, err error) {
 		payloadLength := copy(payloadBuf, b[n:])
 		var payloadWritten int
 		payloadWritten, err = rw.ReadWriter.WriteZeroCopy(rw.writeBuf, rw.frontHeadroom, payloadLength)
+		n += payloadWritten
+		if err != nil {
+			return
+		}
+	}
+
+	return
+}
+
+func CopyWriteOnce(rw ReadWriter, b []byte) (n int, err error) {
+	frontHeadroom := rw.FrontHeadroom()
+	rearHeadroom := rw.RearHeadroom()
+
+	writeBufSize := rw.MaxPayloadSizePerWrite()
+	if writeBufSize == 0 {
+		writeBufSize = defaultBufferSize
+	}
+
+	writeBuf := make([]byte, frontHeadroom+writeBufSize+rearHeadroom)
+	payloadBuf := writeBuf[frontHeadroom : frontHeadroom+writeBufSize]
+
+	for n < len(b) {
+		payloadLength := copy(payloadBuf, b[n:])
+		var payloadWritten int
+		payloadWritten, err = rw.WriteZeroCopy(writeBuf, frontHeadroom, payloadLength)
 		n += payloadWritten
 		if err != nil {
 			return
