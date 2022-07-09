@@ -73,7 +73,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 		}
 
 	dequeue:
-		for count < vecSize {
+		for {
 			packetStart, packetLength, err := entry.natConnPacker.PackInPlace(*queuedPacket.bufp, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length)
 			if err != nil {
 				s.logger.Warn("Failed to pack packet",
@@ -119,6 +119,10 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 			iovec[count].Base = &(*queuedPacket.bufp)[packetStart]
 			iovec[count].SetLen(packetLength)
 			count++
+
+			if count == vecSize {
+				break
+			}
 
 			select {
 			case queuedPacket, ok = <-entry.natConnSendCh:
