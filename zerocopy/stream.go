@@ -84,12 +84,7 @@ func Relay(w Writer, r Reader) (n int64, err error) {
 		if dw, ok := w.(DirectWriteCloser); ok {
 			r := dr.DirectReadCloser()
 			w := dw.DirectWriteCloser()
-			n, err = io.Copy(w, r)
-			cwErr := w.Close()
-			if err == nil {
-				err = cwErr
-			}
-			return
+			return io.Copy(w, r)
 		}
 	}
 
