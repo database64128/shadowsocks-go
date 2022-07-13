@@ -25,20 +25,19 @@ func NewTCPClient(address string, dialerTFO bool, dialerFwmark int, cipherConfig
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (conn zerocopy.Conn, err error) {
+func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (tfoConn tfo.Conn, rw zerocopy.ReadWriter, err error) {
 	netConn, err := c.dialer.Dial("tcp", c.address)
 	if err != nil {
 		return
 	}
-	tfoConn := netConn.(tfo.Conn)
-
-	rw, err := NewShadowStreamClientReadWriter(tfoConn, c.cipherConfig, c.eihPSKHashes, targetAddr, payload)
-	if err != nil {
-		return
-	}
-
-	conn = zerocopy.NewTFOConn(rw, tfoConn)
+	tfoConn = netConn.(tfo.Conn)
+	rw, err = NewShadowStreamClientReadWriter(tfoConn, c.cipherConfig, c.eihPSKHashes, targetAddr, payload)
 	return
+}
+
+// NativeInitialPayload implements the zerocopy.TCPClient NativeInitialPayload method.
+func (c *TCPClient) NativeInitialPayload() bool {
+	return true
 }
 
 // TCPServer implements the zerocopy TCPServer interface.

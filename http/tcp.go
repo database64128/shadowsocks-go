@@ -22,26 +22,27 @@ func NewProxyClient(address string, dialerTFO bool, dialerFwmark int) *ProxyClie
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *ProxyClient) Dial(targetAddr socks5.Addr, payload []byte) (zerocopy.Conn, error) {
+func (c *ProxyClient) Dial(targetAddr socks5.Addr, payload []byte) (tfoConn tfo.Conn, rw zerocopy.ReadWriter, err error) {
 	netConn, err := c.dialer.Dial("tcp", c.address)
 	if err != nil {
-		return nil, err
+		return
 	}
-	tfoConn := netConn.(tfo.Conn)
+	tfoConn = netConn.(tfo.Conn)
 
-	rw, err := NewHttpStreamClientReadWriter(tfoConn, targetAddr)
+	rw, err = NewHttpStreamClientReadWriter(tfoConn, targetAddr)
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	if len(payload) > 0 {
 		_, err = zerocopy.CopyWriteOnce(rw, payload)
-		if err != nil {
-			return nil, err
-		}
 	}
+	return
+}
 
-	return zerocopy.NewTFOConn(rw, tfoConn), nil
+// NativeInitialPayload implements the zerocopy.TCPClient NativeInitialPayload method.
+func (c *ProxyClient) NativeInitialPayload() bool {
+	return false
 }
 
 // ProxyServer implements the zerocopy TCPServer interface.

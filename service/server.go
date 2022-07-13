@@ -21,8 +21,9 @@ type ServerConfig struct {
 	ListenerFwmark int    `json:"listenerFwmark"`
 
 	// TCP
-	EnableTCP   bool `json:"enableTCP"`
-	ListenerTFO bool `json:"listenerTFO"`
+	EnableTCP                 bool `json:"enableTCP"`
+	ListenerTFO               bool `json:"listenerTFO"`
+	DisableInitialPayloadWait bool `json:"disableInitialPayloadWait"`
 
 	// UDP
 	EnableUDP bool `json:"enableUDP"`
@@ -87,20 +88,18 @@ func (sc *ServerConfig) TCPRelay(router *router.Router, logger *zap.Logger) (*TC
 
 		server = ss2022.NewTCPServer(sc.cipherConfig, sc.uPSKMap)
 
-		switch sc.RejectPolicy {
-		case "ForceReset", "":
-			connCloser = zerocopy.ForceReset
-		case "CloseWriteDrain":
-			connCloser = zerocopy.CloseWriteDrain
-		default:
-			return nil, fmt.Errorf("invalid reject policy: %s", sc.RejectPolicy)
-		}
-
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}
 
-	return NewTCPRelay(sc.Name, sc.Listen, sc.ListenerFwmark, sc.ListenerTFO, server, connCloser, router, logger), nil
+	connCloser, err = zerocopy.ParseRejectPolicy(sc.RejectPolicy, server)
+	if err != nil {
+		return nil, err
+	}
+
+	waitForInitialPayload := !server.NativeInitialPayload() && !sc.DisableInitialPayloadWait
+
+	return NewTCPRelay(sc.Name, sc.Listen, sc.ListenerFwmark, sc.ListenerTFO, waitForInitialPayload, server, connCloser, router, logger), nil
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.

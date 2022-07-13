@@ -607,7 +607,7 @@ read:
 // It's the caller's responsibility to examine the minTTL and decide whether to cache the result.
 func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Result, minTTL uint32, handled bool) {
 	// Write.
-	rwConn, err := r.tcpClient.Dial(r.serverAddr, queries)
+	tfoConn, rw, err := r.tcpClient.Dial(r.serverAddr, queries)
 	if err != nil {
 		r.logger.Warn("Failed to dial DNS server",
 			zap.String("name", nameString),
@@ -616,10 +616,10 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 		)
 		return
 	}
-	defer rwConn.Close()
+	defer tfoConn.Close()
 
 	// Set read deadline.
-	err = rwConn.SetReadDeadline(time.Now().Add(20 * time.Second))
+	err = tfoConn.SetReadDeadline(time.Now().Add(20 * time.Second))
 	if err != nil {
 		r.logger.Warn("Failed to set read deadline",
 			zap.String("name", nameString),
@@ -630,7 +630,7 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 	}
 
 	// Read.
-	rw := zerocopy.NewCopyReadWriter(rwConn)
+	crw := zerocopy.NewCopyReadWriter(rw)
 	lengthBuf := make([]byte, 2)
 	minTTL = math.MaxUint32
 
@@ -641,7 +641,7 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 
 	for i := 0; i < 2; i++ {
 		// Read length field.
-		_, err = io.ReadFull(rw, lengthBuf)
+		_, err = io.ReadFull(crw, lengthBuf)
 		if err != nil {
 			r.logger.Warn("Failed to read DNS response length",
 				zap.String("name", nameString),
@@ -662,7 +662,7 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 
 		// Read message.
 		msg := make([]byte, msgLen)
-		_, err = io.ReadFull(rw, msg)
+		_, err = io.ReadFull(crw, msg)
 		if err != nil {
 			r.logger.Warn("Failed to read DNS response",
 				zap.String("name", nameString),

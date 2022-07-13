@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/router"
@@ -15,6 +17,11 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	initialPayloadWaitBufferSize = 1280
+	initialPayloadWaitTimeout    = 250 * time.Millisecond
+)
+
 // TCPRelay is a relay service for TCP traffic.
 //
 // When started, the relay service accepts incoming TCP connections on the server,
@@ -22,29 +29,31 @@ import (
 //
 // TCPRelay implements the Service interface.
 type TCPRelay struct {
-	serverName     string
-	listenAddress  string
-	listenerFwmark int
-	listenerTFO    bool
-	listenConfig   tfo.ListenConfig
-	server         zerocopy.TCPServer
-	connCloser     zerocopy.TCPConnCloser
-	router         *router.Router
-	listener       *net.TCPListener
-	logger         *zap.Logger
+	serverName            string
+	listenAddress         string
+	listenerFwmark        int
+	listenerTFO           bool
+	waitForInitialPayload bool
+	listenConfig          tfo.ListenConfig
+	server                zerocopy.TCPServer
+	connCloser            zerocopy.TCPConnCloser
+	router                *router.Router
+	listener              *net.TCPListener
+	logger                *zap.Logger
 }
 
-func NewTCPRelay(serverName, listenAddress string, listenerFwmark int, listenerTFO bool, server zerocopy.TCPServer, connCloser zerocopy.TCPConnCloser, router *router.Router, logger *zap.Logger) *TCPRelay {
+func NewTCPRelay(serverName, listenAddress string, listenerFwmark int, listenerTFO, waitForInitialPayload bool, server zerocopy.TCPServer, connCloser zerocopy.TCPConnCloser, router *router.Router, logger *zap.Logger) *TCPRelay {
 	return &TCPRelay{
-		serverName:     serverName,
-		listenAddress:  listenAddress,
-		listenerFwmark: listenerFwmark,
-		listenerTFO:    listenerTFO,
-		listenConfig:   conn.NewListenConfig(listenerTFO, listenerFwmark),
-		server:         server,
-		connCloser:     connCloser,
-		router:         router,
-		logger:         logger,
+		serverName:            serverName,
+		listenAddress:         listenAddress,
+		listenerFwmark:        listenerFwmark,
+		listenerTFO:           listenerTFO,
+		waitForInitialPayload: waitForInitialPayload,
+		listenConfig:          conn.NewListenConfig(listenerTFO, listenerFwmark),
+		server:                server,
+		connCloser:            connCloser,
+		router:                router,
+		logger:                logger,
 	}
 }
 
@@ -120,7 +129,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 	}
 
 	// Handshake.
-	rw, targetAddr, payload, err := s.server.Accept(clientConn)
+	clientRW, targetAddr, payload, err := s.server.Accept(clientConn)
 	if err != nil {
 		if err == socks5.ErrUDPAssociateHold {
 			s.logger.Debug("Keeping TCP connection open for SOCKS5 UDP association",
@@ -143,7 +152,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 			zap.Error(err),
 		)
 
-		s.connCloser.Do(clientConn, s.serverName, s.listenAddress, "", s.logger)
+		s.connCloser.Do(clientConn, s.serverName, s.listenAddress, clientAddress, s.logger)
 		return
 	}
 
@@ -160,8 +169,78 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 		return
 	}
 
+	// Wait for initial payload if all of the following are true:
+	// 1. not disabled
+	// 2. server does not have native support
+	// 3. client has native support
+	if s.waitForInitialPayload && c.NativeInitialPayload() {
+		frontHeadroom := clientRW.FrontHeadroom()
+		rearHeadroom := clientRW.RearHeadroom()
+		payloadBufSize := clientRW.MinPayloadBufferSizePerRead()
+		if payloadBufSize == 0 {
+			payloadBufSize = initialPayloadWaitBufferSize
+		}
+
+		payload = make([]byte, frontHeadroom+payloadBufSize+rearHeadroom)
+
+		err = clientConn.SetReadDeadline(time.Now().Add(initialPayloadWaitTimeout))
+		if err != nil {
+			s.logger.Warn("Failed to set read deadline to initial payload wait timeout",
+				zap.String("server", s.serverName),
+				zap.String("listenAddress", s.listenAddress),
+				zap.String("clientAddress", clientAddress),
+				zap.Stringer("targetAddress", targetAddr),
+				zap.Error(err),
+			)
+			return
+		}
+
+		payloadLength, err := clientRW.ReadZeroCopy(payload, frontHeadroom, payloadBufSize)
+		switch {
+		case err == nil:
+			payload = payload[frontHeadroom : frontHeadroom+payloadLength]
+			s.logger.Debug("Got initial payload",
+				zap.String("server", s.serverName),
+				zap.String("listenAddress", s.listenAddress),
+				zap.String("clientAddress", clientAddress),
+				zap.Stringer("targetAddress", targetAddr),
+				zap.Int("payloadLength", payloadLength),
+			)
+
+		case errors.Is(err, os.ErrDeadlineExceeded):
+			s.logger.Debug("Initial payload wait timed out",
+				zap.String("server", s.serverName),
+				zap.String("listenAddress", s.listenAddress),
+				zap.String("clientAddress", clientAddress),
+				zap.Stringer("targetAddress", targetAddr),
+			)
+
+		default:
+			s.logger.Warn("Failed to read initial payload",
+				zap.String("server", s.serverName),
+				zap.String("listenAddress", s.listenAddress),
+				zap.String("clientAddress", clientAddress),
+				zap.Stringer("targetAddress", targetAddr),
+				zap.Error(err),
+			)
+			return
+		}
+
+		err = clientConn.SetReadDeadline(time.Time{})
+		if err != nil {
+			s.logger.Warn("Failed to reset read deadline",
+				zap.String("server", s.serverName),
+				zap.String("listenAddress", s.listenAddress),
+				zap.String("clientAddress", clientAddress),
+				zap.Stringer("targetAddress", targetAddr),
+				zap.Error(err),
+			)
+			return
+		}
+	}
+
 	// Create remote connection.
-	remoteConn, err := c.Dial(targetAddr, payload)
+	remoteConn, remoteRW, err := c.Dial(targetAddr, payload)
 	if err != nil {
 		s.logger.Warn("Failed to create remote connection",
 			zap.String("server", s.serverName),
@@ -176,7 +255,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 	defer remoteConn.Close()
 
 	// Two-way relay.
-	nl2r, nr2l, err := zerocopy.TwoWayRelay(rw, remoteConn.Unwrap())
+	nl2r, nr2l, err := zerocopy.TwoWayRelay(clientRW, remoteRW)
 	if err != nil {
 		s.logger.Warn("Two-way relay failed",
 			zap.String("server", s.serverName),
