@@ -361,6 +361,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 		parser         dnsmessage.Parser
 	)
 
+read:
 	for {
 		n, ap, err := conn.ReadFromUDPAddrPort(recvBuf)
 		if err != nil {
@@ -371,7 +372,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 				zap.Int("fwmark", fwmark),
 				zap.Error(err),
 			)
-			return
+			break
 		}
 		if ap != targetAddrPort {
 			r.logger.Warn("Ignoring packet from unknown address",
@@ -412,7 +413,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 				zap.Stringer("targetAddrPort", targetAddrPort),
 				zap.Error(err),
 			)
-			return
+			break
 		}
 
 		// Check transaction ID.
@@ -432,7 +433,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 				zap.Stringer("targetAddrPort", targetAddrPort),
 				zap.Uint16("transactionID", header.ID),
 			)
-			return
+			break read
 		}
 
 		// Check response bit.
@@ -442,7 +443,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Stringer("targetAddrPort", targetAddrPort),
 			)
-			return
+			break
 		}
 
 		// Check truncated bit.
@@ -452,7 +453,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Stringer("targetAddrPort", targetAddrPort),
 			)
-			return
+			break
 		}
 
 		// Check RCode.
@@ -463,7 +464,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 				zap.Stringer("targetAddrPort", targetAddrPort),
 				zap.Stringer("RCode", header.RCode),
 			)
-			return
+			break
 		}
 
 		// Skip questions.
@@ -475,7 +476,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 				zap.Stringer("targetAddrPort", targetAddrPort),
 				zap.Error(err),
 			)
-			return
+			break
 		}
 
 		// Parse answers and add to result.
@@ -491,7 +492,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 					zap.Stringer("targetAddrPort", targetAddrPort),
 					zap.Error(err),
 				)
-				return
+				break read
 			}
 
 			// Set minimum TTL.
@@ -518,7 +519,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 						zap.Stringer("targetAddrPort", targetAddrPort),
 						zap.Error(err),
 					)
-					return
+					break read
 				}
 
 				addr4 := netip.AddrFrom4(arr.A)
@@ -540,7 +541,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 						zap.Stringer("targetAddrPort", targetAddrPort),
 						zap.Error(err),
 					)
-					return
+					break read
 				}
 
 				addr6 := netip.AddrFrom16(aaaarr.AAAA)
@@ -563,7 +564,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 						zap.Stringer("answerType", answerHeader.Type),
 						zap.Error(err),
 					)
-					return
+					break read
 				}
 			}
 		}
