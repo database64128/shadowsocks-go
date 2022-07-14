@@ -5,6 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/netip"
+
+	"github.com/database64128/tfo-go"
 )
 
 // SOCKS version 5.
@@ -42,7 +46,7 @@ var (
 	ErrUnsupportedSocksVersion         = errors.New("unsupported SOCKS version")
 	ErrUnsupportedAuthenticationMethod = errors.New("unsupported authentication method")
 	ErrUnsupportedCommand              = errors.New("unsupported command")
-	ErrUDPAssociateHold                = errors.New("hold the connection to keep the UDP association open")
+	ErrUDPAssociateDone                = errors.New("UDP ASSOCIATE done")
 )
 
 // replyWithStatus writes a reply to w with the REP field set to status.
@@ -119,8 +123,8 @@ func ClientUDPAssociate(rw io.ReadWriter, targetAddr Addr) (Addr, error) {
 // ServerAccept processes an incoming request from r.
 // enableTCP enables the CONNECT command.
 // enableUDP enables the UDP ASSOCIATE command.
-// bndAddr is returned in reply to UDP ASSOCIATE.
-func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, udpBoundAddr Addr) (Addr, error) {
+// conn must be provided when UDP is enabled.
+func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, conn tfo.Conn) (Addr, error) {
 	b := make([]byte, 3+MaxAddrLen)
 
 	// Read VER, NMETHODS.
@@ -189,11 +193,34 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, udpBoundAddr Addr
 		return addr, err
 
 	case b[1] == CmdUDPAssociate && enableUDP:
+		// Use the connection's local address as the returned UDP bound address.
+		localAddr := conn.LocalAddr()
+		var localAddrPort netip.AddrPort
+
+		// net.Addr -> netip.AddrPort
+		if tcpAddr, ok := localAddr.(*net.TCPAddr); ok {
+			localAddrPort = tcpAddr.AddrPort()
+		} else {
+			localAddrPort, err = netip.ParseAddrPort(localAddr.String())
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Construct reply.
 		b[1] = Succeeded
-		n := copy(b[3:], udpBoundAddr)
-		_, err = rw.Write(b[:3+n])
-		if err == nil {
-			err = ErrUDPAssociateHold
+		reply := AppendFromAddrPort(b[:3], localAddrPort)
+
+		// Write reply.
+		_, err = rw.Write(reply)
+		if err != nil {
+			return nil, err
+		}
+
+		// Hold the connection open.
+		_, err = rw.Read(b[:1])
+		if err == nil || err == io.EOF {
+			err = ErrUDPAssociateDone
 		}
 		return nil, err
 

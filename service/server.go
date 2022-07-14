@@ -68,11 +68,7 @@ func (sc *ServerConfig) TCPRelay(router *router.Router, logger *zap.Logger) (*TC
 		server = direct.NewShadowsocksNoneTCPServer()
 
 	case "socks5":
-		listenAddr, err := socks5.ParseAddr(sc.Listen)
-		if err != nil {
-			return nil, err
-		}
-		server = direct.NewSocks5TCPServer(sc.EnableTCP, sc.EnableUDP, listenAddr)
+		server = direct.NewSocks5TCPServer(sc.EnableTCP, sc.EnableUDP)
 
 	case "http":
 		server = http.NewProxyServer(logger)

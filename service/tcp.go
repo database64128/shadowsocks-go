@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"time"
@@ -131,18 +130,13 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 	// Handshake.
 	clientRW, targetAddr, payload, err := s.server.Accept(clientConn)
 	if err != nil {
-		if err == socks5.ErrUDPAssociateHold {
-			s.logger.Debug("Keeping TCP connection open for SOCKS5 UDP association",
+		if err == zerocopy.ErrAcceptDoneNoRelay {
+			s.logger.Debug("The accepted connection has been handled without relaying",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.String("clientAddress", clientAddress),
 			)
-
-			b := make([]byte, 1)
-			_, err = clientConn.Read(b)
-			if err == nil || err == io.EOF {
-				return
-			}
+			return
 		}
 
 		s.logger.Warn("Failed to complete handshake with client",

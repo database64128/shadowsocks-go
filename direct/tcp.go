@@ -162,22 +162,23 @@ func (c *Socks5TCPClient) NativeInitialPayload() bool {
 
 // Socks5TCPServer implements the zerocopy TCPServer interface.
 type Socks5TCPServer struct {
-	enableTCP    bool
-	enableUDP    bool
-	udpBoundAddr socks5.Addr
+	enableTCP bool
+	enableUDP bool
 }
 
-func NewSocks5TCPServer(enableTCP, enableUDP bool, udpBoundAddr socks5.Addr) *Socks5TCPServer {
+func NewSocks5TCPServer(enableTCP, enableUDP bool) *Socks5TCPServer {
 	return &Socks5TCPServer{
-		enableTCP:    enableTCP,
-		enableUDP:    enableUDP,
-		udpBoundAddr: udpBoundAddr,
+		enableTCP: enableTCP,
+		enableUDP: enableUDP,
 	}
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
 func (s *Socks5TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
-	rw, targetAddr, err = NewSocks5StreamServerReadWriter(conn, s.enableTCP, s.enableUDP, s.udpBoundAddr)
+	rw, targetAddr, err = NewSocks5StreamServerReadWriter(conn, s.enableTCP, s.enableUDP, conn)
+	if err == socks5.ErrUDPAssociateDone {
+		err = zerocopy.ErrAcceptDoneNoRelay
+	}
 	return
 }
 

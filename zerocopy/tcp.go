@@ -1,6 +1,7 @@
 package zerocopy
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -9,6 +10,8 @@ import (
 	"github.com/database64128/tfo-go"
 	"go.uber.org/zap"
 )
+
+var ErrAcceptDoneNoRelay = errors.New("the accepted connection has been handled without relaying")
 
 // InitialPayloader is implemented by a protocol's TCP client or server
 // when the protocol's initial handshake message can carry payload.
@@ -37,6 +40,9 @@ type TCPServer interface {
 
 	// Accept takes a newly-accepted TCP connection and wraps it into a
 	// protocol stream server.
+	//
+	// If the returned error is ErrAcceptDoneNoRelay, the connection has been handled by this method.
+	// Two-way relay is not needed.
 	Accept(conn tfo.Conn) (rw ReadWriter, targetAddr socks5.Addr, payload []byte, err error)
 
 	// DefaultTCPConnCloser returns the default function to handle the closing
