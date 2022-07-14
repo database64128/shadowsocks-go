@@ -3,7 +3,7 @@ module github.com/database64128/shadowsocks-go
 go 1.18
 
 require (
-	github.com/database64128/tfo-go v1.0.5
+	github.com/database64128/tfo-go v1.1.0
 	github.com/oschwald/geoip2-golang v1.7.0
 	go.uber.org/zap v1.21.0
 	golang.org/x/exp v0.0.0-20220713135740-79cabaa25d75
