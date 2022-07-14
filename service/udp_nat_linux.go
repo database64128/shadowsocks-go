@@ -107,7 +107,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 					// Workaround for https://github.com/golang/go/issues/52264
 					targetAddrPort = conn.Tov4Mappedv6(targetAddrPort)
 
-					cachedTargetAddr = queuedPacket.targetAddr
+					cachedTargetAddr = append(cachedTargetAddr[:0], queuedPacket.targetAddr...)
 					name, namelen = conn.AddrPortToSockaddr(targetAddrPort)
 				}
 
@@ -262,13 +262,12 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 				continue
 			}
 			if !hasTargetAddr {
-				if packetFromAddrPort == cachedPacketFromAddrPort {
-					targetAddr = cachedTargetAddr
-				} else {
-					targetAddr = socks5.AddrFromAddrPort(packetFromAddrPort)
+				if packetFromAddrPort != cachedPacketFromAddrPort {
 					cachedPacketFromAddrPort = packetFromAddrPort
-					cachedTargetAddr = targetAddr
+					cachedTargetAddr = socks5.AppendFromAddrPort(cachedTargetAddr[:0], packetFromAddrPort)
 				}
+
+				targetAddr = cachedTargetAddr
 			}
 
 			packetStart, packetLength, err := s.serverPacker.PackInPlace(bufvec[i], targetAddr, payloadStart, payloadLength)

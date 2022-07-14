@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/magic"
 )
 
 // SOCKS address types as defined in RFC 1928 section 5.
@@ -18,13 +19,8 @@ const (
 	AtypIPv6       = 4
 )
 
-const (
-	SocksAddressIPv4Length = 1 + net.IPv4len + 2
-	SocksAddressIPv6Length = 1 + net.IPv6len + 2
-
-	// MaxAddrLen is the maximum size of SOCKS address in bytes.
-	MaxAddrLen = 1 + 1 + 255 + 2
-)
+// MaxAddrLen is the maximum size of SOCKS address in bytes.
+const MaxAddrLen = 1 + 1 + 255 + 2
 
 // Addr represents a SOCKS address as defined in RFC 1928 section 5.
 //
@@ -60,7 +56,7 @@ func (a Addr) Host() string {
 		ip6 := (*[16]byte)(a[1:])
 		return netip.AddrFrom16(*ip6).String()
 	default:
-		panic(fmt.Errorf("unknown atyp %v", a[0]))
+		panic(fmt.Errorf("unknown atyp %d", a[0]))
 	}
 }
 
@@ -80,7 +76,7 @@ func (a Addr) Addr(preferIPv6 bool) (netip.Addr, error) {
 		ip6 := (*[16]byte)(a[1:])
 		return netip.AddrFrom16(*ip6), nil
 	default:
-		panic(fmt.Errorf("unknown atyp %v", a[0]))
+		panic(fmt.Errorf("unknown atyp %d", a[0]))
 	}
 }
 
@@ -95,7 +91,7 @@ func (a Addr) Port() uint16 {
 	case AtypIPv6:
 		return binary.BigEndian.Uint16(a[1+16:])
 	default:
-		panic(fmt.Errorf("unknown atyp %v", a[0]))
+		panic(fmt.Errorf("unknown atyp %d", a[0]))
 	}
 }
 
@@ -121,7 +117,7 @@ func (a Addr) AddrPort(preferIPv6 bool) (netip.AddrPort, error) {
 		port := binary.BigEndian.Uint16(a[1+16:])
 		return netip.AddrPortFrom(addr, port), nil
 	default:
-		panic(fmt.Errorf("unknown atyp %v", a[0]))
+		panic(fmt.Errorf("unknown atyp %d", a[0]))
 	}
 }
 
@@ -137,7 +133,7 @@ func (a Addr) String() string {
 		addrPort, _ := a.AddrPort(true)
 		return addrPort.String()
 	default:
-		panic(fmt.Errorf("unknown atyp %v", a[0]))
+		panic(fmt.Errorf("unknown atyp %d", a[0]))
 	}
 }
 
@@ -156,104 +152,106 @@ func (a *Addr) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// WriteAddrPortAsSocksAddr converts a netip.AddrPort into a SOCKS address
-// and stores it in the buffer.
+// AppendFromAddrPort converts a netip.AddrPort into a SOCKS address
+// and appends it to the buffer.
 //
 // IPv4-mapped IPv6 addresses are converted to IPv4 addresses.
-//
-// No buffer length checks are performed.
-// Make sure the buffer can hold the socks address.
-func WriteAddrPortAsSocksAddr(b []byte, addrPort netip.AddrPort) (n int) {
+func AppendFromAddrPort(b []byte, addrPort netip.AddrPort) []byte {
+	var ret, out []byte
 	ip := addrPort.Addr()
 	switch {
 	case ip.Is4() || ip.Is4In6():
-		b[n] = AtypIPv4
-		n++
+		ret, out = magic.SliceForAppend(b, 1+4+2)
+		out[0] = AtypIPv4
 		ip4 := ip.As4()
-		n += copy(b[n:], ip4[:])
-	case ip.Is6():
-		b[n] = AtypIPv6
-		n++
+		copy(out[1:], ip4[:])
+	case ip.Is6() || !ip.IsValid():
+		ret, out = magic.SliceForAppend(b, 1+16+2)
+		out[0] = AtypIPv6
 		ip6 := ip.As16()
-		n += copy(b[n:], ip6[:])
+		copy(out[1:], ip6[:])
 	}
-
-	binary.BigEndian.PutUint16(b[n:], addrPort.Port())
-	n += 2
-	return
+	binary.BigEndian.PutUint16(out[len(out)-2:], addrPort.Port())
+	return ret
 }
 
 // AddrFromAddrPort creates a SOCKS address from a netip.AddrPort.
 //
 // IPv4-mapped IPv6 addresses are converted to IPv4 addresses.
-//
-// To avoid allocations, call WriteAddrPortAsSocksAddr directly.
 func AddrFromAddrPort(addrPort netip.AddrPort) Addr {
-	b := make([]byte, MaxAddrLen)
-	n := WriteAddrPortAsSocksAddr(b, addrPort)
-	return b[:n]
+	var b []byte
+	ip := addrPort.Addr()
+	switch {
+	case ip.Is4() || ip.Is4In6():
+		b = make([]byte, 1+4+2)
+		b[0] = AtypIPv4
+		ip4 := ip.As4()
+		copy(b[1:], ip4[:])
+	case ip.Is6() || !ip.IsValid():
+		b = make([]byte, 1+16+2)
+		b[0] = AtypIPv6
+		ip6 := ip.As16()
+		copy(b[1:], ip6[:])
+	}
+	binary.BigEndian.PutUint16(b[len(b)-2:], addrPort.Port())
+	return b
 }
 
-// WriteHostPortAsSocksAddr parses a host string combines it with a port number
-// into a SOCKS address and stores it in the buffer.
+// AppendFromHostPort parses a host string, combines it with a port number
+// into a SOCKS address and appends it to the buffer.
 //
 // IPv4-mapped IPv6 addresses are converted to IPv4 addresses.
-//
-// The destination slice must be big enough to hold the SOCKS address.
-// Otherwise, this function might panic.
-func WriteHostPortAsSocksAddr(b []byte, host string, port uint16) (n int, err error) {
+func AppendFromHostPort(b []byte, host string, port uint16) ([]byte, error) {
 	if host == "" {
-		b[n] = AtypIPv6
-		n += 1 + 16
-	} else if ip, err := netip.ParseAddr(host); err == nil {
-		switch {
-		case ip.Is4() || ip.Is4In6():
-			b[n] = AtypIPv4
-			n++
-			ip4 := ip.As4()
-			n += copy(b[n:], ip4[:])
-		case ip.Is6():
-			b[n] = AtypIPv6
-			n++
-			ip6 := ip.As16()
-			n += copy(b[n:], ip6[:])
-		}
-	} else {
-		if len(host) > 255 {
-			return n, fmt.Errorf("host is too long: %d, must not be greater than 255", len(host))
-		}
-		b[n] = AtypDomainName
-		n++
-		b[n] = byte(len(host))
-		n++
-		n += copy(b[n:], host)
+		host = "::"
 	}
 
-	binary.BigEndian.PutUint16(b[n:], port)
-	n += 2
-	return
+	if ip, err := netip.ParseAddr(host); err == nil {
+		return AppendFromAddrPort(b, netip.AddrPortFrom(ip, port)), nil
+	}
+
+	if len(host) > 255 {
+		return nil, fmt.Errorf("host is too long: %d, must not be greater than 255", len(host))
+	}
+
+	ret, out := magic.SliceForAppend(b, 1+1+len(host)+2)
+	out[0] = AtypDomainName
+	out[1] = byte(len(host))
+	copy(out[2:], host)
+	binary.BigEndian.PutUint16(out[len(out)-2:], port)
+	return ret, nil
 }
 
 // ParseHostPort parses a host string and combines it with a port number
 // into a SOCKS address.
 //
 // IPv4-mapped IPv6 addresses are converted to IPv4 addresses.
-//
-// To avoid allocations, call WriteHostPortAsSocksAddr directly.
 func ParseHostPort(host string, port uint16) (Addr, error) {
-	b := make([]byte, MaxAddrLen)
-	n, err := WriteHostPortAsSocksAddr(b, host, port)
-	return b[:n], err
+	if host == "" {
+		host = "::"
+	}
+
+	if ip, err := netip.ParseAddr(host); err == nil {
+		return AddrFromAddrPort(netip.AddrPortFrom(ip, port)), nil
+	}
+
+	if len(host) > 255 {
+		return nil, fmt.Errorf("host is too long: %d, must not be greater than 255", len(host))
+	}
+
+	b := make([]byte, 1+1+len(host)+2)
+	b[0] = AtypDomainName
+	b[1] = byte(len(host))
+	copy(b[2:], host)
+	binary.BigEndian.PutUint16(b[len(b)-2:], port)
+	return b, nil
 }
 
-// WriteStringAsSocksAddr parses an address string into a SOCKS address
-// and stores it in the destination slice.
+// AppendFromString parses an address string into a SOCKS address
+// and appends it to the buffer.
 //
 // IPv4-mapped IPv6 addresses are converted to IPv4 addresses.
-//
-// The destination slice must be big enough to hold the SOCKS address.
-// Otherwise, this function might panic.
-func WriteStringAsSocksAddr(dst []byte, s string) (n int, host string, port uint16, err error) {
+func AppendFromString(b []byte, s string) (ret []byte, host string, port uint16, err error) {
 	host, portString, err := net.SplitHostPort(s)
 	if err != nil {
 		err = fmt.Errorf("failed to split host:port: %w", err)
@@ -267,94 +265,87 @@ func WriteStringAsSocksAddr(dst []byte, s string) (n int, host string, port uint
 	}
 	port = uint16(portNumber)
 
-	n, err = WriteHostPortAsSocksAddr(dst, host, port)
+	ret, err = AppendFromHostPort(b, host, port)
 	return
 }
 
 // ParseAddr parses an address string into a SOCKS address.
 //
 // IPv4-mapped IPv6 addresses are converted to IPv4 addresses.
-//
-// To avoid allocations, call WriteStringAsSocksAddr directly.
 func ParseAddr(s string) (Addr, error) {
-	dst := make([]byte, MaxAddrLen)
-	n, _, _, err := WriteStringAsSocksAddr(dst, s)
+	host, portString, err := net.SplitHostPort(s)
+	if err != nil {
+		return nil, fmt.Errorf("failed to split host:port: %w", err)
+	}
+
+	portNumber, err := strconv.ParseUint(portString, 10, 16)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse port string: %w", err)
+	}
+	port := uint16(portNumber)
+
+	return ParseHostPort(host, port)
+}
+
+// AppendFromReader reads just enough bytes from r to get a valid Addr
+// and appends it to the buffer.
+func AppendFromReader(b []byte, r io.Reader) ([]byte, error) {
+	ret, out := magic.SliceForAppend(b, 2)
+
+	// Read ATYP and an extra byte.
+	_, err := io.ReadFull(r, out)
 	if err != nil {
 		return nil, err
 	}
-	return dst[:n], nil
-}
 
-// ReadAddr reads just enough bytes from r to get a valid Addr.
-//
-// The destination slice must be big enough to hold the socks address.
-// Otherwise, this function might panic.
-func ReadAddr(dst []byte, r io.Reader) (n int, err error) {
-	n, err = io.ReadFull(r, dst[:1]) // read 1st byte for address type
-	if err != nil {
-		return
-	}
+	var addrLen int
 
-	switch dst[0] {
+	switch out[0] {
 	case AtypDomainName:
-		_, err = io.ReadFull(r, dst[1:2]) // read 2nd byte for domain length
-		if err != nil {
-			return
-		}
-		domainLen := int(dst[1])
-		n += 1 + domainLen + 2
-		_, err = io.ReadFull(r, dst[2:n])
-		return
+		addrLen = 1 + 1 + int(out[1]) + 2
 	case AtypIPv4:
-		n += net.IPv4len + 2
-		_, err = io.ReadFull(r, dst[1:n])
-		return
+		addrLen = 1 + 4 + 2
 	case AtypIPv6:
-		n += net.IPv6len + 2
-		_, err = io.ReadFull(r, dst[1:n])
-		return
+		addrLen = 1 + 16 + 2
+	default:
+		return nil, fmt.Errorf("unknown atyp %d", out[0])
 	}
 
-	err = fmt.Errorf("unknown atyp %v", dst[0])
-	return
+	ret, out = magic.SliceForAppend(ret[:len(b)+2], addrLen-2)
+	_, err = io.ReadFull(r, out)
+	return ret, err
 }
 
-// AddrFromReader allocates and reads a socks address from an io.Reader.
+// AddrFromReader allocates and reads a SOCKS address from an io.Reader.
 //
-// To avoid allocations, call ReadAddr directly.
+// To avoid allocations, call AppendFromReader directly.
 func AddrFromReader(r io.Reader) (Addr, error) {
-	dst := make([]byte, MaxAddrLen)
-	n, err := ReadAddr(dst, r)
-	if err != nil {
-		return nil, err
-	}
-	return dst[:n], nil
+	b := make([]byte, 0, MaxAddrLen)
+	return AppendFromReader(b, r)
 }
 
 // SplitAddr slices a SOCKS address from the beginning of b and returns the SOCKS address,
 // or an error if no valid SOCKS address is found.
 func SplitAddr(b []byte) (Addr, error) {
-	addrLen := 1
-	if len(b) < addrLen {
-		return nil, io.ErrShortBuffer
+	if len(b) < 2 {
+		return nil, fmt.Errorf("addr length too short: %d", len(b))
 	}
+
+	var addrLen int
 
 	switch b[0] {
 	case AtypDomainName:
-		if len(b) < 2 {
-			return nil, io.ErrShortBuffer
-		}
 		addrLen = 1 + 1 + int(b[1]) + 2
 	case AtypIPv4:
-		addrLen = SocksAddressIPv4Length
+		addrLen = 1 + 4 + 2
 	case AtypIPv6:
-		addrLen = SocksAddressIPv6Length
+		addrLen = 1 + 16 + 2
 	default:
-		return nil, fmt.Errorf("unknown atyp %v", b[0])
+		return nil, fmt.Errorf("unknown atyp %d", b[0])
 	}
 
 	if len(b) < addrLen {
-		return nil, io.ErrShortBuffer
+		return nil, fmt.Errorf("addr length %d is too short for atyp %d", len(b), b[0])
 	}
 
 	return b[:addrLen], nil

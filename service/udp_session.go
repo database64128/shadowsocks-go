@@ -204,8 +204,18 @@ func (s *UDPSessionRelay) Start() error {
 					s.mu.Unlock()
 					continue
 				}
-				if !hasTargetAddr { // Unlikely for server unpackers.
-					targetAddr = socks5.AddrFromAddrPort(clientAddrPort)
+				if !hasTargetAddr {
+					s.logger.Error("Server unpacker returned no target address",
+						zap.String("server", s.serverName),
+						zap.String("listenAddress", s.listenAddress),
+						zap.Stringer("clientAddress", clientAddrPort),
+						zap.Uint64("clientSessionID", csid),
+						zap.Int("packetLength", n),
+					)
+
+					s.packetBufPool.Put(packetBufp)
+					s.mu.Unlock()
+					continue
 				}
 
 				c, err := s.router.GetUDPClient(s.serverName, clientAddrPort, targetAddr)
@@ -361,8 +371,18 @@ func (s *UDPSessionRelay) Start() error {
 					s.mu.Unlock()
 					continue
 				}
-				if !hasTargetAddr { // Unlikely for server unpackers.
-					targetAddr = socks5.AddrFromAddrPort(clientAddrPort)
+				if !hasTargetAddr {
+					s.logger.Error("Server unpacker returned no target address",
+						zap.String("server", s.serverName),
+						zap.String("listenAddress", s.listenAddress),
+						zap.Stringer("clientAddress", clientAddrPort),
+						zap.Uint64("clientSessionID", csid),
+						zap.Int("packetLength", n),
+					)
+
+					s.packetBufPool.Put(packetBufp)
+					s.mu.Unlock()
+					continue
 				}
 
 				entry.clientAddrPort = clientAddrPort
@@ -458,7 +478,7 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(csid uint64, entry *se
 			// Workaround for https://github.com/golang/go/issues/52264
 			targetAddrPort = conn.Tov4Mappedv6(targetAddrPort)
 
-			cachedTargetAddr = queuedPacket.targetAddr
+			cachedTargetAddr = append(cachedTargetAddr[:0], queuedPacket.targetAddr...)
 			cachedTargetAddrPort = targetAddrPort
 		}
 
@@ -544,13 +564,12 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 			continue
 		}
 		if !hasTargetAddr {
-			if packetFromAddrPort == cachedPacketFromAddrPort {
-				targetAddr = cachedTargetAddr
-			} else {
-				targetAddr = socks5.AddrFromAddrPort(packetFromAddrPort)
+			if packetFromAddrPort != cachedPacketFromAddrPort {
 				cachedPacketFromAddrPort = packetFromAddrPort
-				cachedTargetAddr = targetAddr
+				cachedTargetAddr = socks5.AppendFromAddrPort(cachedTargetAddr[:0], packetFromAddrPort)
 			}
+
+			targetAddr = cachedTargetAddr
 		}
 
 		packetStart, packetLength, err := entry.serverConnPacker.PackInPlace(packetBuf, targetAddr, payloadStart, payloadLength)

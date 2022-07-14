@@ -102,11 +102,7 @@ func ClientRequest(rw io.ReadWriter, command byte, targetAddr Addr) (Addr, error
 	}
 
 	// Read SOCKS address.
-	n, err = ReadAddr(b[3:], rw)
-	if err != nil {
-		return nil, err
-	}
-	return b[3 : 3+n], nil
+	return AppendFromReader(b[3:3], rw)
 }
 
 // ClientConnect writes a CONNECT request to targetAddr.
@@ -182,7 +178,7 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, udpBoundAddr Addr
 	}
 
 	// Read SOCKS address.
-	n, err := ReadAddr(b[3:], rw)
+	addr, err := AppendFromReader(b[3:3], rw)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +186,7 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, udpBoundAddr Addr
 	switch {
 	case b[1] == CmdConnect && enableTCP:
 		err = replyWithStatus(rw, Succeeded)
-		return b[3 : 3+n], err
+		return addr, err
 
 	case b[1] == CmdUDPAssociate && enableUDP:
 		b[1] = Succeeded

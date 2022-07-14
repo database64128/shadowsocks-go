@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
-	"io"
 	"math"
 	mrand "math/rand"
 	"net/netip"
@@ -160,8 +159,8 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 	header = b[:n]
 
 	_, _, err = ParseTCPRequestVariableLengthHeader(header)
-	if !errors.Is(err, io.ErrShortBuffer) {
-		t.Fatalf("Expected: %s\nGot: %s", io.ErrShortBuffer, err)
+	if err == nil {
+		t.Fatal("Expected error, got nil")
 	}
 }
 
@@ -340,8 +339,8 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	header = header[:len(header)-1]
 
 	_, _, _, err = ParseUDPClientMessageHeader(header)
-	if !errors.Is(err, io.ErrShortBuffer) {
-		t.Fatalf("Expected: %s\nGot: %s", io.ErrShortBuffer, err)
+	if err == nil {
+		t.Fatal("Expected error, got nil")
 	}
 
 	// 6. Bad header (incomplete padding)
@@ -497,8 +496,8 @@ func TestWriteAndParseUDPServerMessageHeader(t *testing.T) {
 	header = header[:len(header)-1]
 
 	_, _, _, err = ParseUDPServerMessageHeader(header, csid)
-	if !errors.Is(err, io.ErrShortBuffer) {
-		t.Fatalf("Expected: %s\nGot: %s", io.ErrShortBuffer, err)
+	if err == nil {
+		t.Fatal("Expected error, got nil")
 	}
 
 	// 6. Bad header (incomplete padding)
