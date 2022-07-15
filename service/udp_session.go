@@ -449,6 +449,8 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(csid uint64, entry *se
 		cachedTargetAddr          socks5.Addr
 		cachedTargetAddrPort      netip.AddrPort = entry.natConnFixedTargetAddrPort
 		cachedTargetMaxPacketSize int            = zerocopy.MaxPacketSizeForAddr(entry.natConnMTU, entry.natConnFixedTargetAddrPort.Addr())
+		packetsSent               uint64
+		payloadBytesSent          uint64
 	)
 
 	for {
@@ -509,8 +511,30 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(csid uint64, entry *se
 			)
 		}
 
+		err = entry.natConn.SetReadDeadline(time.Now().Add(natTimeout))
+		if err != nil {
+			s.logger.Warn("Failed to set read deadline on natConn",
+				zap.String("server", s.serverName),
+				zap.String("listenAddress", s.listenAddress),
+				zap.Stringer("clientAddress", entry.clientAddrPort),
+				zap.Uint64("clientSessionID", csid),
+				zap.Error(err),
+			)
+		}
+
 		s.packetBufPool.Put(queuedPacket.bufp)
+		packetsSent++
+		payloadBytesSent += uint64(queuedPacket.length)
 	}
+
+	s.logger.Info("Finished relay serverConn -> natConn",
+		zap.String("server", s.serverName),
+		zap.String("listenAddress", s.listenAddress),
+		zap.Stringer("clientAddress", entry.clientAddrPort),
+		zap.Uint64("clientSessionID", csid),
+		zap.Uint64("packetsSent", packetsSent),
+		zap.Uint64("payloadBytesSent", payloadBytesSent),
+	)
 }
 
 func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *session) {
@@ -526,6 +550,8 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 	var (
 		cachedTargetAddr         socks5.Addr
 		cachedPacketFromAddrPort netip.AddrPort
+		packetsSent              uint64
+		payloadBytesSent         uint64
 	)
 
 	packetBuf := make([]byte, frontHeadroom+entry.natConnRecvBufSize+rearHeadroom)
@@ -612,7 +638,19 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 				zap.Error(err),
 			)
 		}
+
+		packetsSent++
+		payloadBytesSent += uint64(payloadLength)
 	}
+
+	s.logger.Info("Finished relay serverConn <- natConn",
+		zap.String("server", s.serverName),
+		zap.String("listenAddress", s.listenAddress),
+		zap.Stringer("clientAddress", entry.clientAddrPort),
+		zap.Uint64("clientSessionID", csid),
+		zap.Uint64("packetsSent", packetsSent),
+		zap.Uint64("payloadBytesSent", payloadBytesSent),
+	)
 }
 
 // Stop implements the Service Stop method.

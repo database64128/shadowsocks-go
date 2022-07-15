@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"time"
 	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -34,8 +35,6 @@ func (s *UDPNATRelay) setRelayNatConnToServerConnFunc(batchMode string) {
 }
 
 func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.AddrPort, entry *natEntry) {
-	const vecSize = conn.UIO_MAXIOV
-
 	// Cache the last used target address.
 	//
 	// When the target address is a domain, it is very likely that the target address won't change
@@ -46,6 +45,9 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 		name                      *byte
 		namelen                   uint32
 		cachedTargetMaxPacketSize int
+		sendmmsgCount             uint64
+		packetsSent               uint64
+		payloadBytesSent          uint64
 	)
 
 	if entry.natConnUseFixedTargetAddrPort {
@@ -123,6 +125,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 			iovec[count].Base = &(*queuedPacket.bufp)[packetStart]
 			iovec[count].SetLen(packetLength)
 			count++
+			payloadBytesSent += uint64(queuedPacket.length)
 
 			if count == vecSize {
 				break
@@ -150,6 +153,18 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 			)
 		}
 
+		if err := entry.natConn.SetReadDeadline(time.Now().Add(natTimeout)); err != nil {
+			s.logger.Warn("Failed to set read deadline on natConn",
+				zap.String("server", s.serverName),
+				zap.String("listenAddress", s.listenAddress),
+				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Error(err),
+			)
+		}
+
+		sendmmsgCount++
+		packetsSent += uint64(count)
+
 	cleanup:
 		for _, packet := range dequeuedPackets[:count] {
 			s.packetBufPool.Put(packet.bufp)
@@ -159,11 +174,18 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 			break
 		}
 	}
+
+	s.logger.Info("Finished relay serverConn -> natConn",
+		zap.String("server", s.serverName),
+		zap.String("listenAddress", s.listenAddress),
+		zap.Stringer("clientAddress", clientAddrPort),
+		zap.Uint64("sendmmsgCount", sendmmsgCount),
+		zap.Uint64("packetsSent", packetsSent),
+		zap.Uint64("payloadBytesSent", payloadBytesSent),
+	)
 }
 
 func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.AddrPort, entry *natEntry) {
-	const vecSize = conn.UIO_MAXIOV
-
 	frontHeadroom := s.serverPacker.FrontHeadroom() - entry.natConnUnpacker.FrontHeadroom()
 	if frontHeadroom < 0 {
 		frontHeadroom = 0
@@ -176,6 +198,9 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 	var (
 		cachedTargetAddr         socks5.Addr
 		cachedPacketFromAddrPort netip.AddrPort
+		sendmmsgCount            uint64
+		packetsSent              uint64
+		payloadBytesSent         uint64
 	)
 
 	name, namelen := conn.AddrPortToSockaddr(clientAddrPort)
@@ -290,6 +315,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 				smsgvec[ns].Msghdr.SetControllen(smsgControlLen)
 			}
 			ns++
+			payloadBytesSent += uint64(payloadLength)
 		}
 
 		if ns == 0 {
@@ -309,5 +335,17 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 				zap.Error(err),
 			)
 		}
+
+		sendmmsgCount++
+		packetsSent += uint64(ns)
 	}
+
+	s.logger.Info("Finished relay serverConn <- natConn",
+		zap.String("server", s.serverName),
+		zap.String("listenAddress", s.listenAddress),
+		zap.Stringer("clientAddress", clientAddrPort),
+		zap.Uint64("sendmmsgCount", sendmmsgCount),
+		zap.Uint64("packetsSent", packetsSent),
+		zap.Uint64("payloadBytesSent", payloadBytesSent),
+	)
 }

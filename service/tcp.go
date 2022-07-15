@@ -248,8 +248,16 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 	}
 	defer remoteConn.Close()
 
+	s.logger.Info("Two-way relay started",
+		zap.String("server", s.serverName),
+		zap.String("listenAddress", s.listenAddress),
+		zap.String("clientAddress", clientAddress),
+		zap.Stringer("targetAddress", targetAddr),
+	)
+
 	// Two-way relay.
 	nl2r, nr2l, err := zerocopy.TwoWayRelay(clientRW, remoteRW)
+	nl2r += int64(len(payload))
 	if err != nil {
 		s.logger.Warn("Two-way relay failed",
 			zap.String("server", s.serverName),
