@@ -256,8 +256,10 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 		return
 	}
 
-	frontHeadroom := packer.FrontHeadroom()
-	rearHeadroom := packer.RearHeadroom()
+	packerFrontHeadroom := packer.FrontHeadroom()
+	packerRearHeadroom := packer.RearHeadroom()
+	unpackerFrontHeadroom := unpacker.FrontHeadroom()
+	unpackerRearHeadroom := unpacker.RearHeadroom()
 
 	// Prepare UDP socket.
 	conn, err, serr := conn.ListenUDP("udp", "", false, fwmark)
@@ -296,12 +298,12 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	// Each sender will keep sending at 2s intervals until the stop signal
 	// is received or after 10 iterations.
 	sendFunc := func(pkt []byte, ctrlCh <-chan struct{}) {
-		b := make([]byte, frontHeadroom+len(pkt)+rearHeadroom)
+		b := make([]byte, packerFrontHeadroom+len(pkt)+packerRearHeadroom)
 
 	write:
 		for i := 0; i < 10; i++ {
-			copy(b[frontHeadroom:], pkt)
-			packetStart, packetLength, err := packer.PackInPlace(b, r.serverAddr, frontHeadroom, len(pkt), maxPacketSize)
+			copy(b[packerFrontHeadroom:], pkt)
+			packetStart, packetLength, err := packer.PackInPlace(b, r.serverAddr, packerFrontHeadroom, len(pkt), maxPacketSize)
 			if err != nil {
 				r.logger.Warn("Failed to pack packet",
 					zap.String("name", nameString),
@@ -355,7 +357,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 
 	// Receive replies.
 	minTTL = math.MaxUint32
-	recvBuf := make([]byte, 514)
+	recvBuf := make([]byte, unpackerFrontHeadroom+514+unpackerRearHeadroom)
 
 	var (
 		v4done, v6done bool
