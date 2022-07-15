@@ -370,7 +370,7 @@ func WriteUDPClientMessageHeader(b []byte, targetAddr socks5.Addr, shouldPad fun
 	addrStart := len(b) - len(targetAddr)
 	roomForPadding := addrStart - UDPClientMessageHeaderFixedLength
 	if roomForPadding < 0 {
-		err = zerocopy.ErrHeadroomTooSmall
+		err = zerocopy.ErrPayloadTooBig
 		return
 	}
 
@@ -480,7 +480,7 @@ func WriteUDPServerMessageHeader(b []byte, csid uint64, targetAddr socks5.Addr, 
 	addrStart := len(b) - len(targetAddr)
 	roomForPadding := addrStart - UDPServerMessageHeaderFixedLength
 	if roomForPadding < 0 {
-		err = zerocopy.ErrHeadroomTooSmall
+		err = zerocopy.ErrPayloadTooBig
 		return
 	}
 

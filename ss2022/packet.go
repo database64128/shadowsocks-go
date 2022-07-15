@@ -76,11 +76,20 @@ func (p *ShadowPacketClientPacker) RearHeadroom() int {
 }
 
 // PackInPlace implements the Packer PackInPlace method.
-func (p *ShadowPacketClientPacker) PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen int) (packetStart, packetLen int, err error) {
+func (p *ShadowPacketClientPacker) PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
 	nonAEADHeaderLength := UDPSeparateHeaderLength + IdentityHeaderLength*len(p.eihCiphers)
+	messageHeaderLengthBudget := maxPacketLen - payloadLen - nonAEADHeaderLength - p.aead.Overhead()
+	if messageHeaderLengthBudget < UDPClientMessageHeaderFixedLength+len(targetAddr) {
+		err = zerocopy.ErrPayloadTooBig
+		return
+	}
+	messageHeaderBufSize := payloadStart - nonAEADHeaderLength
+	if messageHeaderBufSize > messageHeaderLengthBudget {
+		messageHeaderBufSize = messageHeaderLengthBudget
+	}
 
 	// Write message header.
-	n, err := WriteUDPClientMessageHeader(b[nonAEADHeaderLength:payloadStart], targetAddr, p.shouldPad)
+	n, err := WriteUDPClientMessageHeader(b[payloadStart-messageHeaderBufSize:payloadStart], targetAddr, p.shouldPad)
 	if err != nil {
 		return
 	}
@@ -149,9 +158,19 @@ func (p *ShadowPacketServerPacker) RearHeadroom() int {
 }
 
 // PackInPlace implements the Packer PackInPlace method.
-func (p *ShadowPacketServerPacker) PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen int) (packetStart, packetLen int, err error) {
+func (p *ShadowPacketServerPacker) PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
+	messageHeaderLengthBudget := maxPacketLen - payloadLen - UDPSeparateHeaderLength - p.aead.Overhead()
+	if messageHeaderLengthBudget < UDPServerMessageHeaderFixedLength+len(targetAddr) {
+		err = zerocopy.ErrPayloadTooBig
+		return
+	}
+	messageHeaderBufSize := payloadStart - UDPSeparateHeaderLength
+	if messageHeaderBufSize > messageHeaderLengthBudget {
+		messageHeaderBufSize = messageHeaderLengthBudget
+	}
+
 	// Write message header.
-	n, err := WriteUDPServerMessageHeader(b[UDPSeparateHeaderLength:payloadStart], p.csid, targetAddr, p.shouldPad)
+	n, err := WriteUDPServerMessageHeader(b[payloadStart-messageHeaderBufSize:payloadStart], p.csid, targetAddr, p.shouldPad)
 	if err != nil {
 		return
 	}
@@ -218,6 +237,16 @@ type ShadowPacketClientUnpacker struct {
 
 	// Cipher config.
 	cipherConfig *CipherConfig
+}
+
+// FrontHeadroom implements the Unpacker FrontHeadroom method.
+func (p *ShadowPacketClientUnpacker) FrontHeadroom() int {
+	return UDPSeparateHeaderLength + UDPServerMessageHeaderMaxLength
+}
+
+// RearHeadroom implements the Unpacker RearHeadroom method.
+func (p *ShadowPacketClientUnpacker) RearHeadroom() int {
+	return 16
 }
 
 // UnpackInPlace implements the Unpacker UnpackInPlace method.
@@ -335,6 +364,20 @@ type ShadowPacketServerUnpacker struct {
 
 	// Whether incoming packets have an identity header.
 	hasEIH bool
+}
+
+// FrontHeadroom implements the Unpacker FrontHeadroom method.
+func (p *ShadowPacketServerUnpacker) FrontHeadroom() int {
+	var identityHeaderLen int
+	if p.hasEIH {
+		identityHeaderLen = IdentityHeaderLength
+	}
+	return UDPSeparateHeaderLength + identityHeaderLen + UDPClientMessageHeaderMaxLength
+}
+
+// RearHeadroom implements the Unpacker RearHeadroom method.
+func (p *ShadowPacketServerUnpacker) RearHeadroom() int {
+	return p.aead.Overhead()
 }
 
 // UnpackInPlace unpacks the AEAD encrypted part of a Shadowsocks client packet

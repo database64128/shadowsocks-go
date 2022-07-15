@@ -28,11 +28,11 @@ func PadPlainDNS(targetAddr socks5.Addr) bool {
 // ParsePaddingPolicy parses a string representation of a PaddingPolicy.
 func ParsePaddingPolicy(paddingPolicy string) (PaddingPolicy, error) {
 	switch paddingPolicy {
-	case "NoPadding", "": // Until we fix the MTU behavior, default to NoPadding.
+	case "NoPadding":
 		return NoPadding, nil
 	case "PadAll":
 		return PadAll, nil
-	case "PadPlainDNS":
+	case "PadPlainDNS", "":
 		return PadPlainDNS, nil
 	default:
 		return nil, fmt.Errorf("invalid padding policy: %s", paddingPolicy)

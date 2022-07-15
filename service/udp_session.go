@@ -23,6 +23,7 @@ type session struct {
 	clientOobCache                []byte
 	natConn                       *net.UDPConn
 	natConnMTU                    int
+	natConnRecvBufSize            int
 	natConnSendCh                 chan queuedPacket
 	natConnPacker                 zerocopy.Packer
 	natConnUnpacker               zerocopy.Unpacker
@@ -41,6 +42,9 @@ type UDPSessionRelay struct {
 	listenAddress            string
 	listenerFwmark           int
 	mtu                      int
+	packetBufFrontHeadroom   int
+	packetBufRearHeadroom    int
+	packetBufRecvSize        int
 	preferIPv6               bool
 	server                   zerocopy.UDPServer
 	serverConn               *net.UDPConn
@@ -56,30 +60,41 @@ type UDPSessionRelay struct {
 
 func NewUDPSessionRelay(
 	batchMode, serverName, listenAddress string,
-	listenerFwmark, mtu int,
+	listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
 	preferIPv6 bool,
 	server zerocopy.UDPServer,
 	router *router.Router,
 	logger *zap.Logger,
 ) *UDPSessionRelay {
-	packetBufSize := mtu - IPv4HeaderLength - UDPHeaderLength
+	packetBufFrontHeadroom := maxClientFrontHeadroom - server.FrontHeadroom()
+	if packetBufFrontHeadroom < 0 {
+		packetBufFrontHeadroom = 0
+	}
+	packetBufRearHeadroom := maxClientRearHeadroom - server.RearHeadroom()
+	if packetBufRearHeadroom < 0 {
+		packetBufRearHeadroom = 0
+	}
+	packetBufSize := mtu - zerocopy.IPv4HeaderLength - zerocopy.UDPHeaderLength
 	packetBufPool := &sync.Pool{
 		New: func() any {
-			b := make([]byte, fixedFrontHeadroom+packetBufSize+fixedRearHeadroom)
+			b := make([]byte, packetBufFrontHeadroom+packetBufSize+packetBufRearHeadroom)
 			return &b
 		},
 	}
 	s := UDPSessionRelay{
-		serverName:     serverName,
-		listenAddress:  listenAddress,
-		listenerFwmark: listenerFwmark,
-		mtu:            mtu,
-		preferIPv6:     preferIPv6,
-		server:         server,
-		router:         router,
-		logger:         logger,
-		packetBufPool:  packetBufPool,
-		table:          make(map[uint64]*session),
+		serverName:             serverName,
+		listenAddress:          listenAddress,
+		listenerFwmark:         listenerFwmark,
+		mtu:                    mtu,
+		packetBufFrontHeadroom: packetBufFrontHeadroom,
+		packetBufRearHeadroom:  packetBufRearHeadroom,
+		packetBufRecvSize:      packetBufSize,
+		preferIPv6:             preferIPv6,
+		server:                 server,
+		router:                 router,
+		logger:                 logger,
+		packetBufPool:          packetBufPool,
+		table:                  make(map[uint64]*session),
 	}
 	s.setRelayServerConnToNatConnFunc(batchMode)
 	s.setRelayNatConnToServerConnFunc(batchMode)
@@ -113,7 +128,7 @@ func (s *UDPSessionRelay) Start() error {
 		for {
 			packetBufp := s.packetBufPool.Get().(*[]byte)
 			packetBuf := *packetBufp
-			recvBuf := packetBuf[fixedFrontHeadroom : len(packetBuf)-fixedRearHeadroom]
+			recvBuf := packetBuf[s.packetBufFrontHeadroom : s.packetBufFrontHeadroom+s.packetBufRecvSize]
 
 			n, oobn, flags, clientAddrPort, err := s.serverConn.ReadMsgUDPAddrPort(recvBuf, oobBuf)
 			if err != nil {
@@ -189,7 +204,7 @@ func (s *UDPSessionRelay) Start() error {
 					continue
 				}
 
-				targetAddr, hasTargetAddr, payloadStart, payloadLength, err = serverConnUnpacker.UnpackInPlace(packetBuf, fixedFrontHeadroom, n)
+				targetAddr, hasTargetAddr, payloadStart, payloadLength, err = serverConnUnpacker.UnpackInPlace(packetBuf, s.packetBufFrontHeadroom, n)
 				if err != nil {
 					s.logger.Warn("Failed to unpack packet",
 						zap.String("server", s.serverName),
@@ -312,6 +327,7 @@ func (s *UDPSessionRelay) Start() error {
 					clientAddrPort:                clientAddrPort,
 					natConn:                       natConn,
 					natConnMTU:                    natConnMTU,
+					natConnRecvBufSize:            natConnMTU - zerocopy.IPv4HeaderLength - zerocopy.UDPHeaderLength,
 					natConnSendCh:                 make(chan queuedPacket, sendChannelCapacity),
 					natConnPacker:                 natConnPacker,
 					natConnUnpacker:               natConnUnpacker,
@@ -319,12 +335,7 @@ func (s *UDPSessionRelay) Start() error {
 					natConnUseFixedTargetAddrPort: natConnUseFixedTargetAddrPort,
 					serverConnPacker:              serverConnPacker,
 					serverConnUnpacker:            serverConnUnpacker,
-				}
-
-				if addr := clientAddrPort.Addr(); addr.Is4() || addr.Is4In6() {
-					entry.maxClientPacketSize = s.mtu - IPv4HeaderLength - UDPHeaderLength
-				} else {
-					entry.maxClientPacketSize = s.mtu - IPv6HeaderLength - UDPHeaderLength
+					maxClientPacketSize:           zerocopy.MaxPacketSizeForAddr(s.mtu, clientAddrPort.Addr()),
 				}
 
 				s.table[csid] = entry
@@ -356,7 +367,7 @@ func (s *UDPSessionRelay) Start() error {
 					zap.Uint64("clientSessionID", csid),
 				)
 			} else {
-				targetAddr, hasTargetAddr, payloadStart, payloadLength, err = entry.serverConnUnpacker.UnpackInPlace(packetBuf, fixedFrontHeadroom, n)
+				targetAddr, hasTargetAddr, payloadStart, payloadLength, err = entry.serverConnUnpacker.UnpackInPlace(packetBuf, s.packetBufFrontHeadroom, n)
 				if err != nil {
 					s.logger.Warn("Failed to unpack packet",
 						zap.String("server", s.serverName),
@@ -386,6 +397,7 @@ func (s *UDPSessionRelay) Start() error {
 				}
 
 				entry.clientAddrPort = clientAddrPort
+				entry.maxClientPacketSize = zerocopy.MaxPacketSizeForAddr(s.mtu, clientAddrPort.Addr())
 			}
 
 			entry.clientOobCache, err = conn.UpdateOobCache(entry.clientOobCache, oobBuf[:oobn], s.logger)
@@ -434,29 +446,15 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(csid uint64, entry *se
 	// throughout the lifetime of the session. In this case, caching the target address can eliminate
 	// the per-packet DNS lookup overhead.
 	var (
-		cachedTargetAddr     socks5.Addr
-		cachedTargetAddrPort netip.AddrPort = entry.natConnFixedTargetAddrPort
+		cachedTargetAddr          socks5.Addr
+		cachedTargetAddrPort      netip.AddrPort = entry.natConnFixedTargetAddrPort
+		cachedTargetMaxPacketSize int            = zerocopy.MaxPacketSizeForAddr(entry.natConnMTU, entry.natConnFixedTargetAddrPort.Addr())
 	)
 
 	for {
 		queuedPacket, ok := <-entry.natConnSendCh
 		if !ok {
 			break
-		}
-
-		packetStart, packetLength, err := entry.natConnPacker.PackInPlace(*queuedPacket.bufp, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length)
-		if err != nil {
-			s.logger.Warn("Failed to pack packet",
-				zap.String("server", s.serverName),
-				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", entry.clientAddrPort),
-				zap.Stringer("targetAddress", queuedPacket.targetAddr),
-				zap.Uint64("clientSessionID", csid),
-				zap.Error(err),
-			)
-
-			s.packetBufPool.Put(queuedPacket.bufp)
-			continue
 		}
 
 		if !entry.natConnUseFixedTargetAddrPort && !bytes.Equal(cachedTargetAddr, queuedPacket.targetAddr) {
@@ -480,6 +478,22 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(csid uint64, entry *se
 
 			cachedTargetAddr = append(cachedTargetAddr[:0], queuedPacket.targetAddr...)
 			cachedTargetAddrPort = targetAddrPort
+			cachedTargetMaxPacketSize = zerocopy.MaxPacketSizeForAddr(entry.natConnMTU, targetAddrPort.Addr())
+		}
+
+		packetStart, packetLength, err := entry.natConnPacker.PackInPlace(*queuedPacket.bufp, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length, cachedTargetMaxPacketSize)
+		if err != nil {
+			s.logger.Warn("Failed to pack packet",
+				zap.String("server", s.serverName),
+				zap.String("listenAddress", s.listenAddress),
+				zap.Stringer("clientAddress", entry.clientAddrPort),
+				zap.Stringer("targetAddress", queuedPacket.targetAddr),
+				zap.Uint64("clientSessionID", csid),
+				zap.Error(err),
+			)
+
+			s.packetBufPool.Put(queuedPacket.bufp)
+			continue
 		}
 
 		_, err = entry.natConn.WriteToUDPAddrPort((*queuedPacket.bufp)[packetStart:packetStart+packetLength], cachedTargetAddrPort)
@@ -500,17 +514,13 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(csid uint64, entry *se
 }
 
 func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *session) {
-	serverFrontHeadroom := entry.serverConnPacker.FrontHeadroom()
-	serverRearHeadroom := entry.serverConnPacker.RearHeadroom()
-	clientFrontHeadroom := entry.natConnPacker.FrontHeadroom()
-	clientRearHeadroom := entry.natConnPacker.RearHeadroom()
-
-	var frontHeadroom, rearHeadroom int
-	if serverFrontHeadroom > clientFrontHeadroom {
-		frontHeadroom = serverFrontHeadroom - clientFrontHeadroom
+	frontHeadroom := entry.serverConnPacker.FrontHeadroom() - entry.natConnUnpacker.FrontHeadroom()
+	if frontHeadroom < 0 {
+		frontHeadroom = 0
 	}
-	if serverRearHeadroom > clientRearHeadroom {
-		rearHeadroom = serverRearHeadroom - clientRearHeadroom
+	rearHeadroom := entry.serverConnPacker.RearHeadroom() - entry.natConnUnpacker.RearHeadroom()
+	if rearHeadroom < 0 {
+		rearHeadroom = 0
 	}
 
 	var (
@@ -518,8 +528,8 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 		cachedPacketFromAddrPort netip.AddrPort
 	)
 
-	packetBuf := make([]byte, frontHeadroom+entry.maxClientPacketSize+rearHeadroom)
-	recvBuf := packetBuf[frontHeadroom : frontHeadroom+entry.maxClientPacketSize]
+	packetBuf := make([]byte, frontHeadroom+entry.natConnRecvBufSize+rearHeadroom)
+	recvBuf := packetBuf[frontHeadroom : frontHeadroom+entry.natConnRecvBufSize]
 
 	for {
 		n, _, flags, packetFromAddrPort, err := entry.natConn.ReadMsgUDPAddrPort(recvBuf, nil)
@@ -572,7 +582,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 			targetAddr = cachedTargetAddr
 		}
 
-		packetStart, packetLength, err := entry.serverConnPacker.PackInPlace(packetBuf, targetAddr, payloadStart, payloadLength)
+		packetStart, packetLength, err := entry.serverConnPacker.PackInPlace(packetBuf, targetAddr, payloadStart, payloadLength, entry.maxClientPacketSize)
 		if err != nil {
 			s.logger.Warn("Failed to pack packet",
 				zap.String("server", s.serverName),

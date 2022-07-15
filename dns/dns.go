@@ -235,10 +235,11 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (result Result, minTTL uint32, handled bool) {
 	// Target address of outgoing packets.
 	targetAddrPort := r.serverAddrPort
-	ap, _, fwmark, ok := r.udpClient.AddrPort()
+	ap, mtu, fwmark, ok := r.udpClient.AddrPort()
 	if ok {
 		targetAddrPort = ap
 	}
+	maxPacketSize := zerocopy.MaxPacketSizeForAddr(mtu, targetAddrPort.Addr())
 
 	// Workaround for https://github.com/golang/go/issues/52264
 	targetAddrPort = conn.Tov4Mappedv6(targetAddrPort)
@@ -300,7 +301,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	write:
 		for i := 0; i < 10; i++ {
 			copy(b[frontHeadroom:], pkt)
-			packetStart, packetLength, err := packer.PackInPlace(b, r.serverAddr, frontHeadroom, len(pkt))
+			packetStart, packetLength, err := packer.PackInPlace(b, r.serverAddr, frontHeadroom, len(pkt), maxPacketSize)
 			if err != nil {
 				r.logger.Warn("Failed to pack packet",
 					zap.String("name", nameString),

@@ -63,7 +63,7 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 	copy(payloadBackup, payload)
 
 	// Client packs.
-	pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen)
+	pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen, packetSize)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen)
+	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen, packetSize)
 	if err != nil {
 		t.Fatal(err)
 	}

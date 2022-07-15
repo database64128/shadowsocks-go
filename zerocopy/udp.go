@@ -4,6 +4,9 @@ import "net/netip"
 
 // UDPClient stores the necessary information for creating new sessions.
 type UDPClient interface {
+	// Headroom reports client packer headroom requirements.
+	Headroom
+
 	// NewSession creates a new session and returns the packet packer
 	// and unpacker for the session, or an error.
 	NewSession() (Packer, Unpacker, error)
@@ -15,6 +18,9 @@ type UDPClient interface {
 
 // UDPServer deals with incoming sessions.
 type UDPServer interface {
+	// Headroom reports server unpacker headroom requirements.
+	Headroom
+
 	// SessionInfo extracts session ID from a received packet b.
 	//
 	// The returned session ID is then used by the caller to look up the session table.
@@ -38,16 +44,18 @@ type UDPServer interface {
 //
 // SimpleUDPClient implements the UDPClient interface.
 type SimpleUDPClient struct {
-	p           PackUnpacker
-	addrPort    netip.AddrPort
-	mtu         int
-	fwmark      int
-	hasAddrPort bool
+	p             PackUnpacker
+	addrPort      netip.AddrPort
+	hasAddrPort   bool
+	mtu           int
+	fwmark        int
+	frontHeadroom int
+	rearHeadroom  int
 }
 
 // NewSimpleUDPClient wraps a PackUnpacker into a UDPClient and uses it for all sessions.
-func NewSimpleUDPClient(p PackUnpacker, addrPort netip.AddrPort, mtu, fwmark int, hasAddrPort bool) *SimpleUDPClient {
-	return &SimpleUDPClient{p, addrPort, mtu, fwmark, hasAddrPort}
+func NewSimpleUDPClient(p PackUnpacker, addrPort netip.AddrPort, hasAddrPort bool, mtu, fwmark, frontHeadroom, rearHeadroom int) *SimpleUDPClient {
+	return &SimpleUDPClient{p, addrPort, hasAddrPort, mtu, fwmark, frontHeadroom, rearHeadroom}
 }
 
 // NewSession implements the UDPClient NewSession method.
@@ -58,4 +66,14 @@ func (c *SimpleUDPClient) NewSession() (Packer, Unpacker, error) {
 // AddrPort implements the UDPClient AddrPort method.
 func (c *SimpleUDPClient) AddrPort() (netip.AddrPort, int, int, bool) {
 	return c.addrPort, c.mtu, c.fwmark, c.hasAddrPort
+}
+
+// FrontHeadroom implements the UDPClient FrontHeadroom method.
+func (c *SimpleUDPClient) FrontHeadroom() int {
+	return c.frontHeadroom
+}
+
+// RearHeadroom implements the UDPClient RearHeadroom method.
+func (c *SimpleUDPClient) RearHeadroom() int {
+	return c.rearHeadroom
 }

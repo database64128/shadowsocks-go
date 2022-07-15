@@ -10,7 +10,26 @@ import (
 	"github.com/database64128/shadowsocks-go/socks5"
 )
 
-var ErrPacketTooSmall = errors.New("packet too small")
+// Used in packet size calculations.
+const (
+	IPv4HeaderLength = 20
+	IPv6HeaderLength = 40
+	UDPHeaderLength  = 8
+)
+
+var (
+	ErrPacketTooSmall = errors.New("packet too small to unpack")
+	ErrPayloadTooBig  = errors.New("payload too big to pack")
+)
+
+// MaxPacketSizeForAddr calculates the maximum packet size for the given address
+// based on the MTU and the address family.
+func MaxPacketSizeForAddr(mtu int, addr netip.Addr) int {
+	if addr.Is4() || addr.Is4In6() {
+		return mtu - IPv4HeaderLength - UDPHeaderLength
+	}
+	return mtu - IPv6HeaderLength - UDPHeaderLength
+}
 
 // Packer processes raw payload into packets.
 type Packer interface {
@@ -18,11 +37,13 @@ type Packer interface {
 
 	// PackInPlace packs the payload in-place into a packet and returns packet start offset, packet length,
 	// or an error if packing fails.
-	PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen int) (packetStart, packetLen int, err error)
+	PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error)
 }
 
 // Unpacker processes packets into raw payload.
 type Unpacker interface {
+	Headroom
+
 	// UnpackInPlace unpacks the packet in-place and returns target address, payload start offset, payload length,
 	// or an error if unpacking fails.
 	//
@@ -59,7 +80,7 @@ func PackerUnpackerTestFunc(t *testing.T, packer Packer, unpacker Unpacker) {
 	copy(payloadBackup, payload)
 
 	// Pack.
-	pkts, pktl, err := packer.PackInPlace(b, targetAddr, payloadStart, payloadLen)
+	pkts, pktl, err := packer.PackInPlace(b, targetAddr, payloadStart, payloadLen, packetSize)
 	if err != nil {
 		t.Fatal(err)
 	}

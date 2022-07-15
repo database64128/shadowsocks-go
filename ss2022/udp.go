@@ -77,6 +77,16 @@ func (c *UDPClient) AddrPort() (netip.AddrPort, int, int, bool) {
 	return c.addrPort, c.mtu, c.fwmark, true
 }
 
+// FrontHeadroom implements the UDPClient FrontHeadroom method.
+func (c *UDPClient) FrontHeadroom() int {
+	return UDPSeparateHeaderLength + IdentityHeaderLength*len(c.eihCiphers) + UDPClientMessageHeaderMaxLength
+}
+
+// RearHeadroom implements the UDPClient RearHeadroom method.
+func (c *UDPClient) RearHeadroom() int {
+	return 16
+}
+
 // UDPServer implements the zerocopy UDPServer interface.
 type UDPServer struct {
 	block        cipher.Block
@@ -98,6 +108,20 @@ func NewUDPServer(cipherConfig *CipherConfig, shouldPad PaddingPolicy, uPSKMap m
 		uPSKMap:                 uPSKMap,
 		currentUserCipherConfig: cipherConfig,
 	}
+}
+
+// FrontHeadroom implements the zerocopy.UDPServer FrontHeadroom method.
+func (s *UDPServer) FrontHeadroom() int {
+	var identityHeaderLen int
+	if len(s.uPSKMap) > 0 {
+		identityHeaderLen = IdentityHeaderLength
+	}
+	return UDPSeparateHeaderLength + identityHeaderLen + UDPClientMessageHeaderMaxLength
+}
+
+// RearHeadroom implements the zerocopy.UDPServer RearHeadroom method.
+func (s *UDPServer) RearHeadroom() int {
+	return 16
 }
 
 // SessionInfo implements the zerocopy.UDPServer SessionInfo method.

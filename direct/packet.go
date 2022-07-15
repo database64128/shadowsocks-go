@@ -32,9 +32,12 @@ func NewDirectServer(targetAddr socks5.Addr) *DirectPacketPackUnpacker {
 }
 
 // PackInPlace implements the Packer PackInPlace method.
-func (p *DirectPacketPackUnpacker) PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen int) (packetStart, packetLen int, err error) {
+func (p *DirectPacketPackUnpacker) PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
 	packetStart = payloadStart
 	packetLen = payloadLen
+	if packetLen > maxPacketLen {
+		err = zerocopy.ErrPayloadTooBig
+	}
 	return
 }
 
@@ -61,9 +64,12 @@ func (p *ShadowsocksNonePacketPackUnpacker) RearHeadroom() int {
 }
 
 // PackInPlace implements the Packer PackInPlace method.
-func (p *ShadowsocksNonePacketPackUnpacker) PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen int) (packetStart, packetLen int, err error) {
+func (p *ShadowsocksNonePacketPackUnpacker) PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
 	packetStart = payloadStart - len(targetAddr)
 	packetLen = payloadLen + len(targetAddr)
+	if packetLen > maxPacketLen {
+		err = zerocopy.ErrPayloadTooBig
+	}
 	copy(b[packetStart:], targetAddr)
 	return
 }
@@ -91,9 +97,12 @@ func (p *Socks5PacketPackUnpacker) RearHeadroom() int {
 }
 
 // PackInPlace implements the Packer PackInPlace method.
-func (p *Socks5PacketPackUnpacker) PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen int) (packetStart, packetLen int, err error) {
+func (p *Socks5PacketPackUnpacker) PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
 	packetStart = payloadStart - len(targetAddr) - 3
 	packetLen = payloadLen + len(targetAddr) + 3
+	if packetLen > maxPacketLen {
+		err = zerocopy.ErrPayloadTooBig
+	}
 	pkt := b[packetStart : packetStart+packetLen]
 	socks5.WritePacketHeader(pkt)
 	copy(pkt[3:], targetAddr)
