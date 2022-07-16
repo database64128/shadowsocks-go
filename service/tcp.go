@@ -241,7 +241,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 			zap.String("listenAddress", s.listenAddress),
 			zap.String("clientAddress", clientAddress),
 			zap.Stringer("targetAddress", targetAddr),
-			zap.Int("payloadLength", len(payload)),
+			zap.Int("initialPayloadLength", len(payload)),
 			zap.Error(err),
 		)
 		return
@@ -253,6 +253,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 		zap.String("listenAddress", s.listenAddress),
 		zap.String("clientAddress", clientAddress),
 		zap.Stringer("targetAddress", targetAddr),
+		zap.Int("initialPayloadLength", len(payload)),
 	)
 
 	// Two-way relay.

@@ -42,6 +42,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 	// the per-packet DNS lookup overhead.
 	var (
 		cachedTargetAddr          socks5.Addr
+		cachedTargetAddrPort      netip.AddrPort = entry.natConnFixedTargetAddrPort
 		name                      *byte
 		namelen                   uint32
 		cachedTargetMaxPacketSize int
@@ -99,6 +100,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 					targetAddrPort = conn.Tov4Mappedv6(targetAddrPort)
 
 					cachedTargetAddr = append(cachedTargetAddr[:0], queuedPacket.targetAddr...)
+					cachedTargetAddrPort = targetAddrPort
 					name, namelen = conn.AddrPortToSockaddr(targetAddrPort)
 					cachedTargetMaxPacketSize = zerocopy.MaxPacketSizeForAddr(entry.natConnMTU, targetAddrPort.Addr())
 				}
@@ -148,7 +150,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
 				zap.Stringer("lastTargetAddress", queuedPacket.targetAddr),
-				zap.Stringer("lastWriteTargetAddress", cachedTargetAddr),
+				zap.Stringer("lastWriteTargetAddress", cachedTargetAddrPort),
 				zap.Error(err),
 			)
 		}
@@ -179,6 +181,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 		zap.String("server", s.serverName),
 		zap.String("listenAddress", s.listenAddress),
 		zap.Stringer("clientAddress", clientAddrPort),
+		zap.Stringer("lastWriteTargetAddress", cachedTargetAddrPort),
 		zap.Uint64("sendmmsgCount", sendmmsgCount),
 		zap.Uint64("packetsSent", packetsSent),
 		zap.Uint64("payloadBytesSent", payloadBytesSent),

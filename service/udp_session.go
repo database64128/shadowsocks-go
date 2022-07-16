@@ -531,6 +531,7 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(csid uint64, entry *se
 		zap.String("server", s.serverName),
 		zap.String("listenAddress", s.listenAddress),
 		zap.Stringer("clientAddress", entry.clientAddrPort),
+		zap.Stringer("lastWriteTargetAddress", cachedTargetAddrPort),
 		zap.Uint64("clientSessionID", csid),
 		zap.Uint64("packetsSent", packetsSent),
 		zap.Uint64("payloadBytesSent", payloadBytesSent),
