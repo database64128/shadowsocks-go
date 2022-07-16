@@ -13,9 +13,7 @@ import (
 
 func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientInitialPayload []byte) {
 	pl, pr := pipe.NewDuplexPipe()
-
 	saltPool := NewSaltPool[string](ReplayWindowDuration)
-
 	clientTargetAddr := socks5.AddrFromAddrPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 
 	var (
@@ -57,6 +55,58 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherCo
 	zerocopy.ReadWriterTestFunc(t, c, s)
 }
 
+func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig) {
+	pl, pr := pipe.NewDuplexPipe()
+	saltPool := NewSaltPool[string](ReplayWindowDuration)
+	clientTargetAddr := socks5.AddrFromAddrPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+
+	var cerr, serr error
+	ctrlCh := make(chan struct{})
+
+	// Start client.
+	go func() {
+		_, cerr = NewShadowStreamClientReadWriter(pl, clientCipherConfig, clientCipherConfig.ClientPSKHashes(), clientTargetAddr, nil)
+		ctrlCh <- struct{}{}
+	}()
+
+	// Hijack client request and save it in b.
+	b := make([]byte, 1440)
+	n, err := pr.Read(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sendFunc := func() {
+		_, err = pl.Write(b[:n])
+		if err != nil {
+			t.Error(err)
+		}
+	}
+
+	// Ensure client success.
+	<-ctrlCh
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+
+	// Actually send the request.
+	go sendFunc()
+
+	// Start server.
+	_, _, _, serr = NewShadowStreamServerReadWriter(pr, serverCipherConfig, saltPool, serverCipherConfig.ServerPSKHashMap())
+	if serr != nil {
+		t.Fatal(serr)
+	}
+
+	// Send it again.
+	go sendFunc()
+
+	// Start server from replay.
+	_, _, _, serr = NewShadowStreamServerReadWriter(pr, serverCipherConfig, saltPool, serverCipherConfig.ServerPSKHashMap())
+	if serr != ErrRepeatedSalt {
+		t.Errorf("Expected ErrRepeatedSalt, got %v", serr)
+	}
+}
+
 func TestShadowStreamReadWriterNoEIH(t *testing.T) {
 	cipherConfig128, err := NewRandomCipherConfig("2022-blake3-aes-128-gcm", 16, 0)
 	if err != nil {
@@ -77,6 +127,9 @@ func TestShadowStreamReadWriterNoEIH(t *testing.T) {
 	testShadowStreamReadWriter(t, cipherConfig128, cipherConfig128, initialPayload)
 	testShadowStreamReadWriter(t, cipherConfig256, cipherConfig256, nil)
 	testShadowStreamReadWriter(t, cipherConfig256, cipherConfig256, initialPayload)
+
+	testShadowStreamReadWriterReplay(t, cipherConfig128, cipherConfig128)
+	testShadowStreamReadWriterReplay(t, cipherConfig256, cipherConfig256)
 }
 
 func TestShadowStreamReadWriterWithEIH(t *testing.T) {
@@ -108,4 +161,7 @@ func TestShadowStreamReadWriterWithEIH(t *testing.T) {
 	testShadowStreamReadWriter(t, &clientCipherConfig128, serverCipherConfig128, initialPayload)
 	testShadowStreamReadWriter(t, &clientCipherConfig256, serverCipherConfig256, nil)
 	testShadowStreamReadWriter(t, &clientCipherConfig256, serverCipherConfig256, initialPayload)
+
+	testShadowStreamReadWriterReplay(t, &clientCipherConfig128, serverCipherConfig128)
+	testShadowStreamReadWriterReplay(t, &clientCipherConfig256, serverCipherConfig256)
 }

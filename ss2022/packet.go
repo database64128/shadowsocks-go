@@ -291,7 +291,7 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetStart, packet
 		saead = p.oldServerSessionAEAD
 		sfilter = p.oldServerSessionFilter
 		sessionStatus = oldServerSession
-	case time.Since(p.oldServerSessionLastSeenTime) < 60*time.Second:
+	case time.Since(p.oldServerSessionLastSeenTime) < time.Minute:
 		// Reject fast-changing server sessions.
 		err = ErrTooManyServerSessions
 		return
