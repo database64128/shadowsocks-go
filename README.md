@@ -3,6 +3,8 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/database64128/shadowsocks-go.svg)](https://pkg.go.dev/github.com/database64128/shadowsocks-go)
 [![Test](https://github.com/database64128/shadowsocks-go/actions/workflows/test.yml/badge.svg)](https://github.com/database64128/shadowsocks-go/actions/workflows/test.yml)
 [![Release](https://github.com/database64128/shadowsocks-go/actions/workflows/release.yml/badge.svg)](https://github.com/database64128/shadowsocks-go/actions/workflows/release.yml)
+[![AUR version](https://img.shields.io/aur/version/shadowsocks-go?label=shadowsocks-go)](https://aur.archlinux.org/packages/shadowsocks-go)
+[![AUR version](https://img.shields.io/aur/version/shadowsocks-go-git?label=shadowsocks-go-git)](https://aur.archlinux.org/packages/shadowsocks-go-git)
 
 A versatile and efficient proxy platform for secure communications.
 
@@ -11,12 +13,18 @@ A versatile and efficient proxy platform for secure communications.
 - Reference Go implementation of Shadowsocks 2022 and later editions.
 - Client and server implementation of SOCKS5, HTTP proxy, and Shadowsocks "none" method.
 - Built-in router and DNS with support for extensible routing rules.
+- TCP relay fast path on Linux with `splice(2)`.
+- UDP relay fast path on Linux with `recvmmsg(2)` and `sendmmsg(2)`.
 
 ## Configuration Examples
 
 ### 1. Shadowsocks 2022 Server
 
 The `clients` field can be left empty. A default "direct" client will be automatically added.
+
+The `dns` field is required if you want IP routes to work on domain targets.
+
+To allow access to private IP prefixes, omit the `dns` and `router` fields.
 
 ```jsonc
 {
@@ -33,6 +41,14 @@ The `clients` field can be left empty. A default "direct" client will be automat
             "uPSKs": [
                 "oE/s2z9Q8EWORAB8B3UCxw=="
             ]
+        }
+    ],
+    "dns": [
+        {
+            "name": "systemd-resolved",
+            "addrPort": "127.0.0.53:53",
+            "tcpClientName": "direct",
+            "udpClientName": "direct"
         }
     ],
     "router": {
