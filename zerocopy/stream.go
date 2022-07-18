@@ -421,6 +421,8 @@ func ReadWriterTestFunc(t *testing.T, l, r ReadWriter) {
 
 // CopyReadWriter wraps a ReadWriter and provides the io.ReadWriter Read and Write methods
 // by copying from and to internal buffers and using the zerocopy methods on them.
+//
+// The io.ReaderFrom ReadFrom method is implemented using the internal write buffer without copying.
 type CopyReadWriter struct {
 	ReadWriter
 
@@ -491,6 +493,26 @@ func (rw *CopyReadWriter) Write(b []byte) (n int, err error) {
 	return
 }
 
+// ReadFrom implements the io.ReaderFrom ReadFrom method.
+func (rw *CopyReadWriter) ReadFrom(r io.Reader) (n int64, err error) {
+	for {
+		nr, err := r.Read(rw.writeBuf[rw.frontHeadroom : len(rw.writeBuf)-rw.rearHeadroom])
+		n += int64(nr)
+		switch err {
+		case nil:
+		case io.EOF:
+			return n, nil
+		default:
+			return n, err
+		}
+
+		_, err = rw.ReadWriter.WriteZeroCopy(rw.writeBuf, rw.frontHeadroom, nr)
+		if err != nil {
+			return n, err
+		}
+	}
+}
+
 func CopyWriteOnce(rw ReadWriter, b []byte) (n int, err error) {
 	frontHeadroom := rw.FrontHeadroom()
 	rearHeadroom := rw.RearHeadroom()
@@ -498,6 +520,9 @@ func CopyWriteOnce(rw ReadWriter, b []byte) (n int, err error) {
 	writeBufSize := rw.MaxPayloadSizePerWrite()
 	if writeBufSize == 0 {
 		writeBufSize = defaultBufferSize
+	}
+	if writeBufSize > len(b) {
+		writeBufSize = len(b)
 	}
 
 	writeBuf := make([]byte, frontHeadroom+writeBufSize+rearHeadroom)

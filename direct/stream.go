@@ -75,8 +75,9 @@ func NewDirectStreamReadWriter(rw zerocopy.DirectReadWriteCloser) *DirectStreamR
 }
 
 // NewShadowsocksNoneStreamClientReadWriter creates a ReadWriter that acts as a Shadowsocks none method client.
-func NewShadowsocksNoneStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr socks5.Addr) (*DirectStreamReadWriter, error) {
-	if _, err := rw.Write(targetAddr); err != nil {
+func NewShadowsocksNoneStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr socks5.Addr, payload []byte) (*DirectStreamReadWriter, error) {
+	writeBuf := append(targetAddr, payload...)
+	if _, err := rw.Write(writeBuf); err != nil {
 		return nil, err
 	}
 	return &DirectStreamReadWriter{

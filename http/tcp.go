@@ -35,7 +35,7 @@ func (c *ProxyClient) Dial(targetAddr socks5.Addr, payload []byte) (tfoConn tfo.
 	}
 
 	if len(payload) > 0 {
-		_, err = zerocopy.CopyWriteOnce(rw, payload)
+		_, err = rw.WriteZeroCopy(payload, 0, len(payload))
 	}
 	return
 }
