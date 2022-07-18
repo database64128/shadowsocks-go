@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -37,8 +38,10 @@ type TCPRelay struct {
 	server                zerocopy.TCPServer
 	connCloser            zerocopy.TCPConnCloser
 	router                *router.Router
-	listener              *net.TCPListener
 	logger                *zap.Logger
+	listener              *net.TCPListener
+	closeAccepted         context.CancelFunc
+	wg                    sync.WaitGroup
 }
 
 func NewTCPRelay(serverName, listenAddress string, listenerFwmark int, listenerTFO, waitForInitialPayload bool, server zerocopy.TCPServer, connCloser zerocopy.TCPConnCloser, router *router.Router, logger *zap.Logger) *TCPRelay {
@@ -63,15 +66,16 @@ func (s *TCPRelay) String() string {
 
 // Start implements the Service Start method.
 func (s *TCPRelay) Start() error {
-	l, err := s.listenConfig.Listen(context.Background(), "tcp", s.listenAddress)
+	var ctx context.Context
+	ctx, s.closeAccepted = context.WithCancel(context.Background())
+
+	l, err := s.listenConfig.Listen(ctx, "tcp", s.listenAddress)
 	if err != nil {
 		return err
 	}
 	s.listener = l.(*net.TCPListener)
 
 	go func() {
-		defer s.listener.Close()
-
 		for {
 			clientConn, err := s.listener.AcceptTCP()
 			if err != nil {
@@ -86,7 +90,21 @@ func (s *TCPRelay) Start() error {
 				continue
 			}
 
-			go s.handleConn(clientConn)
+			clientConnCtx, clientConnCancel := context.WithCancel(ctx)
+
+			s.wg.Add(2)
+
+			go func() {
+				<-clientConnCtx.Done()
+				clientConn.Close()
+				s.wg.Done()
+			}()
+
+			go func() {
+				s.handleConn(clientConn)
+				clientConnCancel()
+				s.wg.Done()
+			}()
 		}
 	}()
 
@@ -102,8 +120,6 @@ func (s *TCPRelay) Start() error {
 
 // handleConn handles an accepted TCP connection.
 func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
-	defer clientConn.Close()
-
 	// Get client address.
 	clientAddress := clientConn.RemoteAddr().String()
 	clientAddr, err := socks5.ParseAddr(clientAddress)
@@ -284,8 +300,11 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 
 // Stop implements the Service Stop method.
 func (s *TCPRelay) Stop() error {
-	if s.listener != nil {
-		s.listener.Close()
+	if s.listener == nil {
+		return nil
 	}
+	s.listener.Close()
+	s.closeAccepted()
+	s.wg.Wait()
 	return nil
 }
