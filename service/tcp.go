@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -40,8 +39,6 @@ type TCPRelay struct {
 	router                *router.Router
 	logger                *zap.Logger
 	listener              *net.TCPListener
-	closeAccepted         context.CancelFunc
-	wg                    sync.WaitGroup
 }
 
 func NewTCPRelay(serverName, listenAddress string, listenerFwmark int, listenerTFO, waitForInitialPayload bool, server zerocopy.TCPServer, connCloser zerocopy.TCPConnCloser, router *router.Router, logger *zap.Logger) *TCPRelay {
@@ -66,10 +63,7 @@ func (s *TCPRelay) String() string {
 
 // Start implements the Service Start method.
 func (s *TCPRelay) Start() error {
-	var ctx context.Context
-	ctx, s.closeAccepted = context.WithCancel(context.Background())
-
-	l, err := s.listenConfig.Listen(ctx, "tcp", s.listenAddress)
+	l, err := s.listenConfig.Listen(context.Background(), "tcp", s.listenAddress)
 	if err != nil {
 		return err
 	}
@@ -90,21 +84,7 @@ func (s *TCPRelay) Start() error {
 				continue
 			}
 
-			clientConnCtx, clientConnCancel := context.WithCancel(ctx)
-
-			s.wg.Add(2)
-
-			go func() {
-				<-clientConnCtx.Done()
-				clientConn.Close()
-				s.wg.Done()
-			}()
-
-			go func() {
-				s.handleConn(clientConn)
-				clientConnCancel()
-				s.wg.Done()
-			}()
+			go s.handleConn(clientConn)
 		}
 	}()
 
@@ -120,6 +100,8 @@ func (s *TCPRelay) Start() error {
 
 // handleConn handles an accepted TCP connection.
 func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
+	defer clientConn.Close()
+
 	// Get client address.
 	clientAddress := clientConn.RemoteAddr().String()
 	clientAddr, err := socks5.ParseAddr(clientAddress)
@@ -303,8 +285,5 @@ func (s *TCPRelay) Stop() error {
 	if s.listener == nil {
 		return nil
 	}
-	s.listener.Close()
-	s.closeAccepted()
-	s.wg.Wait()
-	return nil
+	return s.listener.Close()
 }
