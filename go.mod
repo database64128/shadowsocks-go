@@ -6,7 +6,7 @@ require (
 	github.com/database64128/tfo-go v1.1.0
 	github.com/oschwald/geoip2-golang v1.7.0
 	go.uber.org/zap v1.21.0
-	golang.org/x/exp v0.0.0-20220713135740-79cabaa25d75
+	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e
 	golang.org/x/net v0.0.0-20220708220712-1185a9018129
 	golang.org/x/sys v0.0.0-20220712014510-0a85c31ab51e
 	lukechampine.com/blake3 v1.1.7
