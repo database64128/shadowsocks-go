@@ -5,12 +5,12 @@ import (
 	"time"
 )
 
-// SaltPool stores salts for ReplayWindowDuration to protect against replay attacks during the replay window.
-// Salt type T is usually [16]byte or [32]byte.
+// SaltPool stores salts for [retention, 2*retention) to protect against replay attacks during the replay window.
 type SaltPool[T comparable] struct {
-	mu        sync.Mutex
-	pool      map[T]time.Time
-	retention time.Duration
+	mu          sync.Mutex
+	pool        map[T]time.Time
+	retention   time.Duration
+	lastCleanup time.Time
 }
 
 // Add cleans the pool, checks if the salt already exists in the pool,
@@ -22,13 +22,14 @@ func (p *SaltPool[T]) Add(salt T) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Clean the pool.
-	for salt, added := range p.pool {
-		// We allow up to 30s of time diff.
-		// Therefore the pool retention should be 2*30s.
-		if now.Sub(added) > p.retention {
-			delete(p.pool, salt)
+	// Clean the pool if the amount of time since the last cleanup exceeds retention.
+	if now.Sub(p.lastCleanup) > p.retention {
+		for salt, added := range p.pool {
+			if now.Sub(added) > p.retention {
+				delete(p.pool, salt)
+			}
 		}
+		p.lastCleanup = now
 	}
 
 	// Test existence.
@@ -41,9 +42,12 @@ func (p *SaltPool[T]) Add(salt T) bool {
 	return true
 }
 
+// NewSaltPool creates a new SaltPool with retention as the minimum amount of time
+// during which an added salt is guaranteed to stay in the pool.
 func NewSaltPool[T comparable](retention time.Duration) *SaltPool[T] {
 	return &SaltPool[T]{
-		pool:      make(map[T]time.Time),
-		retention: retention,
+		pool:        make(map[T]time.Time),
+		retention:   retention,
+		lastCleanup: time.Now(),
 	}
 }

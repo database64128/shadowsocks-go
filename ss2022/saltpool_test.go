@@ -9,8 +9,7 @@ import (
 func TestSaltPoolAddDuplicateSalts(t *testing.T) {
 	const retention = 100 * time.Millisecond
 	var salt [32]byte
-	saltSlice := salt[:]
-	_, err := rand.Read(saltSlice)
+	_, err := rand.Read(salt[:])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +29,7 @@ func TestSaltPoolAddDuplicateSalts(t *testing.T) {
 	}
 
 	// Wait until salt expires.
-	time.Sleep(retention)
+	time.Sleep(2 * retention)
 
 	// Add the expired salt.
 	ok = pool.Add(salt)
