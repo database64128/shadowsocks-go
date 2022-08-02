@@ -42,6 +42,7 @@ type UDPNATRelay struct {
 	packetBufFrontHeadroom   int
 	packetBufRearHeadroom    int
 	packetBufRecvSize        int
+	batchSize                int
 	preferIPv6               bool
 	serverPacker             zerocopy.Packer
 	serverUnpacker           zerocopy.Unpacker
@@ -58,7 +59,7 @@ type UDPNATRelay struct {
 
 func NewUDPNATRelay(
 	batchMode, serverName, listenAddress string,
-	listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
+	batchSize, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
 	preferIPv6 bool,
 	serverPacker zerocopy.Packer,
 	serverUnpacker zerocopy.Unpacker,
@@ -88,6 +89,7 @@ func NewUDPNATRelay(
 		packetBufFrontHeadroom: packetBufFrontHeadroom,
 		packetBufRearHeadroom:  packetBufRearHeadroom,
 		packetBufRecvSize:      packetBufRecvSize,
+		batchSize:              batchSize,
 		preferIPv6:             preferIPv6,
 		serverPacker:           serverPacker,
 		serverUnpacker:         serverUnpacker,

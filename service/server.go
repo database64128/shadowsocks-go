@@ -99,7 +99,7 @@ func (sc *ServerConfig) TCPRelay(router *router.Router, logger *zap.Logger) (*TC
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
-func (sc *ServerConfig) UDPRelay(batchMode string, preferIPv6 bool, router *router.Router, logger *zap.Logger, maxClientFrontHeadroom, maxClientRearHeadroom int) (Relay, error) {
+func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, preferIPv6 bool, batchMode string, batchSize, maxClientFrontHeadroom, maxClientRearHeadroom int) (Relay, error) {
 	if !sc.EnableUDP {
 		return nil, errNetworkDisabled
 	}
@@ -152,9 +152,9 @@ func (sc *ServerConfig) UDPRelay(batchMode string, preferIPv6 bool, router *rout
 
 	switch sc.Protocol {
 	case "direct", "none", "plain", "socks5":
-		return NewUDPNATRelay(batchMode, sc.Name, sc.Listen, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, preferIPv6, serverPackUnpacker, serverPackUnpacker, router, logger), nil
+		return NewUDPNATRelay(batchMode, sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, preferIPv6, serverPackUnpacker, serverPackUnpacker, router, logger), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		return NewUDPSessionRelay(batchMode, sc.Name, sc.Listen, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, preferIPv6, server, router, logger), nil
+		return NewUDPSessionRelay(batchMode, sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, preferIPv6, server, router, logger), nil
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}

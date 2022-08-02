@@ -56,9 +56,9 @@ func (s *UDPSessionRelay) relayServerConnToNatConnSendmmsg(csid uint64, entry *s
 		cachedTargetMaxPacketSize = zerocopy.MaxPacketSizeForAddr(entry.natConnMTU, entry.natConnFixedTargetAddrPort.Addr())
 	}
 
-	dequeuedPackets := make([]queuedPacket, vecSize)
-	iovec := make([]unix.Iovec, vecSize)
-	msgvec := make([]conn.Mmsghdr, vecSize)
+	dequeuedPackets := make([]queuedPacket, s.batchSize)
+	iovec := make([]unix.Iovec, s.batchSize)
+	msgvec := make([]conn.Mmsghdr, s.batchSize)
 
 	// Initialize msgvec.
 	for i := range msgvec {
@@ -131,7 +131,7 @@ func (s *UDPSessionRelay) relayServerConnToNatConnSendmmsg(csid uint64, entry *s
 			count++
 			payloadBytesSent += uint64(queuedPacket.length)
 
-			if count == vecSize {
+			if count == s.batchSize {
 				break
 			}
 
@@ -213,15 +213,15 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 
 	clientAddrPort := entry.clientAddrPort
 	name, namelen := conn.AddrPortToSockaddr(clientAddrPort)
-	savec := make([]unix.RawSockaddrInet6, vecSize)
-	bufvec := make([][]byte, vecSize)
-	riovec := make([]unix.Iovec, vecSize)
-	siovec := make([]unix.Iovec, vecSize)
-	rmsgvec := make([]conn.Mmsghdr, vecSize)
-	smsgvec := make([]conn.Mmsghdr, vecSize)
+	savec := make([]unix.RawSockaddrInet6, s.batchSize)
+	bufvec := make([][]byte, s.batchSize)
+	riovec := make([]unix.Iovec, s.batchSize)
+	siovec := make([]unix.Iovec, s.batchSize)
+	rmsgvec := make([]conn.Mmsghdr, s.batchSize)
+	smsgvec := make([]conn.Mmsghdr, s.batchSize)
 
 	// Initialize riovec, rmsgvec and smsgvec.
-	for i := 0; i < vecSize; i++ {
+	for i := 0; i < s.batchSize; i++ {
 		bufvec[i] = make([]byte, frontHeadroom+entry.natConnRecvBufSize+rearHeadroom)
 
 		riovec[i].Base = &bufvec[i][frontHeadroom]

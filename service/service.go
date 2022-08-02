@@ -37,6 +37,7 @@ type ServiceConfig struct {
 	DNS           []dns.ResolverConfig `json:"dns"`
 	Router        router.RouterConfig  `json:"router"`
 	UDPBatchMode  string               `json:"udpBatchMode"`
+	UDPBatchSize  int                  `json:"udpBatchSize"`
 	UDPPreferIPv6 bool                 `json:"udpPreferIPv6"`
 
 	services []Relay
@@ -69,6 +70,14 @@ func (sc *ServiceConfig) Start(logger *zap.Logger) error {
 	case "", "no", "sendmmsg":
 	default:
 		return fmt.Errorf("unknown UDP batch mode: %s", sc.UDPBatchMode)
+	}
+
+	switch {
+	case sc.UDPBatchSize > 0 && sc.UDPBatchSize <= 1024:
+	case sc.UDPBatchSize == 0:
+		sc.UDPBatchSize = defaultRecvmmsgMsgvecSize
+	default:
+		return fmt.Errorf("UDP batch size out of range [0, 1024]: %d", sc.UDPBatchSize)
 	}
 
 	sc.logger = logger
@@ -136,7 +145,7 @@ func (sc *ServiceConfig) Start(logger *zap.Logger) error {
 			return fmt.Errorf("failed to create TCP relay service for %s: %w", serverConfig.Name, err)
 		}
 
-		udpRelay, err := serverConfig.UDPRelay(sc.UDPBatchMode, sc.UDPPreferIPv6, sc.router, logger, maxClientFrontHeadroom, maxClientRearHeadroom)
+		udpRelay, err := serverConfig.UDPRelay(sc.router, logger, sc.UDPPreferIPv6, sc.UDPBatchMode, sc.UDPBatchSize, maxClientFrontHeadroom, maxClientRearHeadroom)
 		switch err {
 		case errNetworkDisabled:
 		case nil:
