@@ -1,6 +1,8 @@
 package conn
 
 import (
+	"bytes"
+	"crypto/rand"
 	"net/netip"
 	"testing"
 )
@@ -166,6 +168,34 @@ func TestAddrString(t *testing.T) {
 
 	if addrDomain.String() != addrDomainString {
 		t.Errorf("addrDomain.String() returned %s, expected %s.", addrDomain.String(), addrDomainString)
+	}
+}
+
+func TestAddrAppendTo(t *testing.T) {
+	head := make([]byte, 64)
+	_, err := rand.Read(head)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b := make([]byte, 0, 128)
+	b = append(b, head...)
+	bHead := b
+
+	b = addrIP.AppendTo(bHead)
+	if !bytes.Equal(bHead, head) {
+		t.Error("addrIP.AppendTo() returned modified head.")
+	}
+	if string(b[64:]) != addrIPString {
+		t.Errorf("addrIP.AppendTo() returned %s, expected %s.", string(b[64:]), addrIPString)
+	}
+
+	b = addrDomain.AppendTo(bHead)
+	if !bytes.Equal(bHead, head) {
+		t.Error("addrDomain.AppendTo() returned modified head.")
+	}
+	if string(b[64:]) != addrDomainString {
+		t.Errorf("addrDomain.AppendTo() returned %s, expected %s.", string(b[64:]), addrDomainString)
 	}
 }
 

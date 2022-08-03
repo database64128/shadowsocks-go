@@ -85,6 +85,14 @@ func (a Addr) String() string {
 	return fmt.Sprintf("%s:%d", a.domain, a.port)
 }
 
+// AppendTo appends the string representation of the address to the provided buffer.
+func (a Addr) AppendTo(b []byte) []byte {
+	if a.ip.IsValid() {
+		return (*netip.AddrPort)(unsafe.Pointer(&a)).AppendTo(b)
+	}
+	return fmt.Appendf(b, "%s:%d", a.domain, a.port)
+}
+
 // MarshalText implements the encoding.TextMarshaler MarshalText method.
 func (a Addr) MarshalText() ([]byte, error) {
 	if a.ip.IsValid() {
