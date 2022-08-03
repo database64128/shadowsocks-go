@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/magic"
@@ -152,11 +153,10 @@ func (a *Addr) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// AppendFromAddrPort converts a netip.AddrPort into a SOCKS address
-// and appends it to the buffer.
+// AppendAddrFromAddrPort appends the netip.AddrPort to the buffer in the SOCKS address format.
 //
-// IPv4-mapped IPv6 addresses are converted to IPv4 addresses.
-func AppendFromAddrPort(b []byte, addrPort netip.AddrPort) []byte {
+// If the address is an IPv4-mapped IPv6 address, it is converted to an IPv4 address.
+func AppendAddrFromAddrPort(b []byte, addrPort netip.AddrPort) []byte {
 	var ret, out []byte
 	ip := addrPort.Addr()
 	switch {
@@ -173,6 +173,30 @@ func AppendFromAddrPort(b []byte, addrPort netip.AddrPort) []byte {
 	}
 	binary.BigEndian.PutUint16(out[len(out)-2:], addrPort.Port())
 	return ret
+}
+
+// AppendAddrFromConnAddr appends the address to the buffer in the SOCKS address format.
+//
+// If the address is an IPv4-mapped IPv6 address, it is converted to an IPv4 address.
+func AppendAddrFromConnAddr(b []byte, addr conn.Addr) ([]byte, error) {
+	if addr.IsIP() {
+		return AppendAddrFromAddrPort(b, addr.IPPort()), nil
+	}
+
+	domain := addr.Domain()
+	if len(domain) > 255 {
+		return nil, fmt.Errorf("length of domain %s exceeds 255", domain)
+	}
+
+	ret, out := magic.SliceForAppend(b, 1+1+len(domain)+2)
+	out[0] = AtypDomainName
+	out[1] = byte(len(domain))
+	copy(out[2:], domain)
+
+	port := addr.Port()
+	binary.BigEndian.PutUint16(out[1+1+len(domain):], port)
+
+	return ret, nil
 }
 
 // AddrFromAddrPort creates a SOCKS address from a netip.AddrPort.
@@ -207,7 +231,7 @@ func AppendFromHostPort(b []byte, host string, port uint16) ([]byte, error) {
 	}
 
 	if ip, err := netip.ParseAddr(host); err == nil {
-		return AppendFromAddrPort(b, netip.AddrPortFrom(ip, port)), nil
+		return AppendAddrFromAddrPort(b, netip.AddrPortFrom(ip, port)), nil
 	}
 
 	if len(host) > 255 {
@@ -316,6 +340,55 @@ func AppendFromReader(b []byte, r io.Reader) ([]byte, error) {
 	return ret, err
 }
 
+// ConnAddrFromReader reads a SOCKS address from r and returns the converted conn.Addr.
+func ConnAddrFromReader(r io.Reader) (conn.Addr, error) {
+	b := make([]byte, 2)
+
+	// Read ATYP and an extra byte.
+	_, err := io.ReadFull(r, b)
+	if err != nil {
+		return conn.Addr{}, err
+	}
+
+	switch b[0] {
+	case AtypDomainName:
+		b1 := make([]byte, int(b[1])+2)
+		_, err = io.ReadFull(r, b1)
+		if err != nil {
+			return conn.Addr{}, err
+		}
+		b2 := b1[:b[1]:b[1]]
+		domain := *(*string)(unsafe.Pointer(&b2))
+		port := binary.BigEndian.Uint16(b1[b[1]:])
+		return conn.AddrFromDomainPort(domain, port), nil
+
+	case AtypIPv4:
+		b1 := make([]byte, 4+2)
+		b1[0] = b[1]
+		_, err = io.ReadFull(r, b1[1:])
+		if err != nil {
+			return conn.Addr{}, err
+		}
+		ip := netip.AddrFrom4(*(*[4]byte)(b1))
+		port := binary.BigEndian.Uint16(b1[4:])
+		return conn.AddrFromIPPort(netip.AddrPortFrom(ip, port)), nil
+
+	case AtypIPv6:
+		b1 := make([]byte, 16+2)
+		b1[0] = b[1]
+		_, err = io.ReadFull(r, b1[1:])
+		if err != nil {
+			return conn.Addr{}, err
+		}
+		ip := netip.AddrFrom16(*(*[16]byte)(b1))
+		port := binary.BigEndian.Uint16(b1[16:])
+		return conn.AddrFromIPPort(netip.AddrPortFrom(ip, port)), nil
+
+	default:
+		return conn.Addr{}, fmt.Errorf("invalid ATYP: %d", b[0])
+	}
+}
+
 // AddrFromReader allocates and reads a SOCKS address from an io.Reader.
 //
 // To avoid allocations, call AppendFromReader directly.
@@ -349,4 +422,40 @@ func SplitAddr(b []byte) (Addr, error) {
 	}
 
 	return b[:addrLen], nil
+}
+
+// ConnAddrFromSlice slices a SOCKS address from the beginning of b and returns the converted conn.Addr.
+func ConnAddrFromSlice(b []byte) (conn.Addr, error) {
+	if len(b) < 2 {
+		return conn.Addr{}, fmt.Errorf("addr length too short: %d", len(b))
+	}
+
+	switch b[0] {
+	case AtypDomainName:
+		if len(b) < 1+1+int(b[1])+2 {
+			return conn.Addr{}, fmt.Errorf("addr length %d is too short for ATYP %d", len(b), b[0])
+		}
+		domain := string(b[2 : 2+int(b[1])])
+		port := binary.BigEndian.Uint16(b[2+int(b[1]):])
+		return conn.AddrFromDomainPort(domain, port), nil
+
+	case AtypIPv4:
+		if len(b) < 1+4+2 {
+			return conn.Addr{}, fmt.Errorf("addr length %d is too short for ATYP %d", len(b), b[0])
+		}
+		ip := netip.AddrFrom4(*(*[4]byte)(b[1:5]))
+		port := binary.BigEndian.Uint16(b[5:])
+		return conn.AddrFromIPPort(netip.AddrPortFrom(ip, port)), nil
+
+	case AtypIPv6:
+		if len(b) < 1+16+2 {
+			return conn.Addr{}, fmt.Errorf("addr length %d is too short for ATYP %d", len(b), b[0])
+		}
+		ip := netip.AddrFrom16(*(*[16]byte)(b[1:17]))
+		port := binary.BigEndian.Uint16(b[17:])
+		return conn.AddrFromIPPort(netip.AddrPortFrom(ip, port)), nil
+
+	default:
+		return conn.Addr{}, fmt.Errorf("invalid ATYP: %d", b[0])
+	}
 }

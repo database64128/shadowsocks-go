@@ -605,7 +605,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 		if !hasTargetAddr {
 			if packetFromAddrPort != cachedPacketFromAddrPort {
 				cachedPacketFromAddrPort = packetFromAddrPort
-				cachedTargetAddr = socks5.AppendFromAddrPort(cachedTargetAddr[:0], packetFromAddrPort)
+				cachedTargetAddr = socks5.AppendAddrFromAddrPort(cachedTargetAddr[:0], packetFromAddrPort)
 			}
 
 			targetAddr = cachedTargetAddr

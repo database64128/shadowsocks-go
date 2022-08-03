@@ -209,7 +209,7 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, conn tfo.Conn) (A
 
 		// Construct reply.
 		b[1] = Succeeded
-		reply := AppendFromAddrPort(b[:3], localAddrPort)
+		reply := AppendAddrFromAddrPort(b[:3], localAddrPort)
 
 		// Write reply.
 		_, err = rw.Write(reply)

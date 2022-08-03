@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"net/netip"
 	"testing"
+
+	"github.com/database64128/shadowsocks-go/conn"
 )
 
 // Test IPv4 address.
@@ -13,6 +15,7 @@ var (
 	addr4addr            = netip.AddrFrom4([4]byte{127, 0, 0, 1})
 	addr4port     uint16 = 1080
 	addr4addrport        = netip.AddrPortFrom(addr4addr, addr4port)
+	addr4connaddr        = conn.AddrFromIPPort(addr4addrport)
 	addr4host            = "127.0.0.1"
 	addr4str             = "127.0.0.1:1080"
 )
@@ -23,6 +26,7 @@ var (
 	addr4in6addr            = netip.AddrFrom16([16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1})
 	addr4in6port     uint16 = 1080
 	addr4in6addrport        = netip.AddrPortFrom(addr4in6addr, addr4in6port)
+	addr4in6connaddr        = conn.AddrFromIPPort(addr4in6addrport)
 	addr4in6host            = "::ffff:127.0.0.1"
 	addr4in6str             = "[::ffff:127.0.0.1]:1080"
 )
@@ -33,15 +37,18 @@ var (
 	addr6addr            = netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e})
 	addr6port     uint16 = 1080
 	addr6addrport        = netip.AddrPortFrom(addr6addr, addr6port)
+	addr6connaddr        = conn.AddrFromIPPort(addr6addrport)
 	addr6host            = "2001:db8:fad6:572:acbe:7143:14e5:7a6e"
 	addr6str             = "[2001:db8:fad6:572:acbe:7143:14e5:7a6e]:1080"
 )
 
 // Test domain name.
 var (
-	addrDomainName       = []byte{AtypDomainName, 11, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm', 1, 187}
-	addrDomainNameHost   = "example.com"
-	addrDomainNameString = "example.com:443"
+	addrDomain                = []byte{AtypDomainName, 11, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm', 1, 187}
+	addrDomainHost            = "example.com"
+	addrDomainPort     uint16 = 443
+	addrDomainConnAddr        = conn.AddrFromDomainPort(addrDomainHost, addrDomainPort)
+	addrDomainString          = "example.com:443"
 )
 
 func TestAddrIsDomainIP(t *testing.T) {
@@ -75,13 +82,13 @@ func TestAddrIsDomainIP(t *testing.T) {
 		t.Error("addr6.IsIPv6() returned false.")
 	}
 
-	if !Addr(addrDomainName).IsDomain() {
+	if !Addr(addrDomain).IsDomain() {
 		t.Error("addrDomainName.IsDomain() returned false.")
 	}
-	if Addr(addrDomainName).IsIPv4() {
+	if Addr(addrDomain).IsIPv4() {
 		t.Error("addrDomainName.IsIPv4() returned true.")
 	}
-	if Addr(addrDomainName).IsIPv6() {
+	if Addr(addrDomain).IsIPv6() {
 		t.Error("addrDomainName.IsIPv6() returned true.")
 	}
 }
@@ -126,9 +133,9 @@ func TestAddrParseAndToHost(t *testing.T) {
 		t.Errorf("Expected: %s\nGot: %s", addr6host, host)
 	}
 
-	host = Addr(addrDomainName).Host()
-	if host != addrDomainNameHost {
-		t.Errorf("Expected: %s\nGot: %s", addrDomainNameHost, host)
+	host = Addr(addrDomain).Host()
+	if host != addrDomainHost {
+		t.Errorf("Expected: %s\nGot: %s", addrDomainHost, host)
 	}
 }
 
@@ -157,7 +164,7 @@ func TestAddrToAddr(t *testing.T) {
 		t.Errorf("Expected: %v\nGot: %v", addr6addr, addr)
 	}
 
-	addr, err = Addr(addrDomainName).Addr(false)
+	addr, err = Addr(addrDomain).Addr(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +172,7 @@ func TestAddrToAddr(t *testing.T) {
 		t.Errorf("preferIPv6: false returned IPv6: %s", addr)
 	}
 
-	addr, err = Addr(addrDomainName).Addr(true)
+	addr, err = Addr(addrDomain).Addr(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +194,7 @@ func TestAddrToPort(t *testing.T) {
 		t.Errorf("Expected: %d\nGot: %d", eport, port)
 	}
 
-	port = Addr(addrDomainName).Port()
+	port = Addr(addrDomain).Port()
 	eport = 443
 	if port != eport {
 		t.Errorf("Expected: %d\nGot: %d", eport, port)
@@ -228,7 +235,7 @@ func TestAddrFromAndToAddrPort(t *testing.T) {
 }
 
 func TestAddrDomainNameToAddrPort(t *testing.T) {
-	addrPort, err := Addr(addrDomainName).AddrPort(false)
+	addrPort, err := Addr(addrDomain).AddrPort(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +250,7 @@ func TestAddrDomainNameToAddrPort(t *testing.T) {
 		t.Errorf("Expected port number: %d\nGot: %d", 443, port)
 	}
 
-	addrPort, err = Addr(addrDomainName).AddrPort(true)
+	addrPort, err = Addr(addrDomain).AddrPort(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,12 +291,12 @@ func TestAddrParseAndToString(t *testing.T) {
 		t.Errorf("Expected: %v\nGot: %v", addr6, []byte(addr))
 	}
 
-	addr, err = ParseAddr(addrDomainNameString)
+	addr, err = ParseAddr(addrDomainString)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(addr, addrDomainName) {
-		t.Errorf("Expected: %v\nGot: %v", addrDomainName, []byte(addr))
+	if !bytes.Equal(addr, addrDomain) {
+		t.Errorf("Expected: %v\nGot: %v", addrDomain, []byte(addr))
 	}
 
 	_, err = ParseAddr("abc123")
@@ -312,9 +319,9 @@ func TestAddrParseAndToString(t *testing.T) {
 		t.Errorf("Expected: %s\nGot: %s", addr6str, address)
 	}
 
-	address = Addr(addrDomainName).String()
-	if address != addrDomainNameString {
-		t.Errorf("Expected: %s\nGot: %s", addrDomainNameString, address)
+	address = Addr(addrDomain).String()
+	if address != addrDomainString {
+		t.Errorf("Expected: %s\nGot: %s", addrDomainString, address)
 	}
 }
 
@@ -345,12 +352,12 @@ func TestAddrUnmarshalAndMarshalText(t *testing.T) {
 		t.Errorf("Expected: %v\nGot: %v", addr6, []byte(addr))
 	}
 
-	err = addr.UnmarshalText([]byte(addrDomainNameString))
+	err = addr.UnmarshalText([]byte(addrDomainString))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(addr, addrDomainName) {
-		t.Errorf("Expected: %v\nGot: %v", addrDomainName, []byte(addr))
+	if !bytes.Equal(addr, addrDomain) {
+		t.Errorf("Expected: %v\nGot: %v", addrDomain, []byte(addr))
 	}
 
 	err = addr.UnmarshalText([]byte("abc123"))
@@ -382,12 +389,12 @@ func TestAddrUnmarshalAndMarshalText(t *testing.T) {
 		t.Errorf("Expected: %s\nGot: %s", addr6str, address)
 	}
 
-	address, err = Addr(addrDomainName).MarshalText()
+	address, err = Addr(addrDomain).MarshalText()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(address) != addrDomainNameString {
-		t.Errorf("Expected: %s\nGot: %s", addrDomainNameString, address)
+	if string(address) != addrDomainString {
+		t.Errorf("Expected: %s\nGot: %s", addrDomainString, address)
 	}
 }
 
@@ -421,5 +428,67 @@ func TestAddrSplitAndFromReader(t *testing.T) {
 	testAddrSplitAndFromReader(t, addr4)
 	testAddrSplitAndFromReader(t, addr4in6)
 	testAddrSplitAndFromReader(t, addr6)
-	testAddrSplitAndFromReader(t, addrDomainName)
+	testAddrSplitAndFromReader(t, addrDomain)
+}
+
+func testAddrFromSliceAndReader(t *testing.T, sa []byte, expectedAddr conn.Addr) {
+	b := make([]byte, 512)
+	n := copy(b, sa)
+	_, err := rand.Read(b[n:])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	addr, err := ConnAddrFromSlice(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if addr != expectedAddr {
+		t.Errorf("ConnAddrFromSlice(b) returned %s, expected %s.", addr, expectedAddr)
+	}
+
+	r := bytes.NewReader(b)
+	addr, err = ConnAddrFromReader(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if addr != expectedAddr {
+		t.Errorf("ConnAddrFromReader(r) returned %s, expected %s.", addr, expectedAddr)
+	}
+}
+
+func TestAddrFromSliceAndReader(t *testing.T) {
+	testAddrFromSliceAndReader(t, addr4, addr4connaddr)
+	testAddrFromSliceAndReader(t, addr4in6, addr4connaddr)
+	testAddrFromSliceAndReader(t, addr6, addr6connaddr)
+	testAddrFromSliceAndReader(t, addrDomain, addrDomainConnAddr)
+}
+
+func testAppendAddrFromConnAddr(t *testing.T, addr conn.Addr, expectedSA []byte) {
+	head := make([]byte, 64)
+	_, err := rand.Read(head)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b := make([]byte, 0, 512)
+	b = append(b, head...)
+
+	b, err = AppendAddrFromConnAddr(b, addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(b[:64], head) {
+		t.Error("Random head mismatch.")
+	}
+	if !bytes.Equal(b[64:], expectedSA) {
+		t.Errorf("Appended SOCKS address is %v, expected %v.", b[64:], expectedSA)
+	}
+}
+
+func TestAppendAddrFromConnAddr(t *testing.T) {
+	testAppendAddrFromConnAddr(t, addr4connaddr, addr4)
+	testAppendAddrFromConnAddr(t, addr4in6connaddr, addr4in6)
+	testAppendAddrFromConnAddr(t, addr6connaddr, addr6)
+	testAppendAddrFromConnAddr(t, addrDomainConnAddr, addrDomain)
 }

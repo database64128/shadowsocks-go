@@ -497,7 +497,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 		if !hasTargetAddr {
 			if packetFromAddrPort != cachedPacketFromAddrPort {
 				cachedPacketFromAddrPort = packetFromAddrPort
-				cachedTargetAddr = socks5.AppendFromAddrPort(cachedTargetAddr[:0], packetFromAddrPort)
+				cachedTargetAddr = socks5.AppendAddrFromAddrPort(cachedTargetAddr[:0], packetFromAddrPort)
 			}
 
 			targetAddr = cachedTargetAddr
