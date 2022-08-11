@@ -22,9 +22,9 @@ A versatile and efficient proxy platform for secure communications.
 
 The `clients` field can be left empty. A default "direct" client will be automatically added.
 
-The `dns` field is required if you want IP routes to work on domain targets.
+On production servers, you may want to set `udpBatchRate` to a lower value like 4 to reduce memory usage while still benefiting from `recvmmsg(2)` and `sendmmsg(2)`.
 
-To allow access to private IP prefixes, omit the `dns` and `router` fields.
+UDP packets may be padded to up to the maximum packet size calculated from `mtu`. If the server may be used from a PPPoE connection, `mtu` should be reduced to 1492. If the client-to-server PMTU is unknown, padding can be completely disabled by setting `paddingPolicy` to `NoPadding`.
 
 ```jsonc
 {
@@ -43,44 +43,6 @@ To allow access to private IP prefixes, omit the `dns` and `router` fields.
             ]
         }
     ],
-    "dns": [
-        {
-            "name": "systemd-resolved",
-            "addrPort": "127.0.0.53:53",
-            "tcpClientName": "direct",
-            "udpClientName": "direct"
-        }
-    ],
-    "router": {
-        "routes": [
-            {
-                "name": "private",
-                "clientName": "reject",
-                "prefixes": [
-                    "0.0.0.0/8",
-                    "10.0.0.0/8",
-                    "100.64.0.0/10",
-                    "127.0.0.0/8",
-                    "169.254.0.0/16",
-                    "172.16.0.0/12",
-                    "192.0.0.0/24",
-                    "192.0.2.0/24",
-                    "192.88.99.0/24",
-                    "192.168.0.0/16",
-                    "198.18.0.0/15",
-                    "198.51.100.0/24",
-                    "203.0.113.0/24",
-                    "224.0.0.0/4",
-                    "240.0.0.0/4",
-                    "255.255.255.255/32",
-                    "::1/128",
-                    "fc00::/7",
-                    "fe80::/10"
-                ]
-            }
-        ]
-    },
-    "udpBatchMode": "",
     "udpPreferIPv6": true
 }
 ```
@@ -205,9 +167,25 @@ By default, the router uses the configured DNS server to resolve domain names an
             }
         ]
     },
-    "udpBatchMode": "",
     "udpPreferIPv6": true
 }
+```
+
+`Country.mmdb` can be downloaded from https://github.com/Dreamacro/maxmind-geoip.
+
+To generate the domain sets used above, clone https://github.com/v2fly/domain-list-community and build the generator, then generate plaintext lists:
+
+```bash
+./domain-list-community -exportlists 'category-ads-all,private,cn,geolocation-!cn'
+```
+
+Clone and build the converter (https://github.com/database64128/cubic-go-playground/blob/main/domainset/converter/main.go), then convert the plaintext lists to domain set files:
+
+```bash
+./converter -in category-ads-all.txt
+./converter -in private.txt
+./converter -in cn.txt
+./converter -in 'geolocation-!cn.txt' -out 'ss-go-geolocation-!cn@cn.txt' -tag cn
 ```
 
 ### 3. Feature Showcase
@@ -242,7 +220,8 @@ By default, the router uses the configured DNS server to resolve domain names an
             "listenerTFO": true,
             "enableUDP": true,
             "mtu": 1500,
-            "tunnelRemoteAddress": "[2606:4700:4700::1111]:53"
+            "tunnelRemoteAddress": "[2606:4700:4700::1111]:53",
+            "tunnelUDPTargetOnly": false
         },
         {
             "name": "ss-2022",
@@ -364,6 +343,7 @@ By default, the router uses the configured DNS server to resolve domain names an
         ]
     },
     "udpBatchMode": "",
+    "udpBatchSize": 64,
     "udpPreferIPv6": true
 }
 ```
