@@ -14,7 +14,7 @@ import (
 // UDPClient implements the zerocopy UDPClient interface.
 type UDPClient struct {
 	addrPort      netip.AddrPort
-	mtu           int
+	maxPacketSize int
 	fwmark        int
 	packerBlock   cipher.Block
 	unpackerBlock cipher.Block
@@ -37,7 +37,7 @@ func NewUDPClient(addrPort netip.AddrPort, mtu, fwmark int, cipherConfig *Cipher
 
 	return &UDPClient{
 		addrPort:      addrPort,
-		mtu:           mtu,
+		maxPacketSize: zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr()),
 		fwmark:        fwmark,
 		packerBlock:   packerBlock,
 		unpackerBlock: unpackerBlock,
@@ -49,7 +49,7 @@ func NewUDPClient(addrPort netip.AddrPort, mtu, fwmark int, cipherConfig *Cipher
 }
 
 // NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *UDPClient) NewSession() (zerocopy.Packer, zerocopy.Unpacker, error) {
+func (c *UDPClient) NewSession() (zerocopy.ClientPacker, zerocopy.ClientUnpacker, error) {
 	// Random client session ID.
 	salt := make([]byte, 8)
 	_, err := rand.Read(salt)
@@ -59,12 +59,14 @@ func (c *UDPClient) NewSession() (zerocopy.Packer, zerocopy.Unpacker, error) {
 	csid := binary.BigEndian.Uint64(salt)
 
 	return &ShadowPacketClientPacker{
-			csid:         csid,
-			aead:         c.cipherConfig.NewAEAD(salt),
-			block:        c.packerBlock,
-			shouldPad:    c.shouldPad,
-			eihCiphers:   c.eihCiphers,
-			eihPSKHashes: c.eihPSKHashes,
+			csid:           csid,
+			aead:           c.cipherConfig.NewAEAD(salt),
+			block:          c.packerBlock,
+			shouldPad:      c.shouldPad,
+			eihCiphers:     c.eihCiphers,
+			eihPSKHashes:   c.eihPSKHashes,
+			maxPacketSize:  c.maxPacketSize,
+			serverAddrPort: c.addrPort,
 		}, &ShadowPacketClientUnpacker{
 			csid:         csid,
 			block:        c.unpackerBlock,
@@ -72,9 +74,9 @@ func (c *UDPClient) NewSession() (zerocopy.Packer, zerocopy.Unpacker, error) {
 		}, nil
 }
 
-// AddrPort implements the UDPClient AddrPort method.
-func (c *UDPClient) AddrPort() (netip.AddrPort, int, int, bool) {
-	return c.addrPort, c.mtu, c.fwmark, true
+// LinkInfo implements the UDPClient LinkInfo method.
+func (c *UDPClient) LinkInfo() (int, int) {
+	return c.maxPacketSize, c.fwmark
 }
 
 // FrontHeadroom implements the UDPClient FrontHeadroom method.
@@ -87,7 +89,7 @@ func (c *UDPClient) RearHeadroom() int {
 	return 16
 }
 
-// UDPServer implements the zerocopy UDPServer interface.
+// UDPServer implements the zerocopy UDPSessionServer interface.
 type UDPServer struct {
 	block        cipher.Block
 	cipherConfig *CipherConfig
@@ -110,7 +112,7 @@ func NewUDPServer(cipherConfig *CipherConfig, shouldPad PaddingPolicy, uPSKMap m
 	}
 }
 
-// FrontHeadroom implements the zerocopy.UDPServer FrontHeadroom method.
+// FrontHeadroom implements the zerocopy.UDPSessionServer FrontHeadroom method.
 func (s *UDPServer) FrontHeadroom() int {
 	var identityHeaderLen int
 	if len(s.uPSKMap) > 0 {
@@ -119,12 +121,12 @@ func (s *UDPServer) FrontHeadroom() int {
 	return UDPSeparateHeaderLength + identityHeaderLen + UDPClientMessageHeaderMaxLength
 }
 
-// RearHeadroom implements the zerocopy.UDPServer RearHeadroom method.
+// RearHeadroom implements the zerocopy.UDPSessionServer RearHeadroom method.
 func (s *UDPServer) RearHeadroom() int {
 	return 16
 }
 
-// SessionInfo implements the zerocopy.UDPServer SessionInfo method.
+// SessionInfo implements the zerocopy.UDPSessionServer SessionInfo method.
 func (s *UDPServer) SessionInfo(b []byte) (csid uint64, err error) {
 	if len(b) < UDPSeparateHeaderLength {
 		err = fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, len(b))
@@ -137,8 +139,8 @@ func (s *UDPServer) SessionInfo(b []byte) (csid uint64, err error) {
 	return
 }
 
-// NewUnpacker implements the zerocopy.UDPServer NewUnpacker method.
-func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.Unpacker, error) {
+// NewUnpacker implements the zerocopy.UDPSessionServer NewUnpacker method.
+func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker, error) {
 	var identityHeaderLen int
 	hasEIH := len(s.uPSKMap) > 0
 	if hasEIH {
@@ -170,8 +172,8 @@ func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.Unpacker, error
 	}, nil
 }
 
-// NewPacker implements the zerocopy.UDPServer NewPacker method.
-func (s *UDPServer) NewPacker(csid uint64) (zerocopy.Packer, error) {
+// NewPacker implements the zerocopy.UDPSessionServer NewPacker method.
+func (s *UDPServer) NewPacker(csid uint64) (zerocopy.ServerPacker, error) {
 	// Random server session ID.
 	salt := make([]byte, 8)
 	_, err := rand.Read(salt)

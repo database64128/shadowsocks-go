@@ -2,9 +2,7 @@ package service
 
 import (
 	"fmt"
-	"net"
 	"net/netip"
-	"strconv"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
@@ -17,10 +15,10 @@ import (
 // ClientConfig stores a client configuration.
 // It may be marshaled as or unmarshaled from JSON.
 type ClientConfig struct {
-	Name         string `json:"name"`
-	Endpoint     string `json:"endpoint"`
-	Protocol     string `json:"protocol"`
-	DialerFwmark int    `json:"dialerFwmark"`
+	Name         string    `json:"name"`
+	Endpoint     conn.Addr `json:"endpoint"`
+	Protocol     string    `json:"protocol"`
+	DialerFwmark int       `json:"dialerFwmark"`
 
 	// TCP
 	EnableTCP bool `json:"enableTCP"`
@@ -48,11 +46,11 @@ func (cc *ClientConfig) TCPClient(logger *zap.Logger) (zerocopy.TCPClient, error
 	case "direct":
 		return direct.NewTCPClient(cc.DialerTFO, cc.DialerFwmark), nil
 	case "none", "plain":
-		return direct.NewShadowsocksNoneTCPClient(cc.Endpoint, cc.DialerTFO, cc.DialerFwmark), nil
+		return direct.NewShadowsocksNoneTCPClient(cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark), nil
 	case "socks5":
-		return direct.NewSocks5TCPClient(cc.Endpoint, cc.DialerTFO, cc.DialerFwmark), nil
+		return direct.NewSocks5TCPClient(cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark), nil
 	case "http":
-		return http.NewProxyClient(cc.Endpoint, cc.DialerTFO, cc.DialerFwmark), nil
+		return http.NewProxyClient(cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		if cc.cipherConfig == nil {
 			var err error
@@ -62,7 +60,7 @@ func (cc *ClientConfig) TCPClient(logger *zap.Logger) (zerocopy.TCPClient, error
 			}
 			cc.eihPSKHashes = cc.cipherConfig.ClientPSKHashes()
 		}
-		return ss2022.NewTCPClient(cc.Endpoint, cc.DialerTFO, cc.DialerFwmark, cc.cipherConfig, cc.eihPSKHashes), nil
+		return ss2022.NewTCPClient(cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark, cc.cipherConfig, cc.eihPSKHashes), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}
@@ -85,33 +83,18 @@ func (cc *ClientConfig) UDPClient(logger *zap.Logger, preferIPv6 bool) (zerocopy
 	// Resolve endpoint address for some protocols.
 	switch cc.Protocol {
 	case "none", "plain", "socks5", "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		endpointAddrPort, err = netip.ParseAddrPort(cc.Endpoint)
+		endpointAddrPort, err = cc.Endpoint.ResolveIPPort(preferIPv6)
 		if err != nil {
-			host, portString, err := net.SplitHostPort(cc.Endpoint)
-			if err != nil {
-				return nil, err
-			}
-
-			port, err := strconv.ParseUint(portString, 10, 16)
-			if err != nil {
-				return nil, err
-			}
-
-			addr, err := conn.ResolveAddr(host, preferIPv6)
-			if err != nil {
-				return nil, err
-			}
-
-			endpointAddrPort = netip.AddrPortFrom(addr, uint16(port))
+			return nil, err
 		}
 
-		// Workaround for https://github.com/golang/go/issues/52264
-		endpointAddrPort = conn.Tov4Mappedv6(endpointAddrPort)
+		// Map to v6 since natConn is v6 socket.
+		endpointAddrPort = conn.AddrPortv4Mappedv6(endpointAddrPort)
 	}
 
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewUDPClient(cc.MTU, cc.DialerFwmark), nil
+		return direct.NewUDPClient(cc.MTU, cc.DialerFwmark, preferIPv6), nil
 	case "none", "plain":
 		return direct.NewShadowsocksNoneUDPClient(endpointAddrPort, cc.MTU, cc.DialerFwmark), nil
 	case "socks5":

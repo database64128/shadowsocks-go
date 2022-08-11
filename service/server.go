@@ -3,10 +3,10 @@ package service
 import (
 	"fmt"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/http"
 	"github.com/database64128/shadowsocks-go/router"
-	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
@@ -30,8 +30,8 @@ type ServerConfig struct {
 	MTU       int  `json:"mtu"`
 
 	// Simple tunnel
-	TunnelRemoteAddress string `json:"tunnelRemoteAddress"`
-	tunnelRemoteAddr    socks5.Addr
+	TunnelRemoteAddress conn.Addr `json:"tunnelRemoteAddress"`
+	TunnelUDPTargetOnly bool      `json:"tunnelUDPTargetOnly"`
 
 	// Shadowsocks
 	PSK           []byte   `json:"psk"`
@@ -56,13 +56,7 @@ func (sc *ServerConfig) TCPRelay(router *router.Router, logger *zap.Logger) (*TC
 
 	switch sc.Protocol {
 	case "direct":
-		if sc.tunnelRemoteAddr == nil {
-			sc.tunnelRemoteAddr, err = socks5.ParseAddr(sc.TunnelRemoteAddress)
-			if err != nil {
-				return nil, err
-			}
-		}
-		server = direct.NewTCPServer(sc.tunnelRemoteAddr)
+		server = direct.NewTCPServer(sc.TunnelRemoteAddress)
 
 	case "none", "plain":
 		server = direct.NewShadowsocksNoneTCPServer()
@@ -109,26 +103,20 @@ func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, pref
 	}
 
 	var (
-		server             zerocopy.UDPServer
-		serverPackUnpacker zerocopy.PackUnpacker
-		err                error
+		natServer zerocopy.UDPNATServer
+		server    zerocopy.UDPSessionServer
+		err       error
 	)
 
 	switch sc.Protocol {
 	case "direct":
-		if sc.tunnelRemoteAddr == nil {
-			sc.tunnelRemoteAddr, err = socks5.ParseAddr(sc.TunnelRemoteAddress)
-			if err != nil {
-				return nil, err
-			}
-		}
-		serverPackUnpacker = direct.NewDirectServer(sc.tunnelRemoteAddr)
+		natServer = direct.NewDirectUDPNATServer(sc.TunnelRemoteAddress, sc.TunnelUDPTargetOnly)
 
 	case "none", "plain":
-		serverPackUnpacker = &direct.DefaultShadowsocksNonePacketPackUnpacker
+		natServer = direct.DefaultShadowsocksNoneUDPNATServer
 
 	case "socks5":
-		serverPackUnpacker = &direct.DefaultSocks5PacketPackUnpacker
+		natServer = direct.DefaultSocks5UDPNATServer
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		if sc.cipherConfig == nil {
@@ -152,7 +140,7 @@ func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, pref
 
 	switch sc.Protocol {
 	case "direct", "none", "plain", "socks5":
-		return NewUDPNATRelay(batchMode, sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, preferIPv6, serverPackUnpacker, serverPackUnpacker, router, logger), nil
+		return NewUDPNATRelay(batchMode, sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, preferIPv6, natServer, router, logger), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		return NewUDPSessionRelay(batchMode, sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, preferIPv6, server, router, logger), nil
 	default:

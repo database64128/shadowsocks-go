@@ -1,14 +1,13 @@
 package http
 
 import (
-	"bytes"
 	"net/netip"
 	"testing"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/logging"
 	"github.com/database64128/shadowsocks-go/pipe"
-	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
@@ -21,12 +20,12 @@ func TestHttpStreamReadWriter(t *testing.T) {
 
 	pl, pr := pipe.NewDuplexPipe()
 
-	clientTargetAddr := socks5.AddrFromAddrPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 
 	var (
 		c                *direct.DirectStreamReadWriter
 		s                *direct.DirectStreamReadWriter
-		serverTargetAddr socks5.Addr
+		serverTargetAddr conn.Addr
 		cerr, serr       error
 	)
 
@@ -51,7 +50,7 @@ func TestHttpStreamReadWriter(t *testing.T) {
 		t.Fatal(serr)
 	}
 
-	if !bytes.Equal(clientTargetAddr, serverTargetAddr) {
+	if clientTargetAddr != serverTargetAddr {
 		t.Errorf("Target address mismatch: c: %s, s: %s", clientTargetAddr, serverTargetAddr)
 	}
 

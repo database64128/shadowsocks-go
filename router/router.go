@@ -6,8 +6,8 @@ import (
 	"net"
 	"net/netip"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/dns"
-	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/oschwald/geoip2-golang"
 	"go.uber.org/zap"
@@ -283,7 +283,7 @@ func (r *Router) Stop() error {
 
 // GetTCPClient returns the zerocopy.TCPClient for a TCP request received by serverName
 // from sourceAddrPort to targetAddr.
-func (r *Router) GetTCPClient(serverName string, sourceAddrPort netip.AddrPort, targetAddr socks5.Addr) (tcpClient zerocopy.TCPClient, err error) {
+func (r *Router) GetTCPClient(serverName string, sourceAddrPort netip.AddrPort, targetAddr conn.Addr) (tcpClient zerocopy.TCPClient, err error) {
 	route, err := r.match("tcp", serverName, sourceAddrPort, targetAddr)
 	switch err {
 	case nil:
@@ -310,7 +310,7 @@ func (r *Router) GetTCPClient(serverName string, sourceAddrPort netip.AddrPort, 
 
 // GetUDPClient returns the zerocopy.UDPClient for a UDP session received by serverName.
 // The first received packet of the session is from sourceAddrPort to targetAddr.
-func (r *Router) GetUDPClient(serverName string, sourceAddrPort netip.AddrPort, targetAddr socks5.Addr) (udpClient zerocopy.UDPClient, err error) {
+func (r *Router) GetUDPClient(serverName string, sourceAddrPort netip.AddrPort, targetAddr conn.Addr) (udpClient zerocopy.UDPClient, err error) {
 	route, err := r.match("udp", serverName, sourceAddrPort, targetAddr)
 	switch err {
 	case nil:
@@ -335,7 +335,7 @@ func (r *Router) GetUDPClient(serverName string, sourceAddrPort netip.AddrPort, 
 	return
 }
 
-func (r *Router) match(network, serverName string, sourceAddrPort netip.AddrPort, targetAddr socks5.Addr) (*Route, error) {
+func (r *Router) match(network, serverName string, sourceAddrPort netip.AddrPort, targetAddr conn.Addr) (*Route, error) {
 	for _, route := range r.routes {
 		// Network
 		switch route.config.Network {
@@ -370,7 +370,7 @@ func (r *Router) match(network, serverName string, sourceAddrPort netip.AddrPort
 		}
 
 		// Domain sets
-		if len(route.domainSets) > 0 && targetAddr.IsDomain() {
+		if len(route.domainSets) > 0 && !targetAddr.IsIP() {
 			if matchDomainToDomainSets(route.domainSets, targetAddr.Host()) != route.config.InvertDomains {
 				return route, nil
 			}
@@ -381,7 +381,7 @@ func (r *Router) match(network, serverName string, sourceAddrPort netip.AddrPort
 			continue
 		}
 
-		if targetAddr.IsDomain() {
+		if !targetAddr.IsIP() {
 			if r.disableNameResolutionForIPRules {
 				continue
 			}
@@ -405,19 +405,14 @@ func (r *Router) match(network, serverName string, sourceAddrPort netip.AddrPort
 				}
 			}
 		} else {
-			if len(route.config.Prefixes) > 0 {
-				addr, err := targetAddr.Addr(true)
-				if err != nil {
-					return nil, err
-				}
+			ip := targetAddr.IP()
 
-				if matchAddrToPrefixes(route.config.Prefixes, addr) != route.config.InvertPrefixes {
-					return route, nil
-				}
+			if len(route.config.Prefixes) > 0 && matchAddrToPrefixes(route.config.Prefixes, ip) != route.config.InvertPrefixes {
+				return route, nil
 			}
 
 			if len(route.config.GeoIPCountries) > 0 {
-				matched, err := r.matchSocksAddrToGeoIPCountries(route.config.GeoIPCountries, targetAddr)
+				matched, err := r.matchAddrToGeoIPCountries(route.config.GeoIPCountries, ip)
 				if err != nil {
 					return nil, err
 				}
@@ -478,21 +473,6 @@ func (r *Router) matchResultToGeoIPCountries(countries []string, result dns.Resu
 	}
 
 	return false, nil
-}
-
-func (r *Router) matchSocksAddrToGeoIPCountries(countries []string, addr socks5.Addr) (bool, error) {
-	var ip net.IP
-
-	switch addr[0] {
-	case socks5.AtypIPv4:
-		ip = net.IP(addr[1 : 1+net.IPv4len])
-	case socks5.AtypIPv6:
-		ip = net.IP(addr[1 : 1+net.IPv6len])
-	default:
-		return false, fmt.Errorf("unsupported address type: %d", addr[0])
-	}
-
-	return r.matchIPToGeoIPCountries(countries, ip)
 }
 
 func matchDomainToDomainSets(domainSets []DomainSet, domain string) bool {

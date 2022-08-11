@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/database64128/shadowsocks-go/socks5"
+	"github.com/database64128/shadowsocks-go/conn"
 )
 
 const (
@@ -17,24 +17,25 @@ const (
 	fwmark     = 10240
 )
 
-func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientShouldPad, serverShouldPad PaddingPolicy) {
-	addrPort := netip.AddrPortFrom(netip.IPv6Unspecified(), 53)
+var (
+	targetAddr           = conn.AddrFromIPPort(targetAddrPort)
+	targetAddrPort       = netip.AddrPortFrom(netip.IPv6Unspecified(), 53)
+	serverAddrPort       = netip.AddrPortFrom(netip.IPv6Unspecified(), 1080)
+	clientAddrPort       = netip.AddrPortFrom(netip.IPv6Unspecified(), 10800)
+	replayClientAddrPort = netip.AddrPortFrom(netip.IPv6Unspecified(), 10801)
+	replayServerAddrPort = netip.AddrPortFrom(netip.IPv6Unspecified(), 10802)
+)
 
-	c := NewUDPClient(addrPort, mtu, fwmark, clientCipherConfig, clientShouldPad, clientCipherConfig.ClientPSKHashes())
+func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientShouldPad, serverShouldPad PaddingPolicy) {
+	c := NewUDPClient(serverAddrPort, mtu, fwmark, clientCipherConfig, clientShouldPad, clientCipherConfig.ClientPSKHashes())
 	s := NewUDPServer(serverCipherConfig, serverShouldPad, serverCipherConfig.ServerPSKHashMap())
 
-	fixedAddrPort, fixedMTU, fixedFwmark, ok := c.AddrPort()
-	if !ok {
-		t.Error("AddrPort() returned !ok.")
-	}
+	fixedMaxPacketSize, fixedFwmark := c.LinkInfo()
 	if fixedFwmark != fwmark {
 		t.Errorf("Fixed fwmark mismatch: in: %d, out: %d", fwmark, fixedFwmark)
 	}
-	if fixedMTU != mtu {
+	if fixedMaxPacketSize != packetSize {
 		t.Errorf("Fixed MTU mismatch: in: %d, out: %d", mtu, fixedFwmark)
-	}
-	if fixedAddrPort != addrPort {
-		t.Errorf("Fixed address mismatch: in: %s, out: %s", addrPort, fixedAddrPort)
 	}
 
 	clientPacker, clientUnpacker, err := c.NewSession()
@@ -52,7 +53,6 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 	payloadStart := frontHeadroom
 	payloadLen := packetSize - frontHeadroom - rearHeadroom
 	payload := b[payloadStart : payloadStart+payloadLen]
-	targetAddr := socks5.AddrFromAddrPort(addrPort)
 
 	// Fill random payload.
 	_, err = rand.Read(payload)
@@ -65,9 +65,12 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 	copy(payloadBackup, payload)
 
 	// Client packs.
-	pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen, packetSize)
+	dap, pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if dap != serverAddrPort {
+		t.Errorf("Expected packed client packet destAddrPort %s, got %s", serverAddrPort, dap)
 	}
 	p := b[pkts : pkts+pktl]
 
@@ -80,18 +83,13 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 	if err != nil {
 		t.Fatal(err)
 	}
-	ta, hta, ps, pl, err := serverUnpacker.UnpackInPlace(b, pkts, pktl)
+	ta, ps, pl, err := serverUnpacker.UnpackInPlace(b, clientAddrPort, pkts, pktl)
 	if err != nil {
 		t.Error(err)
 	}
 
-	// Check hasTargetAddr.
-	if !hta {
-		t.Error("hasTargetAddr should be true.")
-	}
-
 	// Check target address.
-	if !bytes.Equal(targetAddr, ta) {
+	if ta != targetAddr {
 		t.Errorf("Target address mismatch: c: %s, s: %s", targetAddr, ta)
 	}
 
@@ -113,25 +111,20 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen, packetSize)
+	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddrPort, payloadStart, payloadLen, packetSize)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Client unpacks.
-	ta, hta, ps, pl, err = clientUnpacker.UnpackInPlace(b, pkts, pktl)
+	tap, ps, pl, err := clientUnpacker.UnpackInPlace(b, serverAddrPort, pkts, pktl)
 	if err != nil {
 		t.Error(err)
 	}
 
-	// Check hasTargetAddr.
-	if !hta {
-		t.Error("hasTargetAddr should be true.")
-	}
-
 	// Check target address.
-	if !bytes.Equal(targetAddr, ta) {
-		t.Errorf("Target address mismatch: s: %s, c: %s", targetAddr, ta)
+	if tap != targetAddrPort {
+		t.Errorf("Target address mismatch: s: %s, c: %s", targetAddrPort, tap)
 	}
 
 	// Check payload.
@@ -142,13 +135,12 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 }
 
 func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig) {
-	addrPort := netip.AddrPortFrom(netip.IPv6Unspecified(), 53)
 	shouldPad, err := ParsePaddingPolicy("")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	c := NewUDPClient(addrPort, mtu, fwmark, clientCipherConfig, shouldPad, clientCipherConfig.ClientPSKHashes())
+	c := NewUDPClient(serverAddrPort, mtu, fwmark, clientCipherConfig, shouldPad, clientCipherConfig.ClientPSKHashes())
 	s := NewUDPServer(serverCipherConfig, shouldPad, serverCipherConfig.ServerPSKHashMap())
 
 	clientPacker, clientUnpacker, err := c.NewSession()
@@ -165,12 +157,14 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig,
 	b := make([]byte, packetSize)
 	payloadStart := frontHeadroom
 	payloadLen := packetSize - frontHeadroom - rearHeadroom
-	targetAddr := socks5.AddrFromAddrPort(addrPort)
 
 	// Client packs.
-	pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen, packetSize)
+	dap, pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if dap != serverAddrPort {
+		t.Errorf("Expected packed client packet destAddrPort %s, got %s", serverAddrPort, dap)
 	}
 	p := b[pkts : pkts+pktl]
 
@@ -189,22 +183,25 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig,
 	copy(pb, p)
 
 	// Server unpacks.
-	_, _, _, _, err = serverUnpacker.UnpackInPlace(b, pkts, pktl)
+	_, _, _, err = serverUnpacker.UnpackInPlace(b, clientAddrPort, pkts, pktl)
 	if err != nil {
 		t.Error(err)
 	}
 
 	// Server unpacks the same packet again.
-	_, _, _, _, err = serverUnpacker.UnpackInPlace(pb, 0, pktl)
+	_, _, _, err = serverUnpacker.UnpackInPlace(pb, replayClientAddrPort, 0, pktl)
 	var sprErr *ShadowPacketReplayError
 	if !errors.As(err, &sprErr) {
 		t.Errorf("Expected ShadowPacketReplayError, got %T", err)
 	}
+	if sprErr.srcAddr != replayClientAddrPort {
+		t.Errorf("Expected ShadowPacketReplayError srcAddr %s, got %s", replayClientAddrPort, sprErr.srcAddr)
+	}
 	if sprErr.sid != csid {
-		t.Errorf("Expected sid %d, got %d", csid, sprErr.sid)
+		t.Errorf("Expected ShadowPacketReplayError sid %d, got %d", csid, sprErr.sid)
 	}
 	if sprErr.pid != 0 {
-		t.Errorf("Expected pid 0, got %d", sprErr.pid)
+		t.Errorf("Expected ShadowPacketReplayError pid 0, got %d", sprErr.pid)
 	}
 
 	// Server packs.
@@ -212,7 +209,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig,
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen, packetSize)
+	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddrPort, payloadStart, payloadLen, packetSize)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +220,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig,
 	copy(pb0, b[pkts:pkts+pktl])
 
 	// Client unpacks.
-	_, _, _, _, err = clientUnpacker.UnpackInPlace(b, pkts, pktl)
+	_, _, _, err = clientUnpacker.UnpackInPlace(b, serverAddrPort, pkts, pktl)
 	if err != nil {
 		t.Error(err)
 	}
@@ -233,7 +230,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig,
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen, packetSize)
+	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddrPort, payloadStart, payloadLen, packetSize)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +245,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig,
 	spcu.oldServerSessionLastSeenTime = spcu.oldServerSessionLastSeenTime.Add(-time.Minute - time.Nanosecond)
 
 	// Client unpacks.
-	_, _, _, _, err = clientUnpacker.UnpackInPlace(b, pkts, pktl)
+	_, _, _, err = clientUnpacker.UnpackInPlace(b, serverAddrPort, pkts, pktl)
 	if err != nil {
 		t.Error(err)
 	}
@@ -258,39 +255,45 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig,
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen, packetSize)
+	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddrPort, payloadStart, payloadLen, packetSize)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Client unpacks.
-	_, _, _, _, err = clientUnpacker.UnpackInPlace(b, pkts, pktl)
+	_, _, _, err = clientUnpacker.UnpackInPlace(b, serverAddrPort, pkts, pktl)
 	if err != ErrTooManyServerSessions {
 		t.Errorf("Expected ErrTooManyServerSessions, got %v", err)
 	}
 
 	// Client unpacks pb0.
-	_, _, _, _, err = clientUnpacker.UnpackInPlace(pb0, 0, len(pb0))
+	_, _, _, err = clientUnpacker.UnpackInPlace(pb0, replayServerAddrPort, 0, len(pb0))
 	if !errors.As(err, &sprErr) {
 		t.Errorf("Expected ShadowPacketReplayError, got %T", err)
 	}
+	if sprErr.srcAddr != replayServerAddrPort {
+		t.Errorf("Expected ShadowPacketReplayError srcAddr %s, got %s", replayServerAddrPort, sprErr.srcAddr)
+	}
 	if sprErr.sid != ssid0 {
-		t.Errorf("Expected sid %d, got %d", ssid0, sprErr.sid)
+		t.Errorf("Expected ShadowPacketReplayError sid %d, got %d", ssid0, sprErr.sid)
 	}
 	if sprErr.pid != 0 {
-		t.Errorf("Expected pid 0, got %d", sprErr.pid)
+		t.Errorf("Expected ShadowPacketReplayError pid 0, got %d", sprErr.pid)
 	}
 
 	// Client unpacks pb1.
-	_, _, _, _, err = clientUnpacker.UnpackInPlace(pb1, 0, len(pb1))
+	_, _, _, err = clientUnpacker.UnpackInPlace(pb1, replayServerAddrPort, 0, len(pb1))
 	if !errors.As(err, &sprErr) {
 		t.Errorf("Expected ShadowPacketReplayError, got %T", err)
 	}
+	if sprErr.srcAddr != replayServerAddrPort {
+		t.Errorf("Expected ShadowPacketReplayError srcAddr %s, got %s", replayServerAddrPort, sprErr.srcAddr)
+	}
 	if sprErr.sid != ssid1 {
-		t.Errorf("Expected sid %d, got %d", ssid1, sprErr.sid)
+		t.Errorf("Expected ShadowPacketReplayError sid %d, got %d", ssid1, sprErr.sid)
 	}
 	if sprErr.pid != 0 {
-		t.Errorf("Expected pid 0, got %d", sprErr.pid)
+		t.Errorf("Expected ShadowPacketReplayError pid 0, got %d", sprErr.pid)
 	}
 }
 

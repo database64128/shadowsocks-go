@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
-	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
 var ErrServerSpokeFirst = errors.New("server-speaks-first protocols are not supported by this HTTP proxy client implementation")
 
 // NewHttpStreamClientReadWriter writes a HTTP/1.1 CONNECT request to rw and wraps rw into a ReadWriter ready for use.
-func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr socks5.Addr) (*direct.DirectStreamReadWriter, error) {
+func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr conn.Addr) (*direct.DirectStreamReadWriter, error) {
 	targetAddress := targetAddr.String()
 
 	// Write CONNECT.

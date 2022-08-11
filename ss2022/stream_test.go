@@ -6,20 +6,20 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/pipe"
-	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
 func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientInitialPayload []byte) {
 	pl, pr := pipe.NewDuplexPipe()
 	saltPool := NewSaltPool[string](ReplayWindowDuration)
-	clientTargetAddr := socks5.AddrFromAddrPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 
 	var (
 		c                    *ShadowStreamClientReadWriter
 		s                    *ShadowStreamServerReadWriter
-		serverTargetAddr     socks5.Addr
+		serverTargetAddr     conn.Addr
 		serverInitialPayload []byte
 		cerr, serr           error
 	)
@@ -45,7 +45,7 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherCo
 		t.Fatal(serr)
 	}
 
-	if !bytes.Equal(clientTargetAddr, serverTargetAddr) {
+	if clientTargetAddr != serverTargetAddr {
 		t.Errorf("Target address mismatch: c: %s, s: %s", clientTargetAddr, serverTargetAddr)
 	}
 	if !bytes.Equal(clientInitialPayload, serverInitialPayload) {
@@ -58,7 +58,7 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherCo
 func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig) {
 	pl, pr := pipe.NewDuplexPipe()
 	saltPool := NewSaltPool[string](ReplayWindowDuration)
-	clientTargetAddr := socks5.AddrFromAddrPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 
 	var cerr, serr error
 	ctrlCh := make(chan struct{})

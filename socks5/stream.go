@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/tfo-go"
 )
 
@@ -56,67 +57,76 @@ func replyWithStatus(w io.Writer, status byte) error {
 }
 
 // ClientRequest writes a request to targetAddr and returns the bound address in reply.
-func ClientRequest(rw io.ReadWriter, command byte, targetAddr Addr) (Addr, error) {
+func ClientRequest(rw io.ReadWriter, command byte, targetAddr conn.Addr) (addr conn.Addr, err error) {
 	b := make([]byte, 3+MaxAddrLen)
 
 	// Write VER NMETHDOS METHODS.
-	_, err := rw.Write([]byte{Version, 1, MethodNoAuthenticationRequired})
+	_, err = rw.Write([]byte{Version, 1, MethodNoAuthenticationRequired})
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	// Read version selection message.
 	_, err = io.ReadFull(rw, b[:2])
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	// Check VER.
 	if b[0] != Version {
-		return nil, fmt.Errorf("%w: %d", ErrUnsupportedSocksVersion, b[0])
+		err = fmt.Errorf("%w: %d", ErrUnsupportedSocksVersion, b[0])
+		return
 	}
 
 	// Check METHOD.
 	if b[1] != MethodNoAuthenticationRequired {
-		return nil, fmt.Errorf("%w: %d", ErrUnsupportedAuthenticationMethod, b[1])
+		err = fmt.Errorf("%w: %d", ErrUnsupportedAuthenticationMethod, b[1])
+		return
 	}
 
 	// Write VER, CMD, RSV, SOCKS address.
 	b[1] = command
-	n := copy(b[3:], targetAddr)
+	n := WriteAddrFromConnAddr(b[3:], targetAddr)
 	_, err = rw.Write(b[:3+n])
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	// Read VER, REP, RSV.
 	_, err = io.ReadFull(rw, b[:3])
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	// Check VER.
 	if b[0] != Version {
-		return nil, fmt.Errorf("%w: %d", ErrUnsupportedSocksVersion, b[0])
+		err = fmt.Errorf("%w: %d", ErrUnsupportedSocksVersion, b[0])
+		return
 	}
 
 	// Check REP.
 	if b[1] != Succeeded {
-		return nil, fmt.Errorf("SOCKS error: %d", b[1])
+		err = fmt.Errorf("SOCKS error: %d", b[1])
+		return
 	}
 
 	// Read SOCKS address.
-	return AppendFromReader(b[3:3], rw)
+	sa, err := AppendFromReader(b[3:3], rw)
+	if err != nil {
+		return
+	}
+	addr, _, err = ConnAddrFromSlice(sa)
+	return
 }
 
 // ClientConnect writes a CONNECT request to targetAddr.
-func ClientConnect(rw io.ReadWriter, targetAddr Addr) error {
+func ClientConnect(rw io.ReadWriter, targetAddr conn.Addr) error {
 	_, err := ClientRequest(rw, CmdConnect, targetAddr)
 	return err
 }
 
 // ClientUDPAssociate writes a UDP ASSOCIATE request to targetAddr.
-func ClientUDPAssociate(rw io.ReadWriter, targetAddr Addr) (Addr, error) {
+func ClientUDPAssociate(rw io.ReadWriter, targetAddr conn.Addr) (conn.Addr, error) {
 	return ClientRequest(rw, CmdUDPAssociate, targetAddr)
 }
 
@@ -124,29 +134,31 @@ func ClientUDPAssociate(rw io.ReadWriter, targetAddr Addr) (Addr, error) {
 // enableTCP enables the CONNECT command.
 // enableUDP enables the UDP ASSOCIATE command.
 // conn must be provided when UDP is enabled.
-func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, conn tfo.Conn) (Addr, error) {
+func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, conn tfo.Conn) (addr conn.Addr, err error) {
 	b := make([]byte, 3+MaxAddrLen)
 
 	// Read VER, NMETHODS.
-	_, err := io.ReadFull(rw, b[:2])
+	_, err = io.ReadFull(rw, b[:2])
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	// Check VER.
 	if b[0] != Version {
-		return nil, fmt.Errorf("%w: %d", ErrUnsupportedSocksVersion, b[0])
+		err = fmt.Errorf("%w: %d", ErrUnsupportedSocksVersion, b[0])
+		return
 	}
 
 	// Check NMETHODS.
 	if b[1] == 0 {
-		return nil, fmt.Errorf("NMETHODS is %d", b[1])
+		err = fmt.Errorf("NMETHODS is %d", b[1])
+		return
 	}
 
 	// Read METHODS.
 	_, err = io.ReadFull(rw, b[:b[1]])
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	// Check METHODS.
@@ -155,7 +167,7 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, conn tfo.Conn) (A
 		if err == nil {
 			err = ErrUnsupportedAuthenticationMethod
 		}
-		return nil, err
+		return
 	}
 
 	// Write method selection message.
@@ -167,30 +179,34 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, conn tfo.Conn) (A
 	// 	+-----+--------+
 	_, err = rw.Write([]byte{Version, MethodNoAuthenticationRequired})
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	// Read VER, CMD, RSV.
 	_, err = io.ReadFull(rw, b[:3])
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	// Check VER.
 	if b[0] != Version {
-		return nil, fmt.Errorf("%w: %d", ErrUnsupportedSocksVersion, b[0])
+		err = fmt.Errorf("%w: %d", ErrUnsupportedSocksVersion, b[0])
+		return
 	}
 
 	// Read SOCKS address.
-	addr, err := AppendFromReader(b[3:3], rw)
+	sa, err := AppendFromReader(b[3:3], rw)
 	if err != nil {
-		return nil, err
+		return
+	}
+	addr, _, err = ConnAddrFromSlice(sa)
+	if err != nil {
+		return
 	}
 
 	switch {
 	case b[1] == CmdConnect && enableTCP:
 		err = replyWithStatus(rw, Succeeded)
-		return addr, err
 
 	case b[1] == CmdUDPAssociate && enableUDP:
 		// Use the connection's local address as the returned UDP bound address.
@@ -203,7 +219,7 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, conn tfo.Conn) (A
 		} else {
 			localAddrPort, err = netip.ParseAddrPort(localAddr.String())
 			if err != nil {
-				return nil, err
+				return
 			}
 		}
 
@@ -214,7 +230,7 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, conn tfo.Conn) (A
 		// Write reply.
 		_, err = rw.Write(reply)
 		if err != nil {
-			return nil, err
+			return
 		}
 
 		// Hold the connection open.
@@ -222,13 +238,13 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, conn tfo.Conn) (A
 		if err == nil || err == io.EOF {
 			err = ErrUDPAssociateDone
 		}
-		return nil, err
 
 	default:
 		err = replyWithStatus(rw, ErrCommandNotSupported)
 		if err == nil {
 			err = fmt.Errorf("%w: %d", ErrUnsupportedCommand, b[1])
 		}
-		return nil, err
 	}
+
+	return
 }

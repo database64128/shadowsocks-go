@@ -1,23 +1,30 @@
 package zerocopy
 
-import "net/netip"
-
-// UDPClient stores the necessary information for creating new sessions.
+// UDPClient stores information for creating new client sessions.
 type UDPClient interface {
 	// Headroom reports client packer headroom requirements.
 	Headroom
 
+	// LinkInfo returns the maximum size of outgoing packets and fwmark.
+	LinkInfo() (maxPacketSize, fwmark int)
+
 	// NewSession creates a new session and returns the packet packer
 	// and unpacker for the session, or an error.
-	NewSession() (Packer, Unpacker, error)
-
-	// AddrPort returns the fixed target address and port of packed outgoing packets,
-	// or false if individual packet's target address should be used.
-	AddrPort() (addrPort netip.AddrPort, mtu, fwmark int, ok bool)
+	NewSession() (ClientPacker, ClientUnpacker, error)
 }
 
-// UDPServer deals with incoming sessions.
-type UDPServer interface {
+// UDPNATServer stores information for creating new server sessions.
+type UDPNATServer interface {
+	// Headroom reports server pack-unpacker headroom requirements.
+	Headroom
+
+	// NewSession creates a new session and returns the packet packer
+	// and unpacker for the session, or an error.
+	NewSession() (ServerPacker, ServerUnpacker, error)
+}
+
+// UDPSessionServer deals with incoming sessions.
+type UDPSessionServer interface {
 	// Headroom reports server unpacker headroom requirements.
 	Headroom
 
@@ -33,39 +40,37 @@ type UDPServer interface {
 	// The returned unpacker is then used by the caller to unpack the incoming packet.
 	// Upon successful unpacking, NewPacker should be called to create a corresponding
 	// server session.
-	NewUnpacker(b []byte, csid uint64) (Unpacker, error)
+	NewUnpacker(b []byte, csid uint64) (ServerUnpacker, error)
 
 	// NewPacker creates a new server session for the specified client session
 	// and returns the server session's packer, or an error.
-	NewPacker(csid uint64) (Packer, error)
+	NewPacker(csid uint64) (ServerPacker, error)
 }
 
 // SimpleUDPClient wraps a PackUnpacker and uses it for all sessions.
 //
 // SimpleUDPClient implements the UDPClient interface.
 type SimpleUDPClient struct {
-	p             PackUnpacker
-	addrPort      netip.AddrPort
-	hasAddrPort   bool
-	mtu           int
+	p             ClientPackUnpacker
+	maxPacketSize int
 	fwmark        int
 	frontHeadroom int
 	rearHeadroom  int
 }
 
 // NewSimpleUDPClient wraps a PackUnpacker into a UDPClient and uses it for all sessions.
-func NewSimpleUDPClient(p PackUnpacker, addrPort netip.AddrPort, hasAddrPort bool, mtu, fwmark, frontHeadroom, rearHeadroom int) *SimpleUDPClient {
-	return &SimpleUDPClient{p, addrPort, hasAddrPort, mtu, fwmark, frontHeadroom, rearHeadroom}
+func NewSimpleUDPClient(p ClientPackUnpacker, maxPacketSize, fwmark, frontHeadroom, rearHeadroom int) *SimpleUDPClient {
+	return &SimpleUDPClient{p, maxPacketSize, fwmark, frontHeadroom, rearHeadroom}
+}
+
+// LinkInfo implements the UDPClient LinkInfo method.
+func (c *SimpleUDPClient) LinkInfo() (int, int) {
+	return c.maxPacketSize, c.fwmark
 }
 
 // NewSession implements the UDPClient NewSession method.
-func (c *SimpleUDPClient) NewSession() (Packer, Unpacker, error) {
+func (c *SimpleUDPClient) NewSession() (ClientPacker, ClientUnpacker, error) {
 	return c.p, c.p, nil
-}
-
-// AddrPort implements the UDPClient AddrPort method.
-func (c *SimpleUDPClient) AddrPort() (netip.AddrPort, int, int, bool) {
-	return c.addrPort, c.mtu, c.fwmark, c.hasAddrPort
 }
 
 // FrontHeadroom implements the UDPClient FrontHeadroom method.

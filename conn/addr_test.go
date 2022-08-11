@@ -19,7 +19,7 @@ var (
 
 // Test domain name.
 var (
-	addrDomain              = AddrFromDomainPort(addrDomainHost, addrDomainPort)
+	addrDomain              = MustAddrFromDomainPort(addrDomainHost, addrDomainPort)
 	addrDomainHost          = "example.com"
 	addrDomainPort   uint16 = 443
 	addrDomainString        = "example.com:443"
@@ -32,6 +32,34 @@ func TestAddrIsIP(t *testing.T) {
 
 	if addrDomain.IsIP() {
 		t.Error("addrDomain.IsIP() returned true.")
+	}
+}
+
+func TestAddrMappedEquals(t *testing.T) {
+	if !addrIP.MappedEquals(addrIP) {
+		t.Error("addrIP.MappedEquals(addrIP) returned false.")
+	}
+
+	if !addrDomain.MappedEquals(addrDomain) {
+		t.Error("addrDomain.MappedEquals(addrDomain) returned false.")
+	}
+
+	addr4 := AddrFromIPPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 1080))
+	addr4in6 := AddrFromIPPort(netip.AddrPortFrom(netip.AddrFrom16([16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1}), 1080))
+	if !addr4.MappedEquals(addr4in6) {
+		t.Error("addr4.MappedEquals(addr4in6) returned false.")
+	}
+
+	if addrIP.MappedEquals(addrDomain) {
+		t.Error("addrIP.MappedEquals(addrDomain) returned true.")
+	}
+
+	if addrIP.MappedEquals(addr4) {
+		t.Error("addrIP.MappedEquals(addr4) returned true.")
+	}
+
+	if addrIP.MappedEquals(addr4in6) {
+		t.Error("addrIP.MappedEquals(addr4in6) returned true.")
 	}
 }
 
@@ -80,7 +108,7 @@ func TestAddrIPPort(t *testing.T) {
 func TestAddrResolveIP(t *testing.T) {
 	ip, err := addrIP.ResolveIP(false)
 	if err != nil {
-		t.Errorf("addrIP.ResolveIP(false) returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if ip != addrIPAddr {
 		t.Errorf("addrIP.ResolveIP(false) returned %s, expected %s.", ip, addrIPAddr)
@@ -88,7 +116,7 @@ func TestAddrResolveIP(t *testing.T) {
 
 	ip, err = addrIP.ResolveIP(true)
 	if err != nil {
-		t.Errorf("addrIP.ResolveIP(true) returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if ip != addrIPAddr {
 		t.Errorf("addrIP.ResolveIP(true) returned %s, expected %s.", ip, addrIPAddr)
@@ -96,7 +124,7 @@ func TestAddrResolveIP(t *testing.T) {
 
 	ip, err = addrDomain.ResolveIP(false)
 	if err != nil {
-		t.Errorf("addrDomain.ResolveIP(false) returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if !ip.Is4() && !ip.Is4In6() {
 		t.Errorf("addrDomain.ResolveIP(false) returned %s, expected IPv4 or IPv4-mapped IPv6 address.", ip)
@@ -104,7 +132,7 @@ func TestAddrResolveIP(t *testing.T) {
 
 	ip, err = addrDomain.ResolveIP(true)
 	if err != nil {
-		t.Errorf("addrDomain.ResolveIP(true) returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if ip.Is4() || ip.Is4In6() {
 		t.Errorf("addrDomain.ResolveIP(true) returned %s, expected IPv6 address.", ip)
@@ -114,7 +142,7 @@ func TestAddrResolveIP(t *testing.T) {
 func TestAddrResolveIPPort(t *testing.T) {
 	ipPort, err := addrIP.ResolveIPPort(false)
 	if err != nil {
-		t.Errorf("addrIP.ResolveIPPort(false) returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if ipPort != addrIPAddrPort {
 		t.Errorf("addrIP.ResolveIPPort(false) returned %s, expected %s.", ipPort, addrIPAddrPort)
@@ -122,7 +150,7 @@ func TestAddrResolveIPPort(t *testing.T) {
 
 	ipPort, err = addrIP.ResolveIPPort(true)
 	if err != nil {
-		t.Errorf("addrIP.ResolveIPPort(true) returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if ipPort != addrIPAddrPort {
 		t.Errorf("addrIP.ResolveIPPort(true) returned %s, expected %s.", ipPort, addrIPAddrPort)
@@ -130,7 +158,7 @@ func TestAddrResolveIPPort(t *testing.T) {
 
 	ipPort, err = addrDomain.ResolveIPPort(false)
 	if err != nil {
-		t.Errorf("addrDomain.ResolveIPPort(false) returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if ip := ipPort.Addr(); !ip.Is4() && !ip.Is4In6() {
 		t.Errorf("addrDomain.ResolveIPPort(false) returned %s, expected IPv4 or IPv4-mapped IPv6 address.", ipPort)
@@ -141,7 +169,7 @@ func TestAddrResolveIPPort(t *testing.T) {
 
 	ipPort, err = addrDomain.ResolveIPPort(true)
 	if err != nil {
-		t.Errorf("addrDomain.ResolveIPPort(true) returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if ip := ipPort.Addr(); ip.Is4() || ip.Is4In6() {
 		t.Errorf("addrDomain.ResolveIPPort(true) returned %s, expected IPv6 address.", ipPort)
@@ -202,7 +230,7 @@ func TestAddrAppendTo(t *testing.T) {
 func TestAddrMarshalAndUnmarshalText(t *testing.T) {
 	text, err := addrIP.MarshalText()
 	if err != nil {
-		t.Errorf("addrIP.MarshalText() returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if string(text) != addrIPString {
 		t.Errorf("addrIP.MarshalText() returned %s, expected %s.", text, addrIPString)
@@ -211,7 +239,7 @@ func TestAddrMarshalAndUnmarshalText(t *testing.T) {
 	var addrUnmarshaled Addr
 	err = addrUnmarshaled.UnmarshalText(text)
 	if err != nil {
-		t.Errorf("addrIP.UnmarshalText() returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if addrUnmarshaled != addrIP {
 		t.Errorf("addrIP.UnmarshalText() returned %s, expected %s.", addrUnmarshaled, addrIP)
@@ -219,7 +247,7 @@ func TestAddrMarshalAndUnmarshalText(t *testing.T) {
 
 	text, err = addrDomain.MarshalText()
 	if err != nil {
-		t.Errorf("addrDomain.MarshalText() returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if string(text) != addrDomainString {
 		t.Errorf("addrDomain.MarshalText() returned %s, expected %s.", text, addrDomainString)
@@ -227,7 +255,7 @@ func TestAddrMarshalAndUnmarshalText(t *testing.T) {
 
 	err = addrUnmarshaled.UnmarshalText(text)
 	if err != nil {
-		t.Errorf("addrDomain.UnmarshalText() returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if addrUnmarshaled != addrDomain {
 		t.Errorf("addrDomain.UnmarshalText() returned %s, expected %s.", addrUnmarshaled, addrDomain)
@@ -235,12 +263,18 @@ func TestAddrMarshalAndUnmarshalText(t *testing.T) {
 }
 
 func TestAddrFromHostPort(t *testing.T) {
-	addrFromHostPort := AddrFromHostPort(addrIPHost, addrIPPort)
+	addrFromHostPort, err := AddrFromHostPort(addrIPHost, addrIPPort)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if addrFromHostPort != addrIP {
 		t.Errorf("AddrFromHostPort() returned %s, expected %s.", addrFromHostPort, addrIP)
 	}
 
-	addrFromHostPort = AddrFromHostPort(addrDomainHost, addrDomainPort)
+	addrFromHostPort, err = AddrFromHostPort(addrDomainHost, addrDomainPort)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if addrFromHostPort != addrDomain {
 		t.Errorf("AddrFromHostPort() returned %s, expected %s.", addrFromHostPort, addrDomain)
 	}
@@ -249,7 +283,7 @@ func TestAddrFromHostPort(t *testing.T) {
 func TestAddrParsing(t *testing.T) {
 	addrParsed, err := ParseAddr(addrIPString)
 	if err != nil {
-		t.Errorf("ParseAddr() returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if addrParsed != addrIP {
 		t.Errorf("ParseAddr() returned %s, expected %s.", addrParsed, addrIP)
@@ -257,9 +291,34 @@ func TestAddrParsing(t *testing.T) {
 
 	addrParsed, err = ParseAddr(addrDomainString)
 	if err != nil {
-		t.Errorf("ParseAddr() returned error: %s.", err)
+		t.Fatal(err)
 	}
 	if addrParsed != addrDomain {
 		t.Errorf("ParseAddr() returned %s, expected %s.", addrParsed, addrDomain)
+	}
+}
+
+func TestAddrPortMappedEqual(t *testing.T) {
+	addrPort4 := netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 1080)
+	addrPort4in6 := netip.AddrPortFrom(netip.AddrFrom16([16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1}), 1080)
+
+	if !AddrPortMappedEqual(addrPort4, addrPort4) {
+		t.Error("AddrPortMappedEqual(addrPort4, addrPort4) returned false.")
+	}
+
+	if !AddrPortMappedEqual(addrPort4, addrPort4in6) {
+		t.Error("AddrPortMappedEqual(addrPort4, addrPort4in6) returned false.")
+	}
+
+	if !AddrPortMappedEqual(addrPort4in6, addrPort4in6) {
+		t.Error("AddrPortMappedEqual(addrPort4in6, addrPort4in6) returned false.")
+	}
+
+	if AddrPortMappedEqual(addrPort4, addrIPAddrPort) {
+		t.Error("AddrPortMappedEqual(addrPort4, addrIPAddrPort) returned true.")
+	}
+
+	if AddrPortMappedEqual(addrPort4in6, addrIPAddrPort) {
+		t.Error("AddrPortMappedEqual(addrPort4in6, addrIPAddrPort) returned true.")
 	}
 }

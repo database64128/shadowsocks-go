@@ -2,7 +2,6 @@ package ss2022
 
 import (
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/database64128/tfo-go"
 )
@@ -25,7 +24,7 @@ func NewTCPClient(address string, dialerTFO bool, dialerFwmark int, cipherConfig
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (tfoConn tfo.Conn, rw zerocopy.ReadWriter, err error) {
+func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (tfoConn tfo.Conn, rw zerocopy.ReadWriter, err error) {
 	netConn, err := c.dialer.Dial("tcp", c.address)
 	if err != nil {
 		return
@@ -56,7 +55,7 @@ func NewTCPServer(cipherConfig *CipherConfig, uPSKMap map[[IdentityHeaderLength]
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
+func (s *TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
 	return NewShadowStreamServerReadWriter(conn, s.cipherConfig, s.saltPool, s.uPSKMap)
 }
 

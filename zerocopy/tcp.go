@@ -6,7 +6,7 @@ import (
 	"io"
 	"net"
 
-	"github.com/database64128/shadowsocks-go/socks5"
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/tfo-go"
 	"go.uber.org/zap"
 )
@@ -31,7 +31,7 @@ type TCPClient interface {
 
 	// Dial creates a connection to the target address under the protocol's
 	// encapsulation and returns the established connection and a ReadWriter for read-write access.
-	Dial(targetAddr socks5.Addr, payload []byte) (tfoConn tfo.Conn, rw ReadWriter, err error)
+	Dial(targetAddr conn.Addr, payload []byte) (tfoConn tfo.Conn, rw ReadWriter, err error)
 }
 
 // TCPServer provides a protocol's TCP service.
@@ -43,7 +43,7 @@ type TCPServer interface {
 	//
 	// If the returned error is ErrAcceptDoneNoRelay, the connection has been handled by this method.
 	// Two-way relay is not needed.
-	Accept(conn tfo.Conn) (rw ReadWriter, targetAddr socks5.Addr, payload []byte, err error)
+	Accept(conn tfo.Conn) (rw ReadWriter, targetAddr conn.Addr, payload []byte, err error)
 
 	// DefaultTCPConnCloser returns the default function to handle the closing
 	// of a potentially malicious TCP connection.

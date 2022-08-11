@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"errors"
 	"net"
 	"net/netip"
@@ -10,8 +9,6 @@ import (
 	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/socks5"
-	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 	"golang.org/x/sys/unix"
 )
@@ -35,35 +32,25 @@ func (s *UDPNATRelay) setRelayNatConnToServerConnFunc(batchMode string) {
 }
 
 func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.AddrPort, entry *natEntry) {
-	// Cache the last used target address.
-	//
-	// When the target address is a domain, it is very likely that the target address won't change
-	// throughout the lifetime of the session. In this case, caching the target address can eliminate
-	// the per-packet DNS lookup overhead.
 	var (
-		cachedTargetAddr          socks5.Addr
-		cachedTargetAddrPort      netip.AddrPort = entry.natConnFixedTargetAddrPort
-		name                      *byte
-		namelen                   uint32
-		cachedTargetMaxPacketSize int
-		sendmmsgCount             uint64
-		packetsSent               uint64
-		payloadBytesSent          uint64
+		destAddrPort     netip.AddrPort
+		packetStart      int
+		packetLength     int
+		err              error
+		sendmmsgCount    uint64
+		packetsSent      uint64
+		payloadBytesSent uint64
 	)
 
-	if entry.natConnUseFixedTargetAddrPort {
-		name, namelen = conn.AddrPortToSockaddr(entry.natConnFixedTargetAddrPort)
-		cachedTargetMaxPacketSize = zerocopy.MaxPacketSizeForAddr(entry.natConnMTU, entry.natConnFixedTargetAddrPort.Addr())
-	}
-
 	dequeuedPackets := make([]queuedPacket, s.batchSize)
+	namevec := make([]unix.RawSockaddrInet6, s.batchSize)
 	iovec := make([]unix.Iovec, s.batchSize)
 	msgvec := make([]conn.Mmsghdr, s.batchSize)
 
 	// Initialize msgvec.
 	for i := range msgvec {
-		msgvec[i].Msghdr.Name = name
-		msgvec[i].Msghdr.Namelen = namelen
+		msgvec[i].Msghdr.Name = (*byte)(unsafe.Pointer(&namevec[i]))
+		msgvec[i].Msghdr.Namelen = unix.SizeofSockaddrInet6
 		msgvec[i].Msghdr.Iov = &iovec[i]
 		msgvec[i].Msghdr.SetIovlen(1)
 	}
@@ -80,36 +67,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 
 	dequeue:
 		for {
-			if !entry.natConnUseFixedTargetAddrPort {
-				if !bytes.Equal(cachedTargetAddr, queuedPacket.targetAddr) {
-					targetAddrPort, err := queuedPacket.targetAddr.AddrPort(s.preferIPv6)
-					if err != nil {
-						s.logger.Warn("Failed to get target address port",
-							zap.String("server", s.serverName),
-							zap.String("listenAddress", s.listenAddress),
-							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", queuedPacket.targetAddr),
-							zap.Error(err),
-						)
-
-						s.packetBufPool.Put(queuedPacket.bufp)
-						continue
-					}
-
-					// Workaround for https://github.com/golang/go/issues/52264
-					targetAddrPort = conn.Tov4Mappedv6(targetAddrPort)
-
-					cachedTargetAddr = append(cachedTargetAddr[:0], queuedPacket.targetAddr...)
-					cachedTargetAddrPort = targetAddrPort
-					name, namelen = conn.AddrPortToSockaddr(targetAddrPort)
-					cachedTargetMaxPacketSize = zerocopy.MaxPacketSizeForAddr(entry.natConnMTU, targetAddrPort.Addr())
-				}
-
-				msgvec[count].Msghdr.Name = name
-				msgvec[count].Msghdr.Namelen = namelen
-			}
-
-			packetStart, packetLength, err := entry.natConnPacker.PackInPlace(*queuedPacket.bufp, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length, cachedTargetMaxPacketSize)
+			destAddrPort, packetStart, packetLength, err = entry.natConnPacker.PackInPlace(*queuedPacket.bufp, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length)
 			if err != nil {
 				s.logger.Warn("Failed to pack packet",
 					zap.String("server", s.serverName),
@@ -124,6 +82,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 			}
 
 			dequeuedPackets[count] = queuedPacket
+			namevec[count] = conn.AddrPortToSockaddrInet6(destAddrPort)
 			iovec[count].Base = &(*queuedPacket.bufp)[packetStart]
 			iovec[count].SetLen(packetLength)
 			count++
@@ -145,12 +104,12 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 
 		// Batch write.
 		if err := conn.WriteMsgvec(entry.natConn, msgvec[:count]); err != nil {
-			s.logger.Warn("Failed to batch write packet to natConn",
+			s.logger.Warn("Failed to batch write packets to natConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
 				zap.Stringer("lastTargetAddress", queuedPacket.targetAddr),
-				zap.Stringer("lastWriteTargetAddress", cachedTargetAddrPort),
+				zap.Stringer("lastWriteDestAddress", destAddrPort),
 				zap.Error(err),
 			)
 		}
@@ -181,7 +140,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 		zap.String("server", s.serverName),
 		zap.String("listenAddress", s.listenAddress),
 		zap.Stringer("clientAddress", clientAddrPort),
-		zap.Stringer("lastWriteTargetAddress", cachedTargetAddrPort),
+		zap.Stringer("lastWriteDestAddress", destAddrPort),
 		zap.Uint64("sendmmsgCount", sendmmsgCount),
 		zap.Uint64("packetsSent", packetsSent),
 		zap.Uint64("payloadBytesSent", payloadBytesSent),
@@ -189,22 +148,25 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 }
 
 func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.AddrPort, entry *natEntry) {
-	frontHeadroom := s.serverPacker.FrontHeadroom() - entry.natConnUnpacker.FrontHeadroom()
+	frontHeadroom := entry.serverConnPacker.FrontHeadroom() - entry.natConnUnpacker.FrontHeadroom()
 	if frontHeadroom < 0 {
 		frontHeadroom = 0
 	}
-	rearHeadroom := s.serverPacker.RearHeadroom() - entry.natConnUnpacker.RearHeadroom()
+	rearHeadroom := entry.serverConnPacker.RearHeadroom() - entry.natConnUnpacker.RearHeadroom()
 	if rearHeadroom < 0 {
 		rearHeadroom = 0
 	}
 
 	var (
-		cachedTargetAddr         socks5.Addr
-		cachedPacketFromAddrPort netip.AddrPort
-		sendmmsgCount            uint64
-		packetsSent              uint64
-		payloadBytesSent         uint64
+		sendmmsgCount    uint64
+		packetsSent      uint64
+		payloadBytesSent uint64
 	)
+
+	// We could do better here by using a concrete unix.RawSockaddrInet6 or unix.RawSockaddrInet4
+	// variable to avoid allocations when client address changes.
+	//
+	// But since client address changes are very rare, I don't think it matters.
 
 	name, namelen := conn.AddrPortToSockaddr(clientAddrPort)
 	savec := make([]unix.RawSockaddrInet6, s.batchSize)
@@ -240,7 +202,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 				break
 			}
 
-			s.logger.Warn("Failed to batch read packet from natConn",
+			s.logger.Warn("Failed to batch read packets from natConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
@@ -254,7 +216,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 		var ns int
 
 		for i, msg := range rmsgvec[:nr] {
-			packetFromAddrPort, err := conn.SockaddrToAddrPort(msg.Msghdr.Name, msg.Msghdr.Namelen)
+			packetSourceAddrPort, err := conn.SockaddrToAddrPort(msg.Msghdr.Name, msg.Msghdr.Namelen)
 			if err != nil {
 				s.logger.Warn("Failed to parse sockaddr of packet from natConn",
 					zap.String("server", s.serverName),
@@ -271,41 +233,33 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Stringer("packetFromAddress", packetFromAddrPort),
+					zap.Stringer("packetSourceAddress", packetSourceAddrPort),
 					zap.Error(err),
 				)
 				continue
 			}
 
-			targetAddr, hasTargetAddr, payloadStart, payloadLength, err := entry.natConnUnpacker.UnpackInPlace(bufvec[i], frontHeadroom, int(msg.Msglen))
+			payloadSourceAddrPort, payloadStart, payloadLength, err := entry.natConnUnpacker.UnpackInPlace(bufvec[i], packetSourceAddrPort, frontHeadroom, int(msg.Msglen))
 			if err != nil {
 				s.logger.Warn("Failed to unpack packet",
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Stringer("packetFromAddress", packetFromAddrPort),
+					zap.Stringer("packetSourceAddress", packetSourceAddrPort),
 					zap.Uint32("packetLength", msg.Msglen),
 					zap.Error(err),
 				)
 				continue
 			}
-			if !hasTargetAddr {
-				if packetFromAddrPort != cachedPacketFromAddrPort {
-					cachedPacketFromAddrPort = packetFromAddrPort
-					cachedTargetAddr = socks5.AppendAddrFromAddrPort(cachedTargetAddr[:0], packetFromAddrPort)
-				}
 
-				targetAddr = cachedTargetAddr
-			}
-
-			packetStart, packetLength, err := s.serverPacker.PackInPlace(bufvec[i], targetAddr, payloadStart, payloadLength, entry.maxClientPacketSize)
+			packetStart, packetLength, err := entry.serverConnPacker.PackInPlace(bufvec[i], payloadSourceAddrPort, payloadStart, payloadLength, entry.maxClientPacketSize)
 			if err != nil {
 				s.logger.Warn("Failed to pack packet",
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Stringer("targetAddress", targetAddr),
-					zap.Stringer("packetFromAddress", packetFromAddrPort),
+					zap.Stringer("packetSourceAddress", packetSourceAddrPort),
+					zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
 					zap.Error(err),
 				)
 				continue
@@ -331,7 +285,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 				break
 			}
 
-			s.logger.Warn("Failed to batch write packet to serverConn",
+			s.logger.Warn("Failed to batch write packets to serverConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),

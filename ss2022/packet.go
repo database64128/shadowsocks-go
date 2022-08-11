@@ -4,14 +4,19 @@ import (
 	"crypto/cipher"
 	"encoding/binary"
 	"fmt"
+	"net/netip"
 	"time"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/magic"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
 type ShadowPacketReplayError struct {
+	// Source address.
+	srcAddr netip.AddrPort
+
 	// Session ID.
 	sid uint64
 
@@ -24,7 +29,7 @@ func (e *ShadowPacketReplayError) Unwrap() error {
 }
 
 func (e *ShadowPacketReplayError) Error() string {
-	return fmt.Sprintf("detected replay packet: session ID %d, packet ID %d", e.sid, e.pid)
+	return fmt.Sprintf("received replay packet from %s: session ID %d, packet ID %d", e.srcAddr, e.sid, e.pid)
 }
 
 // ShadowPacketClientPacker packs UDP packets into authenticated and encrypted
@@ -33,11 +38,12 @@ func (e *ShadowPacketReplayError) Error() string {
 // ShadowPacketClientPacker implements the zerocopy.Packer interface.
 //
 // Packet format:
-// 	+---------------------------+-----+-----+---------------------------+
-// 	| encrypted separate header | EIH | ... |       encrypted body      |
-// 	+---------------------------+-----+-----+---------------------------+
-// 	|            16B            | 16B | ... | variable length + 16B tag |
-// 	+---------------------------+-----+-----+---------------------------+
+//
+//	+---------------------------+-----+-----+---------------------------+
+//	| encrypted separate header | EIH | ... |       encrypted body      |
+//	+---------------------------+-----+-----+---------------------------+
+//	|            16B            | 16B | ... | variable length + 16B tag |
+//	+---------------------------+-----+-----+---------------------------+
 type ShadowPacketClientPacker struct {
 	// Client session ID.
 	csid uint64
@@ -63,23 +69,33 @@ type ShadowPacketClientPacker struct {
 	// These are first 16 bytes of BLAKE3 hashes of iPSK1 all the way up to uPSK.
 	// Must have the same length as eihCiphers.
 	eihPSKHashes [][IdentityHeaderLength]byte
+
+	// maxPacketSize is the maximum allowed size of a packed packet.
+	// The value is calculated from MTU and server address family.
+	maxPacketSize int
+
+	// serverAddrPort is the Shadowsocks server's address.
+	serverAddrPort netip.AddrPort
 }
 
-// FrontHeadroom implements the Packer FrontHeadroom method.
+// FrontHeadroom implements the zerocopy.ClientPacker FrontHeadroom method.
 func (p *ShadowPacketClientPacker) FrontHeadroom() int {
 	return UDPSeparateHeaderLength + IdentityHeaderLength*len(p.eihCiphers) + UDPClientMessageHeaderMaxLength
 }
 
-// RearHeadroom implements the Packer RearHeadroom method.
+// RearHeadroom implements the zerocopy.ClientPacker RearHeadroom method.
 func (p *ShadowPacketClientPacker) RearHeadroom() int {
 	return p.aead.Overhead()
 }
 
-// PackInPlace implements the Packer PackInPlace method.
-func (p *ShadowPacketClientPacker) PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
+// PackInPlace implements the zerocopy.ClientPacker PackInPlace method.
+func (p *ShadowPacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
+	destAddrPort = p.serverAddrPort
+
 	nonAEADHeaderLength := UDPSeparateHeaderLength + IdentityHeaderLength*len(p.eihCiphers)
-	messageHeaderLengthBudget := maxPacketLen - payloadLen - nonAEADHeaderLength - p.aead.Overhead()
-	if messageHeaderLengthBudget < UDPClientMessageHeaderFixedLength+len(targetAddr) {
+	messageHeaderLengthBudget := p.maxPacketSize - payloadLen - nonAEADHeaderLength - p.aead.Overhead()
+	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
+	if messageHeaderLengthBudget < UDPClientMessageHeaderFixedLength+targetAddrLen {
 		err = zerocopy.ErrPayloadTooBig
 		return
 	}
@@ -147,20 +163,21 @@ type ShadowPacketServerPacker struct {
 	shouldPad PaddingPolicy
 }
 
-// FrontHeadroom implements the Packer FrontHeadroom method.
+// FrontHeadroom implements the zerocopy.ServerPacker FrontHeadroom method.
 func (p *ShadowPacketServerPacker) FrontHeadroom() int {
 	return UDPSeparateHeaderLength + UDPServerMessageHeaderMaxLength
 }
 
-// RearHeadroom implements the Packer RearHeadroom method.
+// RearHeadroom implements the zerocopy.ServerPacker RearHeadroom method.
 func (p *ShadowPacketServerPacker) RearHeadroom() int {
 	return p.aead.Overhead()
 }
 
-// PackInPlace implements the Packer PackInPlace method.
-func (p *ShadowPacketServerPacker) PackInPlace(b []byte, targetAddr socks5.Addr, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
+// PackInPlace implements the zerocopy.ServerPacker PackInPlace method.
+func (p *ShadowPacketServerPacker) PackInPlace(b []byte, sourceAddrPort netip.AddrPort, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
 	messageHeaderLengthBudget := maxPacketLen - payloadLen - UDPSeparateHeaderLength - p.aead.Overhead()
-	if messageHeaderLengthBudget < UDPServerMessageHeaderFixedLength+len(targetAddr) {
+	sourceAddrLen := socks5.LengthOfAddrFromAddrPort(sourceAddrPort)
+	if messageHeaderLengthBudget < UDPServerMessageHeaderFixedLength+sourceAddrLen {
 		err = zerocopy.ErrPayloadTooBig
 		return
 	}
@@ -170,7 +187,7 @@ func (p *ShadowPacketServerPacker) PackInPlace(b []byte, targetAddr socks5.Addr,
 	}
 
 	// Write message header.
-	n, err := WriteUDPServerMessageHeader(b[payloadStart-messageHeaderBufSize:payloadStart], p.csid, targetAddr, p.shouldPad)
+	n, err := WriteUDPServerMessageHeader(b[payloadStart-messageHeaderBufSize:payloadStart], p.csid, sourceAddrPort, p.shouldPad)
 	if err != nil {
 		return
 	}
@@ -239,18 +256,18 @@ type ShadowPacketClientUnpacker struct {
 	cipherConfig *CipherConfig
 }
 
-// FrontHeadroom implements the Unpacker FrontHeadroom method.
+// FrontHeadroom implements the zerocopy.ClientUnpacker FrontHeadroom method.
 func (p *ShadowPacketClientUnpacker) FrontHeadroom() int {
 	return UDPSeparateHeaderLength + UDPServerMessageHeaderMaxLength
 }
 
-// RearHeadroom implements the Unpacker RearHeadroom method.
+// RearHeadroom implements the zerocopy.ClientUnpacker RearHeadroom method.
 func (p *ShadowPacketClientUnpacker) RearHeadroom() int {
 	return 16
 }
 
-// UnpackInPlace implements the Unpacker UnpackInPlace method.
-func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, hasTargetAddr bool, payloadStart, payloadLen int, err error) {
+// UnpackInPlace implements the zerocopy.ClientUnpacker UnpackInPlace method.
+func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPort netip.AddrPort, packetStart, packetLen int) (payloadSourceAddrPort netip.AddrPort, payloadStart, payloadLen int, err error) {
 	const (
 		currentServerSession = iota
 		oldServerSession
@@ -304,7 +321,7 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetStart, packet
 
 	// Check spid.
 	if sfilter != nil && !sfilter.IsOk(spid) {
-		err = &ShadowPacketReplayError{ssid, spid}
+		err = &ShadowPacketReplayError{packetSourceAddrPort, ssid, spid}
 		return
 	}
 
@@ -315,11 +332,10 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetStart, packet
 	}
 
 	// Parse message header.
-	targetAddr, payloadStart, payloadLen, err = ParseUDPServerMessageHeader(plaintext, p.csid)
+	payloadSourceAddrPort, payloadStart, payloadLen, err = ParseUDPServerMessageHeader(plaintext, p.csid)
 	if err != nil {
 		return
 	}
-	hasTargetAddr = true
 	payloadStart += messageHeaderStart
 
 	// Add spid to filter.
@@ -364,9 +380,12 @@ type ShadowPacketServerUnpacker struct {
 
 	// Whether incoming packets have an identity header.
 	hasEIH bool
+
+	// cachedDomain caches the last used domain target to avoid allocating new strings.
+	cachedDomain string
 }
 
-// FrontHeadroom implements the Unpacker FrontHeadroom method.
+// FrontHeadroom implements the zerocopy.ServerUnpacker FrontHeadroom method.
 func (p *ShadowPacketServerUnpacker) FrontHeadroom() int {
 	var identityHeaderLen int
 	if p.hasEIH {
@@ -375,7 +394,7 @@ func (p *ShadowPacketServerUnpacker) FrontHeadroom() int {
 	return UDPSeparateHeaderLength + identityHeaderLen + UDPClientMessageHeaderMaxLength
 }
 
-// RearHeadroom implements the Unpacker RearHeadroom method.
+// RearHeadroom implements the zerocopy.ServerUnpacker RearHeadroom method.
 func (p *ShadowPacketServerUnpacker) RearHeadroom() int {
 	return p.aead.Overhead()
 }
@@ -383,8 +402,8 @@ func (p *ShadowPacketServerUnpacker) RearHeadroom() int {
 // UnpackInPlace unpacks the AEAD encrypted part of a Shadowsocks client packet
 // and returns target address, payload start offset and payload length, or an error.
 //
-// UnpackInPlace implements the Unpacker UnpackInPlace method.
-func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, packetStart, packetLen int) (targetAddr socks5.Addr, hasTargetAddr bool, payloadStart, payloadLen int, err error) {
+// UnpackInPlace implements the zerocopy.ServerUnpacker UnpackInPlace method.
+func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, sourceAddr netip.AddrPort, packetStart, packetLen int) (targetAddr conn.Addr, payloadStart, payloadLen int, err error) {
 	var identityHeaderLen int
 	if p.hasEIH {
 		identityHeaderLen = IdentityHeaderLength
@@ -404,7 +423,7 @@ func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, packetStart, packet
 	// Check cpid.
 	cpid := binary.BigEndian.Uint64(separateHeader[8:])
 	if p.filter != nil && !p.filter.IsOk(cpid) {
-		err = &ShadowPacketReplayError{p.csid, cpid}
+		err = &ShadowPacketReplayError{sourceAddr, p.csid, cpid}
 		return
 	}
 
@@ -415,11 +434,10 @@ func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, packetStart, packet
 	}
 
 	// Parse message header.
-	targetAddr, payloadStart, payloadLen, err = ParseUDPClientMessageHeader(plaintext)
+	targetAddr, p.cachedDomain, payloadStart, payloadLen, err = ParseUDPClientMessageHeader(plaintext, p.cachedDomain)
 	if err != nil {
 		return
 	}
-	hasTargetAddr = true
 	payloadStart += messageHeaderStart
 
 	// Add cpid to filter.

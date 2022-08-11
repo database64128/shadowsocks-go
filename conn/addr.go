@@ -23,6 +23,19 @@ func (a Addr) IsIP() bool {
 	return a.ip.IsValid()
 }
 
+// MappedEquals returns whether the two addresses point to the same endpoint.
+// An IPv4 address and an IPv4-mapped IPv6 address pointing to the same endpoint are considered equal.
+// For example, 1.1.1.1:53 and [::ffff:1.1.1.1]:53 are considered equal.
+func (a Addr) MappedEquals(b Addr) bool {
+	if a == b {
+		return true
+	}
+	if a.IsIP() && b.IsIP() {
+		return a.port == b.port && a.ip.Unmap() == b.ip.Unmap()
+	}
+	return false
+}
+
 // IP returns the IP address.
 // If the address is a domain name, the returned netip.Addr is a zero value.
 func (a Addr) IP() netip.Addr {
@@ -118,19 +131,31 @@ func AddrFromIPPort(addrPort netip.AddrPort) (addr Addr) {
 }
 
 // AddrFromDomainPort returns an Addr from the provided domain name and port number.
-func AddrFromDomainPort(domain string, port uint16) Addr {
-	return Addr{domain: domain, port: port}
+func AddrFromDomainPort(domain string, port uint16) (Addr, error) {
+	if len(domain) > 255 {
+		return Addr{}, fmt.Errorf("length of domain %s exceeds 255", domain)
+	}
+	return Addr{domain: domain, port: port}, nil
+}
+
+// MustAddrFromDomainPort calls [AddrFromDomainPort] and panics on error.
+func MustAddrFromDomainPort(domain string, port uint16) Addr {
+	addr, err := AddrFromDomainPort(domain, port)
+	if err != nil {
+		panic(err)
+	}
+	return addr
 }
 
 // AddrFromHostPort returns an Addr from the provided host string and port number.
 // The host string may be a string representation of an IP address or a domain name.
-func AddrFromHostPort(host string, port uint16) Addr {
+func AddrFromHostPort(host string, port uint16) (Addr, error) {
 	if host == "" {
 		host = "::"
 	}
 
 	if ip, err := netip.ParseAddr(host); err == nil {
-		return Addr{ip: ip, port: port}
+		return Addr{ip: ip, port: port}, nil
 	}
 
 	return AddrFromDomainPort(host, port)
@@ -150,5 +175,27 @@ func ParseAddr(s string) (Addr, error) {
 	}
 	port := uint16(portNumber)
 
-	return AddrFromHostPort(host, port), nil
+	return AddrFromHostPort(host, port)
+}
+
+// AddrPortMappedEqual returns whether the two addresses point to the same endpoint.
+// An IPv4 address and an IPv4-mapped IPv6 address pointing to the same endpoint are considered equal.
+// For example, 1.1.1.1:53 and [::ffff:1.1.1.1]:53 are considered equal.
+func AddrPortMappedEqual(l, r netip.AddrPort) bool {
+	if l == r {
+		return true
+	}
+	return l.Port() == r.Port() && l.Addr().Unmap() == r.Addr().Unmap()
+}
+
+// AddrPortv4Mappedv6 converts an IPv4 address to an IPv4-mapped IPv6 address.
+// This function does nothing if addrPort is an IPv6 address.
+func AddrPortv4Mappedv6(addrPort netip.AddrPort) netip.AddrPort {
+	if addrPort.Addr().Is4() {
+		addr6 := addrPort.Addr().As16()
+		ip := netip.AddrFrom16(addr6)
+		port := addrPort.Port()
+		return netip.AddrPortFrom(ip, port)
+	}
+	return addrPort
 }

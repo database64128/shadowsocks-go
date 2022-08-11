@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
@@ -29,7 +30,7 @@ type ShadowStreamServerReadWriter struct {
 }
 
 // NewShadowStreamServerReadWriter reads the request headers from rw to establish a session.
-func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, saltPool *SaltPool[string], uPSKMap map[[IdentityHeaderLength]byte]*CipherConfig) (sssrw *ShadowStreamServerReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
+func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, saltPool *SaltPool[string], uPSKMap map[[IdentityHeaderLength]byte]*CipherConfig) (sssrw *ShadowStreamServerReadWriter, targetAddr conn.Addr, payload []byte, err error) {
 	var identityHeaderLen int
 	if len(uPSKMap) > 0 {
 		identityHeaderLen = IdentityHeaderLength
@@ -224,13 +225,14 @@ type ShadowStreamClientReadWriter struct {
 }
 
 // NewShadowStreamClientReadWriter writes request headers to rw and returns a Shadowsocks stream client ready for reads and writes.
-func NewShadowStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte, targetAddr socks5.Addr, payload []byte) (sscrw *ShadowStreamClientReadWriter, err error) {
+func NewShadowStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte, targetAddr conn.Addr, payload []byte) (sscrw *ShadowStreamClientReadWriter, err error) {
 	var (
 		payloadOrPaddingMaxLen int
 		excessivePayload       []byte
 	)
 
-	roomForPayload := MaxPayloadSize - len(targetAddr) - 2
+	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
+	roomForPayload := MaxPayloadSize - targetAddrLen - 2
 
 	switch {
 	case len(payload) > roomForPayload:
@@ -247,7 +249,7 @@ func NewShadowStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 	fixedLengthHeaderStart := saltLen + identityHeadersLen
 	fixedLengthHeaderEnd := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength
 	variableLengthHeaderStart := fixedLengthHeaderEnd + 16
-	variableLengthHeaderEnd := variableLengthHeaderStart + len(targetAddr) + 2 + payloadOrPaddingMaxLen
+	variableLengthHeaderEnd := variableLengthHeaderStart + targetAddrLen + 2 + payloadOrPaddingMaxLen
 	bufferLen := variableLengthHeaderEnd + 16
 	b := make([]byte, bufferLen)
 	salt := b[:saltLen]
@@ -420,11 +422,12 @@ func (rw *ShadowStreamClientReadWriter) Close() error {
 // ShadowStreamWriter wraps an io.WriteCloser and feeds an encrypted Shadowsocks stream to it.
 //
 // Wire format:
-// 	+------------------------+---------------------------+
-// 	| encrypted length chunk |  encrypted payload chunk  |
-// 	+------------------------+---------------------------+
-// 	|  2B length + 16B tag   | variable length + 16B tag |
-// 	+------------------------+---------------------------+
+//
+//	+------------------------+---------------------------+
+//	| encrypted length chunk |  encrypted payload chunk  |
+//	+------------------------+---------------------------+
+//	|  2B length + 16B tag   | variable length + 16B tag |
+//	+------------------------+---------------------------+
 type ShadowStreamWriter struct {
 	writer io.WriteCloser
 	ssc    *ShadowStreamCipher

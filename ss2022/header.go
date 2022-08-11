@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net/netip"
 	"time"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
@@ -107,11 +109,12 @@ func ValidateUnixEpochTimestamp(b []byte) error {
 // The buffer must be exactly 11 bytes long. No buffer length checks are performed.
 //
 // Request fixed-length header:
-// 	+------+---------------+--------+
-// 	| type |   timestamp   | length |
-// 	+------+---------------+--------+
-// 	|  1B  | 8B unix epoch |  u16be |
-// 	+------+---------------+--------+
+//
+//	+------+---------------+--------+
+//	| type |   timestamp   | length |
+//	+------+---------------+--------+
+//	|  1B  | 8B unix epoch |  u16be |
+//	+------+---------------+--------+
 func ParseTCPRequestFixedLengthHeader(b []byte) (n int, err error) {
 	// Type
 	if b[0] != HeaderTypeClientStream {
@@ -151,42 +154,41 @@ func WriteTCPRequestFixedLengthHeader(b []byte, length uint16) {
 // This function does buffer length checks and returns ErrIncompleteHeaderInFirstChunk if the buffer is too short.
 //
 // Request variable-length header:
-// 	+------+----------+-------+----------------+----------+-----------------+
-// 	| ATYP |  address |  port | padding length |  padding | initial payload |
-// 	+------+----------+-------+----------------+----------+-----------------+
-// 	|  1B  | variable | u16be |     u16be      | variable |    variable     |
-// 	+------+----------+-------+----------------+----------+-----------------+
-func ParseTCPRequestVariableLengthHeader(b []byte) (targetAddr socks5.Addr, payload []byte, err error) {
+//
+//	+------+----------+-------+----------------+----------+-----------------+
+//	| ATYP |  address |  port | padding length |  padding | initial payload |
+//	+------+----------+-------+----------------+----------+-----------------+
+//	|  1B  | variable | u16be |     u16be      | variable |    variable     |
+//	+------+----------+-------+----------------+----------+-----------------+
+func ParseTCPRequestVariableLengthHeader(b []byte) (targetAddr conn.Addr, payload []byte, err error) {
 	// SOCKS address
-	targetAddr, err = socks5.SplitAddr(b)
+	targetAddr, n, err := socks5.ConnAddrFromSlice(b)
 	if err != nil {
 		return
 	}
-	n := len(targetAddr)
+	b = b[n:]
 
 	// Make sure the remaining length > 2 (padding length + either padding or payload)
-	if len(b)-n <= 2 {
+	if len(b) <= 2 {
 		err = ErrIncompleteHeaderInFirstChunk
 		return
 	}
 
 	// Padding length
-	paddingLen := int(binary.BigEndian.Uint16(b[n:]))
+	paddingLen := int(binary.BigEndian.Uint16(b))
 	if paddingLen < MinPaddingLength || paddingLen > MaxPaddingLength {
 		err = &HeaderError[int]{ErrPaddingLengthOutOfRange, MaxPaddingLength, paddingLen}
 		return
 	}
-	n += 2
 
 	// Padding
-	n += paddingLen
-	if n > len(b) {
-		err = &HeaderError[int]{ErrPaddingExceedChunkBorder, len(b), n}
+	if 2+paddingLen > len(b) {
+		err = &HeaderError[int]{ErrPaddingExceedChunkBorder, len(b), 2 + paddingLen}
 		return
 	}
 
 	// Initial payload
-	payload = b[n:]
+	payload = b[2+paddingLen:]
 
 	return
 }
@@ -194,12 +196,13 @@ func ParseTCPRequestVariableLengthHeader(b []byte) (targetAddr socks5.Addr, payl
 // WriteTCPRequestVariableLengthHeader writes a TCP request variable-length header into the buffer
 // and returns the number of bytes written.
 //
-// This function does not check buffer length.
-// The buffer must be at least len(targetAddr) + 2 + MaxPaddingLength bytes long if there's no payload,
-// or len(targetAddr) + 2 + len(payload) bytes long.
-func WriteTCPRequestVariableLengthHeader(b []byte, targetAddr socks5.Addr, payload []byte) (n int) {
+// The buffer must be at least
+// socks5.LengthOfAddrFromConnAddr(targetAddr) + 2 + MaxPaddingLength bytes long if there's no payload, or
+// socks5.LengthOfAddrFromConnAddr(targetAddr) + 2 + len(payload) bytes long if there's initial payload.
+// The total header length must not exceed MaxPayloadSize.
+func WriteTCPRequestVariableLengthHeader(b []byte, targetAddr conn.Addr, payload []byte) (n int) {
 	// SOCKS address
-	n = copy(b, targetAddr)
+	n = socks5.WriteAddrFromConnAddr(b, targetAddr)
 
 	// Padding length
 	var paddingLen int
@@ -207,10 +210,7 @@ func WriteTCPRequestVariableLengthHeader(b []byte, targetAddr socks5.Addr, paylo
 		paddingLen = rand.Intn(MaxPaddingLength) + 1
 	}
 	binary.BigEndian.PutUint16(b[n:], uint16(paddingLen))
-	n += 2
-
-	// Padding
-	n += paddingLen
+	n += 2 + paddingLen
 
 	// Initial payload
 	n += copy(b[n:], payload)
@@ -224,11 +224,12 @@ func WriteTCPRequestVariableLengthHeader(b []byte, targetAddr socks5.Addr, paylo
 // The buffer must be exactly 1 + 8 + salt length + 2 bytes long. No buffer length checks are performed.
 //
 // Response fixed-length header:
-// 	+------+---------------+----------------+--------+
-// 	| type |   timestamp   |  request salt  | length |
-// 	+------+---------------+----------------+--------+
-// 	|  1B  | 8B unix epoch |     16/32B     |  u16be |
-// 	+------+---------------+----------------+--------+
+//
+//	+------+---------------+----------------+--------+
+//	| type |   timestamp   |  request salt  | length |
+//	+------+---------------+----------------+--------+
+//	|  1B  | 8B unix epoch |     16/32B     |  u16be |
+//	+------+---------------+----------------+--------+
 func ParseTCPResponseHeader(b []byte, requestSalt []byte) (n int, err error) {
 	// Type
 	if b[0] != HeaderTypeServerStream {
@@ -282,11 +283,12 @@ func WriteTCPResponseHeader(b []byte, requestSalt []byte, length uint16) (n int)
 // The buffer must be exactly 16 bytes long. No buffer length checks are performed.
 //
 // Session ID and packet ID segment:
-// 	+------------+-----------+
-// 	| session ID | packet ID |
-// 	+------------+-----------+
-// 	|     8B     |   u64be   |
-// 	+------------+-----------+
+//
+//	+------------+-----------+
+//	| session ID | packet ID |
+//	+------------+-----------+
+//	|     8B     |   u64be   |
+//	+------------+-----------+
 func ParseSessionIDAndPacketID(b []byte) (sid, pid uint64) {
 	sid = binary.BigEndian.Uint64(b)
 	pid = binary.BigEndian.Uint64(b[8:])
@@ -307,12 +309,15 @@ func WriteSessionIDAndPacketID(b []byte, sid, pid uint64) {
 // This function accepts buffers of arbitrary lengths.
 //
 // The buffer is expected to contain a decrypted client message in the following format:
-// 	+------+---------------+----------------+----------+------+----------+-------+----------+
-// 	| type |   timestamp   | padding length |  padding | ATYP |  address |  port |  payload |
-// 	+------+---------------+----------------+----------+------+----------+-------+----------+
-// 	|  1B  | 8B unix epoch |     u16be      | variable |  1B  | variable | u16be | variable |
-// 	+------+---------------+----------------+----------+------+----------+-------+----------+
-func ParseUDPClientMessageHeader(b []byte) (targetAddr socks5.Addr, payloadStart, payloadLen int, err error) {
+//
+//	+------+---------------+----------------+----------+------+----------+-------+----------+
+//	| type |   timestamp   | padding length |  padding | ATYP |  address |  port |  payload |
+//	+------+---------------+----------------+----------+------+----------+-------+----------+
+//	|  1B  | 8B unix epoch |     u16be      | variable |  1B  | variable | u16be | variable |
+//	+------+---------------+----------------+----------+------+----------+-------+----------+
+func ParseUDPClientMessageHeader(b []byte, cachedDomain string) (targetAddr conn.Addr, updatedCachedDomain string, payloadStart, payloadLen int, err error) {
+	updatedCachedDomain = cachedDomain
+
 	// Make sure buffer has type + timestamp + padding length.
 	if len(b) < UDPClientMessageHeaderFixedLength {
 		err = ErrPacketIncompleteHeader
@@ -346,13 +351,14 @@ func ParseUDPClientMessageHeader(b []byte) (targetAddr socks5.Addr, payloadStart
 	}
 
 	// SOCKS address
-	targetAddr, err = socks5.SplitAddr(b[payloadStart:])
+	var n int
+	targetAddr, n, updatedCachedDomain, err = socks5.ConnAddrFromSliceWithDomainCache(b[payloadStart:], cachedDomain)
 	if err != nil {
 		return
 	}
-	payloadStart += len(targetAddr)
 
 	// Payload
+	payloadStart += n
 	payloadLen = len(b) - payloadStart
 	if payloadLen == 0 {
 		err = ErrPacketMissingPayload
@@ -365,9 +371,10 @@ func ParseUDPClientMessageHeader(b []byte) (targetAddr socks5.Addr, payloadStart
 //
 // This function checks buffer length and adds padding with best efforts.
 // The buffer must be at least 1 + 8 + 2 + len(targetAddr) bytes long.
-func WriteUDPClientMessageHeader(b []byte, targetAddr socks5.Addr, shouldPad func(socks5.Addr) bool) (n int, err error) {
+func WriteUDPClientMessageHeader(b []byte, targetAddr conn.Addr, shouldPad PaddingPolicy) (n int, err error) {
 	// Check buffer length.
-	addrStart := len(b) - len(targetAddr)
+	addrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
+	addrStart := len(b) - addrLen
 	roomForPadding := addrStart - UDPClientMessageHeaderFixedLength
 	if roomForPadding < 0 {
 		err = zerocopy.ErrPayloadTooBig
@@ -376,7 +383,7 @@ func WriteUDPClientMessageHeader(b []byte, targetAddr socks5.Addr, shouldPad fun
 
 	// SOCKS address
 	bAddr := b[addrStart:]
-	n = copy(bAddr, targetAddr)
+	n = socks5.WriteAddrFromConnAddr(bAddr, targetAddr)
 
 	// Padding
 	if roomForPadding > MaxPaddingLength {
@@ -404,18 +411,19 @@ func WriteUDPClientMessageHeader(b []byte, targetAddr socks5.Addr, shouldPad fun
 	return
 }
 
-// ParseUDPServerMessageHeader parses a UDP server message header and returns the target address
+// ParseUDPServerMessageHeader parses a UDP server message header and returns the payload source address
 // and payload, or an error if header validation fails or no payload is in the buffer.
 //
 // This function accepts buffers of arbitrary lengths.
 //
 // The buffer is expected to contain a decrypted server message in the following format:
-// 	+------+---------------+-------------------+----------------+----------+------+----------+-------+----------+
-// 	| type |   timestamp   | client session ID | padding length |  padding | ATYP |  address |  port |  payload |
-// 	+------+---------------+-------------------+----------------+----------+------+----------+-------+----------+
-// 	|  1B  | 8B unix epoch |         8B        |     u16be      | variable |  1B  | variable | u16be | variable |
-// 	+------+---------------+-------------------+----------------+----------+------+----------+-------+----------+
-func ParseUDPServerMessageHeader(b []byte, csid uint64) (targetAddr socks5.Addr, payloadStart, payloadLen int, err error) {
+//
+//	+------+---------------+-------------------+----------------+----------+------+----------+-------+----------+
+//	| type |   timestamp   | client session ID | padding length |  padding | ATYP |  address |  port |  payload |
+//	+------+---------------+-------------------+----------------+----------+------+----------+-------+----------+
+//	|  1B  | 8B unix epoch |         8B        |     u16be      | variable |  1B  | variable | u16be | variable |
+//	+------+---------------+-------------------+----------------+----------+------+----------+-------+----------+
+func ParseUDPServerMessageHeader(b []byte, csid uint64) (payloadSourceAddrPort netip.AddrPort, payloadStart, payloadLen int, err error) {
 	// Make sure buffer has type + timestamp + client session ID + padding length.
 	if len(b) < UDPServerMessageHeaderFixedLength {
 		err = ErrPacketIncompleteHeader
@@ -456,13 +464,13 @@ func ParseUDPServerMessageHeader(b []byte, csid uint64) (targetAddr socks5.Addr,
 	}
 
 	// SOCKS address
-	targetAddr, err = socks5.SplitAddr(b[payloadStart:])
+	payloadSourceAddrPort, n, err := socks5.AddrPortFromSlice(b[payloadStart:])
 	if err != nil {
 		return
 	}
-	payloadStart += len(targetAddr)
 
 	// Payload
+	payloadStart += n
 	payloadLen = len(b) - payloadStart
 	if payloadLen == 0 {
 		err = ErrPacketMissingPayload
@@ -475,9 +483,10 @@ func ParseUDPServerMessageHeader(b []byte, csid uint64) (targetAddr socks5.Addr,
 //
 // This function checks buffer length and adds padding with best efforts.
 // The buffer must be at least 1 + 8 + 8 + 2 + len(targetAddr) bytes long.
-func WriteUDPServerMessageHeader(b []byte, csid uint64, targetAddr socks5.Addr, shouldPad func(socks5.Addr) bool) (n int, err error) {
+func WriteUDPServerMessageHeader(b []byte, csid uint64, sourceAddrPort netip.AddrPort, shouldPad PaddingPolicy) (n int, err error) {
 	// Check buffer length.
-	addrStart := len(b) - len(targetAddr)
+	addrLen := socks5.LengthOfAddrFromAddrPort(sourceAddrPort)
+	addrStart := len(b) - addrLen
 	roomForPadding := addrStart - UDPServerMessageHeaderFixedLength
 	if roomForPadding < 0 {
 		err = zerocopy.ErrPayloadTooBig
@@ -486,7 +495,7 @@ func WriteUDPServerMessageHeader(b []byte, csid uint64, targetAddr socks5.Addr, 
 
 	// SOCKS address
 	bAddr := b[addrStart:]
-	n = copy(bAddr, targetAddr)
+	n = socks5.WriteAddrFromAddrPort(bAddr, sourceAddrPort)
 
 	// Padding
 	if roomForPadding > MaxPaddingLength {
@@ -494,7 +503,7 @@ func WriteUDPServerMessageHeader(b []byte, csid uint64, targetAddr socks5.Addr, 
 	}
 
 	var paddingLen int
-	if roomForPadding > 0 && shouldPad(targetAddr) {
+	if roomForPadding > 0 && shouldPad(conn.AddrFromIPPort(sourceAddrPort)) {
 		paddingLen = rand.Intn(roomForPadding) + 1
 	}
 

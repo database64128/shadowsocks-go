@@ -6,8 +6,8 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/pipe"
-	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
@@ -27,13 +27,13 @@ func TestDirectStreamReadWriter(t *testing.T) {
 func testShadowsocksNoneStreamReadWriter(t *testing.T, clientInitialPayload []byte) {
 	pl, pr := pipe.NewDuplexPipe()
 
-	clientTargetAddr := socks5.AddrFromAddrPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 	serverInitialPayload := make([]byte, len(clientInitialPayload))
 
 	var (
 		c                *DirectStreamReadWriter
 		s                *DirectStreamReadWriter
-		serverTargetAddr socks5.Addr
+		serverTargetAddr conn.Addr
 		nr               int
 		cerr, serr       error
 	)
@@ -65,7 +65,7 @@ func testShadowsocksNoneStreamReadWriter(t *testing.T, clientInitialPayload []by
 	if nr != len(serverInitialPayload) {
 		t.Fatalf("Expected server initial payload bytes %d, got %d", len(serverInitialPayload), nr)
 	}
-	if !bytes.Equal(clientTargetAddr, serverTargetAddr) {
+	if clientTargetAddr != serverTargetAddr {
 		t.Errorf("Target address mismatch: c: %s, s: %s", clientTargetAddr, serverTargetAddr)
 	}
 	if !bytes.Equal(clientInitialPayload, serverInitialPayload) {
@@ -89,12 +89,12 @@ func TestShadowsocksNoneStreamReadWriter(t *testing.T) {
 func TestSocks5StreamReadWriter(t *testing.T) {
 	pl, pr := pipe.NewDuplexPipe()
 
-	clientTargetAddr := socks5.AddrFromAddrPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 
 	var (
 		c                *DirectStreamReadWriter
 		s                *DirectStreamReadWriter
-		serverTargetAddr socks5.Addr
+		serverTargetAddr conn.Addr
 		cerr, serr       error
 	)
 
@@ -119,7 +119,7 @@ func TestSocks5StreamReadWriter(t *testing.T) {
 		t.Fatal(serr)
 	}
 
-	if !bytes.Equal(clientTargetAddr, serverTargetAddr) {
+	if clientTargetAddr != serverTargetAddr {
 		t.Errorf("Target address mismatch: c: %s, s: %s", clientTargetAddr, serverTargetAddr)
 	}
 

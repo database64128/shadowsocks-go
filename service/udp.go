@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/database64128/shadowsocks-go/socks5"
+	"github.com/database64128/shadowsocks-go/conn"
 )
 
 const (
@@ -35,5 +35,5 @@ type queuedPacket struct {
 	bufp       *[]byte
 	start      int
 	length     int
-	targetAddr socks5.Addr
+	targetAddr conn.Addr
 }

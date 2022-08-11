@@ -10,7 +10,6 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/router"
-	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/database64128/tfo-go"
 	"go.uber.org/zap"
@@ -104,7 +103,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 
 	// Get client address.
 	clientAddress := clientConn.RemoteAddr().String()
-	clientAddr, err := socks5.ParseAddr(clientAddress)
+	clientAddr, err := conn.ParseAddr(clientAddress)
 	if err != nil {
 		s.logger.Error("Failed to parse client address",
 			zap.String("server", s.serverName),
@@ -114,16 +113,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 		)
 		return
 	}
-	clientAddrPort, err := clientAddr.AddrPort(true)
-	if err != nil {
-		s.logger.Error("Failed to convert socks5.Addr to netip.AddrPort",
-			zap.String("server", s.serverName),
-			zap.String("listenAddress", s.listenAddress),
-			zap.String("clientAddress", clientAddress),
-			zap.Error(err),
-		)
-		return
-	}
+	clientAddrPort := clientAddr.IPPort()
 
 	// Handshake.
 	clientRW, targetAddr, payload, err := s.server.Accept(clientConn)

@@ -19,7 +19,7 @@ func NewTCPClient(dialerTFO bool, dialerFwmark int) *TCPClient {
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (tfoConn tfo.Conn, rw zerocopy.ReadWriter, err error) {
+func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (tfoConn tfo.Conn, rw zerocopy.ReadWriter, err error) {
 	_, tfoConn, err = conn.DialTFOWithPayload(&c.dialer, targetAddr.String(), payload)
 	if err != nil {
 		return
@@ -37,17 +37,17 @@ func (c *TCPClient) NativeInitialPayload() bool {
 //
 // TCPServer implements the zerocopy TCPServer interface.
 type TCPServer struct {
-	targetAddr socks5.Addr
+	targetAddr conn.Addr
 }
 
-func NewTCPServer(targetAddr socks5.Addr) *TCPServer {
+func NewTCPServer(targetAddr conn.Addr) *TCPServer {
 	return &TCPServer{
 		targetAddr: targetAddr,
 	}
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
+func (s *TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
 	return &DirectStreamReadWriter{
 		rw: conn,
 	}, s.targetAddr, nil, nil
@@ -77,7 +77,7 @@ func NewShadowsocksNoneTCPClient(address string, dialerTFO bool, dialerFwmark in
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *ShadowsocksNoneTCPClient) Dial(targetAddr socks5.Addr, payload []byte) (tfoConn tfo.Conn, rw zerocopy.ReadWriter, err error) {
+func (c *ShadowsocksNoneTCPClient) Dial(targetAddr conn.Addr, payload []byte) (tfoConn tfo.Conn, rw zerocopy.ReadWriter, err error) {
 	netConn, err := c.dialer.Dial("tcp", c.address)
 	if err != nil {
 		return
@@ -100,7 +100,7 @@ func NewShadowsocksNoneTCPServer() *ShadowsocksNoneTCPServer {
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *ShadowsocksNoneTCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
+func (s *ShadowsocksNoneTCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
 	rw, targetAddr, err = NewShadowsocksNoneStreamServerReadWriter(conn)
 	return
 }
@@ -129,7 +129,7 @@ func NewSocks5TCPClient(address string, dialerTFO bool, dialerFwmark int) *Socks
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *Socks5TCPClient) Dial(targetAddr socks5.Addr, payload []byte) (tfoConn tfo.Conn, rw zerocopy.ReadWriter, err error) {
+func (c *Socks5TCPClient) Dial(targetAddr conn.Addr, payload []byte) (tfoConn tfo.Conn, rw zerocopy.ReadWriter, err error) {
 	netConn, err := c.dialer.Dial("tcp", c.address)
 	if err != nil {
 		return
@@ -166,7 +166,7 @@ func NewSocks5TCPServer(enableTCP, enableUDP bool) *Socks5TCPServer {
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *Socks5TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr socks5.Addr, payload []byte, err error) {
+func (s *Socks5TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
 	rw, targetAddr, err = NewSocks5StreamServerReadWriter(conn, s.enableTCP, s.enableUDP, conn)
 	if err == socks5.ErrUDPAssociateDone {
 		err = zerocopy.ErrAcceptDoneNoRelay

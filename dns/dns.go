@@ -1,7 +1,6 @@
 package dns
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 	"golang.org/x/net/dns/dnsmessage"
@@ -77,8 +75,8 @@ type Resolver struct {
 	// cache is the DNS cache map.
 	cache map[string]Result
 
-	// serverAddr is the upstream server's address and port in SOCKS address format.
-	serverAddr socks5.Addr
+	// serverAddr is the upstream server's address and port.
+	serverAddr conn.Addr
 
 	// serverAddrPort is the upstream server's address and port.
 	serverAddrPort netip.AddrPort
@@ -96,7 +94,7 @@ type Resolver struct {
 func NewResolver(serverAddrPort netip.AddrPort, tcpClient zerocopy.TCPClient, udpClient zerocopy.UDPClient, logger *zap.Logger) *Resolver {
 	return &Resolver{
 		cache:          make(map[string]Result),
-		serverAddr:     socks5.AddrFromAddrPort(serverAddrPort),
+		serverAddr:     conn.AddrFromIPPort(serverAddrPort),
 		serverAddrPort: serverAddrPort,
 		tcpClient:      tcpClient,
 		udpClient:      udpClient,
@@ -233,23 +231,14 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 //
 // It's the caller's responsibility to examine the minTTL and decide whether to cache the result.
 func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (result Result, minTTL uint32, handled bool) {
-	// Target address of outgoing packets.
-	targetAddrPort := r.serverAddrPort
-	ap, mtu, fwmark, ok := r.udpClient.AddrPort()
-	if ok {
-		targetAddrPort = ap
-	}
-	maxPacketSize := zerocopy.MaxPacketSizeForAddr(mtu, targetAddrPort.Addr())
-
-	// Workaround for https://github.com/golang/go/issues/52264
-	targetAddrPort = conn.Tov4Mappedv6(targetAddrPort)
+	// Get client link info.
+	_, fwmark := r.udpClient.LinkInfo()
 
 	// Create client session.
 	packer, unpacker, err := r.udpClient.NewSession()
 	if err != nil {
 		r.logger.Warn("Failed to create new UDP client session",
 			zap.Stringer("serverAddrPort", r.serverAddrPort),
-			zap.Stringer("targetAddrPort", targetAddrPort),
 			zap.Int("fwmark", fwmark),
 			zap.Error(err),
 		)
@@ -262,11 +251,10 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	unpackerRearHeadroom := unpacker.RearHeadroom()
 
 	// Prepare UDP socket.
-	conn, err, serr := conn.ListenUDP("udp", "", false, fwmark)
+	udpConn, err, serr := conn.ListenUDP("udp", "", false, fwmark)
 	if err != nil {
 		r.logger.Warn("Failed to listen UDP",
 			zap.Stringer("serverAddrPort", r.serverAddrPort),
-			zap.Stringer("targetAddrPort", targetAddrPort),
 			zap.Int("fwmark", fwmark),
 			zap.Error(err),
 		)
@@ -275,19 +263,17 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	if serr != nil {
 		r.logger.Warn("An error occurred while setting socket options on listener",
 			zap.Stringer("serverAddrPort", r.serverAddrPort),
-			zap.Stringer("targetAddrPort", targetAddrPort),
 			zap.Int("fwmark", fwmark),
 			zap.NamedError("serr", serr),
 		)
 	}
-	defer conn.Close()
+	defer udpConn.Close()
 
 	// Set 20s read deadline.
-	err = conn.SetReadDeadline(time.Now().Add(20 * time.Second))
+	err = udpConn.SetReadDeadline(time.Now().Add(20 * time.Second))
 	if err != nil {
 		r.logger.Warn("Failed to set read deadline",
 			zap.Stringer("serverAddrPort", r.serverAddrPort),
-			zap.Stringer("targetAddrPort", targetAddrPort),
 			zap.Int("fwmark", fwmark),
 			zap.Error(err),
 		)
@@ -303,23 +289,23 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	write:
 		for i := 0; i < 10; i++ {
 			copy(b[packerFrontHeadroom:], pkt)
-			packetStart, packetLength, err := packer.PackInPlace(b, r.serverAddr, packerFrontHeadroom, len(pkt), maxPacketSize)
+			destAddrPort, packetStart, packetLength, err := packer.PackInPlace(b, r.serverAddr, packerFrontHeadroom, len(pkt))
 			if err != nil {
 				r.logger.Warn("Failed to pack packet",
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("targetAddrPort", targetAddrPort),
+					zap.Stringer("destAddrPort", destAddrPort),
 					zap.Error(err),
 				)
 				goto cleanup
 			}
 
-			_, err = conn.WriteToUDPAddrPort(b[packetStart:packetStart+packetLength], targetAddrPort)
+			_, err = udpConn.WriteToUDPAddrPort(b[packetStart:packetStart+packetLength], destAddrPort)
 			if err != nil {
 				r.logger.Warn("Failed to write query",
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("targetAddrPort", targetAddrPort),
+					zap.Stringer("destAddrPort", destAddrPort),
 					zap.Int("fwmark", fwmark),
 					zap.Error(err),
 				)
@@ -336,12 +322,12 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 			}
 
 		cleanup:
-			err = conn.SetReadDeadline(time.Now())
+			err = udpConn.SetReadDeadline(time.Now())
 			if err != nil {
 				r.logger.Warn("Failed to set read deadline",
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("targetAddrPort", targetAddrPort),
+					zap.Stringer("destAddrPort", destAddrPort),
 					zap.Int("fwmark", fwmark),
 					zap.Error(err),
 				)
@@ -366,42 +352,33 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 
 read:
 	for {
-		n, ap, err := conn.ReadFromUDPAddrPort(recvBuf)
+		n, ap, err := udpConn.ReadFromUDPAddrPort(recvBuf)
 		if err != nil {
 			r.logger.Warn("Failed to read query response",
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Stringer("targetAddrPort", targetAddrPort),
 				zap.Int("fwmark", fwmark),
 				zap.Error(err),
 			)
 			break
 		}
-		if ap != targetAddrPort {
-			r.logger.Warn("Ignoring packet from unknown address",
-				zap.String("name", nameString),
-				zap.Stringer("targetAddrPort", targetAddrPort),
-				zap.Stringer("packetAddrPort", ap),
-			)
-			continue
-		}
 
-		serverAddr, hasServerAddr, payloadStart, payloadLength, err := unpacker.UnpackInPlace(recvBuf, 0, n)
+		serverAddrPort, payloadStart, payloadLength, err := unpacker.UnpackInPlace(recvBuf, ap, 0, n)
 		if err != nil {
 			r.logger.Warn("Failed to unpack packet",
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Stringer("targetAddrPort", targetAddrPort),
+				zap.Stringer("sourceAddrPort", ap),
 				zap.Int("fwmark", fwmark),
 				zap.Error(err),
 			)
 			continue
 		}
-		if hasServerAddr && !bytes.Equal(serverAddr, r.serverAddr) {
+		if !conn.AddrPortMappedEqual(serverAddrPort, r.serverAddrPort) {
 			r.logger.Warn("Ignoring packet from unknown server",
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Stringer("packetAddrPort", serverAddr),
+				zap.Stringer("packetAddrPort", serverAddrPort),
 			)
 			continue
 		}
@@ -413,7 +390,6 @@ read:
 			r.logger.Warn("Failed to parse query response header",
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Stringer("targetAddrPort", targetAddrPort),
 				zap.Error(err),
 			)
 			break
@@ -433,7 +409,6 @@ read:
 			r.logger.Warn("Unexpected transaction ID",
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Stringer("targetAddrPort", targetAddrPort),
 				zap.Uint16("transactionID", header.ID),
 			)
 			break read
@@ -444,7 +419,6 @@ read:
 			r.logger.Warn("Received non-response reply",
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Stringer("targetAddrPort", targetAddrPort),
 			)
 			break
 		}
@@ -454,7 +428,6 @@ read:
 			r.logger.Warn("Received truncated reply",
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Stringer("targetAddrPort", targetAddrPort),
 			)
 			break
 		}
@@ -464,7 +437,6 @@ read:
 			r.logger.Warn("DNS failure",
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Stringer("targetAddrPort", targetAddrPort),
 				zap.Stringer("RCode", header.RCode),
 			)
 			break
@@ -476,7 +448,6 @@ read:
 			r.logger.Warn("Failed to skip questions",
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Stringer("targetAddrPort", targetAddrPort),
 				zap.Error(err),
 			)
 			break
@@ -492,7 +463,6 @@ read:
 				r.logger.Warn("Failed to parse answer header",
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("targetAddrPort", targetAddrPort),
 					zap.Error(err),
 				)
 				break read
@@ -503,7 +473,6 @@ read:
 				r.logger.Debug("Updating minimum TTL",
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("targetAddrPort", targetAddrPort),
 					zap.Stringer("answerType", answerHeader.Type),
 					zap.Uint32("oldMinTTL", minTTL),
 					zap.Uint32("newMinTTL", answerHeader.TTL),
@@ -519,7 +488,6 @@ read:
 					r.logger.Warn("Failed to parse A resource",
 						zap.String("name", nameString),
 						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Stringer("targetAddrPort", targetAddrPort),
 						zap.Error(err),
 					)
 					break read
@@ -529,7 +497,6 @@ read:
 				r.logger.Debug("Processing A RR",
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("targetAddrPort", targetAddrPort),
 					zap.Stringer("addr", addr4),
 				)
 
@@ -541,7 +508,6 @@ read:
 					r.logger.Warn("Failed to parse AAAA resource",
 						zap.String("name", nameString),
 						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Stringer("targetAddrPort", targetAddrPort),
 						zap.Error(err),
 					)
 					break read
@@ -551,7 +517,6 @@ read:
 				r.logger.Debug("Processing AAAA RR",
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("targetAddrPort", targetAddrPort),
 					zap.Stringer("addr", addr6),
 				)
 
@@ -563,7 +528,6 @@ read:
 					r.logger.Warn("Failed to skip answer",
 						zap.String("name", nameString),
 						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Stringer("targetAddrPort", targetAddrPort),
 						zap.Stringer("answerType", answerHeader.Type),
 						zap.Error(err),
 					)
