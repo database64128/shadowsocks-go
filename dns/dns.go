@@ -16,6 +16,10 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 )
 
+// maxDNSPacketSize is the maximum packet size to advertise in EDNS(0).
+// We use the same value as Go itself.
+const maxDNSPacketSize = 1232
+
 var ErrLookup = errors.New("name lookup failed")
 
 // ResolverConfig configures a DNS resolver.
@@ -129,6 +133,16 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 		return
 	}
 
+	var (
+		rh dnsmessage.ResourceHeader
+		rb dnsmessage.OPTResource
+	)
+
+	err = rh.SetEDNS0(maxDNSPacketSize, dnsmessage.RCodeSuccess, false)
+	if err != nil {
+		return
+	}
+
 	qBuf := make([]byte, 2+512+2+512)
 
 	q4 := dnsmessage.Message{
@@ -141,6 +155,12 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 				Name:  name,
 				Type:  dnsmessage.TypeA,
 				Class: dnsmessage.ClassINET,
+			},
+		},
+		Additionals: []dnsmessage.Resource{
+			{
+				Header: rh,
+				Body:   &rb,
 			},
 		},
 	}
@@ -161,6 +181,12 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 				Name:  name,
 				Type:  dnsmessage.TypeAAAA,
 				Class: dnsmessage.ClassINET,
+			},
+		},
+		Additionals: []dnsmessage.Resource{
+			{
+				Header: rh,
+				Body:   &rb,
 			},
 		},
 	}
@@ -232,7 +258,7 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 // It's the caller's responsibility to examine the minTTL and decide whether to cache the result.
 func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (result Result, minTTL uint32, handled bool) {
 	// Get client link info.
-	_, fwmark := r.udpClient.LinkInfo()
+	maxPacketSize, fwmark := r.udpClient.LinkInfo()
 
 	// Create client session.
 	packer, unpacker, err := r.udpClient.NewSession()
@@ -247,8 +273,6 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 
 	packerFrontHeadroom := packer.FrontHeadroom()
 	packerRearHeadroom := packer.RearHeadroom()
-	unpackerFrontHeadroom := unpacker.FrontHeadroom()
-	unpackerRearHeadroom := unpacker.RearHeadroom()
 
 	// Prepare UDP socket.
 	udpConn, err, serr := conn.ListenUDP("udp", "", false, fwmark)
@@ -343,7 +367,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 
 	// Receive replies.
 	minTTL = math.MaxUint32
-	recvBuf := make([]byte, unpackerFrontHeadroom+514+unpackerRearHeadroom)
+	recvBuf := make([]byte, maxPacketSize)
 
 	var (
 		v4done, v6done bool
