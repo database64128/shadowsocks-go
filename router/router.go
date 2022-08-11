@@ -355,7 +355,7 @@ func (r *Router) match(network, serverName string, sourceAddrPort netip.AddrPort
 		}
 
 		// SourcePrefixes
-		if len(route.config.SourcePrefixes) > 0 && !matchAddrToPrefixes(route.config.SourcePrefixes, sourceAddrPort.Addr()) != route.config.InvertSourcePrefixes {
+		if len(route.config.SourcePrefixes) > 0 && !matchAddrToPrefixes(route.config.SourcePrefixes, sourceAddrPort.Addr().Unmap()) != route.config.InvertSourcePrefixes {
 			continue
 		}
 
@@ -405,7 +405,7 @@ func (r *Router) match(network, serverName string, sourceAddrPort netip.AddrPort
 				}
 			}
 		} else {
-			ip := targetAddr.IP()
+			ip := targetAddr.IP().Unmap()
 
 			if len(route.config.Prefixes) > 0 && matchAddrToPrefixes(route.config.Prefixes, ip) != route.config.InvertPrefixes {
 				return route, nil
