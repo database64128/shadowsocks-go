@@ -22,7 +22,7 @@ A versatile and efficient proxy platform for secure communications.
 
 The `clients` field can be left empty. A default "direct" client will be automatically added.
 
-On production servers, you may want to set `udpBatchRate` to a lower value like 4 to reduce memory usage while still benefiting from `recvmmsg(2)` and `sendmmsg(2)`.
+On production servers, you may want to set `udpBatchSize` to a lower value like 4 to reduce memory usage while still benefiting from `recvmmsg(2)` and `sendmmsg(2)`.
 
 UDP packets may be padded to up to the maximum packet size calculated from `mtu`. If the server may be used from a PPPoE connection, `mtu` should be reduced to 1492. If the client-to-server PMTU is unknown, padding can be completely disabled by setting `paddingPolicy` to `NoPadding`.
 
