@@ -102,18 +102,8 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 	defer clientConn.Close()
 
 	// Get client address.
-	clientAddress := clientConn.RemoteAddr().String()
-	clientAddr, err := conn.ParseAddr(clientAddress)
-	if err != nil {
-		s.logger.Error("Failed to parse client address",
-			zap.String("server", s.serverName),
-			zap.String("listenAddress", s.listenAddress),
-			zap.String("clientAddress", clientAddress),
-			zap.Error(err),
-		)
-		return
-	}
-	clientAddrPort := clientAddr.IPPort()
+	clientAddrPort := clientConn.RemoteAddr().(*net.TCPAddr).AddrPort()
+	clientAddress := clientAddrPort.String()
 
 	// Handshake.
 	clientRW, targetAddr, payload, err := s.server.Accept(clientConn)

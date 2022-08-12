@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/netip"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/tfo-go"
@@ -210,18 +209,7 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, conn tfo.Conn) (a
 
 	case b[1] == CmdUDPAssociate && enableUDP:
 		// Use the connection's local address as the returned UDP bound address.
-		localAddr := conn.LocalAddr()
-		var localAddrPort netip.AddrPort
-
-		// net.Addr -> netip.AddrPort
-		if tcpAddr, ok := localAddr.(*net.TCPAddr); ok {
-			localAddrPort = tcpAddr.AddrPort()
-		} else {
-			localAddrPort, err = netip.ParseAddrPort(localAddr.String())
-			if err != nil {
-				return
-			}
-		}
+		localAddrPort := conn.LocalAddr().(*net.TCPAddr).AddrPort()
 
 		// Construct reply.
 		b[1] = Succeeded
