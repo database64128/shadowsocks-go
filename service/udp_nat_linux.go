@@ -163,11 +163,6 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 		payloadBytesSent uint64
 	)
 
-	// We could do better here by using a concrete unix.RawSockaddrInet6 or unix.RawSockaddrInet4
-	// variable to avoid allocations when client address changes.
-	//
-	// But since client address changes are very rare, I don't think it matters.
-
 	name, namelen := conn.AddrPortToSockaddr(clientAddrPort)
 	savec := make([]unix.RawSockaddrInet6, s.batchSize)
 	bufvec := make([][]byte, s.batchSize)
