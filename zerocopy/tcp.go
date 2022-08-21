@@ -1,9 +1,11 @@
 package zerocopy
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
+	mrand "math/rand"
 	"net"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -104,6 +106,49 @@ func CloseWriteDrain(conn *net.TCPConn, serverName, listenAddress, clientAddress
 	)
 }
 
+// ReplyWithGibberish keeps reading and replying with random garbage until EOF or error.
+func ReplyWithGibberish(conn *net.TCPConn, serverName, listenAddress, clientAddress string, logger *zap.Logger) {
+	var (
+		bytesRead, bytesWritten int64
+		n                       int
+		err                     error
+	)
+
+	b := make([]byte, 65535) // Hopefully b is stack allocated.
+
+	for {
+		n, err = conn.Read(b)
+		bytesRead += int64(n)
+		if err != nil { // For TCPConn, when err == io.EOF, n == 0.
+			break
+		}
+
+		// n is in [128, 256].
+		// getrandom(2) won't block if the request size is not greater than 256.
+		n = 128 + mrand.Intn(129)
+		garbage := b[:n]
+		_, err = rand.Read(garbage)
+		if err != nil {
+			panic(err)
+		}
+
+		n, err = conn.Write(garbage)
+		bytesWritten += int64(n)
+		if err != nil {
+			break
+		}
+	}
+
+	logger.Info("Replied with gibberish",
+		zap.String("server", serverName),
+		zap.String("listenAddress", listenAddress),
+		zap.String("clientAddress", clientAddress),
+		zap.Int64("bytesRead", bytesRead),
+		zap.Int64("bytesWritten", bytesWritten),
+		zap.Error(err),
+	)
+}
+
 // ParseRejectPolicy parses a string representation of a reject policy.
 func ParseRejectPolicy(rejectPolicy string, server TCPServer) (TCPConnCloser, error) {
 	switch rejectPolicy {
@@ -113,6 +158,8 @@ func ParseRejectPolicy(rejectPolicy string, server TCPServer) (TCPConnCloser, er
 		return ForceReset, nil
 	case "CloseWriteDrain":
 		return CloseWriteDrain, nil
+	case "ReplyWithGibberish":
+		return ReplyWithGibberish, nil
 	default:
 		return nil, fmt.Errorf("invalid reject policy: %s", rejectPolicy)
 	}
