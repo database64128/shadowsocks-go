@@ -114,7 +114,7 @@ func (sc *ServiceConfig) Start(logger *zap.Logger) error {
 		}
 	}
 
-	resolverNames := make([]string, len(sc.DNS))
+	resolvers := make([]*dns.Resolver, len(sc.DNS))
 	resolverMap := make(map[string]*dns.Resolver, len(sc.DNS))
 
 	for i, resolverConfig := range sc.DNS {
@@ -123,12 +123,12 @@ func (sc *ServiceConfig) Start(logger *zap.Logger) error {
 			return fmt.Errorf("failed to create DNS resolver %s: %w", resolverConfig.Name, err)
 		}
 
-		resolverNames[i] = resolverConfig.Name
+		resolvers[i] = resolver
 		resolverMap[resolverConfig.Name] = resolver
 	}
 
 	var err error
-	sc.router, err = sc.Router.Router(logger, resolverNames, resolverMap, tcpClientMap, udpClientMap)
+	sc.router, err = sc.Router.Router(logger, resolvers, resolverMap, tcpClientMap, udpClientMap)
 	if err != nil {
 		return fmt.Errorf("failed to create router: %w", err)
 	}

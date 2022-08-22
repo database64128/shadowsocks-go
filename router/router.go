@@ -31,8 +31,8 @@ type RouterConfig struct {
 }
 
 // Router creates a router from the RouterConfig.
-func (rc *RouterConfig) Router(logger *zap.Logger, resolverNames []string, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient) (*Router, error) {
-	if len(resolverNames) == 0 {
+func (rc *RouterConfig) Router(logger *zap.Logger, resolvers []*dns.Resolver, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient) (*Router, error) {
+	if len(resolvers) == 0 {
 		rc.DisableNameResolutionForIPRules = true
 	}
 
@@ -103,7 +103,7 @@ func (rc *RouterConfig) Router(logger *zap.Logger, resolverNames []string, resol
 		routes[i] = route
 	}
 
-	return NewRouter(rc.DisableNameResolutionForIPRules, geoip, logger, defaultTCPClient, defaultUDPClient, routes, resolverNames, resolverMap), nil
+	return NewRouter(rc.DisableNameResolutionForIPRules, geoip, logger, defaultTCPClient, defaultUDPClient, routes, resolvers), nil
 }
 
 // RouteConfig is a routing rule.
@@ -256,11 +256,10 @@ type Router struct {
 	defaultTCPClient                zerocopy.TCPClient
 	defaultUDPClient                zerocopy.UDPClient
 	routes                          []*Route
-	resolverNames                   []string
-	resolverMap                     map[string]*dns.Resolver
+	resolvers                       []*dns.Resolver
 }
 
-func NewRouter(disableNameResolutionForIPRules bool, geoip *geoip2.Reader, logger *zap.Logger, defaultTCPClient zerocopy.TCPClient, defaultUDPClient zerocopy.UDPClient, routes []*Route, resolverNames []string, resolverMap map[string]*dns.Resolver) *Router {
+func NewRouter(disableNameResolutionForIPRules bool, geoip *geoip2.Reader, logger *zap.Logger, defaultTCPClient zerocopy.TCPClient, defaultUDPClient zerocopy.UDPClient, routes []*Route, resolvers []*dns.Resolver) *Router {
 	return &Router{
 		disableNameResolutionForIPRules: disableNameResolutionForIPRules,
 		geoip:                           geoip,
@@ -268,8 +267,7 @@ func NewRouter(disableNameResolutionForIPRules bool, geoip *geoip2.Reader, logge
 		defaultTCPClient:                defaultTCPClient,
 		defaultUDPClient:                defaultUDPClient,
 		routes:                          routes,
-		resolverNames:                   resolverNames,
-		resolverMap:                     resolverMap,
+		resolvers:                       resolvers,
 	}
 }
 
@@ -433,8 +431,8 @@ func (r *Router) lookup(domain string, resolver *dns.Resolver) (dns.Result, erro
 		return resolver.Lookup(domain)
 	}
 
-	for _, resolverName := range r.resolverNames {
-		result, err := r.resolverMap[resolverName].Lookup(domain)
+	for _, resolver := range r.resolvers {
+		result, err := resolver.Lookup(domain)
 		if err != nil {
 			if err == dns.ErrLookup {
 				continue
