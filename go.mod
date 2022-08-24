@@ -8,7 +8,7 @@ require (
 	go.uber.org/zap v1.22.0
 	golang.org/x/exp v0.0.0-20220823124025-807a23277127
 	golang.org/x/net v0.0.0-20220822230855-b0a4917ee28c
-	golang.org/x/sys v0.0.0-20220818161305-2296e01440c6
+	golang.org/x/sys v0.0.0-20220823224334-20c2bfdbfe24
 	lukechampine.com/blake3 v1.1.7
 )
 
