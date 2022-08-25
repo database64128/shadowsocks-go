@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/database64128/tfo-go v1.1.2
 	github.com/oschwald/geoip2-golang v1.8.0
-	go.uber.org/zap v1.22.0
+	go.uber.org/zap v1.23.0
 	go4.org/netipx v0.0.0-20220812043211-3cc044ffd68d
 	golang.org/x/exp v0.0.0-20220823124025-807a23277127
 	golang.org/x/net v0.0.0-20220822230855-b0a4917ee28c
