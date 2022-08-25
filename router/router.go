@@ -11,6 +11,7 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/oschwald/geoip2-golang"
 	"go.uber.org/zap"
+	"go4.org/netipx"
 	"golang.org/x/exp/slices"
 )
 
@@ -211,10 +212,49 @@ func (rc *RouteConfig) Route(allowGeoIP bool, resolverMap map[string]*dns.Resolv
 		domainSets[defaultDomainSetCount+i] = ds
 	}
 
+	var (
+		destIPSet   *netipx.IPSet
+		sourceIPSet *netipx.IPSet
+	)
+
+	if len(rc.Prefixes) > 0 {
+		var (
+			sb  netipx.IPSetBuilder
+			err error
+		)
+
+		for _, prefix := range rc.Prefixes {
+			sb.AddPrefix(prefix)
+		}
+
+		destIPSet, err = sb.IPSet()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build destIPSet: %w", err)
+		}
+	}
+
+	if len(rc.SourcePrefixes) > 0 {
+		var (
+			sb  netipx.IPSetBuilder
+			err error
+		)
+
+		for _, prefix := range rc.SourcePrefixes {
+			sb.AddPrefix(prefix)
+		}
+
+		sourceIPSet, err = sb.IPSet()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build sourceIPSet: %w", err)
+		}
+	}
+
 	route := Route{
-		config:     rc,
-		resolver:   resolver,
-		domainSets: domainSets,
+		config:      rc,
+		resolver:    resolver,
+		domainSets:  domainSets,
+		destIPSet:   destIPSet,
+		sourceIPSet: sourceIPSet,
 	}
 
 	if rc.ClientName == "reject" {
@@ -242,11 +282,13 @@ func (rc *RouteConfig) Route(allowGeoIP bool, resolverMap map[string]*dns.Resolv
 
 // Route controls where a request is routed.
 type Route struct {
-	config     *RouteConfig
-	resolver   *dns.Resolver
-	tcpClient  zerocopy.TCPClient
-	udpClient  zerocopy.UDPClient
-	domainSets []*DomainSet
+	config      *RouteConfig
+	resolver    *dns.Resolver
+	tcpClient   zerocopy.TCPClient
+	udpClient   zerocopy.UDPClient
+	domainSets  []*DomainSet
+	destIPSet   *netipx.IPSet
+	sourceIPSet *netipx.IPSet
 }
 
 // Router looks up the destination client for requests received by servers.
@@ -354,7 +396,7 @@ func (r *Router) match(network, serverName string, sourceAddrPort netip.AddrPort
 		}
 
 		// SourcePrefixes
-		if len(route.config.SourcePrefixes) > 0 && !matchAddrToPrefixes(route.config.SourcePrefixes, sourceAddrPort.Addr().Unmap()) != route.config.InvertSourcePrefixes {
+		if route.sourceIPSet != nil && !route.sourceIPSet.Contains(sourceAddrPort.Addr().Unmap()) != route.config.InvertSourcePrefixes {
 			continue
 		}
 
@@ -364,7 +406,7 @@ func (r *Router) match(network, serverName string, sourceAddrPort netip.AddrPort
 		}
 
 		// Match all domain and IP targets.
-		if len(route.domainSets) == 0 && len(route.config.Prefixes) == 0 && len(route.config.GeoIPCountries) == 0 {
+		if len(route.domainSets) == 0 && route.destIPSet == nil && len(route.config.GeoIPCountries) == 0 {
 			return route, nil
 		}
 
@@ -376,7 +418,7 @@ func (r *Router) match(network, serverName string, sourceAddrPort netip.AddrPort
 		}
 
 		// Prefixes and GeoIP countries
-		if len(route.config.Prefixes) == 0 && len(route.config.GeoIPCountries) == 0 {
+		if route.destIPSet == nil && len(route.config.GeoIPCountries) == 0 {
 			continue
 		}
 
@@ -390,7 +432,7 @@ func (r *Router) match(network, serverName string, sourceAddrPort netip.AddrPort
 				return nil, err
 			}
 
-			if len(route.config.Prefixes) > 0 && matchResultToPrefixes(route.config.Prefixes, result) != route.config.InvertPrefixes {
+			if route.destIPSet != nil && matchResultToIPSet(route.destIPSet, result) != route.config.InvertPrefixes {
 				return route, nil
 			}
 
@@ -406,7 +448,7 @@ func (r *Router) match(network, serverName string, sourceAddrPort netip.AddrPort
 		} else {
 			ip := targetAddr.IP().Unmap()
 
-			if len(route.config.Prefixes) > 0 && matchAddrToPrefixes(route.config.Prefixes, ip) != route.config.InvertPrefixes {
+			if route.destIPSet != nil && route.destIPSet.Contains(ip) != route.config.InvertPrefixes {
 				return route, nil
 			}
 
@@ -483,24 +525,15 @@ func matchDomainToDomainSets(domainSets []*DomainSet, domain string) bool {
 	return false
 }
 
-func matchAddrToPrefixes(prefixes []netip.Prefix, addr netip.Addr) bool {
-	for _, prefix := range prefixes {
-		if prefix.Contains(addr) {
-			return true
-		}
-	}
-	return false
-}
-
-func matchResultToPrefixes(prefixes []netip.Prefix, result dns.Result) bool {
+func matchResultToIPSet(ipSet *netipx.IPSet, result dns.Result) bool {
 	for _, v4 := range result.IPv4 {
-		if matchAddrToPrefixes(prefixes, v4) {
+		if ipSet.Contains(v4) {
 			return true
 		}
 	}
 
 	for _, v6 := range result.IPv6 {
-		if matchAddrToPrefixes(prefixes, v6) {
+		if ipSet.Contains(v6) {
 			return true
 		}
 	}
