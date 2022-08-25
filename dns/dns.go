@@ -116,8 +116,8 @@ func (r *Resolver) Lookup(name string) (Result, error) {
 		r.logger.Debug("DNS lookup got result from cache",
 			zap.String("name", name),
 			zap.Time("ttl", result.TTL),
-			zap.Int("v4Count", len(result.IPv4)),
-			zap.Int("v6Count", len(result.IPv6)),
+			zap.Stringers("v4", result.IPv4),
+			zap.Stringers("v6", result.IPv6),
 		)
 
 		return result, nil
@@ -211,8 +211,8 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 			zap.String("name", nameString),
 			zap.Uint32("minTTL", minTTL),
 			zap.Bool("handled", handled),
-			zap.Int("v4Count", len(result.IPv4)),
-			zap.Int("v6Count", len(result.IPv6)),
+			zap.Stringers("v4", result.IPv4),
+			zap.Stringers("v6", result.IPv6),
 		)
 	}
 
@@ -230,8 +230,8 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 			zap.String("name", nameString),
 			zap.Uint32("minTTL", minTTL),
 			zap.Bool("handled", handled),
-			zap.Int("v4Count", len(result.IPv4)),
-			zap.Int("v6Count", len(result.IPv6)),
+			zap.Stringers("v4", result.IPv4),
+			zap.Stringers("v6", result.IPv6),
 		)
 	}
 

@@ -3,7 +3,6 @@ package router
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -488,20 +487,16 @@ func (r *Router) lookup(domain string, resolver *dns.Resolver) (dns.Result, erro
 	return dns.Result{}, dns.ErrLookup
 }
 
-func (r *Router) matchIPToGeoIPCountries(countries []string, ip net.IP) (bool, error) {
-	country, err := r.geoip.Country(ip)
+func (r *Router) matchAddrToGeoIPCountries(countries []string, addr netip.Addr) (bool, error) {
+	country, err := r.geoip.Country(addr.AsSlice())
 	if err != nil {
 		return false, err
 	}
 	r.logger.Debug("Matched GeoIP country",
-		zap.String("ip", ip.String()),
+		zap.Stringer("ip", addr),
 		zap.String("country", country.Country.IsoCode),
 	)
 	return slices.Contains(countries, country.Country.IsoCode), nil
-}
-
-func (r *Router) matchAddrToGeoIPCountries(countries []string, addr netip.Addr) (bool, error) {
-	return r.matchIPToGeoIPCountries(countries, addr.AsSlice())
 }
 
 func (r *Router) matchResultToGeoIPCountries(countries []string, result dns.Result) (bool, error) {
