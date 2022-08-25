@@ -13,14 +13,14 @@ keyword:org
 regexp:^adservice\.google\.([a-z]{2}|com?)(\.[a-z]{2})?$
 `
 
-func testMatch(t *testing.T, ds DomainSet, domain string, expectedResult bool) {
+func testMatch(t *testing.T, ds *DomainSet, domain string, expectedResult bool) {
 	if ds.Match(domain) != expectedResult {
 		t.Errorf("%s should return %v", domain, expectedResult)
 	}
 }
 
 func TestDomainSet(t *testing.T) {
-	f, err := os.CreateTemp("", "router_domainset_test")
+	f, err := os.CreateTemp(t.TempDir(), "router_domainset_test")
 	if err != nil {
 		t.Fatal(err)
 	}

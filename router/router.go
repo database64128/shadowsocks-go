@@ -83,7 +83,7 @@ func (rc *RouterConfig) Router(logger *zap.Logger, resolvers []*dns.Resolver, re
 		}
 	}
 
-	domainSetMap := make(map[string]DomainSet, len(rc.DomainSets))
+	domainSetMap := make(map[string]*DomainSet, len(rc.DomainSets))
 
 	for _, domainSetConfig := range rc.DomainSets {
 		domainSet, err := domainSetConfig.DomainSet()
@@ -165,7 +165,7 @@ type RouteConfig struct {
 }
 
 // Route creates a route from the RouteConfig.
-func (rc *RouteConfig) Route(allowGeoIP bool, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, domainSetMap map[string]DomainSet) (*Route, error) {
+func (rc *RouteConfig) Route(allowGeoIP bool, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, domainSetMap map[string]*DomainSet) (*Route, error) {
 	if !allowGeoIP && len(rc.GeoIPCountries) > 0 {
 		return nil, errNoGeoLite2Db
 	}
@@ -194,11 +194,12 @@ func (rc *RouteConfig) Route(allowGeoIP bool, resolverMap map[string]*dns.Resolv
 		defaultDomainSetCount = 1
 	}
 
-	domainSets := make([]DomainSet, defaultDomainSetCount+len(rc.DomainSets))
+	domainSets := make([]*DomainSet, defaultDomainSetCount+len(rc.DomainSets))
 
 	if defaultDomainSetCount == 1 {
-		domainSets[0] = DomainSet{
-			Domains: rc.Domains,
+		domainSets[0] = NewDomainSet()
+		for _, domain := range rc.Domains {
+			domainSets[0].Domains[domain] = struct{}{}
 		}
 	}
 
@@ -245,7 +246,7 @@ type Route struct {
 	resolver   *dns.Resolver
 	tcpClient  zerocopy.TCPClient
 	udpClient  zerocopy.UDPClient
-	domainSets []DomainSet
+	domainSets []*DomainSet
 }
 
 // Router looks up the destination client for requests received by servers.
@@ -473,7 +474,7 @@ func (r *Router) matchResultToGeoIPCountries(countries []string, result dns.Resu
 	return false, nil
 }
 
-func matchDomainToDomainSets(domainSets []DomainSet, domain string) bool {
+func matchDomainToDomainSets(domainSets []*DomainSet, domain string) bool {
 	for _, ds := range domainSets {
 		if ds.Match(domain) {
 			return true
