@@ -35,7 +35,7 @@ type ServiceConfig struct {
 	Servers       []ServerConfig       `json:"servers"`
 	Clients       []ClientConfig       `json:"clients"`
 	DNS           []dns.ResolverConfig `json:"dns"`
-	Router        router.RouterConfig  `json:"router"`
+	Router        router.Config        `json:"router"`
 	UDPBatchMode  string               `json:"udpBatchMode"`
 	UDPBatchSize  int                  `json:"udpBatchSize"`
 	UDPPreferIPv6 bool                 `json:"udpPreferIPv6"`

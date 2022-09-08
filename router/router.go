@@ -7,6 +7,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/dns"
+	"github.com/database64128/shadowsocks-go/domainset"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/oschwald/geoip2-golang"
 	"go.uber.org/zap"
@@ -20,18 +21,18 @@ var (
 	errNoGeoLite2Db = errors.New("missing GeoLite2 country database path")
 )
 
-// RouterConfig is the configuration for a Router.
-type RouterConfig struct {
-	DisableNameResolutionForIPRules bool              `json:"disableNameResolutionForIPRules"`
-	DefaultTCPClientName            string            `json:"defaultTCPClientName"`
-	DefaultUDPClientName            string            `json:"defaultUDPClientName"`
-	GeoLite2CountryDbPath           string            `json:"geoLite2CountryDbPath"`
-	DomainSets                      []DomainSetConfig `json:"domainSets"`
-	Routes                          []RouteConfig     `json:"routes"`
+// Config is the configuration for a Router.
+type Config struct {
+	DisableNameResolutionForIPRules bool               `json:"disableNameResolutionForIPRules"`
+	DefaultTCPClientName            string             `json:"defaultTCPClientName"`
+	DefaultUDPClientName            string             `json:"defaultUDPClientName"`
+	GeoLite2CountryDbPath           string             `json:"geoLite2CountryDbPath"`
+	DomainSets                      []domainset.Config `json:"domainSets"`
+	Routes                          []RouteConfig      `json:"routes"`
 }
 
 // Router creates a router from the RouterConfig.
-func (rc *RouterConfig) Router(logger *zap.Logger, resolvers []*dns.Resolver, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient) (*Router, error) {
+func (rc *Config) Router(logger *zap.Logger, resolvers []*dns.Resolver, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient) (*Router, error) {
 	if len(resolvers) == 0 {
 		rc.DisableNameResolutionForIPRules = true
 	}
@@ -83,7 +84,7 @@ func (rc *RouterConfig) Router(logger *zap.Logger, resolvers []*dns.Resolver, re
 		}
 	}
 
-	domainSetMap := make(map[string]*DomainSet, len(rc.DomainSets))
+	domainSetMap := make(map[string]*domainset.DomainSet, len(rc.DomainSets))
 
 	for _, domainSetConfig := range rc.DomainSets {
 		domainSet, err := domainSetConfig.DomainSet()
@@ -165,7 +166,7 @@ type RouteConfig struct {
 }
 
 // Route creates a route from the RouteConfig.
-func (rc *RouteConfig) Route(allowGeoIP bool, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, domainSetMap map[string]*DomainSet) (*Route, error) {
+func (rc *RouteConfig) Route(allowGeoIP bool, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, domainSetMap map[string]*domainset.DomainSet) (*Route, error) {
 	if !allowGeoIP && len(rc.GeoIPCountries) > 0 {
 		return nil, errNoGeoLite2Db
 	}
@@ -194,10 +195,10 @@ func (rc *RouteConfig) Route(allowGeoIP bool, resolverMap map[string]*dns.Resolv
 		defaultDomainSetCount = 1
 	}
 
-	domainSets := make([]*DomainSet, defaultDomainSetCount+len(rc.DomainSets))
+	domainSets := make([]*domainset.DomainSet, defaultDomainSetCount+len(rc.DomainSets))
 
 	if defaultDomainSetCount == 1 {
-		domainSets[0] = NewDomainSet()
+		domainSets[0] = domainset.NewDomainSet()
 		for _, domain := range rc.Domains {
 			domainSets[0].Domains[domain] = struct{}{}
 		}
@@ -285,7 +286,7 @@ type Route struct {
 	resolver    *dns.Resolver
 	tcpClient   zerocopy.TCPClient
 	udpClient   zerocopy.UDPClient
-	domainSets  []*DomainSet
+	domainSets  []*domainset.DomainSet
 	destIPSet   *netipx.IPSet
 	sourceIPSet *netipx.IPSet
 }
@@ -511,7 +512,7 @@ func (r *Router) matchResultToGeoIPCountries(countries []string, result dns.Resu
 	return false, nil
 }
 
-func matchDomainToDomainSets(domainSets []*DomainSet, domain string) bool {
+func matchDomainToDomainSets(domainSets []*domainset.DomainSet, domain string) bool {
 	for _, ds := range domainSets {
 		if ds.Match(domain) {
 			return true
