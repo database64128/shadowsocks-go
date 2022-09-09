@@ -198,10 +198,14 @@ func (rc *RouteConfig) Route(allowGeoIP bool, resolverMap map[string]*dns.Resolv
 	domainSets := make([]*domainset.DomainSet, defaultDomainSetCount+len(rc.DomainSets))
 
 	if defaultDomainSetCount == 1 {
-		domainSets[0] = domainset.NewDomainSet()
-		for _, domain := range rc.Domains {
-			domainSets[0].Domains[domain] = struct{}{}
+		defaultDomainSet := domainset.DomainSet{
+			Domains:  make(map[string]struct{}, len(rc.Domains)),
+			Suffixes: &domainset.DefaultEmptyDomainSuffixSet,
 		}
+		for _, domain := range rc.Domains {
+			defaultDomainSet.Domains[domain] = struct{}{}
+		}
+		domainSets[0] = &defaultDomainSet
 	}
 
 	for i, dsc := range rc.DomainSets {

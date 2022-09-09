@@ -291,13 +291,6 @@ type DomainSet struct {
 	Regexps  []*regexp.Regexp
 }
 
-func NewDomainSet() *DomainSet {
-	return &DomainSet{
-		Domains:  make(map[string]struct{}),
-		Suffixes: &DefaultEmptyDomainSuffixSet,
-	}
-}
-
 // Match returns whether the domain set contains the domain.
 func (ds *DomainSet) Match(domain string) bool {
 	if _, ok := ds.Domains[domain]; ok {
