@@ -27,15 +27,6 @@ type session struct {
 	serverConnPacker    zerocopy.ServerPacker
 	serverConnUnpacker  zerocopy.ServerUnpacker
 	maxClientPacketSize int
-
-	// stopping is only set when stopping a session during initialization
-	// when natConn is nil.
-	stopping bool
-
-	// mu synchronizes access to natConn and stopping during initialization.
-	// A lock-free alternative would be to give up on cleaning up NAT sessions
-	// and lose the nice stats reporting after session closure.
-	mu sync.Mutex
 }
 
 // UDPSessionRelay is a session-based UDP relay service.
@@ -51,6 +42,7 @@ type UDPSessionRelay struct {
 	packetBufRecvSize        int
 	batchSize                int
 	preferIPv6               bool
+	natTimeout               time.Duration
 	server                   zerocopy.UDPSessionServer
 	serverConn               *net.UDPConn
 	router                   *router.Router
@@ -67,6 +59,7 @@ func NewUDPSessionRelay(
 	batchMode, serverName, listenAddress string,
 	batchSize, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
 	preferIPv6 bool,
+	natTimeout time.Duration,
 	server zerocopy.UDPSessionServer,
 	router *router.Router,
 	logger *zap.Logger,
@@ -96,6 +89,7 @@ func NewUDPSessionRelay(
 		packetBufRecvSize:      packetBufSize,
 		batchSize:              batchSize,
 		preferIPv6:             preferIPv6,
+		natTimeout:             natTimeout,
 		server:                 server,
 		router:                 router,
 		logger:                 logger,
@@ -128,7 +122,11 @@ func (s *UDPSessionRelay) Start() error {
 	}
 	s.serverConn = serverConn
 
+	s.wg.Add(1)
+
 	go func() {
+		defer s.wg.Done()
+
 		oobBuf := make([]byte, conn.UDPOOBBufferSize)
 
 		for {
@@ -138,7 +136,7 @@ func (s *UDPSessionRelay) Start() error {
 
 			n, oobn, flags, clientAddrPort, err := s.serverConn.ReadMsgUDPAddrPort(recvBuf, oobBuf)
 			if err != nil {
-				if errors.Is(err, net.ErrClosed) {
+				if errors.Is(err, os.ErrDeadlineExceeded) {
 					s.packetBufPool.Put(packetBufp)
 					break
 				}
@@ -313,7 +311,16 @@ func (s *UDPSessionRelay) Start() error {
 						)
 					}
 
-					err = natConn.SetReadDeadline(time.Now().Add(natTimeout))
+					// Assign natConn to entry before setting read deadline.
+					// This ensures that, when stopping, if we missed the zeroed NAT timeout,
+					// the subsequent for loop will take care of updating the read deadline.
+					entry.natConn = natConn
+					entry.natConnRecvBufSize = natConnMaxPacketSize
+					entry.natConnPacker = natConnPacker
+					entry.natConnUnpacker = natConnUnpacker
+					entry.serverConnPacker = serverConnPacker
+
+					err = natConn.SetReadDeadline(time.Now().Add(s.natTimeout))
 					if err != nil {
 						s.logger.Warn("Failed to set read deadline on natConn",
 							zap.String("server", s.serverName),
@@ -326,19 +333,6 @@ func (s *UDPSessionRelay) Start() error {
 						natConn.Close()
 						return
 					}
-
-					entry.mu.Lock()
-					if entry.stopping {
-						entry.mu.Unlock()
-						natConn.Close()
-						return
-					}
-					entry.natConn = natConn
-					entry.natConnRecvBufSize = natConnMaxPacketSize
-					entry.natConnPacker = natConnPacker
-					entry.natConnUnpacker = natConnUnpacker
-					entry.serverConnPacker = serverConnPacker
-					entry.mu.Unlock()
 
 					// No more early returns!
 					sendChClean = true
@@ -416,6 +410,7 @@ func (s *UDPSessionRelay) Start() error {
 		zap.String("server", s.serverName),
 		zap.String("listenAddress", s.listenAddress),
 		zap.Int("listenerFwmark", s.listenerFwmark),
+		zap.Duration("natTimeout", s.natTimeout),
 	)
 
 	return nil
@@ -460,7 +455,7 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(csid uint64, entry *se
 			)
 		}
 
-		err = entry.natConn.SetReadDeadline(time.Now().Add(natTimeout))
+		err = entry.natConn.SetReadDeadline(time.Now().Add(s.natTimeout))
 		if err != nil {
 			s.logger.Warn("Failed to set read deadline on natConn",
 				zap.String("server", s.serverName),
@@ -564,10 +559,6 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 
 		_, _, err = s.serverConn.WriteMsgUDPAddrPort(packetBuf[packetStart:packetStart+packetLength], entry.clientOobCache, entry.clientAddrPort)
 		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				break
-			}
-
 			s.logger.Warn("Failed to write packet to serverConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
@@ -598,19 +589,18 @@ func (s *UDPSessionRelay) Stop() error {
 	if s.serverConn == nil {
 		return nil
 	}
-	s.serverConn.Close()
 
 	now := time.Now()
 
+	if err := s.serverConn.SetReadDeadline(now); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	for csid, entry := range s.table {
-		entry.mu.Lock()
 		if entry.natConn == nil {
-			entry.stopping = true
-			entry.mu.Unlock()
 			continue
 		}
-		entry.mu.Unlock()
 
 		if err := entry.natConn.SetReadDeadline(now); err != nil {
 			s.logger.Warn("Failed to set read deadline on natConn",
@@ -625,5 +615,5 @@ func (s *UDPSessionRelay) Stop() error {
 	s.mu.Unlock()
 
 	s.wg.Wait()
-	return nil
+	return s.serverConn.Close()
 }

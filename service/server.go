@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
@@ -26,8 +27,9 @@ type ServerConfig struct {
 	DisableInitialPayloadWait bool `json:"disableInitialPayloadWait"`
 
 	// UDP
-	EnableUDP bool `json:"enableUDP"`
-	MTU       int  `json:"mtu"`
+	EnableUDP     bool `json:"enableUDP"`
+	MTU           int  `json:"mtu"`
+	NatTimeoutSec int  `json:"natTimeoutSec"`
 
 	// Simple tunnel
 	TunnelRemoteAddress conn.Addr `json:"tunnelRemoteAddress"`
@@ -103,10 +105,20 @@ func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, pref
 	}
 
 	var (
-		natServer zerocopy.UDPNATServer
-		server    zerocopy.UDPSessionServer
-		err       error
+		natTimeout time.Duration
+		natServer  zerocopy.UDPNATServer
+		server     zerocopy.UDPSessionServer
+		err        error
 	)
+
+	switch {
+	case sc.NatTimeoutSec == 0:
+		natTimeout = defaultNatTimeout
+	case sc.NatTimeoutSec < minNatTimeoutSec:
+		return nil, fmt.Errorf("natTimeoutSec too short: %d, must be at least %d", sc.NatTimeoutSec, minNatTimeoutSec)
+	default:
+		natTimeout = time.Duration(sc.NatTimeoutSec) * time.Second
+	}
 
 	switch sc.Protocol {
 	case "direct":
@@ -140,9 +152,9 @@ func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, pref
 
 	switch sc.Protocol {
 	case "direct", "none", "plain", "socks5":
-		return NewUDPNATRelay(batchMode, sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, preferIPv6, natServer, router, logger), nil
+		return NewUDPNATRelay(batchMode, sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, preferIPv6, natTimeout, natServer, router, logger), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		return NewUDPSessionRelay(batchMode, sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, preferIPv6, server, router, logger), nil
+		return NewUDPSessionRelay(batchMode, sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, preferIPv6, natTimeout, server, router, logger), nil
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}

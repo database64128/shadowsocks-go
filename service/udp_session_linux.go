@@ -2,7 +2,6 @@ package service
 
 import (
 	"errors"
-	"net"
 	"net/netip"
 	"os"
 	"time"
@@ -116,7 +115,7 @@ func (s *UDPSessionRelay) relayServerConnToNatConnSendmmsg(csid uint64, entry *s
 			)
 		}
 
-		if err := entry.natConn.SetReadDeadline(time.Now().Add(natTimeout)); err != nil {
+		if err := entry.natConn.SetReadDeadline(time.Now().Add(s.natTimeout)); err != nil {
 			s.logger.Warn("Failed to set read deadline on natConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
@@ -296,10 +295,6 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 
 		err = conn.WriteMsgvec(s.serverConn, smsgvec[:ns])
 		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				break
-			}
-
 			s.logger.Warn("Failed to batch write packets to serverConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),

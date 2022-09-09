@@ -14,8 +14,11 @@ const (
 	// sendChannelCapacity defines NAT entry's send channel capacity.
 	sendChannelCapacity = 1024
 
-	// natTimeout is the duration after which an inactive NAT entry is evicted.
-	natTimeout = 5 * time.Minute
+	// minNatTimeoutSec is the minimum allowed NAT timeout in seconds.
+	minNatTimeoutSec = 60
+
+	// defaultNatTimeout is the default duration after which an inactive NAT entry is evicted.
+	defaultNatTimeout = 5 * time.Minute
 
 	// defaultRecvmmsgMsgvecSize is the default batch size for recvmmsg(2) and sendmmsg(2) calls.
 	//
