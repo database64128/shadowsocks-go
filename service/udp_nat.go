@@ -26,6 +26,15 @@ type natEntry struct {
 	serverConnPacker    zerocopy.ServerPacker
 	serverConnUnpacker  zerocopy.ServerUnpacker
 	maxClientPacketSize int
+
+	// stopping is only set when stopping a session during initialization
+	// when natConn is nil.
+	stopping bool
+
+	// mu synchronizes access to natConn and stopping during initialization.
+	// A lock-free alternative would be to give up on cleaning up NAT sessions
+	// and lose the nice stats reporting after session closure.
+	mu sync.Mutex
 }
 
 // UDPNATRelay is an address-based UDP relay service.
@@ -194,82 +203,8 @@ func (s *UDPNATRelay) Start() error {
 					continue
 				}
 
-				c, err := s.router.GetUDPClient(s.serverName, clientAddrPort, targetAddr)
-				if err != nil {
-					s.logger.Warn("Failed to get UDP client for new NAT session",
-						zap.String("server", s.serverName),
-						zap.String("listenAddress", s.listenAddress),
-						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
-						zap.Error(err),
-					)
-
-					s.packetBufPool.Put(packetBufp)
-					s.mu.Unlock()
-					continue
-				}
-
-				natConnMaxPacketSize, natConnFwmark := c.LinkInfo()
-				natConnPacker, natConnUnpacker, err := c.NewSession()
-				if err != nil {
-					s.logger.Warn("Failed to create new UDP client session",
-						zap.String("server", s.serverName),
-						zap.String("listenAddress", s.listenAddress),
-						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
-						zap.Error(err),
-					)
-
-					s.packetBufPool.Put(packetBufp)
-					s.mu.Unlock()
-					continue
-				}
-
-				natConn, err, serr := conn.ListenUDP("udp", "", false, natConnFwmark)
-				if err != nil {
-					s.logger.Warn("Failed to create UDP socket for new NAT session",
-						zap.String("server", s.serverName),
-						zap.String("listenAddress", s.listenAddress),
-						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
-						zap.Error(err),
-					)
-
-					s.packetBufPool.Put(packetBufp)
-					s.mu.Unlock()
-					continue
-				}
-				if serr != nil {
-					s.logger.Warn("An error occurred while setting socket options on natConn",
-						zap.String("server", s.serverName),
-						zap.String("listenAddress", s.listenAddress),
-						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
-						zap.Error(serr),
-					)
-				}
-
-				err = natConn.SetReadDeadline(time.Now().Add(natTimeout))
-				if err != nil {
-					s.logger.Warn("Failed to set read deadline on natConn",
-						zap.String("server", s.serverName),
-						zap.String("listenAddress", s.listenAddress),
-						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
-						zap.Error(err),
-					)
-
-					s.packetBufPool.Put(packetBufp)
-					s.mu.Unlock()
-					continue
-				}
-
 				entry = &natEntry{
-					natConn:             natConn,
-					natConnRecvBufSize:  natConnMaxPacketSize,
 					natConnSendCh:       make(chan queuedPacket, sendChannelCapacity),
-					natConnPacker:       natConnPacker,
-					natConnUnpacker:     natConnUnpacker,
 					serverConnPacker:    serverConnPacker,
 					serverConnUnpacker:  serverConnUnpacker,
 					maxClientPacketSize: zerocopy.MaxPacketSizeForAddr(s.mtu, clientAddrPort.Addr()),
@@ -277,23 +212,109 @@ func (s *UDPNATRelay) Start() error {
 
 				s.table[clientAddrPort] = entry
 
-				s.wg.Add(2)
-
 				go func() {
+					var sendChClean bool
+
+					defer func() {
+						s.mu.Lock()
+						close(entry.natConnSendCh)
+						delete(s.table, clientAddrPort)
+						s.mu.Unlock()
+
+						if !sendChClean {
+							for queuedPacket := range entry.natConnSendCh {
+								s.packetBufPool.Put(queuedPacket.bufp)
+							}
+						}
+					}()
+
+					c, err := s.router.GetUDPClient(s.serverName, clientAddrPort, targetAddr)
+					if err != nil {
+						s.logger.Warn("Failed to get UDP client for new NAT session",
+							zap.String("server", s.serverName),
+							zap.String("listenAddress", s.listenAddress),
+							zap.Stringer("clientAddress", clientAddrPort),
+							zap.Stringer("targetAddress", targetAddr),
+							zap.Error(err),
+						)
+						return
+					}
+
+					// Only add for the current goroutine here, since we don't want the router to block exiting.
+					s.wg.Add(1)
+					defer s.wg.Done()
+
+					natConnMaxPacketSize, natConnFwmark := c.LinkInfo()
+					natConnPacker, natConnUnpacker, err := c.NewSession()
+					if err != nil {
+						s.logger.Warn("Failed to create new UDP client session",
+							zap.String("server", s.serverName),
+							zap.String("listenAddress", s.listenAddress),
+							zap.Stringer("clientAddress", clientAddrPort),
+							zap.Stringer("targetAddress", targetAddr),
+							zap.Error(err),
+						)
+						return
+					}
+
+					natConn, err, serr := conn.ListenUDP("udp", "", false, natConnFwmark)
+					if err != nil {
+						s.logger.Warn("Failed to create UDP socket for new NAT session",
+							zap.String("server", s.serverName),
+							zap.String("listenAddress", s.listenAddress),
+							zap.Stringer("clientAddress", clientAddrPort),
+							zap.Stringer("targetAddress", targetAddr),
+							zap.Error(err),
+						)
+						return
+					}
+					if serr != nil {
+						s.logger.Warn("An error occurred while setting socket options on natConn",
+							zap.String("server", s.serverName),
+							zap.String("listenAddress", s.listenAddress),
+							zap.Stringer("clientAddress", clientAddrPort),
+							zap.Stringer("targetAddress", targetAddr),
+							zap.Error(serr),
+						)
+					}
+
+					err = natConn.SetReadDeadline(time.Now().Add(natTimeout))
+					if err != nil {
+						s.logger.Warn("Failed to set read deadline on natConn",
+							zap.String("server", s.serverName),
+							zap.String("listenAddress", s.listenAddress),
+							zap.Stringer("clientAddress", clientAddrPort),
+							zap.Stringer("targetAddress", targetAddr),
+							zap.Error(err),
+						)
+						natConn.Close()
+						return
+					}
+
+					entry.mu.Lock()
+					if entry.stopping {
+						entry.mu.Unlock()
+						natConn.Close()
+						return
+					}
+					entry.natConn = natConn
+					entry.natConnRecvBufSize = natConnMaxPacketSize
+					entry.natConnPacker = natConnPacker
+					entry.natConnUnpacker = natConnUnpacker
+					entry.mu.Unlock()
+
+					// No more early returns!
+					sendChClean = true
+
+					s.wg.Add(1)
+
+					go func() {
+						s.relayServerConnToNatConn(clientAddrPort, entry)
+						entry.natConn.Close()
+						s.wg.Done()
+					}()
+
 					s.relayNatConnToServerConn(clientAddrPort, entry)
-
-					s.mu.Lock()
-					close(entry.natConnSendCh)
-					delete(s.table, clientAddrPort)
-					s.mu.Unlock()
-
-					s.wg.Done()
-				}()
-
-				go func() {
-					s.relayServerConnToNatConn(clientAddrPort, entry)
-					entry.natConn.Close()
-					s.wg.Done()
 				}()
 
 				s.logger.Info("New UDP NAT session",
@@ -366,12 +387,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrP
 		payloadBytesSent uint64
 	)
 
-	for {
-		queuedPacket, ok := <-entry.natConnSendCh
-		if !ok {
-			break
-		}
-
+	for queuedPacket := range entry.natConnSendCh {
 		destAddrPort, packetStart, packetLength, err = entry.natConnPacker.PackInPlace(*queuedPacket.bufp, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length)
 		if err != nil {
 			s.logger.Warn("Failed to pack packet",
@@ -534,6 +550,14 @@ func (s *UDPNATRelay) Stop() error {
 
 	s.mu.Lock()
 	for clientAddrPort, entry := range s.table {
+		entry.mu.Lock()
+		if entry.natConn == nil {
+			entry.stopping = true
+			entry.mu.Unlock()
+			continue
+		}
+		entry.mu.Unlock()
+
 		if err := entry.natConn.SetReadDeadline(now); err != nil {
 			s.logger.Warn("Failed to set read deadline on natConn",
 				zap.String("server", s.serverName),
