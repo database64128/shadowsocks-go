@@ -46,7 +46,6 @@ func (s *UDPSessionRelay) relayServerConnToNatConnSendmmsg(csid uint64, entry *s
 	iovec := make([]unix.Iovec, s.batchSize)
 	msgvec := make([]conn.Mmsghdr, s.batchSize)
 
-	// Initialize msgvec.
 	for i := range msgvec {
 		msgvec[i].Msghdr.Name = (*byte)(unsafe.Pointer(&namevec[i]))
 		msgvec[i].Msghdr.Namelen = unix.SizeofSockaddrInet6
@@ -54,7 +53,7 @@ func (s *UDPSessionRelay) relayServerConnToNatConnSendmmsg(csid uint64, entry *s
 		msgvec[i].Msghdr.SetIovlen(1)
 	}
 
-	// Main relay loop.
+main:
 	for {
 		var count int
 
@@ -78,7 +77,11 @@ func (s *UDPSessionRelay) relayServerConnToNatConnSendmmsg(csid uint64, entry *s
 				)
 
 				s.packetBufPool.Put(queuedPacket.bufp)
-				continue
+
+				if count == 0 {
+					continue main
+				}
+				goto next
 			}
 
 			dequeuedPackets[count] = queuedPacket
@@ -92,23 +95,23 @@ func (s *UDPSessionRelay) relayServerConnToNatConnSendmmsg(csid uint64, entry *s
 				break
 			}
 
+		next:
 			select {
 			case queuedPacket, ok = <-entry.natConnSendCh:
 				if !ok {
-					goto cleanup
+					break dequeue
 				}
 			default:
 				break dequeue
 			}
 		}
 
-		// Batch write.
 		if err := conn.WriteMsgvec(entry.natConn, msgvec[:count]); err != nil {
 			s.logger.Warn("Failed to batch write packets to natConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", entry.clientAddrPort),
-				zap.Stringer("lastTargetAddress", queuedPacket.targetAddr),
+				zap.Stringer("lastTargetAddress", dequeuedPackets[count-1].targetAddr),
 				zap.Stringer("lastWriteDestAddress", destAddrPort),
 				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
@@ -128,7 +131,6 @@ func (s *UDPSessionRelay) relayServerConnToNatConnSendmmsg(csid uint64, entry *s
 		sendmmsgCount++
 		packetsSent += uint64(count)
 
-	cleanup:
 		for _, packet := range dequeuedPackets[:count] {
 			s.packetBufPool.Put(packet.bufp)
 		}
@@ -180,7 +182,6 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 	rmsgvec := make([]conn.Mmsghdr, s.batchSize)
 	smsgvec := make([]conn.Mmsghdr, s.batchSize)
 
-	// Initialize riovec, rmsgvec and smsgvec.
 	for i := 0; i < s.batchSize; i++ {
 		bufvec[i] = make([]byte, frontHeadroom+entry.natConnRecvBufSize+rearHeadroom)
 
@@ -196,7 +197,6 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 		smsgvec[i].Msghdr.SetIovlen(1)
 	}
 
-	// Main relay loop.
 	for {
 		nr, err := conn.Recvmmsg(entry.natConn, rmsgvec)
 		if err != nil {
