@@ -542,6 +542,8 @@ func (s *UDPNATRelay) Stop() error {
 		return err
 	}
 
+	s.natTimeout = 0
+
 	s.mu.Lock()
 	for clientAddrPort, entry := range s.table {
 		if entry.natConn == nil {

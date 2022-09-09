@@ -596,6 +596,8 @@ func (s *UDPSessionRelay) Stop() error {
 		return err
 	}
 
+	s.natTimeout = 0
+
 	s.mu.Lock()
 	for csid, entry := range s.table {
 		if entry.natConn == nil {
