@@ -219,7 +219,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 			name, namelen = conn.AddrPortToSockaddr(clientAddrPort)
 		}
 
-		smsgControl := entry.clientOobCache
+		smsgControl := entry.clientPktinfoCache
 		smsgControlLen := len(smsgControl)
 		var ns int
 

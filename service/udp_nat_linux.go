@@ -205,7 +205,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 			continue
 		}
 
-		smsgControl := entry.clientOobCache
+		smsgControl := entry.clientPktinfoCache
 		smsgControlLen := len(smsgControl)
 		var ns int
 

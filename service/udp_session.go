@@ -18,7 +18,7 @@ import (
 // session keeps track of a UDP session.
 type session struct {
 	clientAddrPort      netip.AddrPort
-	clientOobCache      []byte
+	clientPktinfoCache  []byte
 	natConn             *net.UDPConn
 	natConnRecvBufSize  int
 	natConnSendCh       chan queuedPacket
@@ -127,14 +127,14 @@ func (s *UDPSessionRelay) Start() error {
 	go func() {
 		defer s.wg.Done()
 
-		oobBuf := make([]byte, conn.UDPOOBBufferSize)
+		cmsgBuf := make([]byte, conn.SocketControlMessageBufferSize)
 
 		for {
 			packetBufp := s.packetBufPool.Get().(*[]byte)
 			packetBuf := *packetBufp
 			recvBuf := packetBuf[s.packetBufFrontHeadroom : s.packetBufFrontHeadroom+s.packetBufRecvSize]
 
-			n, oobn, flags, clientAddrPort, err := s.serverConn.ReadMsgUDPAddrPort(recvBuf, oobBuf)
+			n, cmsgn, flags, clientAddrPort, err := s.serverConn.ReadMsgUDPAddrPort(recvBuf, cmsgBuf)
 			if err != nil {
 				if errors.Is(err, os.ErrDeadlineExceeded) {
 					s.packetBufPool.Put(packetBufp)
@@ -376,9 +376,9 @@ func (s *UDPSessionRelay) Start() error {
 				entry.maxClientPacketSize = zerocopy.MaxPacketSizeForAddr(s.mtu, clientAddrPort.Addr())
 			}
 
-			entry.clientOobCache, err = conn.UpdateOobCache(entry.clientOobCache, oobBuf[:oobn], s.logger)
+			entry.clientPktinfoCache, err = conn.UpdatePktinfoCache(entry.clientPktinfoCache, cmsgBuf[:cmsgn], s.logger)
 			if err != nil {
-				s.logger.Warn("Failed to process OOB from serverConn",
+				s.logger.Warn("Failed to process socket control messages from serverConn",
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
@@ -557,7 +557,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 			continue
 		}
 
-		_, _, err = s.serverConn.WriteMsgUDPAddrPort(packetBuf[packetStart:packetStart+packetLength], entry.clientOobCache, entry.clientAddrPort)
+		_, _, err = s.serverConn.WriteMsgUDPAddrPort(packetBuf[packetStart:packetStart+packetLength], entry.clientPktinfoCache, entry.clientAddrPort)
 		if err != nil {
 			s.logger.Warn("Failed to write packet to serverConn",
 				zap.String("server", s.serverName),

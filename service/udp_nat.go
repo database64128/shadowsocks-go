@@ -17,7 +17,7 @@ import (
 
 // natEntry is an entry in the NAT table.
 type natEntry struct {
-	clientOobCache      []byte
+	clientPktinfoCache  []byte
 	natConn             *net.UDPConn
 	natConnRecvBufSize  int
 	natConnSendCh       chan queuedPacket
@@ -126,14 +126,14 @@ func (s *UDPNATRelay) Start() error {
 	go func() {
 		defer s.wg.Done()
 
-		oobBuf := make([]byte, conn.UDPOOBBufferSize)
+		cmsgBuf := make([]byte, conn.SocketControlMessageBufferSize)
 
 		for {
 			packetBufp := s.packetBufPool.Get().(*[]byte)
 			packetBuf := *packetBufp
 			recvBuf := packetBuf[s.packetBufFrontHeadroom : s.packetBufFrontHeadroom+s.packetBufRecvSize]
 
-			n, oobn, flags, clientAddrPort, err := s.serverConn.ReadMsgUDPAddrPort(recvBuf, oobBuf)
+			n, cmsgn, flags, clientAddrPort, err := s.serverConn.ReadMsgUDPAddrPort(recvBuf, cmsgBuf)
 			if err != nil {
 				if errors.Is(err, os.ErrDeadlineExceeded) {
 					s.packetBufPool.Put(packetBufp)
@@ -334,9 +334,9 @@ func (s *UDPNATRelay) Start() error {
 				}
 			}
 
-			entry.clientOobCache, err = conn.UpdateOobCache(entry.clientOobCache, oobBuf[:oobn], s.logger)
+			entry.clientPktinfoCache, err = conn.UpdatePktinfoCache(entry.clientPktinfoCache, cmsgBuf[:cmsgn], s.logger)
 			if err != nil {
-				s.logger.Warn("Failed to process OOB from serverConn",
+				s.logger.Warn("Failed to process socket control messages from serverConn",
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
@@ -505,7 +505,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 			continue
 		}
 
-		_, _, err = s.serverConn.WriteMsgUDPAddrPort(packetBuf[packetStart:packetStart+packetLength], entry.clientOobCache, clientAddrPort)
+		_, _, err = s.serverConn.WriteMsgUDPAddrPort(packetBuf[packetStart:packetStart+packetLength], entry.clientPktinfoCache, clientAddrPort)
 		if err != nil {
 			s.logger.Warn("Failed to write packet to serverConn",
 				zap.String("server", s.serverName),
