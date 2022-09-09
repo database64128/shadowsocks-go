@@ -7,14 +7,14 @@ require (
 	github.com/oschwald/geoip2-golang v1.8.0
 	go.uber.org/zap v1.23.0
 	go4.org/netipx v0.0.0-20220812043211-3cc044ffd68d
-	golang.org/x/exp v0.0.0-20220907003533-145caa8ea1d0
-	golang.org/x/net v0.0.0-20220907135653-1e95f45603a7
-	golang.org/x/sys v0.0.0-20220908164124-27713097b956
+	golang.org/x/exp v0.0.0-20220909145303-c79614ebc70f
+	golang.org/x/net v0.0.0-20220909164309-bea034e7d591
+	golang.org/x/sys v0.0.0-20220909162455-aba9fc2a8ff2
 	lukechampine.com/blake3 v1.1.7
 )
 
 require (
-	github.com/klauspost/cpuid/v2 v2.1.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.1.1 // indirect
 	github.com/oschwald/maxminddb-golang v1.10.0 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.8.0 // indirect
