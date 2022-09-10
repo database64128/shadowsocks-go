@@ -7,7 +7,7 @@ require (
 	github.com/oschwald/geoip2-golang v1.8.0
 	go.uber.org/zap v1.23.0
 	go4.org/netipx v0.0.0-20220812043211-3cc044ffd68d
-	golang.org/x/exp v0.0.0-20220909145303-c79614ebc70f
+	golang.org/x/exp v0.0.0-20220909182711-5c715a9e8561
 	golang.org/x/net v0.0.0-20220909164309-bea034e7d591
 	golang.org/x/sys v0.0.0-20220909162455-aba9fc2a8ff2
 	lukechampine.com/blake3 v1.1.7
