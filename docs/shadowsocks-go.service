@@ -1,0 +1,10 @@
+[Unit]
+Description=Shadowsocks Go Proxy Platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/shadowsocks-go -confPath /etc/shadowsocks-go/config.json -suppressTimestamps
+
+[Install]
+WantedBy=multi-user.target

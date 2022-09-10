@@ -3,8 +3,10 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/database64128/shadowsocks-go.svg)](https://pkg.go.dev/github.com/database64128/shadowsocks-go)
 [![Test](https://github.com/database64128/shadowsocks-go/actions/workflows/test.yml/badge.svg)](https://github.com/database64128/shadowsocks-go/actions/workflows/test.yml)
 [![Release](https://github.com/database64128/shadowsocks-go/actions/workflows/release.yml/badge.svg)](https://github.com/database64128/shadowsocks-go/actions/workflows/release.yml)
-[![AUR version](https://img.shields.io/aur/version/shadowsocks-go?label=shadowsocks-go)](https://aur.archlinux.org/packages/shadowsocks-go)
-[![AUR version](https://img.shields.io/aur/version/shadowsocks-go-git?label=shadowsocks-go-git)](https://aur.archlinux.org/packages/shadowsocks-go-git)
+[![shadowsocks-go AUR package](https://img.shields.io/aur/version/shadowsocks-go?label=shadowsocks-go)](https://aur.archlinux.org/packages/shadowsocks-go)
+[![shadowsocks-go-git AUR package](https://img.shields.io/aur/version/shadowsocks-go-git?label=shadowsocks-go-git)](https://aur.archlinux.org/packages/shadowsocks-go-git)
+[![shadowsocks-go-domain-sets-git AUR package](https://img.shields.io/aur/version/shadowsocks-go-domain-sets-git?label=shadowsocks-go-domain-sets-git)](https://aur.archlinux.org/packages/shadowsocks-go-domain-sets-git)
+[![shadowsocks-go-geolite2-country-git AUR package](https://img.shields.io/aur/version/shadowsocks-go-geolite2-country-git?label=shadowsocks-go-geolite2-country-git)](https://aur.archlinux.org/packages/shadowsocks-go-geolite2-country-git)
 
 A versatile and efficient proxy platform for secure communications.
 
@@ -18,15 +20,17 @@ A versatile and efficient proxy platform for secure communications.
 
 ## Configuration Examples
 
+All configuration examples and systemd unit files can be found in the [docs](docs) directory.
+
 ### 1. Shadowsocks 2022 Server
 
-The `clients` field can be left empty. A default "direct" client will be automatically added.
+The `clients` field can be omitted or left empty. A default "direct" client will be automatically added.
 
 On production servers, you may want to set `udpBatchSize` to a lower value like 4 to reduce memory usage while still benefiting from `recvmmsg(2)` and `sendmmsg(2)`.
 
 UDP packets may be padded to up to the maximum packet size calculated from `mtu`. If the server may be used from a PPPoE connection, `mtu` should be reduced to 1492. If the client-to-server PMTU is unknown, padding can be completely disabled by setting `paddingPolicy` to `NoPadding`.
 
-```jsonc
+```json
 {
     "servers": [
         {
@@ -51,7 +55,7 @@ UDP packets may be padded to up to the maximum packet size calculated from `mtu`
 
 By default, the router uses the configured DNS server to resolve domain names and match IP rules. The resolved IP addresses are only used for matching IP rules. Requests are made using the original domain name. To disable IP rule matching for domain names, set `disableNameResolutionForIPRules` to true.
 
-```jsonc
+```json
 {
     "servers": [
         {
@@ -105,23 +109,27 @@ By default, the router uses the configured DNS server to resolve domain names an
     "router": {
         "defaultTCPClientName": "ss-2022",
         "defaultUDPClientName": "ss-2022",
-        "geoLite2CountryDbPath": "Country.mmdb",
+        "geoLite2CountryDbPath": "/usr/share/shadowsocks-go/Country.mmdb",
         "domainSets": [
             {
                 "name": "category-ads-all",
-                "path": "ss-go-category-ads-all.txt"
+                "type": "gob",
+                "path": "/usr/share/shadowsocks-go/ss-go-gob-category-ads-all"
             },
             {
                 "name": "private",
-                "path": "ss-go-private.txt"
+                "type": "gob",
+                "path": "/usr/share/shadowsocks-go/ss-go-gob-private"
             },
             {
                 "name": "cn",
-                "path": "ss-go-cn.txt"
+                "type": "gob",
+                "path": "/usr/share/shadowsocks-go/ss-go-gob-cn"
             },
             {
                 "name": "geolocation-!cn@cn",
-                "path": "ss-go-geolocation-!cn@cn.txt"
+                "type": "gob",
+                "path": "/usr/share/shadowsocks-go/ss-go-gob-geolocation-!cn@cn"
             }
         ],
         "routes": [
@@ -171,182 +179,88 @@ By default, the router uses the configured DNS server to resolve domain names an
 }
 ```
 
-`Country.mmdb` can be downloaded from https://github.com/Dreamacro/maxmind-geoip.
-
-To generate the domain sets used above, clone https://github.com/v2fly/domain-list-community and build the generator, then generate plaintext lists:
-
-```bash
-./domain-list-community -exportlists 'category-ads-all,private,cn,geolocation-!cn'
-```
-
-Clone and build the converter (https://github.com/database64128/cubic-go-playground/blob/main/domainset/converter/main.go), then convert the plaintext lists to domain set files:
-
-```bash
-./converter -in category-ads-all.txt
-./converter -in private.txt
-./converter -in cn.txt
-./converter -in 'geolocation-!cn.txt' -out 'ss-go-geolocation-!cn@cn.txt' -tag cn
-```
-
 ### 3. Feature Showcase
 
-```jsonc
-{
-    "servers": [
-        {
-            "name": "socks5",
-            "listen": ":1080",
-            "protocol": "socks5",
-            "listenerFwmark": 52140,
-            "enableTCP": true,
-            "listenerTFO": true,
-            "enableUDP": true,
-            "mtu": 1500
-        },
-        {
-            "name": "http",
-            "listen": ":8080",
-            "protocol": "http",
-            "listenerFwmark": 52140,
-            "enableTCP": true,
-            "listenerTFO": true
-        },
-        {
-            "name": "tunnel",
-            "listen": ":53",
-            "protocol": "direct",
-            "listenerFwmark": 52140,
-            "enableTCP": true,
-            "listenerTFO": true,
-            "enableUDP": true,
-            "mtu": 1500,
-            "tunnelRemoteAddress": "[2606:4700:4700::1111]:53",
-            "tunnelUDPTargetOnly": false
-        },
-        {
-            "name": "ss-2022",
-            "listen": ":20220",
-            "protocol": "2022-blake3-aes-128-gcm",
-            "listenerFwmark": 52140,
-            "enableTCP": true,
-            "listenerTFO": true,
-            "enableUDP": true,
-            "mtu": 1500,
-            "psk": "qQln3GlVCZi5iJUObJVNCw==",
-            "uPSKs": [
-                "oE/s2z9Q8EWORAB8B3UCxw=="
-            ],
-            "paddingPolicy": "",
-            "rejectPolicy": ""
-        }
-    ],
-    "clients": [
-        {
-            "name": "ss-2022-a",
-            "endpoint": "[2001:db8:bd63:362c:2071:a0f6:827:ab6a]:20220",
-            "protocol": "2022-blake3-aes-128-gcm",
-            "dialerFwmark": 52140,
-            "enableTCP": true,
-            "dialerTFO": true,
-            "enableUDP": true,
-            "mtu": 1500,
-            "psk": "qQln3GlVCZi5iJUObJVNCw==",
-            "iPSKs": [
-                "oE/s2z9Q8EWORAB8B3UCxw=="
-            ],
-            "paddingPolicy": ""
-        },
-        {
-            "name": "ss-2022-b",
-            "endpoint": "[2001:db8:a2bf:f3ef:903a:4fd1:f986:5934]:20220",
-            "protocol": "2022-blake3-aes-128-gcm",
-            "dialerFwmark": 52140,
-            "enableTCP": true,
-            "dialerTFO": true,
-            "enableUDP": true,
-            "mtu": 1500,
-            "psk": "QzhDwx0lKZ+0Sustgwtjtw==",
-            "iPSKs": [
-                "McxLxNcqHUb01ZedJfp55g=="
-            ],
-            "paddingPolicy": ""
-        },
-        {
-            "name": "direct",
-            "protocol": "direct",
-            "dialerFwmark": 52140,
-            "enableTCP": true,
-            "dialerTFO": true,
-            "enableUDP": true,
-            "mtu": 1500
-        }
-    ],
-    "dns": [
-        {
-            "name": "cf-v6",
-            "addrPort": "[2606:4700:4700::1111]:53",
-            "tcpClientName": "ss-2022-a",
-            "udpClientName": "ss-2022-a"
-        }
-    ],
-    "router": {
-        "disableNameResolutionForIPRules": false,
-        "defaultTCPClientName": "ss-2022-a",
-        "defaultUDPClientName": "ss-2022-a",
-        "geoLite2CountryDbPath": "Country.mmdb",
-        "domainSets": [
-            {
-                "name": "example",
-                "path": "ss-go-example.txt"
-            }
-        ],
-        "routes": [
-            {
-                "name": "example",
-                "network": "udp",
-                "clientName": "ss-2022-b",
-                "resolverName": "cf-v6",
-                "serverNames": [
-                    "socks5",
-                    "tunnel"
-                ],
-                "domains": [
-                    "example.com"
-                ],
-                "domainSets": [
-                    "example"
-                ],
-                "prefixes": [
-                    "::/0"
-                ],
-                "sourcePrefixes": [
-                    "127.0.0.1/32",
-                    "::1/128"
-                ],
-                "ports": [
-                    "443"
-                ],
-                "sourcePorts": [
-                    12345,
-                    54321
-                ],
-                "geoIPCountries": [
-                    "US"
-                ],
-                "invertDomains": false,
-                "invertPrefixes": false,
-                "invertPorts": false,
-                "invertSourcePrefixes": false,
-                "invertSourcePorts": false,
-                "invertGeoIPCountries": false
-            }
-        ]
-    },
-    "udpBatchMode": "",
-    "udpBatchSize": 64,
-    "udpPreferIPv6": true
-}
+See [docs/config.json](docs/config.json).
+
+## Domain Sets and IP Geolocation Database
+
+shadowsocks-go has its own domain set file format, because other formats I've seen are all horrible!
+
+And don't worry, we have a simple conversion tool to convert between different formats: [shadowsocks-go-domain-set-converter](cmd/shadowsocks-go-domain-set-converter/main.go)
+
+A domain set text file optionally starts with a capacity hint comment. The conversion tool can automatically generate a capacity hint for you. There are 4 types of domain matching rules:
+
+- `domain:` Match the domain.
+- `suffix:` Match the domain and its subdomains.
+- `keyword:` Match if the domain contains the keyword.
+- `regexp:` Match if the domain matches the regular expression.
+
+Example of a domain set text file:
+
 ```
+# shadowsocks-go domain set capacity hint 1 6 1 1 DSKR
+domain:www.example.net
+suffix:example.com
+suffix:github.com
+suffix:cube64128.xyz
+suffix:api.ipify.org
+suffix:api6.ipify.org
+suffix:archlinux.org
+keyword:dev
+regexp:^adservice\.google\.([a-z]{2}|com?)(\.[a-z]{2})?$
+```
+
+When loading a domain set text file, shadowsocks-go loads all suffixes as-is into a single map. This achieves the best balance between startup speed, memory usage and match speed. If you want better performance, you can use the conversion tool to convert the text file to the gob format.
+
+The gob format is basically the same thing, but has everything binary serialized and uses a trie to store and match suffixes. The conversion tool loads the suffixes to build a suffix trie, and then serializes the trie and the other rules to a gob file. Quite neat, isn't it?
+
+Of course, I'm not an algorithm guru, so the whole process still has a lot of inefficiencies. But it's good enough for me. If you have brilliant new ideas, please let me know!
+
+### Commonly Used Domain Sets
+
+A set of commonly used domain sets are updated weekly at [shadowsocks-go-domain-sets](https://github.com/database64128/shadowsocks-go-domain-sets) in the release branch. Arch Linux users can install the [shadowsocks-go-domain-sets-git](https://aur.archlinux.org/packages/shadowsocks-go-domain-sets-git/) package from the AUR.
+
+### Manually Generate Domain Sets
+
+To generate domain sets using https://github.com/v2fly/domain-list-community as the source, clone the repository and build the generator, then generate plaintext lists:
+
+```bash
+./domain-list-community -exportlists 'google,netflix'
+```
+
+Use `shadowsocks-go-domain-set-converter` to convert the plaintext lists to domain set files:
+
+```bash
+shadowsocks-go-domain-set-converter -inDlc google.txt -outGob ss-go-gob-google
+shadowsocks-go-domain-set-converter -inDlc netflix.txt -outGob ss-go-gob-netflix
+```
+
+### IP Geolocation Database
+
+shadowsocks-go uses the MaxMind GeoLite2 Country database for IP geolocation. The database can be downloaded from https://github.com/Dreamacro/maxmind-geoip. Arch Linux users can install the [shadowsocks-go-geolite2-country-git](https://aur.archlinux.org/packages/shadowsocks-go-geolite2-country-git/) package from the AUR.
+
+## Security
+
+### 1. Packet Padding Policy
+
+Packet padding policies are implemented for the Shadowsocks 2022 protocol. A packet padding policy controls whether to add padding to outgoing packets.
+
+When adding padding, the MTU is taken into account, so the size of the padded packet won't exceed the MTU. Therefore it is important to set the MTU correctly.
+
+The padding policy can be configured individually for each Shadowsocks 2022 client and server.
+
+- `PadPlainDNS`: Add padding if the destination port is 53. (Default)
+- `PadAll`: Pad all packets.
+- `NoPadding`: No padding.
+
+### 2. TCP Reject Policy
+
+Reject policies are implemented for all TCP servers. A TCP server's reject policy is invoked when an accepted connection fails the protocol's handshake process. Each protocol has its own default reject policy. Custom reject policies can be useful for censorship circumvention servers to evade active probing.
+
+- `ForceReset`: Forcibly reset the connection. Many protocols behave this way when invalid data is received. (Default for Shadowsocks 2022)
+- `CloseWriteDrain`: Send FIN and keep reading until EOF. This is typically how legacy Shadowsocks servers handle replay.
+- `ReplyWithGibberish`: Keep reading and send random garbage after each read returns. This emulates how a legacy Shadowsocks server without replay protection behaves, except it doesn't actually relay the replayed payload.
 
 ## License
 
