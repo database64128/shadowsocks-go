@@ -20,6 +20,8 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
       fail-fast: false
     runs-on: ${{ matrix.os }}
+    env:
+      GOAMD64: v3
     defaults:
       run:
         shell: bash
@@ -34,7 +36,6 @@ jobs:
 
       - name: Build
         run: |
-          export GOAMD64=v3
           go build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go
           go build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go-domain-set-converter
 
