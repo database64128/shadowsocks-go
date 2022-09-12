@@ -87,9 +87,6 @@ func (cc *ClientConfig) UDPClient(logger *zap.Logger, preferIPv6 bool) (zerocopy
 		if err != nil {
 			return nil, err
 		}
-
-		// Map to v6 since natConn is v6 socket.
-		endpointAddrPort = conn.AddrPortv4Mappedv6(endpointAddrPort)
 	}
 
 	switch cc.Protocol {

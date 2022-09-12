@@ -324,20 +324,3 @@ func TestAddrPortMappedEqual(t *testing.T) {
 		t.Error("AddrPortMappedEqual(addrPort4in6, addrIPAddrPort) returned true.")
 	}
 }
-
-func TestAddrPortv4Mappedv6(t *testing.T) {
-	ap := AddrPortv4Mappedv6(addrPort4)
-	if ap != addrPort4in6 {
-		t.Errorf("AddrPortv4Mappedv6(addrPort4) returned %s, expected %s.", ap, addrPort4in6)
-	}
-
-	ap = AddrPortv4Mappedv6(addrPort4in6)
-	if ap != addrPort4in6 {
-		t.Errorf("AddrPortv4Mappedv6(addrPort4in6) returned %s, expected %s.", ap, addrPort4in6)
-	}
-
-	ap = AddrPortv4Mappedv6(addrIPAddrPort)
-	if ap != addrIPAddrPort {
-		t.Errorf("AddrPortv4Mappedv6(addrIPAddrPort) returned %s, expected %s.", ap, addrIPAddrPort)
-	}
-}

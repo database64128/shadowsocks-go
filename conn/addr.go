@@ -187,15 +187,3 @@ func AddrPortMappedEqual(l, r netip.AddrPort) bool {
 	}
 	return l.Port() == r.Port() && l.Addr().Unmap() == r.Addr().Unmap()
 }
-
-// AddrPortv4Mappedv6 converts an IPv4 address to an IPv4-mapped IPv6 address.
-// This function does nothing if addrPort is an IPv6 address.
-func AddrPortv4Mappedv6(addrPort netip.AddrPort) netip.AddrPort {
-	if addrPort.Addr().Is4() {
-		addr6 := addrPort.Addr().As16()
-		ip := netip.AddrFrom16(addr6)
-		port := addrPort.Port()
-		return netip.AddrPortFrom(ip, port)
-	}
-	return addrPort
-}
