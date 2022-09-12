@@ -35,34 +35,6 @@ func TestAddrIsIP(t *testing.T) {
 	}
 }
 
-func TestAddrMappedEquals(t *testing.T) {
-	if !addrIP.MappedEquals(addrIP) {
-		t.Error("addrIP.MappedEquals(addrIP) returned false.")
-	}
-
-	if !addrDomain.MappedEquals(addrDomain) {
-		t.Error("addrDomain.MappedEquals(addrDomain) returned false.")
-	}
-
-	addr4 := AddrFromIPPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 1080))
-	addr4in6 := AddrFromIPPort(netip.AddrPortFrom(netip.AddrFrom16([16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1}), 1080))
-	if !addr4.MappedEquals(addr4in6) {
-		t.Error("addr4.MappedEquals(addr4in6) returned false.")
-	}
-
-	if addrIP.MappedEquals(addrDomain) {
-		t.Error("addrIP.MappedEquals(addrDomain) returned true.")
-	}
-
-	if addrIP.MappedEquals(addr4) {
-		t.Error("addrIP.MappedEquals(addr4) returned true.")
-	}
-
-	if addrIP.MappedEquals(addr4in6) {
-		t.Error("addrIP.MappedEquals(addr4in6) returned true.")
-	}
-}
-
 func TestAddrIP(t *testing.T) {
 	if addrIP.IP() != addrIPAddr {
 		t.Errorf("addrIP.IP() returned %s, expected %s.", addrIP.IP(), addrIPAddr)

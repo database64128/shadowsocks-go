@@ -23,19 +23,6 @@ func (a Addr) IsIP() bool {
 	return a.ip.IsValid()
 }
 
-// MappedEquals returns whether the two addresses point to the same endpoint.
-// An IPv4 address and an IPv4-mapped IPv6 address pointing to the same endpoint are considered equal.
-// For example, 1.1.1.1:53 and [::ffff:1.1.1.1]:53 are considered equal.
-func (a Addr) MappedEquals(b Addr) bool {
-	if a == b {
-		return true
-	}
-	if a.IsIP() && b.IsIP() {
-		return a.port == b.port && a.ip.Unmap() == b.ip.Unmap()
-	}
-	return false
-}
-
 // IP returns the IP address.
 // If the address is a domain name, the returned netip.Addr is a zero value.
 func (a Addr) IP() netip.Addr {
@@ -178,12 +165,17 @@ func ParseAddr(s string) (Addr, error) {
 	return AddrFromHostPort(host, port)
 }
 
+type addrPortHeader struct {
+	ip   [16]byte
+	z    unsafe.Pointer
+	port uint16
+}
+
 // AddrPortMappedEqual returns whether the two addresses point to the same endpoint.
 // An IPv4 address and an IPv4-mapped IPv6 address pointing to the same endpoint are considered equal.
 // For example, 1.1.1.1:53 and [::ffff:1.1.1.1]:53 are considered equal.
 func AddrPortMappedEqual(l, r netip.AddrPort) bool {
-	if l == r {
-		return true
-	}
-	return l.Port() == r.Port() && l.Addr().Unmap() == r.Addr().Unmap()
+	lp := (*addrPortHeader)(unsafe.Pointer(&l))
+	rp := (*addrPortHeader)(unsafe.Pointer(&r))
+	return lp.ip == rp.ip && lp.port == rp.port
 }
