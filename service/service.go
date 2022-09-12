@@ -27,11 +27,11 @@ type Relay interface {
 	Stop() error
 }
 
-// ServiceConfig is the main configuration structure.
+// Config is the main configuration structure.
 // It may be marshaled as or unmarshaled from JSON.
 // Call the Start method to start all configured services.
 // Call the Stop method to properly close all running services.
-type ServiceConfig struct {
+type Config struct {
 	Servers       []ServerConfig       `json:"servers"`
 	Clients       []ClientConfig       `json:"clients"`
 	DNS           []dns.ResolverConfig `json:"dns"`
@@ -48,7 +48,7 @@ type ServiceConfig struct {
 // Start starts all configured services.
 //
 // Initialization order: clients -> DNS -> router -> servers
-func (sc *ServiceConfig) Start(logger *zap.Logger) error {
+func (sc *Config) Start(logger *zap.Logger) error {
 	if len(sc.Servers) == 0 {
 		return errors.New("no services to start")
 	}
@@ -165,7 +165,7 @@ func (sc *ServiceConfig) Start(logger *zap.Logger) error {
 }
 
 // Stop stops all running services.
-func (sc *ServiceConfig) Stop() {
+func (sc *Config) Stop() {
 	for _, s := range sc.services {
 		if err := s.Stop(); err != nil {
 			sc.logger.Warn("An error occurred while stopping service",

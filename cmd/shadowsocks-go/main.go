@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,12 +11,13 @@ import (
 	"github.com/database64128/shadowsocks-go/logging"
 	"github.com/database64128/shadowsocks-go/service"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var (
-	confPath           = flag.String("confPath", "", "Path to JSON configuration file")
-	suppressTimestamps = flag.Bool("suppressTimestamps", false, "Omit timestamps in logs")
-	logLevel           = flag.String("logLevel", "info", "Set custom log level. Available levels: debug, info, warn, error, dpanic, panic, fatal")
+	confPath = flag.String("confPath", "", "Path to JSON configuration file")
+	zapConf  = flag.String("zapConf", "", "Preset name or path to JSON configuration file for building the zap logger.\nAvailable presets: console (default), systemd, production, development")
+	logLevel = flag.String("logLevel", "", "Override the logger configuration's log level.\nAvailable levels: debug, info, warn, error, dpanic, panic, fatal")
 )
 
 func main() {
@@ -29,17 +29,50 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *suppressTimestamps {
-		log.SetFlags(log.Flags() &^ (log.Ldate | log.Ltime))
+	var (
+		zc zap.Config
+		sc service.Config
+	)
+
+	switch *zapConf {
+	case "console", "":
+		zc = logging.NewProductionConsoleConfig(false)
+	case "systemd":
+		zc = logging.NewProductionConsoleConfig(true)
+	case "production":
+		zc = zap.NewProductionConfig()
+	case "development":
+		zc = zap.NewDevelopmentConfig()
+	default:
+		data, err := os.ReadFile(*zapConf)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		err = json.Unmarshal(data, &zc)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 	}
 
-	logger, err := logging.NewProductionConsole(*suppressTimestamps, *logLevel)
+	if *logLevel != "" {
+		l, err := zapcore.ParseLevel(*logLevel)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		zc.Level.SetLevel(l)
+	}
+
+	logger, err := zc.Build()
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
 	defer logger.Sync()
 
-	cj, err := os.ReadFile(*confPath)
+	data, err := os.ReadFile(*confPath)
 	if err != nil {
 		logger.Fatal("Failed to load config",
 			zap.Stringp("confPath", confPath),
@@ -47,8 +80,7 @@ func main() {
 		)
 	}
 
-	var sc service.ServiceConfig
-	err = json.Unmarshal(cj, &sc)
+	err = json.Unmarshal(data, &sc)
 	if err != nil {
 		logger.Fatal("Failed to unmarshal config",
 			zap.Stringp("confPath", confPath),

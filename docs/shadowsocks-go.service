@@ -4,7 +4,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/shadowsocks-go -confPath /etc/shadowsocks-go/config.json -suppressTimestamps
+ExecStart=/usr/bin/shadowsocks-go -confPath /etc/shadowsocks-go/config.json -zapConf systemd
 
 [Install]
 WantedBy=multi-user.target

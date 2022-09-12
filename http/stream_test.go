@@ -6,13 +6,13 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
-	"github.com/database64128/shadowsocks-go/logging"
 	"github.com/database64128/shadowsocks-go/pipe"
 	"github.com/database64128/shadowsocks-go/zerocopy"
+	"go.uber.org/zap"
 )
 
 func TestHttpStreamReadWriter(t *testing.T) {
-	logger, err := logging.NewProductionConsole(false, "debug")
+	logger, err := zap.NewDevelopment()
 	if err != nil {
 		t.Fatal(err)
 	}
