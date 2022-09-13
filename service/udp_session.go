@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -17,6 +18,17 @@ import (
 
 // session keeps track of a UDP session.
 type session struct {
+	// state synchronizes session initialization and shutdown.
+	//
+	//  - Swap the natConn in to signal initialization completion.
+	//  - Swap the serverConn in to signal shutdown.
+	//
+	// Callers must check the swapped-out value to determine the next action.
+	//
+	//  - During initialization, if the swapped-out value is non-nil,
+	//    initialization must not proceed.
+	//  - During shutdown, if the swapped-out value is nil, preceed to the next entry.
+	state               *atomic.Pointer[net.UDPConn]
 	clientAddrPort      netip.AddrPort
 	clientPktinfoCache  []byte
 	natConn             *net.UDPConn
@@ -50,6 +62,7 @@ type UDPSessionRelay struct {
 	packetBufPool            *sync.Pool
 	mu                       sync.Mutex
 	wg                       sync.WaitGroup
+	mwg                      sync.WaitGroup
 	table                    map[uint64]*session
 	relayServerConnToNatConn func(csid uint64, entry *session)
 	relayNatConnToServerConn func(csid uint64, entry *session)
@@ -122,10 +135,10 @@ func (s *UDPSessionRelay) Start() error {
 	}
 	s.serverConn = serverConn
 
-	s.wg.Add(1)
+	s.mwg.Add(1)
 
 	go func() {
-		defer s.wg.Done()
+		defer s.mwg.Done()
 
 		cmsgBuf := make([]byte, conn.SocketControlMessageBufferSize)
 
@@ -221,6 +234,7 @@ func (s *UDPSessionRelay) Start() error {
 				}
 
 				entry = &session{
+					state:               &atomic.Pointer[net.UDPConn]{},
 					clientAddrPort:      clientAddrPort,
 					natConnSendCh:       make(chan queuedPacket, sendChannelCapacity),
 					serverConnUnpacker:  serverConnUnpacker,
@@ -311,15 +325,6 @@ func (s *UDPSessionRelay) Start() error {
 						)
 					}
 
-					// Assign natConn to entry before setting read deadline.
-					// This ensures that, when stopping, if we missed the zeroed NAT timeout,
-					// the subsequent for loop will take care of updating the read deadline.
-					entry.natConn = natConn
-					entry.natConnRecvBufSize = natConnMaxPacketSize
-					entry.natConnPacker = natConnPacker
-					entry.natConnUnpacker = natConnUnpacker
-					entry.serverConnPacker = serverConnPacker
-
 					err = natConn.SetReadDeadline(time.Now().Add(s.natTimeout))
 					if err != nil {
 						s.logger.Warn("Failed to set read deadline on natConn",
@@ -334,8 +339,20 @@ func (s *UDPSessionRelay) Start() error {
 						return
 					}
 
+					oldState := entry.state.Swap(natConn)
+					if oldState != nil {
+						natConn.Close()
+						return
+					}
+
 					// No more early returns!
 					sendChClean = true
+
+					entry.natConn = natConn
+					entry.natConnRecvBufSize = natConnMaxPacketSize
+					entry.natConnPacker = natConnPacker
+					entry.natConnUnpacker = natConnUnpacker
+					entry.serverConnPacker = serverConnPacker
 
 					s.wg.Add(1)
 
@@ -596,15 +613,18 @@ func (s *UDPSessionRelay) Stop() error {
 		return err
 	}
 
-	s.natTimeout = 0
+	// Wait for serverConn receive goroutines to exit,
+	// so there won't be any new sessions added to the table.
+	s.mwg.Wait()
 
 	s.mu.Lock()
 	for csid, entry := range s.table {
-		if entry.natConn == nil {
+		natConn := entry.state.Swap(s.serverConn)
+		if natConn == nil {
 			continue
 		}
 
-		if err := entry.natConn.SetReadDeadline(now); err != nil {
+		if err := natConn.SetReadDeadline(now); err != nil {
 			s.logger.Warn("Failed to set read deadline on natConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
@@ -616,6 +636,9 @@ func (s *UDPSessionRelay) Stop() error {
 	}
 	s.mu.Unlock()
 
+	// Wait for all relay goroutines to exit before closing serverConn,
+	// so in-flight packets can be written out.
 	s.wg.Wait()
+
 	return s.serverConn.Close()
 }
