@@ -91,8 +91,16 @@ type Inet6Pktinfo struct {
 	Ifindex uint32
 }
 
+const (
+	SizeofCmsghdr      = unsafe.Sizeof(Cmsghdr{})
+	SizeofInet4Pktinfo = unsafe.Sizeof(Inet4Pktinfo{})
+	SizeofInet6Pktinfo = unsafe.Sizeof(Inet6Pktinfo{})
+)
+
+const SizeofPtr = unsafe.Sizeof(uintptr(0))
+
 // SocketControlMessageBufferSize specifies the buffer size for receiving socket control messages.
-const SocketControlMessageBufferSize = unsafe.Sizeof(Cmsghdr{}) + (unsafe.Sizeof(Inet6Pktinfo{})+unsafe.Sizeof(Cmsghdr{}.Len)-1) & ^(unsafe.Sizeof(Cmsghdr{}.Len)-1)
+const SocketControlMessageBufferSize = SizeofCmsghdr + (SizeofInet6Pktinfo+SizeofPtr-1) & ^(SizeofPtr-1)
 
 // ParsePktinfoCmsg parses a single socket control message of type IP_PKTINFO or IPV6_PKTINFO,
 // and returns the IP address and index of the network interface the packet was received from,
@@ -100,19 +108,19 @@ const SocketControlMessageBufferSize = unsafe.Sizeof(Cmsghdr{}) + (unsafe.Sizeof
 //
 // This function is only implemented for Linux and Windows. On other platforms, this is a no-op.
 func ParsePktinfoCmsg(cmsg []byte) (netip.Addr, uint32, error) {
-	if len(cmsg) < int(unsafe.Sizeof(Cmsghdr{})) {
+	if len(cmsg) < int(SizeofCmsghdr) {
 		return netip.Addr{}, 0, fmt.Errorf("control message length %d is shorter than cmsghdr length", len(cmsg))
 	}
 
 	cmsghdr := (*Cmsghdr)(unsafe.Pointer(&cmsg[0]))
 
 	switch {
-	case cmsghdr.Level == windows.IPPROTO_IP && cmsghdr.Type == windows.IP_PKTINFO && len(cmsg) >= int(unsafe.Sizeof(Cmsghdr{})+unsafe.Sizeof(Inet4Pktinfo{})):
-		pktinfo := (*Inet4Pktinfo)(unsafe.Pointer(&cmsg[unsafe.Sizeof(Cmsghdr{})]))
+	case cmsghdr.Level == windows.IPPROTO_IP && cmsghdr.Type == windows.IP_PKTINFO && len(cmsg) >= int(SizeofCmsghdr+SizeofInet4Pktinfo):
+		pktinfo := (*Inet4Pktinfo)(unsafe.Pointer(&cmsg[SizeofCmsghdr]))
 		return netip.AddrFrom4(pktinfo.Addr), pktinfo.Ifindex, nil
 
-	case cmsghdr.Level == windows.IPPROTO_IPV6 && cmsghdr.Type == windows.IPV6_PKTINFO && len(cmsg) >= int(unsafe.Sizeof(Cmsghdr{})+unsafe.Sizeof(Inet6Pktinfo{})):
-		pktinfo := (*Inet6Pktinfo)(unsafe.Pointer(&cmsg[unsafe.Sizeof(Cmsghdr{})]))
+	case cmsghdr.Level == windows.IPPROTO_IPV6 && cmsghdr.Type == windows.IPV6_PKTINFO && len(cmsg) >= int(SizeofCmsghdr+SizeofInet6Pktinfo):
+		pktinfo := (*Inet6Pktinfo)(unsafe.Pointer(&cmsg[SizeofCmsghdr]))
 		return netip.AddrFrom16(pktinfo.Addr), pktinfo.Ifindex, nil
 
 	default:
