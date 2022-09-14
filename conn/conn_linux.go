@@ -154,6 +154,21 @@ func AddrPortToSockaddrValue(addrPort netip.AddrPort) (rsa6 unix.RawSockaddrInet
 	return
 }
 
+func SockaddrValueToAddrPort(rsa6 unix.RawSockaddrInet6, namelen uint32) (netip.AddrPort, error) {
+	p := (*[2]byte)(unsafe.Pointer(&rsa6.Port))
+	port := uint16(p[0])<<8 + uint16(p[1])
+	var addr netip.Addr
+	switch namelen {
+	case unix.SizeofSockaddrInet4:
+		addr = netip.AddrFrom4(*(*[4]byte)(unsafe.Pointer(&rsa6.Flowinfo)))
+	case unix.SizeofSockaddrInet6:
+		addr = netip.AddrFrom16(rsa6.Addr)
+	default:
+		return netip.AddrPort{}, fmt.Errorf("bad sockaddr length: %d", namelen)
+	}
+	return netip.AddrPortFrom(addr, port), nil
+}
+
 func AddrPortToSockaddr(addrPort netip.AddrPort) (name *byte, namelen uint32) {
 	if addrPort.Addr().Is4() {
 		rsa4 := AddrPortToSockaddrInet4(addrPort)

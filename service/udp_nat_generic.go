@@ -2,10 +2,8 @@
 
 package service
 
-func (s *UDPNATRelay) setRelayServerConnToNatConnFunc(batchMode string) {
+func (s *UDPNATRelay) setRecvAndRelayFunctions(batchMode string) {
+	s.recvFromServerConn = s.recvFromServerConnGeneric
 	s.relayServerConnToNatConn = s.relayServerConnToNatConnGeneric
-}
-
-func (s *UDPNATRelay) setRelayNatConnToServerConnFunc(batchMode string) {
 	s.relayNatConnToServerConn = s.relayNatConnToServerConnGeneric
 }

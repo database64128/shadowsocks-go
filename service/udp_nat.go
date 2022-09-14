@@ -72,6 +72,7 @@ type UDPNATRelay struct {
 	wg                       sync.WaitGroup
 	mwg                      sync.WaitGroup
 	table                    map[netip.AddrPort]*natEntry
+	recvFromServerConn       func()
 	relayServerConnToNatConn func(clientAddrPort netip.AddrPort, entry *natEntry)
 	relayNatConnToServerConn func(clientAddrPort netip.AddrPort, entry *natEntry, clientPktinfop *[]byte)
 }
@@ -117,8 +118,7 @@ func NewUDPNATRelay(
 		packetBufPool:          packetBufPool,
 		table:                  make(map[netip.AddrPort]*natEntry),
 	}
-	s.setRelayServerConnToNatConnFunc(batchMode)
-	s.setRelayNatConnToServerConnFunc(batchMode)
+	s.setRecvAndRelayFunctions(batchMode)
 	return &s
 }
 
@@ -146,7 +146,7 @@ func (s *UDPNATRelay) Start() error {
 	s.mwg.Add(1)
 
 	go func() {
-		s.recvFromServerConnGeneric()
+		s.recvFromServerConn()
 		s.mwg.Done()
 	}()
 
@@ -162,6 +162,11 @@ func (s *UDPNATRelay) Start() error {
 
 func (s *UDPNATRelay) recvFromServerConnGeneric() {
 	cmsgBuf := make([]byte, conn.SocketControlMessageBufferSize)
+
+	var (
+		packetsReceived      uint64
+		payloadBytesReceived uint64
+	)
 
 	for {
 		packetBufp := s.packetBufPool.Get().(*[]byte)
@@ -233,6 +238,9 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 			s.mu.Unlock()
 			continue
 		}
+
+		packetsReceived++
+		payloadBytesReceived += uint64(payloadLength)
 
 		var clientPktinfop *[]byte
 
@@ -399,6 +407,13 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 
 		s.mu.Unlock()
 	}
+
+	s.logger.Info("Finished receiving from serverConn",
+		zap.String("server", s.serverName),
+		zap.String("listenAddress", s.listenAddress),
+		zap.Uint64("packetsReceived", packetsReceived),
+		zap.Uint64("payloadBytesReceived", payloadBytesReceived),
+	)
 }
 
 func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrPort, entry *natEntry) {
