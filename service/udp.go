@@ -3,8 +3,6 @@ package service
 import (
 	"errors"
 	"time"
-
-	"github.com/database64128/shadowsocks-go/conn"
 )
 
 const (
@@ -32,11 +30,3 @@ const (
 )
 
 var ErrMTUTooSmall = errors.New("MTU must be at least 1280")
-
-// queuedPacket is the structure used by send channels to queue packets for sending.
-type queuedPacket struct {
-	bufp       *[]byte
-	start      int
-	length     int
-	targetAddr conn.Addr
-}

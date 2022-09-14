@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 	"golang.org/x/sys/unix"
 )
@@ -148,7 +149,10 @@ main:
 	)
 }
 
-func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.AddrPort, entry *natEntry) {
+func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.AddrPort, entry *natEntry, clientPktinfop *[]byte) {
+	clientPktinfo := *clientPktinfop
+	maxClientPacketSize := zerocopy.MaxPacketSizeForAddr(s.mtu, clientAddrPort.Addr())
+
 	frontHeadroom := entry.serverConnPacker.FrontHeadroom() - entry.natConnUnpacker.FrontHeadroom()
 	if frontHeadroom < 0 {
 		frontHeadroom = 0
@@ -187,6 +191,8 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 		smsgvec[i].Msghdr.Namelen = namelen
 		smsgvec[i].Msghdr.Iov = &siovec[i]
 		smsgvec[i].Msghdr.SetIovlen(1)
+		smsgvec[i].Msghdr.Control = &clientPktinfo[0]
+		smsgvec[i].Msghdr.SetControllen(len(clientPktinfo))
 	}
 
 	for {
@@ -205,8 +211,16 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 			continue
 		}
 
-		smsgControl := entry.clientPktinfoCache
-		smsgControlLen := len(smsgControl)
+		if cpp := entry.clientPktinfo.Load(); cpp != clientPktinfop {
+			clientPktinfo = *cpp
+			clientPktinfop = cpp
+
+			for i := range smsgvec {
+				smsgvec[i].Msghdr.Control = &clientPktinfo[0]
+				smsgvec[i].Msghdr.SetControllen(len(clientPktinfo))
+			}
+		}
+
 		var ns int
 
 		for i, msg := range rmsgvec[:nr] {
@@ -246,7 +260,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 				continue
 			}
 
-			packetStart, packetLength, err := entry.serverConnPacker.PackInPlace(bufvec[i], payloadSourceAddrPort, payloadStart, payloadLength, entry.maxClientPacketSize)
+			packetStart, packetLength, err := entry.serverConnPacker.PackInPlace(bufvec[i], payloadSourceAddrPort, payloadStart, payloadLength, maxClientPacketSize)
 			if err != nil {
 				s.logger.Warn("Failed to pack packet",
 					zap.String("server", s.serverName),
@@ -261,10 +275,6 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 
 			siovec[ns].Base = &bufvec[i][packetStart]
 			siovec[ns].SetLen(packetLength)
-			if smsgControlLen > 0 {
-				smsgvec[ns].Msghdr.Control = &smsgControl[0]
-				smsgvec[ns].Msghdr.SetControllen(smsgControlLen)
-			}
 			ns++
 			payloadBytesSent += uint64(payloadLength)
 		}

@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 	"golang.org/x/sys/unix"
 )
@@ -41,7 +42,7 @@ func (s *UDPSessionRelay) relayServerConnToNatConnSendmmsg(csid uint64, entry *s
 		payloadBytesSent uint64
 	)
 
-	dequeuedPackets := make([]queuedPacket, s.batchSize)
+	dequeuedPackets := make([]sessionQueuedPacket, s.batchSize)
 	namevec := make([]unix.RawSockaddrInet6, s.batchSize)
 	iovec := make([]unix.Iovec, s.batchSize)
 	msgvec := make([]conn.Mmsghdr, s.batchSize)
@@ -70,7 +71,7 @@ main:
 				s.logger.Warn("Failed to pack packet",
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
-					zap.Stringer("clientAddress", entry.clientAddrPort),
+					zap.Stringer("clientAddress", queuedPacket.clientAddrPort),
 					zap.Stringer("targetAddress", queuedPacket.targetAddr),
 					zap.Uint64("clientSessionID", csid),
 					zap.Error(err),
@@ -110,7 +111,7 @@ main:
 			s.logger.Warn("Failed to batch write packets to natConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", entry.clientAddrPort),
+				zap.Stringer("clientAddress", queuedPacket.clientAddrPort),
 				zap.Stringer("lastTargetAddress", dequeuedPackets[count-1].targetAddr),
 				zap.Stringer("lastWriteDestAddress", destAddrPort),
 				zap.Uint64("clientSessionID", csid),
@@ -122,7 +123,7 @@ main:
 			s.logger.Warn("Failed to set read deadline on natConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", entry.clientAddrPort),
+				zap.Stringer("clientAddress", queuedPacket.clientAddrPort),
 				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)
@@ -143,7 +144,6 @@ main:
 	s.logger.Info("Finished relay serverConn -> natConn",
 		zap.String("server", s.serverName),
 		zap.String("listenAddress", s.listenAddress),
-		zap.Stringer("clientAddress", entry.clientAddrPort),
 		zap.Stringer("lastWriteDestAddress", destAddrPort),
 		zap.Uint64("clientSessionID", csid),
 		zap.Uint64("sendmmsgCount", sendmmsgCount),
@@ -152,7 +152,11 @@ main:
 	)
 }
 
-func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *session) {
+func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *session, clientAddrInfop *sessionClientAddrInfo) {
+	clientAddrPort := clientAddrInfop.addrPort
+	clientPktinfo := clientAddrInfop.pktinfo
+	maxClientPacketSize := zerocopy.MaxPacketSizeForAddr(s.mtu, clientAddrPort.Addr())
+
 	frontHeadroom := entry.serverConnPacker.FrontHeadroom() - entry.natConnUnpacker.FrontHeadroom()
 	if frontHeadroom < 0 {
 		frontHeadroom = 0
@@ -168,13 +172,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 		payloadBytesSent uint64
 	)
 
-	// We could do better here by using a concrete unix.RawSockaddrInet6 or unix.RawSockaddrInet4
-	// variable to avoid allocations when client address changes.
-	//
-	// But since client address changes are very rare, I don't think it matters.
-
-	clientAddrPort := entry.clientAddrPort
-	name, namelen := conn.AddrPortToSockaddr(clientAddrPort)
+	rsa6, namelen := conn.AddrPortToSockaddrValue(clientAddrPort)
 	savec := make([]unix.RawSockaddrInet6, s.batchSize)
 	bufvec := make([][]byte, s.batchSize)
 	riovec := make([]unix.Iovec, s.batchSize)
@@ -193,8 +191,12 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 		rmsgvec[i].Msghdr.Iov = &riovec[i]
 		rmsgvec[i].Msghdr.SetIovlen(1)
 
+		smsgvec[i].Msghdr.Name = (*byte)(unsafe.Pointer(&rsa6))
+		smsgvec[i].Msghdr.Namelen = namelen
 		smsgvec[i].Msghdr.Iov = &siovec[i]
 		smsgvec[i].Msghdr.SetIovlen(1)
+		smsgvec[i].Msghdr.Control = &clientPktinfo[0]
+		smsgvec[i].Msghdr.SetControllen(len(clientPktinfo))
 	}
 
 	for {
@@ -214,13 +216,19 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 			continue
 		}
 
-		if clientAddrPort != entry.clientAddrPort {
-			clientAddrPort = entry.clientAddrPort
-			name, namelen = conn.AddrPortToSockaddr(clientAddrPort)
+		if caip := entry.clientAddrInfo.Load(); caip != clientAddrInfop {
+			clientAddrInfop = caip
+			clientAddrPort = caip.addrPort
+			clientPktinfo = caip.pktinfo
+			maxClientPacketSize = zerocopy.MaxPacketSizeForAddr(s.mtu, clientAddrPort.Addr())
+			rsa6, _ = conn.AddrPortToSockaddrValue(clientAddrPort) // namelen won't change
+
+			for i := range smsgvec {
+				smsgvec[i].Msghdr.Control = &clientPktinfo[0]
+				smsgvec[i].Msghdr.SetControllen(len(clientPktinfo))
+			}
 		}
 
-		smsgControl := entry.clientPktinfoCache
-		smsgControlLen := len(smsgControl)
 		var ns int
 
 		for i, msg := range rmsgvec[:nr] {
@@ -263,7 +271,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 				continue
 			}
 
-			packetStart, packetLength, err := entry.serverConnPacker.PackInPlace(bufvec[i], payloadSourceAddrPort, payloadStart, payloadLength, entry.maxClientPacketSize)
+			packetStart, packetLength, err := entry.serverConnPacker.PackInPlace(bufvec[i], payloadSourceAddrPort, payloadStart, payloadLength, maxClientPacketSize)
 			if err != nil {
 				s.logger.Warn("Failed to pack packet",
 					zap.String("server", s.serverName),
@@ -279,12 +287,6 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 
 			siovec[ns].Base = &bufvec[i][packetStart]
 			siovec[ns].SetLen(packetLength)
-			smsgvec[ns].Msghdr.Name = name
-			smsgvec[ns].Msghdr.Namelen = namelen
-			if smsgControlLen > 0 {
-				smsgvec[ns].Msghdr.Control = &smsgControl[0]
-				smsgvec[ns].Msghdr.SetControllen(smsgControlLen)
-			}
 			ns++
 			payloadBytesSent += uint64(payloadLength)
 		}

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -16,6 +17,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// queuedPacket is the structure used by send channels to queue packets for sending.
+type queuedPacket struct {
+	bufp       *[]byte
+	start      int
+	length     int
+	targetAddr conn.Addr
+}
+
 // natEntry is an entry in the NAT table.
 type natEntry struct {
 	// state synchronizes session initialization and shutdown.
@@ -28,16 +37,16 @@ type natEntry struct {
 	//  - During initialization, if the swapped-out value is non-nil,
 	//    initialization must not proceed.
 	//  - During shutdown, if the swapped-out value is nil, preceed to the next entry.
-	state               *atomic.Pointer[net.UDPConn]
-	clientPktinfoCache  []byte
-	natConn             *net.UDPConn
-	natConnRecvBufSize  int
-	natConnSendCh       chan queuedPacket
-	natConnPacker       zerocopy.ClientPacker
-	natConnUnpacker     zerocopy.ClientUnpacker
-	serverConnPacker    zerocopy.ServerPacker
-	serverConnUnpacker  zerocopy.ServerUnpacker
-	maxClientPacketSize int
+	state              atomic.Pointer[net.UDPConn]
+	clientPktinfo      atomic.Pointer[[]byte]
+	clientPktinfoCache []byte
+	natConn            *net.UDPConn
+	natConnRecvBufSize int
+	natConnSendCh      chan queuedPacket
+	natConnPacker      zerocopy.ClientPacker
+	natConnUnpacker    zerocopy.ClientUnpacker
+	serverConnPacker   zerocopy.ServerPacker
+	serverConnUnpacker zerocopy.ServerUnpacker
 }
 
 // UDPNATRelay is an address-based UDP relay service.
@@ -64,7 +73,7 @@ type UDPNATRelay struct {
 	mwg                      sync.WaitGroup
 	table                    map[netip.AddrPort]*natEntry
 	relayServerConnToNatConn func(clientAddrPort netip.AddrPort, entry *natEntry)
-	relayNatConnToServerConn func(clientAddrPort netip.AddrPort, entry *natEntry)
+	relayNatConnToServerConn func(clientAddrPort netip.AddrPort, entry *natEntry, clientPktinfop *[]byte)
 }
 
 func NewUDPNATRelay(
@@ -174,18 +183,15 @@ func (s *UDPNATRelay) Start() error {
 				s.packetBufPool.Put(packetBufp)
 				continue
 			}
-
-			var (
-				targetAddr    conn.Addr
-				payloadStart  int
-				payloadLength int
-			)
+			cmsg := cmsgBuf[:cmsgn]
 
 			s.mu.Lock()
 
-			entry := s.table[clientAddrPort]
-			if entry == nil {
-				serverConnPacker, serverConnUnpacker, err := s.server.NewSession()
+			entry, ok := s.table[clientAddrPort]
+			if !ok {
+				entry = &natEntry{}
+
+				entry.serverConnPacker, entry.serverConnUnpacker, err = s.server.NewSession()
 				if err != nil {
 					s.logger.Warn("Failed to create new session for serverConn",
 						zap.String("server", s.serverName),
@@ -198,14 +204,33 @@ func (s *UDPNATRelay) Start() error {
 					s.mu.Unlock()
 					continue
 				}
+			}
 
-				targetAddr, payloadStart, payloadLength, err = serverConnUnpacker.UnpackInPlace(packetBuf, clientAddrPort, s.packetBufFrontHeadroom, n)
+			targetAddr, payloadStart, payloadLength, err := entry.serverConnUnpacker.UnpackInPlace(packetBuf, clientAddrPort, s.packetBufFrontHeadroom, n)
+			if err != nil {
+				s.logger.Warn("Failed to unpack packet",
+					zap.String("server", s.serverName),
+					zap.String("listenAddress", s.listenAddress),
+					zap.Stringer("clientAddress", clientAddrPort),
+					zap.Int("packetLength", n),
+					zap.Error(err),
+				)
+
+				s.packetBufPool.Put(packetBufp)
+				s.mu.Unlock()
+				continue
+			}
+
+			var clientPktinfop *[]byte
+
+			if !bytes.Equal(entry.clientPktinfoCache, cmsg) {
+				clientPktinfoAddr, clientPktinfoIfindex, err := conn.ParsePktinfoCmsg(cmsg)
 				if err != nil {
-					s.logger.Warn("Failed to unpack packet",
+					s.logger.Warn("Failed to parse pktinfo control message from serverConn",
 						zap.String("server", s.serverName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Int("packetLength", n),
+						zap.Stringer("targetAddress", targetAddr),
 						zap.Error(err),
 					)
 
@@ -214,14 +239,24 @@ func (s *UDPNATRelay) Start() error {
 					continue
 				}
 
-				entry = &natEntry{
-					state:               &atomic.Pointer[net.UDPConn]{},
-					natConnSendCh:       make(chan queuedPacket, sendChannelCapacity),
-					serverConnPacker:    serverConnPacker,
-					serverConnUnpacker:  serverConnUnpacker,
-					maxClientPacketSize: zerocopy.MaxPacketSizeForAddr(s.mtu, clientAddrPort.Addr()),
-				}
+				clientPktinfoCache := make([]byte, len(cmsg))
+				copy(clientPktinfoCache, cmsg)
+				clientPktinfop = &clientPktinfoCache
+				entry.clientPktinfo.Store(clientPktinfop)
+				entry.clientPktinfoCache = clientPktinfoCache
 
+				s.logger.Debug("Updated client pktinfo",
+					zap.String("server", s.serverName),
+					zap.String("listenAddress", s.listenAddress),
+					zap.Stringer("clientAddress", clientAddrPort),
+					zap.Stringer("targetAddress", targetAddr),
+					zap.Stringer("clientPktinfoAddr", clientPktinfoAddr),
+					zap.Uint32("clientPktinfoIfindex", clientPktinfoIfindex),
+				)
+			}
+
+			if !ok {
+				entry.natConnSendCh = make(chan queuedPacket, sendChannelCapacity)
 				s.table[clientAddrPort] = entry
 
 				go func() {
@@ -325,7 +360,7 @@ func (s *UDPNATRelay) Start() error {
 						s.wg.Done()
 					}()
 
-					s.relayNatConnToServerConn(clientAddrPort, entry)
+					s.relayNatConnToServerConn(clientAddrPort, entry, clientPktinfop)
 				}()
 
 				s.logger.Info("New UDP NAT session",
@@ -333,32 +368,6 @@ func (s *UDPNATRelay) Start() error {
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
 					zap.Stringer("targetAddress", targetAddr),
-				)
-			} else {
-				targetAddr, payloadStart, payloadLength, err = entry.serverConnUnpacker.UnpackInPlace(packetBuf, clientAddrPort, s.packetBufFrontHeadroom, n)
-				if err != nil {
-					s.logger.Warn("Failed to unpack packet",
-						zap.String("server", s.serverName),
-						zap.String("listenAddress", s.listenAddress),
-						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Int("packetLength", n),
-						zap.Error(err),
-					)
-
-					s.packetBufPool.Put(packetBufp)
-					s.mu.Unlock()
-					continue
-				}
-			}
-
-			entry.clientPktinfoCache, err = conn.UpdatePktinfoCache(entry.clientPktinfoCache, cmsgBuf[:cmsgn], s.logger)
-			if err != nil {
-				s.logger.Warn("Failed to process socket control messages from serverConn",
-					zap.String("server", s.serverName),
-					zap.String("listenAddress", s.listenAddress),
-					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Stringer("targetAddress", targetAddr),
-					zap.Error(err),
 				)
 			}
 
@@ -451,7 +460,10 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrP
 	)
 }
 
-func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrPort, entry *natEntry) {
+func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrPort, entry *natEntry, clientPktinfop *[]byte) {
+	clientPktinfo := *clientPktinfop
+	maxClientPacketSize := zerocopy.MaxPacketSizeForAddr(s.mtu, clientAddrPort.Addr())
+
 	frontHeadroom := entry.serverConnPacker.FrontHeadroom() - entry.natConnUnpacker.FrontHeadroom()
 	if frontHeadroom < 0 {
 		frontHeadroom = 0
@@ -509,7 +521,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 			continue
 		}
 
-		packetStart, packetLength, err := entry.serverConnPacker.PackInPlace(packetBuf, payloadSourceAddrPort, payloadStart, payloadLength, entry.maxClientPacketSize)
+		packetStart, packetLength, err := entry.serverConnPacker.PackInPlace(packetBuf, payloadSourceAddrPort, payloadStart, payloadLength, maxClientPacketSize)
 		if err != nil {
 			s.logger.Warn("Failed to pack packet",
 				zap.String("server", s.serverName),
@@ -522,7 +534,12 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 			continue
 		}
 
-		_, _, err = s.serverConn.WriteMsgUDPAddrPort(packetBuf[packetStart:packetStart+packetLength], entry.clientPktinfoCache, clientAddrPort)
+		if cpp := entry.clientPktinfo.Load(); cpp != clientPktinfop {
+			clientPktinfo = *cpp
+			clientPktinfop = cpp
+		}
+
+		_, _, err = s.serverConn.WriteMsgUDPAddrPort(packetBuf[packetStart:packetStart+packetLength], clientPktinfo, clientAddrPort)
 		if err != nil {
 			s.logger.Warn("Failed to write packet to serverConn",
 				zap.String("server", s.serverName),
