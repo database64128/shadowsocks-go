@@ -61,28 +61,26 @@ type session struct {
 //
 // Incoming UDP packets are dispatched to NAT sessions based on the client session ID.
 type UDPSessionRelay struct {
-	serverName               string
-	listenAddress            string
-	listenerFwmark           int
-	mtu                      int
-	packetBufFrontHeadroom   int
-	packetBufRearHeadroom    int
-	packetBufRecvSize        int
-	batchSize                int
-	preferIPv6               bool
-	natTimeout               time.Duration
-	server                   zerocopy.UDPSessionServer
-	serverConn               *net.UDPConn
-	router                   *router.Router
-	logger                   *zap.Logger
-	packetBufPool            *sync.Pool
-	mu                       sync.Mutex
-	wg                       sync.WaitGroup
-	mwg                      sync.WaitGroup
-	table                    map[uint64]*session
-	recvFromServerConn       func()
-	relayServerConnToNatConn func(csid uint64, entry *session)
-	relayNatConnToServerConn func(csid uint64, entry *session, clientAddrInfop *sessionClientAddrInfo)
+	serverName             string
+	listenAddress          string
+	listenerFwmark         int
+	mtu                    int
+	packetBufFrontHeadroom int
+	packetBufRearHeadroom  int
+	packetBufRecvSize      int
+	batchSize              int
+	preferIPv6             bool
+	natTimeout             time.Duration
+	server                 zerocopy.UDPSessionServer
+	serverConn             *net.UDPConn
+	router                 *router.Router
+	logger                 *zap.Logger
+	packetBufPool          *sync.Pool
+	mu                     sync.Mutex
+	wg                     sync.WaitGroup
+	mwg                    sync.WaitGroup
+	table                  map[uint64]*session
+	recvFromServerConn     func()
 }
 
 func NewUDPSessionRelay(
@@ -126,7 +124,7 @@ func NewUDPSessionRelay(
 		packetBufPool:          packetBufPool,
 		table:                  make(map[uint64]*session),
 	}
-	s.setRecvAndRelayFunctions(batchMode)
+	s.setRelayFunc(batchMode)
 	return &s
 }
 
@@ -431,12 +429,12 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 				s.wg.Add(1)
 
 				go func() {
-					s.relayServerConnToNatConn(csid, entry)
+					s.relayServerConnToNatConnGeneric(csid, entry)
 					entry.natConn.Close()
 					s.wg.Done()
 				}()
 
-				s.relayNatConnToServerConn(csid, entry, clientAddrInfop)
+				s.relayNatConnToServerConnGeneric(csid, entry, clientAddrInfop)
 			}()
 
 			s.logger.Info("New UDP session",
