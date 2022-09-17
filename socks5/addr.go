@@ -9,7 +9,6 @@ import (
 	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/magic"
 )
 
 // SOCKS address types as defined in RFC 1928 section 5.
@@ -22,6 +21,20 @@ const (
 // MaxAddrLen is the maximum size of SOCKS address in bytes.
 const MaxAddrLen = 1 + 1 + 255 + 2
 
+// sliceForAppend extends the input slice by n bytes. head is the full extended
+// slice, while tail is the appended part. If the original slice has sufficient
+// capacity no allocation is performed.
+func sliceForAppend(in []byte, n int) (head, tail []byte) {
+	if total := len(in) + n; cap(in) >= total {
+		head = in[:total]
+	} else {
+		head = make([]byte, total)
+		copy(head, in)
+	}
+	tail = head[len(in):]
+	return
+}
+
 // AppendAddrFromAddrPort appends the netip.AddrPort to the buffer in the SOCKS address format.
 //
 // If the address is an IPv4-mapped IPv6 address, it is converted to an IPv4 address.
@@ -30,12 +43,12 @@ func AppendAddrFromAddrPort(b []byte, addrPort netip.AddrPort) []byte {
 	ip := addrPort.Addr()
 	switch {
 	case ip.Is4() || ip.Is4In6():
-		ret, out = magic.SliceForAppend(b, 1+4+2)
+		ret, out = sliceForAppend(b, 1+4+2)
 		out[0] = AtypIPv4
 		ip4 := ip.As4()
 		copy(out[1:], ip4[:])
 	case ip.Is6() || !ip.IsValid():
-		ret, out = magic.SliceForAppend(b, 1+16+2)
+		ret, out = sliceForAppend(b, 1+16+2)
 		out[0] = AtypIPv6
 		ip6 := ip.As16()
 		copy(out[1:], ip6[:])
@@ -90,7 +103,7 @@ func AppendAddrFromConnAddr(b []byte, addr conn.Addr) []byte {
 	}
 
 	domain := addr.Domain()
-	ret, out := magic.SliceForAppend(b, 1+1+len(domain)+2)
+	ret, out := sliceForAppend(b, 1+1+len(domain)+2)
 	out[0] = AtypDomainName
 	out[1] = byte(len(domain))
 	copy(out[2:], domain)
@@ -136,7 +149,7 @@ func LengthOfAddrFromConnAddr(addr conn.Addr) int {
 // AppendFromReader reads just enough bytes from r to get a valid Addr
 // and appends it to the buffer.
 func AppendFromReader(b []byte, r io.Reader) ([]byte, error) {
-	ret, out := magic.SliceForAppend(b, 2)
+	ret, out := sliceForAppend(b, 2)
 
 	// Read ATYP and an extra byte.
 	_, err := io.ReadFull(r, out)
@@ -157,7 +170,7 @@ func AppendFromReader(b []byte, r io.Reader) ([]byte, error) {
 		return nil, fmt.Errorf("unknown atyp %d", out[0])
 	}
 
-	ret, out = magic.SliceForAppend(ret[:len(b)+2], addrLen-2)
+	ret, out = sliceForAppend(ret[:len(b)+2], addrLen-2)
 	_, err = io.ReadFull(r, out)
 	return ret, err
 }
