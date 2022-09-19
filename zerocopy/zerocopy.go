@@ -22,3 +22,11 @@ func (z ZeroHeadroom) FrontHeadroom() int {
 func (z ZeroHeadroom) RearHeadroom() int {
 	return 0
 }
+
+// tester allows us to write test functions outside _test.go files without importing the testing package.
+type tester interface {
+	Error(args ...any)
+	Fatal(args ...any)
+	Errorf(format string, args ...any)
+	Fatalf(format string, args ...any)
+}

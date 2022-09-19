@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"net/netip"
-	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
 )
@@ -82,7 +81,7 @@ type ServerPackUnpacker interface {
 // 2. Server unpacker unpacks.
 // 3. Server packer packs.
 // 4. Client unpacker unpacks.
-func ClientServerPackUnpackerTestFunc(t *testing.T, c ClientPackUnpacker, s ServerPackUnpacker) {
+func ClientServerPackUnpackerTestFunc(t tester, c ClientPackUnpacker, s ServerPackUnpacker) {
 	const packetSize = 1452
 
 	frontHeadroom := c.FrontHeadroom()

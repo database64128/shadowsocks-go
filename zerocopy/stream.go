@@ -3,7 +3,6 @@ package zerocopy
 import (
 	"bytes"
 	"io"
-	"testing"
 )
 
 // defaultBufferSize is the default buffer size to use
@@ -257,7 +256,7 @@ type DirectReadWriteCloser interface {
 // on each ReadWriter and validating the read results.
 //
 // The left and right ReadWriters must be connected with a duplex pipe.
-func ReadWriterTestFunc(t *testing.T, l, r ReadWriter) {
+func ReadWriterTestFunc(t tester, l, r ReadWriter) {
 	defer r.Close()
 	defer l.Close()
 
