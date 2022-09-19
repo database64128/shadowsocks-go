@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 )
@@ -39,20 +38,20 @@ type Config struct {
 }
 
 // DomainSet creates a DomainSet from the configuration.
-func (dsc Config) DomainSet() (*DomainSet, error) {
+func (dsc Config) DomainSet() (DomainSet, error) {
 	f, err := os.Open(dsc.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load domain set %s: %w", dsc.Name, err)
 	}
 	defer f.Close()
 
-	var ds *DomainSet
+	var dsb Builder
 
 	switch dsc.Type {
 	case "text", "":
-		ds, err = DomainSetFromText(f)
+		dsb, err = BuilderFromTextFast(f)
 	case "gob":
-		ds, err = DomainSetFromGob(f)
+		dsb, err = BuilderFromGob(f)
 	default:
 		err = fmt.Errorf("invalid domain set type: %s", dsc.Type)
 	}
@@ -60,53 +59,131 @@ func (dsc Config) DomainSet() (*DomainSet, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load domain set %s: %w", dsc.Name, err)
 	}
+
+	return dsb.DomainSet()
+}
+
+// Builder stores the content of a domain set and
+// provides methods for writing in different formats.
+type Builder [4]MatcherBuilder
+
+func (dsb Builder) DomainSet() (DomainSet, error) {
+	var capacity int
+	for _, mb := range dsb {
+		capacity += mb.MatcherCount()
+	}
+	ds := make(DomainSet, 0, capacity)
+	var err error
+	for _, mb := range dsb {
+		ds, err = mb.AppendTo(ds)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return ds, nil
 }
 
-func DomainSetFromText(r io.Reader) (*DomainSet, error) {
+func (dsb Builder) WriteGob(w io.Writer) error {
+	return BuilderGobFromBuilder(dsb).WriteGob(w)
+}
+
+func (dsb Builder) WriteText(w io.Writer) error {
+	bw := bufio.NewWriter(w)
+	domains := dsb[0].Rules()
+	suffixes := dsb[1].Rules()
+	keywords := dsb[2].Rules()
+	regexps := dsb[3].Rules()
+	capacityHint := fmt.Sprintf("%s%d %d %d %d %s\n", capacityHintPrefix, len(domains), len(suffixes), len(keywords), len(regexps), capacityHintSuffix)
+
+	bw.WriteString(capacityHint)
+
+	for _, d := range domains {
+		bw.WriteString(domainPrefix)
+		bw.WriteString(d)
+		bw.WriteByte('\n')
+	}
+
+	for _, s := range suffixes {
+		bw.WriteString(suffixPrefix)
+		bw.WriteString(s)
+		bw.WriteByte('\n')
+	}
+
+	for _, k := range keywords {
+		bw.WriteString(keywordPrefix)
+		bw.WriteString(k)
+		bw.WriteByte('\n')
+	}
+
+	for _, r := range regexps {
+		bw.WriteString(regexpPrefix)
+		bw.WriteString(r)
+		bw.WriteByte('\n')
+	}
+
+	return bw.Flush()
+}
+
+func BuilderFromGob(r io.Reader) (Builder, error) {
+	bg, err := BuilderGobFromReader(r)
+	if err != nil {
+		return Builder{}, err
+	}
+	return bg.Builder(), nil
+}
+
+func BuilderFromText(r io.Reader) (Builder, error) {
+	return BuilderFromTextFunc(r, NewDomainMapMatcher, NewDomainSuffixTrie, NewKeywordLinearMatcher, NewRegexpMatcherBuilder)
+}
+
+func BuilderFromTextFast(r io.Reader) (Builder, error) {
+	return BuilderFromTextFunc(r, NewDomainMapMatcher, NewSuffixMapMatcher, NewKeywordLinearMatcher, NewRegexpMatcherBuilder)
+}
+
+func BuilderFromTextFunc(
+	r io.Reader,
+	newDomainMatcherBuilderFunc,
+	newSuffixMatcherBuilderFunc,
+	newKeywordMatcherBuilderFunc,
+	newRegexpMatcherBuilderFunc func(int) MatcherBuilder,
+) (Builder, error) {
 	s := bufio.NewScanner(r)
 	if !s.Scan() {
-		return nil, errEmptyFile
+		return Builder{}, errEmptyFile
 	}
 	line := s.Text()
 
-	dskr, found, err := parseCapacityHint(line)
+	dskr, found, err := ParseCapacityHint(line)
 	if err != nil {
-		return nil, err
+		return Builder{}, err
 	}
 	if found {
 		if !s.Scan() {
-			return nil, errEmptyFile
+			return Builder{}, errEmptyFile
 		}
 		line = s.Text()
 	}
 
-	dsm := NewDomainSuffixMap(dskr[1])
-
-	ds := DomainSet{
-		Domains:  make(map[string]struct{}, dskr[0]),
-		Suffixes: dsm,
-		Keywords: make([]string, 0, dskr[2]),
-		Regexps:  make([]*regexp.Regexp, 0, dskr[3]),
+	dsb := Builder{
+		newDomainMatcherBuilderFunc(dskr[0]),
+		newSuffixMatcherBuilderFunc(dskr[1]),
+		newKeywordMatcherBuilderFunc(dskr[2]),
+		newRegexpMatcherBuilderFunc(dskr[3]),
 	}
 
 	for {
 		switch {
 		case line == "" || strings.IndexByte(line, '#') == 0:
 		case strings.HasPrefix(line, domainPrefix):
-			ds.Domains[line[domainPrefixLen:]] = struct{}{}
+			dsb[0].Insert(line[domainPrefixLen:])
 		case strings.HasPrefix(line, suffixPrefix):
-			dsm.Suffixes[line[suffixPrefixLen:]] = struct{}{}
+			dsb[1].Insert(line[suffixPrefixLen:])
 		case strings.HasPrefix(line, keywordPrefix):
-			ds.Keywords = append(ds.Keywords, line[keywordPrefixLen:])
+			dsb[2].Insert(line[keywordPrefixLen:])
 		case strings.HasPrefix(line, regexpPrefix):
-			regexp, err := regexp.Compile(line[regexpPrefixLen:])
-			if err != nil {
-				return nil, err
-			}
-			ds.Regexps = append(ds.Regexps, regexp)
+			dsb[3].Insert(line[regexpPrefixLen:])
 		default:
-			return nil, fmt.Errorf("invalid line: %s", line)
+			return dsb, fmt.Errorf("invalid line: %s", line)
 		}
 
 		if !s.Scan() {
@@ -115,10 +192,10 @@ func DomainSetFromText(r io.Reader) (*DomainSet, error) {
 		line = s.Text()
 	}
 
-	return &ds, nil
+	return dsb, nil
 }
 
-func parseCapacityHint(line string) ([4]int, bool, error) {
+func ParseCapacityHint(line string) ([4]int, bool, error) {
 	var dskr [4]int
 
 	found := len(line) > capacityHintPrefixLen && line[:capacityHintPrefixLen] == capacityHintPrefix
@@ -150,168 +227,68 @@ func parseCapacityHint(line string) ([4]int, bool, error) {
 	return dskr, found, nil
 }
 
-func DomainSetFromGob(r io.Reader) (*DomainSet, error) {
-	dsb, err := BuilderFromGob(r)
-	if err != nil {
-		return nil, err
-	}
-	return dsb.DomainSet()
-}
-
-// Builder stores the content of a domain set and
-// provides methods for writing in different formats.
-type Builder struct {
-	Domains  map[string]struct{}
+// BuilderGob is the builder's gob serialization structure.
+type BuilderGob struct {
+	Domains  DomainMapMatcher
 	Suffixes *DomainSuffixTrie
-	Keywords []string
-	Regexps  []string
+	Keywords KeywordLinearMatcher
+	Regexps  RegexpMatcherBuilder
 }
 
-func (dsb *Builder) DomainSet() (*DomainSet, error) {
-	ds := DomainSet{
-		Domains:  dsb.Domains,
-		Suffixes: dsb.Suffixes,
-		Keywords: dsb.Keywords,
-		Regexps:  make([]*regexp.Regexp, len(dsb.Regexps)),
-	}
-
-	for i, r := range dsb.Regexps {
-		regexp, err := regexp.Compile(r)
-		if err != nil {
-			return nil, err
-		}
-		ds.Regexps[i] = regexp
-	}
-
-	return &ds, nil
+func (bg BuilderGob) Builder() Builder {
+	return Builder{&bg.Domains, bg.Suffixes, &bg.Keywords, &bg.Regexps}
 }
 
-func (dsb *Builder) WriteGob(w io.Writer) error {
-	enc := gob.NewEncoder(w)
-	return enc.Encode(dsb)
+func (bg BuilderGob) WriteGob(w io.Writer) error {
+	return gob.NewEncoder(w).Encode(bg)
 }
 
-func (dsb *Builder) WriteText(w io.Writer) error {
-	bw := bufio.NewWriter(w)
-	suffixes := dsb.Suffixes.Keys()
-	capacityHint := fmt.Sprintf("%s%d %d %d %d %s\n", capacityHintPrefix, len(dsb.Domains), len(suffixes), len(dsb.Keywords), len(dsb.Regexps), capacityHintSuffix)
-
-	bw.WriteString(capacityHint)
-
-	for d := range dsb.Domains {
-		bw.WriteString(domainPrefix)
-		bw.WriteString(d)
-		bw.WriteByte('\n')
+func BuilderGobFromBuilder(dsb Builder) (bg BuilderGob) {
+	switch d := dsb[0].(type) {
+	case *DomainMapMatcher:
+		bg.Domains = *d
+	default:
+		bg.Domains = DomainMapMatcherFromSlice(d.Rules())
 	}
 
-	for _, s := range suffixes {
-		bw.WriteString(suffixPrefix)
-		bw.WriteString(s)
-		bw.WriteByte('\n')
+	switch s := dsb[1].(type) {
+	case *DomainSuffixTrie:
+		bg.Suffixes = s
+	default:
+		bg.Suffixes = DomainSuffixTrieFromSlice(s.Rules())
 	}
 
-	for _, k := range dsb.Keywords {
-		bw.WriteString(keywordPrefix)
-		bw.WriteString(k)
-		bw.WriteByte('\n')
+	switch k := dsb[2].(type) {
+	case *KeywordLinearMatcher:
+		bg.Keywords = *k
+	default:
+		bg.Keywords = KeywordLinearMatcher(k.Rules())
 	}
 
-	for _, r := range dsb.Regexps {
-		bw.WriteString(regexpPrefix)
-		bw.WriteString(r)
-		bw.WriteByte('\n')
+	switch r := dsb[3].(type) {
+	case *RegexpMatcherBuilder:
+		bg.Regexps = *r
+	default:
+		bg.Regexps = RegexpMatcherBuilder(r.Rules())
 	}
 
-	return bw.Flush()
+	return bg
 }
 
-func BuilderFromGob(r io.Reader) (*Builder, error) {
-	var dsb Builder
-	dec := gob.NewDecoder(r)
-	if err := dec.Decode(&dsb); err != nil {
-		return nil, err
-	}
-	return &dsb, nil
+func BuilderGobFromReader(r io.Reader) (bg BuilderGob, err error) {
+	err = gob.NewDecoder(r).Decode(&bg)
+	return
 }
 
-func BuilderFromText(r io.Reader) (*Builder, error) {
-	s := bufio.NewScanner(r)
-	if !s.Scan() {
-		return nil, errEmptyFile
-	}
-	line := s.Text()
-
-	dskr, found, err := parseCapacityHint(line)
-	if err != nil {
-		return nil, err
-	}
-	if found {
-		if !s.Scan() {
-			return nil, errEmptyFile
-		}
-		line = s.Text()
-	}
-
-	dsb := Builder{
-		Domains:  make(map[string]struct{}, dskr[0]),
-		Suffixes: &DomainSuffixTrie{},
-		Keywords: make([]string, 0, dskr[2]),
-		Regexps:  make([]string, 0, dskr[3]),
-	}
-
-	for {
-		switch {
-		case line == "" || strings.IndexByte(line, '#') == 0:
-		case strings.HasPrefix(line, domainPrefix):
-			dsb.Domains[line[domainPrefixLen:]] = struct{}{}
-		case strings.HasPrefix(line, suffixPrefix):
-			dsb.Suffixes.Insert(line[suffixPrefixLen:])
-		case strings.HasPrefix(line, keywordPrefix):
-			dsb.Keywords = append(dsb.Keywords, line[keywordPrefixLen:])
-		case strings.HasPrefix(line, regexpPrefix):
-			dsb.Regexps = append(dsb.Regexps, line[regexpPrefixLen:])
-		default:
-			return nil, fmt.Errorf("invalid line: %s", line)
-		}
-
-		if !s.Scan() {
-			break
-		}
-		line = s.Text()
-	}
-
-	return &dsb, nil
-}
-
-// DomainSet is a set of domain rules.
-type DomainSet struct {
-	Domains  map[string]struct{}
-	Suffixes DomainSuffixSet
-	Keywords []string
-	Regexps  []*regexp.Regexp
-}
+// DomainSet is a set of domain matchers built from matching rules.
+type DomainSet []Matcher
 
 // Match returns whether the domain set contains the domain.
-func (ds *DomainSet) Match(domain string) bool {
-	if _, ok := ds.Domains[domain]; ok {
-		return true
-	}
-
-	if ds.Suffixes.Match(domain) {
-		return true
-	}
-
-	for _, keyword := range ds.Keywords {
-		if strings.Contains(domain, keyword) {
+func (ds DomainSet) Match(domain string) bool {
+	for _, m := range ds {
+		if m.Match(domain) {
 			return true
 		}
 	}
-
-	for _, regexp := range ds.Regexps {
-		if regexp.MatchString(domain) {
-			return true
-		}
-	}
-
 	return false
 }

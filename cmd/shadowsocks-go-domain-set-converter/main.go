@@ -29,7 +29,7 @@ func main() {
 	var (
 		inCount int
 		inPath  string
-		inFunc  func(io.Reader) (*domainset.Builder, error)
+		inFunc  func(io.Reader) (domainset.Builder, error)
 	)
 
 	if *inDlc != "" {
@@ -106,7 +106,7 @@ func main() {
 	}
 }
 
-func DomainSetBuilderFromDlc(r io.Reader) (*domainset.Builder, error) {
+func DomainSetBuilderFromDlc(r io.Reader) (domainset.Builder, error) {
 	const (
 		domainPrefix     = "full:"
 		suffixPrefix     = "domain:"
@@ -119,8 +119,10 @@ func DomainSetBuilderFromDlc(r io.Reader) (*domainset.Builder, error) {
 	)
 
 	dsb := domainset.Builder{
-		Domains:  make(map[string]struct{}),
-		Suffixes: &domainset.DomainSuffixTrie{},
+		domainset.NewDomainMapMatcher(0),
+		domainset.NewDomainSuffixTrie(0),
+		domainset.NewKeywordLinearMatcher(0),
+		domainset.NewRegexpMatcherBuilder(0),
 	}
 
 	s := bufio.NewScanner(r)
@@ -134,7 +136,7 @@ func DomainSetBuilderFromDlc(r io.Reader) (*domainset.Builder, error) {
 
 		end := strings.IndexByte(line, '@')
 		if end == 0 {
-			return nil, fmt.Errorf("invalid line: %s", line)
+			return dsb, fmt.Errorf("invalid line: %s", line)
 		}
 
 		if *tag == "" { // select all lines
@@ -153,17 +155,17 @@ func DomainSetBuilderFromDlc(r io.Reader) (*domainset.Builder, error) {
 
 		switch {
 		case strings.HasPrefix(line, domainPrefix):
-			dsb.Domains[line[domainPrefixLen:end]] = struct{}{}
+			dsb[0].Insert(line[domainPrefixLen:end])
 		case strings.HasPrefix(line, suffixPrefix):
-			dsb.Suffixes.Insert(line[suffixPrefixLen:end])
+			dsb[1].Insert(line[suffixPrefixLen:end])
 		case strings.HasPrefix(line, keywordPrefix):
-			dsb.Keywords = append(dsb.Keywords, line[keywordPrefixLen:end])
+			dsb[2].Insert(line[keywordPrefixLen:end])
 		case strings.HasPrefix(line, regexpPrefix):
-			dsb.Regexps = append(dsb.Regexps, line[regexpPrefixLen:end])
+			dsb[3].Insert(line[regexpPrefixLen:end])
 		default:
-			return nil, fmt.Errorf("invalid line: %s", line)
+			return dsb, fmt.Errorf("invalid line: %s", line)
 		}
 	}
 
-	return &dsb, nil
+	return dsb, nil
 }

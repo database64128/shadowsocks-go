@@ -60,6 +60,7 @@ func (dst *DomainSuffixTrie) Insert(domain string) {
 	}
 }
 
+// Match implements the Matcher Match method.
 func (dst *DomainSuffixTrie) Match(domain string) bool {
 	cdst := dst
 
@@ -106,4 +107,37 @@ func (dst *DomainSuffixTrie) keys(suffix string, keys []string) []string {
 		keys = c.keys(s+"."+suffix, keys)
 	}
 	return keys
+}
+
+// Rules implements the MatcherBuilder Rules method.
+func (dst *DomainSuffixTrie) Rules() []string {
+	return dst.Keys()
+}
+
+// MatcherCount implements the MatcherBuilder MatcherCount method.
+func (dst *DomainSuffixTrie) MatcherCount() int {
+	if dst.Children == nil {
+		return 0
+	}
+	return 1
+}
+
+// AppendTo implements the MatcherBuilder AppendTo method.
+func (dst *DomainSuffixTrie) AppendTo(matchers []Matcher) ([]Matcher, error) {
+	if dst.Children == nil {
+		return matchers, nil
+	}
+	return append(matchers, dst), nil
+}
+
+func NewDomainSuffixTrie(capacity int) MatcherBuilder {
+	return &DomainSuffixTrie{}
+}
+
+func DomainSuffixTrieFromSlice(suffixes []string) *DomainSuffixTrie {
+	var dst DomainSuffixTrie
+	for _, s := range suffixes {
+		dst.Insert(s)
+	}
+	return &dst
 }

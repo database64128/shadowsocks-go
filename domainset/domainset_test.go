@@ -20,7 +20,7 @@ regexp:^adservice\.google\.([a-z]{2}|com?)(\.[a-z]{2})?$
 
 var testDomainSetBuilder = mustDomainSetBuilderFromText(testDomainSetText)
 
-func mustDomainSetBuilderFromText(s string) *Builder {
+func mustDomainSetBuilderFromText(s string) Builder {
 	r := strings.NewReader(s)
 	dsb, err := BuilderFromText(r)
 	if err != nil {
@@ -29,13 +29,13 @@ func mustDomainSetBuilderFromText(s string) *Builder {
 	return dsb
 }
 
-func testMatch(t *testing.T, ds *DomainSet, domain string, expectedResult bool) {
+func testMatch(t *testing.T, ds DomainSet, domain string, expectedResult bool) {
 	if ds.Match(domain) != expectedResult {
 		t.Errorf("%s should return %v", domain, expectedResult)
 	}
 }
 
-func testDomainSet(t *testing.T, ds *DomainSet) {
+func testDomainSet(t *testing.T, ds DomainSet) {
 	testMatch(t, ds, "net", false)
 	testMatch(t, ds, "example.net", false)
 	testMatch(t, ds, "www.example.net", true)
@@ -71,7 +71,11 @@ func testDomainSet(t *testing.T, ds *DomainSet) {
 
 func TestDomainSetFromText(t *testing.T) {
 	r := strings.NewReader(testDomainSetText)
-	ds, err := DomainSetFromText(r)
+	dsb, err := BuilderFromTextFast(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, err := dsb.DomainSet()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +87,11 @@ func TestDomainSetFromGob(t *testing.T) {
 	if err := testDomainSetBuilder.WriteGob(&buf); err != nil {
 		t.Fatal(err)
 	}
-	ds, err := DomainSetFromGob(&buf)
+	dsb, err := BuilderFromGob(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, err := dsb.DomainSet()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +103,11 @@ func TestBuilderWriteText(t *testing.T) {
 	if err := testDomainSetBuilder.WriteText(&buf); err != nil {
 		t.Fatal(err)
 	}
-	ds, err := DomainSetFromText(&buf)
+	dsb, err := BuilderFromText(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, err := dsb.DomainSet()
 	if err != nil {
 		t.Fatal(err)
 	}

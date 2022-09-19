@@ -84,7 +84,7 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []*dns.Resolver, resolver
 		}
 	}
 
-	domainSetMap := make(map[string]*domainset.DomainSet, len(rc.DomainSets))
+	domainSetMap := make(map[string]domainset.DomainSet, len(rc.DomainSets))
 
 	for _, domainSetConfig := range rc.DomainSets {
 		domainSet, err := domainSetConfig.DomainSet()
@@ -166,7 +166,7 @@ type RouteConfig struct {
 }
 
 // Route creates a route from the RouteConfig.
-func (rc *RouteConfig) Route(allowGeoIP bool, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, domainSetMap map[string]*domainset.DomainSet) (*Route, error) {
+func (rc *RouteConfig) Route(allowGeoIP bool, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, domainSetMap map[string]domainset.DomainSet) (*Route, error) {
 	if !allowGeoIP && len(rc.GeoIPCountries) > 0 {
 		return nil, errNoGeoLite2Db
 	}
@@ -195,17 +195,15 @@ func (rc *RouteConfig) Route(allowGeoIP bool, resolverMap map[string]*dns.Resolv
 		defaultDomainSetCount = 1
 	}
 
-	domainSets := make([]*domainset.DomainSet, defaultDomainSetCount+len(rc.DomainSets))
+	domainSets := make([]domainset.DomainSet, defaultDomainSetCount+len(rc.DomainSets))
 
 	if defaultDomainSetCount == 1 {
-		defaultDomainSet := domainset.DomainSet{
-			Domains:  make(map[string]struct{}, len(rc.Domains)),
-			Suffixes: &domainset.DefaultEmptyDomainSuffixSet,
+		mb := domainset.DomainLinearMatcher(rc.Domains)
+		ds, err := mb.AppendTo(nil)
+		if err != nil {
+			return nil, err
 		}
-		for _, domain := range rc.Domains {
-			defaultDomainSet.Domains[domain] = struct{}{}
-		}
-		domainSets[0] = &defaultDomainSet
+		domainSets[0] = ds
 	}
 
 	for i, dsc := range rc.DomainSets {
@@ -290,7 +288,7 @@ type Route struct {
 	resolver    *dns.Resolver
 	tcpClient   zerocopy.TCPClient
 	udpClient   zerocopy.UDPClient
-	domainSets  []*domainset.DomainSet
+	domainSets  []domainset.DomainSet
 	destIPSet   *netipx.IPSet
 	sourceIPSet *netipx.IPSet
 }
@@ -516,7 +514,7 @@ func (r *Router) matchResultToGeoIPCountries(countries []string, result dns.Resu
 	return false, nil
 }
 
-func matchDomainToDomainSets(domainSets []*domainset.DomainSet, domain string) bool {
+func matchDomainToDomainSets(domainSets []domainset.DomainSet, domain string) bool {
 	for _, ds := range domainSets {
 		if ds.Match(domain) {
 			return true
