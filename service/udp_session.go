@@ -159,8 +159,6 @@ func (s *UDPSessionRelay) Start() error {
 	s.logger.Info("Started UDP session relay service",
 		zap.String("server", s.serverName),
 		zap.String("listenAddress", s.listenAddress),
-		zap.Int("listenerFwmark", s.listenerFwmark),
-		zap.Duration("natTimeout", s.natTimeout),
 	)
 
 	return nil
@@ -404,6 +402,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
+						zap.Duration("natTimeout", s.natTimeout),
 						zap.Uint64("clientSessionID", csid),
 						zap.Error(err),
 					)
@@ -516,6 +515,7 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(csid uint64, entry *se
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", queuedPacket.clientAddrPort),
+				zap.Duration("natTimeout", s.natTimeout),
 				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)

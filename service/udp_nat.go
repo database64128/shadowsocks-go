@@ -151,8 +151,6 @@ func (s *UDPNATRelay) Start() error {
 	s.logger.Info("Started UDP NAT relay service",
 		zap.String("server", s.serverName),
 		zap.String("listenAddress", s.listenAddress),
-		zap.Int("listenerFwmark", s.listenerFwmark),
-		zap.Duration("natTimeout", s.natTimeout),
 	)
 
 	return nil
@@ -351,6 +349,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
+						zap.Duration("natTimeout", s.natTimeout),
 						zap.Error(err),
 					)
 					natConn.Close()
@@ -457,6 +456,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrP
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Duration("natTimeout", s.natTimeout),
 				zap.Error(err),
 			)
 		}

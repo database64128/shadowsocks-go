@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -29,10 +30,9 @@ const (
 type TCPRelay struct {
 	serverName            string
 	listenAddress         string
-	listenerFwmark        int
-	listenerTFO           bool
-	waitForInitialPayload bool
+	wg                    sync.WaitGroup
 	listenConfig          tfo.ListenConfig
+	waitForInitialPayload bool
 	server                zerocopy.TCPServer
 	connCloser            zerocopy.TCPConnCloser
 	router                *router.Router
@@ -44,10 +44,8 @@ func NewTCPRelay(serverName, listenAddress string, listenerFwmark int, listenerT
 	return &TCPRelay{
 		serverName:            serverName,
 		listenAddress:         listenAddress,
-		listenerFwmark:        listenerFwmark,
-		listenerTFO:           listenerTFO,
-		waitForInitialPayload: waitForInitialPayload,
 		listenConfig:          conn.NewListenConfig(listenerTFO, listenerFwmark),
+		waitForInitialPayload: waitForInitialPayload,
 		server:                server,
 		connCloser:            connCloser,
 		router:                router,
@@ -68,12 +66,14 @@ func (s *TCPRelay) Start() error {
 	}
 	s.listener = l.(*net.TCPListener)
 
+	s.wg.Add(1)
+
 	go func() {
 		for {
 			clientConn, err := s.listener.AcceptTCP()
 			if err != nil {
-				if errors.Is(err, net.ErrClosed) {
-					return
+				if errors.Is(err, os.ErrDeadlineExceeded) {
+					break
 				}
 				s.logger.Warn("Failed to accept TCP connection",
 					zap.String("server", s.serverName),
@@ -85,13 +85,13 @@ func (s *TCPRelay) Start() error {
 
 			go s.handleConn(clientConn)
 		}
+
+		s.wg.Done()
 	}()
 
 	s.logger.Info("Started TCP relay service",
 		zap.String("server", s.serverName),
 		zap.String("listenAddress", s.listenAddress),
-		zap.Int("listenerFwmark", s.listenerFwmark),
-		zap.Bool("listenerTFO", s.listenerTFO),
 	)
 
 	return nil
@@ -265,5 +265,9 @@ func (s *TCPRelay) Stop() error {
 	if s.listener == nil {
 		return nil
 	}
+	if err := s.listener.SetDeadline(time.Now()); err != nil {
+		return err
+	}
+	s.wg.Wait()
 	return s.listener.Close()
 }

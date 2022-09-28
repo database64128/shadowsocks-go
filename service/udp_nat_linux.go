@@ -265,6 +265,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", targetAddr),
+							zap.Duration("natTimeout", s.natTimeout),
 							zap.Error(err),
 						)
 						natConn.Close()
@@ -425,6 +426,7 @@ main:
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Duration("natTimeout", s.natTimeout),
 				zap.Error(err),
 			)
 		}

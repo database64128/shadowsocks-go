@@ -310,6 +310,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", targetAddr),
+							zap.Duration("natTimeout", s.natTimeout),
 							zap.Uint64("clientSessionID", csid),
 							zap.Error(err),
 						)
@@ -476,6 +477,7 @@ main:
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", queuedPacket.clientAddrPort),
+				zap.Duration("natTimeout", s.natTimeout),
 				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)
