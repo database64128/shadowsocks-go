@@ -9,7 +9,7 @@ require (
 	go4.org/netipx v0.0.0-20220925034521-797b0c90d8ab
 	golang.org/x/exp v0.0.0-20220927162542-c76eaa363f9d
 	golang.org/x/net v0.0.0-20220927171203-f486391704dc
-	golang.org/x/sys v0.0.0-20220926163933-8cfa568d3c25
+	golang.org/x/sys v0.0.0-20220927170352-d9d178bc13c6
 	lukechampine.com/blake3 v1.1.7
 )
 
