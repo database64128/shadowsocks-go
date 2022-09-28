@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/database64128/tfo-go"
+	"github.com/database64128/tfo-go/v2"
 	"golang.org/x/sys/unix"
 )
 

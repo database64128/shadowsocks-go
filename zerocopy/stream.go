@@ -252,6 +252,23 @@ type DirectReadWriteCloser interface {
 	CloseWrite
 }
 
+// DirectReadWriteCloserOpener provides the Open method to open a [DirectReadWriteCloser].
+type DirectReadWriteCloserOpener interface {
+	// Open opens a [DirectReadWriteCloser] with the specified initial payload.
+	Open(b []byte) (DirectReadWriteCloser, error)
+}
+
+// SimpleDirectReadWriteCloserOpener wraps a [DirectReadWriteCloser] for the Open method to return.
+type SimpleDirectReadWriteCloserOpener struct {
+	DirectReadWriteCloser
+}
+
+// Open implements the DirectReadWriteCloserOpener Open method.
+func (o *SimpleDirectReadWriteCloserOpener) Open(b []byte) (DirectReadWriteCloser, error) {
+	_, err := o.DirectReadWriteCloser.Write(b)
+	return o.DirectReadWriteCloser, err
+}
+
 // ReadWriterTestFunc tests the left and right ReadWriters by performing 2 writes
 // on each ReadWriter and validating the read results.
 //

@@ -1,36 +1,33 @@
 package ss2022
 
 import (
+	"net"
+
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/database64128/tfo-go"
 )
 
 // TCPClient implements the zerocopy TCPClient interface.
 type TCPClient struct {
-	address      string
-	dialer       tfo.Dialer
+	tco          *zerocopy.TCPConnOpener
 	cipherConfig *CipherConfig
 	eihPSKHashes [][IdentityHeaderLength]byte
 }
 
 func NewTCPClient(address string, dialerTFO bool, dialerFwmark int, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte) *TCPClient {
 	return &TCPClient{
-		address:      address,
-		dialer:       conn.NewDialer(dialerTFO, dialerFwmark),
+		tco:          zerocopy.NewTCPConnOpener(conn.NewDialer(dialerTFO, dialerFwmark), "tcp", address),
 		cipherConfig: cipherConfig,
 		eihPSKHashes: eihPSKHashes,
 	}
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (tfoConn tfo.Conn, rw zerocopy.ReadWriter, err error) {
-	netConn, err := c.dialer.Dial("tcp", c.address)
-	if err != nil {
-		return
+func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (tc *net.TCPConn, rw zerocopy.ReadWriter, err error) {
+	rw, rawRW, err := NewShadowStreamClientReadWriter(c.tco, c.cipherConfig, c.eihPSKHashes, targetAddr, payload)
+	if err == nil {
+		tc = rawRW.(*net.TCPConn)
 	}
-	tfoConn = netConn.(tfo.Conn)
-	rw, err = NewShadowStreamClientReadWriter(tfoConn, c.cipherConfig, c.eihPSKHashes, targetAddr, payload)
 	return
 }
 
@@ -55,8 +52,8 @@ func NewTCPServer(cipherConfig *CipherConfig, uPSKMap map[[IdentityHeaderLength]
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *TCPServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
-	return NewShadowStreamServerReadWriter(conn, s.cipherConfig, s.saltPool, s.uPSKMap)
+func (s *TCPServer) Accept(tc *net.TCPConn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
+	return NewShadowStreamServerReadWriter(tc, s.cipherConfig, s.saltPool, s.uPSKMap)
 }
 
 // NativeInitialPayload implements the zerocopy.TCPServer NativeInitialPayload method.

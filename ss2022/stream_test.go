@@ -13,6 +13,7 @@ import (
 
 func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientInitialPayload []byte) {
 	pl, pr := pipe.NewDuplexPipe()
+	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
 	saltPool := NewSaltPool[string](ReplayWindowDuration)
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 
@@ -27,7 +28,7 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherCo
 	ctrlCh := make(chan struct{})
 
 	go func() {
-		c, cerr = NewShadowStreamClientReadWriter(pl, clientCipherConfig, clientCipherConfig.ClientPSKHashes(), clientTargetAddr, clientInitialPayload)
+		c, _, cerr = NewShadowStreamClientReadWriter(&plo, clientCipherConfig, clientCipherConfig.ClientPSKHashes(), clientTargetAddr, clientInitialPayload)
 		ctrlCh <- struct{}{}
 	}()
 
@@ -57,6 +58,7 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherCo
 
 func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig) {
 	pl, pr := pipe.NewDuplexPipe()
+	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
 	saltPool := NewSaltPool[string](ReplayWindowDuration)
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 
@@ -65,7 +67,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig, serverCi
 
 	// Start client.
 	go func() {
-		_, cerr = NewShadowStreamClientReadWriter(pl, clientCipherConfig, clientCipherConfig.ClientPSKHashes(), clientTargetAddr, nil)
+		_, _, cerr = NewShadowStreamClientReadWriter(&plo, clientCipherConfig, clientCipherConfig.ClientPSKHashes(), clientTargetAddr, nil)
 		ctrlCh <- struct{}{}
 	}()
 

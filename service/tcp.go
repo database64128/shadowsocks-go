@@ -11,7 +11,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/database64128/tfo-go"
+	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
 )
 

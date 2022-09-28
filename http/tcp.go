@@ -1,9 +1,11 @@
 package http
 
 import (
+	"net"
+
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/database64128/tfo-go"
+	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
 )
 
@@ -21,20 +23,23 @@ func NewProxyClient(address string, dialerTFO bool, dialerFwmark int) *ProxyClie
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *ProxyClient) Dial(targetAddr conn.Addr, payload []byte) (tfoConn tfo.Conn, rw zerocopy.ReadWriter, err error) {
-	netConn, err := c.dialer.Dial("tcp", c.address)
+func (c *ProxyClient) Dial(targetAddr conn.Addr, payload []byte) (tc *net.TCPConn, rw zerocopy.ReadWriter, err error) {
+	nc, err := c.dialer.Dial("tcp", c.address, nil)
 	if err != nil {
 		return
 	}
-	tfoConn = netConn.(tfo.Conn)
+	tc = nc.(*net.TCPConn)
 
-	rw, err = NewHttpStreamClientReadWriter(tfoConn, targetAddr)
+	rw, err = NewHttpStreamClientReadWriter(tc, targetAddr)
 	if err != nil {
+		tc.Close()
 		return
 	}
 
 	if len(payload) > 0 {
-		_, err = rw.WriteZeroCopy(payload, 0, len(payload))
+		if _, err = rw.WriteZeroCopy(payload, 0, len(payload)); err != nil {
+			tc.Close()
+		}
 	}
 	return
 }
@@ -54,8 +59,8 @@ func NewProxyServer(logger *zap.Logger) *ProxyServer {
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *ProxyServer) Accept(conn tfo.Conn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
-	rw, targetAddr, err = NewHttpStreamServerReadWriter(conn, s.logger)
+func (s *ProxyServer) Accept(tc *net.TCPConn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
+	rw, targetAddr, err = NewHttpStreamServerReadWriter(tc, s.logger)
 	return
 }
 

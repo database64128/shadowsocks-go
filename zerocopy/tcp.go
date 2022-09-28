@@ -9,7 +9,7 @@ import (
 	"net"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/tfo-go"
+	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
 )
 
@@ -33,7 +33,7 @@ type TCPClient interface {
 
 	// Dial creates a connection to the target address under the protocol's
 	// encapsulation and returns the established connection and a ReadWriter for read-write access.
-	Dial(targetAddr conn.Addr, payload []byte) (tfoConn tfo.Conn, rw ReadWriter, err error)
+	Dial(targetAddr conn.Addr, payload []byte) (tc *net.TCPConn, rw ReadWriter, err error)
 }
 
 // TCPServer provides a protocol's TCP service.
@@ -45,13 +45,39 @@ type TCPServer interface {
 	//
 	// If the returned error is ErrAcceptDoneNoRelay, the connection has been handled by this method.
 	// Two-way relay is not needed.
-	Accept(conn tfo.Conn) (rw ReadWriter, targetAddr conn.Addr, payload []byte, err error)
+	Accept(tc *net.TCPConn) (rw ReadWriter, targetAddr conn.Addr, payload []byte, err error)
 
 	// DefaultTCPConnCloser returns the default function to handle the closing
 	// of a potentially malicious TCP connection.
 	//
 	// If no special handling is required, return nil.
 	DefaultTCPConnCloser() TCPConnCloser
+}
+
+// TCPConnOpener stores information for opening TCP connections.
+//
+// TCPConnOpener implements the DirectReadWriteCloserOpener interface.
+type TCPConnOpener struct {
+	dialer           tfo.Dialer
+	network, address string
+}
+
+// NewTCPConnOpener returns a new TCPConnOpener using the specified dialer, network and address.
+func NewTCPConnOpener(dialer tfo.Dialer, network, address string) *TCPConnOpener {
+	return &TCPConnOpener{
+		dialer:  dialer,
+		network: network,
+		address: address,
+	}
+}
+
+// Open implements the DirectReadWriteCloserOpener Open method.
+func (o *TCPConnOpener) Open(b []byte) (DirectReadWriteCloser, error) {
+	c, err := o.dialer.Dial(o.network, o.address, b)
+	if err != nil {
+		return nil, err
+	}
+	return c.(DirectReadWriteCloser), nil
 }
 
 // TCPConnCloser handles a potentially malicious TCP connection.

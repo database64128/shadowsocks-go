@@ -8,7 +8,6 @@ import (
 	"net"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/tfo-go"
 )
 
 // SOCKS version 5.
@@ -133,7 +132,7 @@ func ClientUDPAssociate(rw io.ReadWriter, targetAddr conn.Addr) (conn.Addr, erro
 // enableTCP enables the CONNECT command.
 // enableUDP enables the UDP ASSOCIATE command.
 // conn must be provided when UDP is enabled.
-func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, conn tfo.Conn) (addr conn.Addr, err error) {
+func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, tc *net.TCPConn) (addr conn.Addr, err error) {
 	b := make([]byte, 3+MaxAddrLen)
 
 	// Read VER, NMETHODS.
@@ -209,7 +208,7 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, conn tfo.Conn) (a
 
 	case b[1] == CmdUDPAssociate && enableUDP:
 		// Use the connection's local address as the returned UDP bound address.
-		localAddrPort := conn.LocalAddr().(*net.TCPAddr).AddrPort()
+		localAddrPort := tc.LocalAddr().(*net.TCPAddr).AddrPort()
 
 		// Construct reply.
 		b[1] = Succeeded

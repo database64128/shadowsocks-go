@@ -30,7 +30,7 @@ type ShadowStreamServerReadWriter struct {
 }
 
 // NewShadowStreamServerReadWriter reads the request headers from rw to establish a session.
-func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, saltPool *SaltPool[string], uPSKMap map[[IdentityHeaderLength]byte]*CipherConfig) (sssrw *ShadowStreamServerReadWriter, targetAddr conn.Addr, payload []byte, err error) {
+func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, saltPool *SaltPool[string], uPSKMap map[[IdentityHeaderLength]byte]*CipherConfig) (sssRW *ShadowStreamServerReadWriter, targetAddr conn.Addr, payload []byte, err error) {
 	var identityHeaderLen int
 	if len(uPSKMap) > 0 {
 		identityHeaderLen = IdentityHeaderLength
@@ -112,7 +112,7 @@ func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 		reader: rw,
 		ssc:    shadowStreamCipher,
 	}
-	sssrw = &ShadowStreamServerReadWriter{
+	sssRW = &ShadowStreamServerReadWriter{
 		r:            &r,
 		rawRW:        rw,
 		cipherConfig: cipherConfig,
@@ -225,7 +225,7 @@ type ShadowStreamClientReadWriter struct {
 }
 
 // NewShadowStreamClientReadWriter writes request headers to rw and returns a Shadowsocks stream client ready for reads and writes.
-func NewShadowStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte, targetAddr conn.Addr, payload []byte) (sscrw *ShadowStreamClientReadWriter, err error) {
+func NewShadowStreamClientReadWriter(rwo zerocopy.DirectReadWriteCloserOpener, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte, targetAddr conn.Addr, payload []byte) (sscRW *ShadowStreamClientReadWriter, rawRW zerocopy.DirectReadWriteCloser, err error) {
 	var (
 		payloadOrPaddingMaxLen int
 		excessivePayload       []byte
@@ -288,13 +288,13 @@ func NewShadowStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 
 	// Write out.
 	n += variableLengthHeaderStart + 16
-	_, err = rw.Write(b[:n])
+	rawRW, err = rwo.Open(b[:n])
 	if err != nil {
 		return
 	}
 
 	w := ShadowStreamWriter{
-		writer: rw,
+		writer: rawRW,
 		ssc:    shadowStreamCipher,
 	}
 
@@ -303,16 +303,19 @@ func NewShadowStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 		copy(payload[2+16:], excessivePayload)
 		_, err = w.WriteZeroCopy(payload, 2+16, len(excessivePayload))
 		if err != nil {
+			rawRW.Close()
 			return
 		}
 	}
 
-	return &ShadowStreamClientReadWriter{
+	sscRW = &ShadowStreamClientReadWriter{
 		w:            &w,
-		rawRW:        rw,
+		rawRW:        rawRW,
 		cipherConfig: cipherConfig,
 		requestSalt:  salt,
-	}, nil
+	}
+
+	return
 }
 
 // FrontHeadroom implements the Writer FrontHeadroom method.

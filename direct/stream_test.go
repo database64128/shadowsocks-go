@@ -26,6 +26,7 @@ func TestDirectStreamReadWriter(t *testing.T) {
 
 func testShadowsocksNoneStreamReadWriter(t *testing.T, clientInitialPayload []byte) {
 	pl, pr := pipe.NewDuplexPipe()
+	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
 
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 	serverInitialPayload := make([]byte, len(clientInitialPayload))
@@ -41,7 +42,7 @@ func testShadowsocksNoneStreamReadWriter(t *testing.T, clientInitialPayload []by
 	ctrlCh := make(chan struct{})
 
 	go func() {
-		c, cerr = NewShadowsocksNoneStreamClientReadWriter(pl, clientTargetAddr, clientInitialPayload)
+		c, _, cerr = NewShadowsocksNoneStreamClientReadWriter(&plo, clientTargetAddr, clientInitialPayload)
 		ctrlCh <- struct{}{}
 	}()
 
