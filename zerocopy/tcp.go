@@ -84,11 +84,8 @@ func (o *TCPConnOpener) Open(b []byte) (DirectReadWriteCloser, error) {
 // Upon returning, the TCP connection is safe to close.
 type TCPConnCloser func(conn *net.TCPConn, serverName, listenAddress, clientAddress string, logger *zap.Logger)
 
-// Do invokes the TCPConnCloser if it's not nil.
-func (c TCPConnCloser) Do(conn *net.TCPConn, serverName, listenAddress, clientAddress string, logger *zap.Logger) {
-	if c != nil {
-		c(conn, serverName, listenAddress, clientAddress, logger)
-	}
+// JustClose closes the TCP connection without any special handling.
+func JustClose(conn *net.TCPConn, serverName, listenAddress, clientAddress string, logger *zap.Logger) {
 }
 
 // ForceReset forces a reset of the TCP connection, regardless of
@@ -180,6 +177,8 @@ func ParseRejectPolicy(rejectPolicy string, server TCPServer) (TCPConnCloser, er
 	switch rejectPolicy {
 	case "":
 		return server.DefaultTCPConnCloser(), nil
+	case "JustClose":
+		return JustClose, nil
 	case "ForceReset":
 		return ForceReset, nil
 	case "CloseWriteDrain":

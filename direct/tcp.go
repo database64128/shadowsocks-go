@@ -63,7 +63,7 @@ func (s *TCPServer) NativeInitialPayload() bool {
 
 // DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
 func (s *TCPServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
-	return nil
+	return zerocopy.JustClose
 }
 
 // ShadowsocksNoneTCPClient implements the zerocopy TCPClient interface.
@@ -111,7 +111,7 @@ func (s *ShadowsocksNoneTCPServer) NativeInitialPayload() bool {
 
 // DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
 func (s *ShadowsocksNoneTCPServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
-	return nil
+	return zerocopy.JustClose
 }
 
 // Socks5TCPClient implements the zerocopy TCPClient interface.
@@ -183,5 +183,5 @@ func (s *Socks5TCPServer) NativeInitialPayload() bool {
 
 // DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
 func (s *Socks5TCPServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
-	return nil
+	return zerocopy.JustClose
 }

@@ -71,5 +71,5 @@ func (s *ProxyServer) NativeInitialPayload() bool {
 
 // DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
 func (s *ProxyServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
-	return nil
+	return zerocopy.JustClose
 }

@@ -124,7 +124,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 			zap.Error(err),
 		)
 
-		s.connCloser.Do(clientConn, s.serverName, s.listenAddress, clientAddress, s.logger)
+		s.connCloser(clientConn, s.serverName, s.listenAddress, clientAddress, s.logger)
 		return
 	}
 

@@ -258,6 +258,7 @@ The padding policy can be configured individually for each Shadowsocks 2022 clie
 
 Reject policies are implemented for all TCP servers. A TCP server's reject policy is invoked when an accepted connection fails the protocol's handshake process. Each protocol has its own default reject policy. Custom reject policies can be useful for censorship circumvention servers to evade active probing.
 
+- `JustClose`: Just close the connection. (Default for cleartext protocols)
 - `ForceReset`: Forcibly reset the connection. Many protocols behave this way when invalid data is received. (Default for Shadowsocks 2022)
 - `CloseWriteDrain`: Send FIN and keep reading until EOF. This is typically how legacy Shadowsocks servers handle replay.
 - `ReplyWithGibberish`: Keep reading and send random garbage after each read returns. This emulates how a legacy Shadowsocks server without replay protection behaves, except it doesn't actually relay the replayed payload.
