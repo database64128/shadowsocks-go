@@ -115,6 +115,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
+					zap.Uint32("packetLength", msg.Msglen),
 					zap.Error(err),
 				)
 
@@ -288,6 +289,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", targetAddr),
 							zap.Uint64("clientSessionID", csid),
+							zap.Int("natConnFwmark", natConnFwmark),
 							zap.Error(err),
 						)
 						return
@@ -299,6 +301,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", targetAddr),
 							zap.Uint64("clientSessionID", csid),
+							zap.Int("natConnFwmark", natConnFwmark),
 							zap.Error(serr),
 						)
 					}
@@ -609,6 +612,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 					zap.Stringer("clientAddress", clientAddrPort),
 					zap.Stringer("packetSourceAddress", packetSourceAddrPort),
 					zap.Uint64("clientSessionID", csid),
+					zap.Uint32("packetLength", msg.Msglen),
 					zap.Error(err),
 				)
 				continue

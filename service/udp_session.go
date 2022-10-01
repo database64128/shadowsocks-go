@@ -187,6 +187,8 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 			s.logger.Warn("Failed to read packet from serverConn",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
+				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Int("packetLength", n),
 				zap.Error(err),
 			)
 
@@ -199,6 +201,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Int("packetLength", n),
 				zap.Error(err),
 			)
 
@@ -380,6 +383,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
 						zap.Uint64("clientSessionID", csid),
+						zap.Int("natConnFwmark", natConnFwmark),
 						zap.Error(err),
 					)
 					return
@@ -391,6 +395,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
 						zap.Uint64("clientSessionID", csid),
+						zap.Int("natConnFwmark", natConnFwmark),
 						zap.Error(serr),
 					)
 				}
@@ -569,7 +574,9 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
+				zap.Stringer("packetSourceAddress", packetSourceAddrPort),
 				zap.Uint64("clientSessionID", csid),
+				zap.Int("packetLength", n),
 				zap.Error(err),
 			)
 			continue
@@ -582,6 +589,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 				zap.Stringer("clientAddress", clientAddrPort),
 				zap.Stringer("packetSourceAddress", packetSourceAddrPort),
 				zap.Uint64("clientSessionID", csid),
+				zap.Int("packetLength", n),
 				zap.Error(err),
 			)
 			continue
