@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net/netip"
+	"os"
 	"sync"
 	"time"
 
@@ -381,15 +382,36 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 
 read:
 	for {
-		n, packetSourceAddress, err := udpConn.ReadFromUDPAddrPort(recvBuf)
+		n, _, flags, packetSourceAddress, err := udpConn.ReadMsgUDPAddrPort(recvBuf, nil)
 		if err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				r.logger.Warn("DNS lookup via UDP timed out",
+					zap.String("resolver", r.name),
+					zap.String("name", nameString),
+					zap.Stringer("serverAddrPort", r.serverAddrPort),
+				)
+				break
+			}
 			r.logger.Warn("Failed to read query response",
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
+				zap.Stringer("packetSourceAddress", packetSourceAddress),
+				zap.Int("packetLength", n),
 				zap.Error(err),
 			)
-			break
+			continue
+		}
+		if err = conn.ParseFlagsForError(flags); err != nil {
+			r.logger.Warn("Failed to read query response",
+				zap.String("resolver", r.name),
+				zap.String("name", nameString),
+				zap.Stringer("serverAddrPort", r.serverAddrPort),
+				zap.Stringer("packetSourceAddress", packetSourceAddress),
+				zap.Int("packetLength", n),
+				zap.Error(err),
+			)
+			continue
 		}
 
 		payloadSourceAddrPort, payloadStart, payloadLength, err := unpacker.UnpackInPlace(recvBuf, packetSourceAddress, 0, n)
