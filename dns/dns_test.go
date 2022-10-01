@@ -9,8 +9,8 @@ import (
 	"go.uber.org/zap"
 )
 
-func testResolver(t *testing.T, serverAddrPort netip.AddrPort, tcpClient zerocopy.TCPClient, udpClient zerocopy.UDPClient, logger *zap.Logger) {
-	r := NewResolver(serverAddrPort, tcpClient, udpClient, logger)
+func testResolver(t *testing.T, name string, serverAddrPort netip.AddrPort, tcpClient zerocopy.TCPClient, udpClient zerocopy.UDPClient, logger *zap.Logger) {
+	r := NewResolver(name, serverAddrPort, tcpClient, udpClient, logger)
 
 	// Uncached lookup.
 	uncachedResult, err := r.Lookup("example.com")
@@ -46,9 +46,11 @@ func TestResolver(t *testing.T) {
 	tcpClient := direct.NewTCPClient(true, 0)
 	udpClient := direct.NewUDPClient(1500, 0, true)
 
-	// Test UDP.
-	testResolver(t, serverAddrPort, nil, udpClient, logger)
+	t.Run("UDP", func(t *testing.T) {
+		testResolver(t, "UDP", serverAddrPort, nil, udpClient, logger)
+	})
 
-	// Test TCP.
-	testResolver(t, serverAddrPort, tcpClient, nil, logger)
+	t.Run("TCP", func(t *testing.T) {
+		testResolver(t, "TCP", serverAddrPort, tcpClient, nil, logger)
+	})
 }
