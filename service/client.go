@@ -34,6 +34,10 @@ type ClientConfig struct {
 	PaddingPolicy string   `json:"paddingPolicy"`
 	cipherConfig  *ss2022.CipherConfig
 	eihPSKHashes  [][ss2022.IdentityHeaderLength]byte
+
+	// Taint
+	UnsafeRequestStreamPrefix  []byte `json:"unsafeRequestStreamPrefix"`
+	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix"`
 }
 
 // TCPClient creates a zerocopy.TCPClient from the ClientConfig.
@@ -60,7 +64,10 @@ func (cc *ClientConfig) TCPClient(logger *zap.Logger) (zerocopy.TCPClient, error
 			}
 			cc.eihPSKHashes = cc.cipherConfig.ClientPSKHashes()
 		}
-		return ss2022.NewTCPClient(cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark, cc.cipherConfig, cc.eihPSKHashes), nil
+		if len(cc.UnsafeRequestStreamPrefix) != 0 || len(cc.UnsafeResponseStreamPrefix) != 0 {
+			logger.Warn("Unsafe stream prefix taints the client", zap.String("name", cc.Name))
+		}
+		return ss2022.NewTCPClient(cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark, cc.cipherConfig, cc.eihPSKHashes, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}

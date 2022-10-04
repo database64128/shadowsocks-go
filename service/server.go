@@ -44,7 +44,9 @@ type ServerConfig struct {
 	uPSKMap       map[[ss2022.IdentityHeaderLength]byte]*ss2022.CipherConfig
 
 	// Taint
-	UnsafeFallbackAddress *conn.Addr `json:"unsafeFallbackAddress"`
+	UnsafeFallbackAddress      *conn.Addr `json:"unsafeFallbackAddress"`
+	UnsafeRequestStreamPrefix  []byte     `json:"unsafeRequestStreamPrefix"`
+	UnsafeResponseStreamPrefix []byte     `json:"unsafeResponseStreamPrefix"`
 }
 
 // TCPRelay creates a TCP relay service from the ServerConfig.
@@ -81,7 +83,11 @@ func (sc *ServerConfig) TCPRelay(router *router.Router, logger *zap.Logger) (*TC
 			sc.uPSKMap = sc.cipherConfig.ServerPSKHashMap()
 		}
 
-		server = ss2022.NewTCPServer(sc.cipherConfig, sc.uPSKMap)
+		if len(sc.UnsafeRequestStreamPrefix) != 0 || len(sc.UnsafeResponseStreamPrefix) != 0 {
+			logger.Warn("Unsafe stream prefix taints the server", zap.String("name", sc.Name))
+		}
+
+		server = ss2022.NewTCPServer(sc.cipherConfig, sc.uPSKMap, sc.UnsafeRequestStreamPrefix, sc.UnsafeResponseStreamPrefix)
 
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)

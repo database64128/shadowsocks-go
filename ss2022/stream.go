@@ -1,6 +1,7 @@
 package ss2022
 
 import (
+	"bytes"
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/binary"
@@ -20,27 +21,33 @@ var (
 	ErrRepeatedSalt    = errors.New("detected replay: repeated salt")
 )
 
+var ErrUnsafeStreamPrefixMismatch = errors.New("unsafe stream prefix mismatch")
+
 // ShadowStreamServerReadWriter implements Shadowsocks stream server.
 type ShadowStreamServerReadWriter struct {
-	r            *ShadowStreamReader
-	w            *ShadowStreamWriter
-	rawRW        zerocopy.DirectReadWriteCloser
-	cipherConfig *CipherConfig
-	requestSalt  []byte
+	r                          *ShadowStreamReader
+	w                          *ShadowStreamWriter
+	rawRW                      zerocopy.DirectReadWriteCloser
+	cipherConfig               *CipherConfig
+	requestSalt                []byte
+	unsafeResponseStreamPrefix []byte
 }
 
 // NewShadowStreamServerReadWriter reads the request headers from rw to establish a session.
-func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, saltPool *SaltPool[string], uPSKMap map[[IdentityHeaderLength]byte]*CipherConfig) (sssRW *ShadowStreamServerReadWriter, targetAddr conn.Addr, payload []byte, err error) {
+func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherConfig *CipherConfig, saltPool *SaltPool[string], uPSKMap map[[IdentityHeaderLength]byte]*CipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) (sssRW *ShadowStreamServerReadWriter, targetAddr conn.Addr, payload []byte, err error) {
 	var identityHeaderLen int
 	if len(uPSKMap) > 0 {
 		identityHeaderLen = IdentityHeaderLength
 	}
 
+	urspLen := len(unsafeRequestStreamPrefix)
 	saltLen := len(cipherConfig.PSK)
-	bufferLen := saltLen + identityHeaderLen + TCPRequestFixedLengthHeaderLength + 16
+	identityHeaderStart := urspLen + saltLen
+	fixedLengthHeaderStart := identityHeaderStart + identityHeaderLen
+	bufferLen := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength + 16
 	b := make([]byte, bufferLen)
 
-	// Read salt, identity header, fixed-length header.
+	// Read unsafe request stream prefix, salt, identity header, fixed-length header.
 	n, err := rw.Read(b)
 	if err != nil {
 		return
@@ -51,12 +58,21 @@ func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 		return
 	}
 
-	salt := b[:saltLen]
-	ciphertext := b[saltLen+identityHeaderLen:]
+	ursp := b[:urspLen]
+	salt := b[urspLen:identityHeaderStart]
+	ciphertext := b[fixedLengthHeaderStart:]
 
+	// Check unsafe request stream prefix.
+	if !bytes.Equal(ursp, unsafeRequestStreamPrefix) {
+		payload = b[:n]
+		err = &HeaderError[[]byte]{ErrUnsafeStreamPrefixMismatch, unsafeRequestStreamPrefix, ursp}
+		return
+	}
+
+	// Process identity header.
 	if identityHeaderLen != 0 {
 		var uPSKHash [IdentityHeaderLength]byte
-		identityHeader := b[saltLen : saltLen+identityHeaderLen]
+		identityHeader := b[identityHeaderStart:fixedLengthHeaderStart]
 		identityHeaderCipher := cipherConfig.NewTCPIdentityHeaderServerCipher(salt)
 		identityHeaderCipher.Decrypt(uPSKHash[:], identityHeader)
 
@@ -116,10 +132,11 @@ func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 		ssc:    shadowStreamCipher,
 	}
 	sssRW = &ShadowStreamServerReadWriter{
-		r:            &r,
-		rawRW:        rw,
-		cipherConfig: cipherConfig,
-		requestSalt:  salt,
+		r:                          &r,
+		rawRW:                      rw,
+		cipherConfig:               cipherConfig,
+		requestSalt:                salt,
+		unsafeResponseStreamPrefix: unsafeResponseStreamPrefix,
 	}
 	return
 }
@@ -147,13 +164,19 @@ func (rw *ShadowStreamServerReadWriter) MinPayloadBufferSizePerRead() int {
 // WriteZeroCopy implements the Writer WriteZeroCopy method.
 func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (int, error) {
 	if rw.w == nil { // first write
+		urspLen := len(rw.unsafeResponseStreamPrefix)
 		saltLen := len(rw.cipherConfig.PSK)
-		responseHeaderPlaintextEnd := saltLen + TCPRequestFixedLengthHeaderLength + saltLen
+		fixedLengthHeaderStart := urspLen + saltLen
+		responseHeaderPlaintextEnd := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength + saltLen
 		payloadBufStart := responseHeaderPlaintextEnd + 16
 		bufferLen := payloadBufStart + payloadLen + 16
 		hb := make([]byte, bufferLen)
-		salt := hb[:saltLen]
-		responseHeader := hb[saltLen:responseHeaderPlaintextEnd]
+		ursp := hb[:urspLen]
+		salt := hb[urspLen:fixedLengthHeaderStart]
+		responseHeader := hb[fixedLengthHeaderStart:responseHeaderPlaintextEnd]
+
+		// Write unsafe response stream prefix.
+		copy(ursp, rw.unsafeResponseStreamPrefix)
 
 		// Random salt.
 		_, err := rand.Read(salt)
@@ -220,15 +243,16 @@ func (rw *ShadowStreamServerReadWriter) Close() error {
 
 // ShadowStreamClientReadWriter implements Shadowsocks stream client.
 type ShadowStreamClientReadWriter struct {
-	r            *ShadowStreamReader
-	w            *ShadowStreamWriter
-	rawRW        zerocopy.DirectReadWriteCloser
-	cipherConfig *CipherConfig
-	requestSalt  []byte
+	r                          *ShadowStreamReader
+	w                          *ShadowStreamWriter
+	rawRW                      zerocopy.DirectReadWriteCloser
+	cipherConfig               *CipherConfig
+	requestSalt                []byte
+	unsafeResponseStreamPrefix []byte
 }
 
 // NewShadowStreamClientReadWriter writes request headers to rw and returns a Shadowsocks stream client ready for reads and writes.
-func NewShadowStreamClientReadWriter(rwo zerocopy.DirectReadWriteCloserOpener, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte, targetAddr conn.Addr, payload []byte) (sscRW *ShadowStreamClientReadWriter, rawRW zerocopy.DirectReadWriteCloser, err error) {
+func NewShadowStreamClientReadWriter(rwo zerocopy.DirectReadWriteCloserOpener, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte, targetAddr conn.Addr, payload, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) (sscRW *ShadowStreamClientReadWriter, rawRW zerocopy.DirectReadWriteCloser, err error) {
 	var (
 		payloadOrPaddingMaxLen int
 		excessivePayload       []byte
@@ -247,18 +271,24 @@ func NewShadowStreamClientReadWriter(rwo zerocopy.DirectReadWriteCloserOpener, c
 		payloadOrPaddingMaxLen = MaxPaddingLength
 	}
 
+	urspLen := len(unsafeRequestStreamPrefix)
 	saltLen := len(cipherConfig.PSK)
 	identityHeadersLen := IdentityHeaderLength * len(eihPSKHashes)
-	fixedLengthHeaderStart := saltLen + identityHeadersLen
+	identityHeadersStart := urspLen + saltLen
+	fixedLengthHeaderStart := identityHeadersStart + identityHeadersLen
 	fixedLengthHeaderEnd := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength
 	variableLengthHeaderStart := fixedLengthHeaderEnd + 16
 	variableLengthHeaderEnd := variableLengthHeaderStart + targetAddrLen + 2 + payloadOrPaddingMaxLen
 	bufferLen := variableLengthHeaderEnd + 16
 	b := make([]byte, bufferLen)
-	salt := b[:saltLen]
-	identityHeaders := b[saltLen:fixedLengthHeaderStart]
+	ursp := b[:urspLen]
+	salt := b[urspLen:identityHeadersStart]
+	identityHeaders := b[identityHeadersStart:fixedLengthHeaderStart]
 	fixedLengthHeaderPlaintext := b[fixedLengthHeaderStart:fixedLengthHeaderEnd]
 	variableLengthHeaderPlaintext := b[variableLengthHeaderStart:variableLengthHeaderEnd]
+
+	// Write unsafe request stream prefix.
+	copy(ursp, unsafeRequestStreamPrefix)
 
 	// Random salt.
 	_, err = rand.Read(salt)
@@ -312,10 +342,11 @@ func NewShadowStreamClientReadWriter(rwo zerocopy.DirectReadWriteCloserOpener, c
 	}
 
 	sscRW = &ShadowStreamClientReadWriter{
-		w:            &w,
-		rawRW:        rawRW,
-		cipherConfig: cipherConfig,
-		requestSalt:  salt,
+		w:                          &w,
+		rawRW:                      rawRW,
+		cipherConfig:               cipherConfig,
+		requestSalt:                salt,
+		unsafeResponseStreamPrefix: unsafeResponseStreamPrefix,
 	}
 
 	return
@@ -349,8 +380,10 @@ func (rw *ShadowStreamClientReadWriter) WriteZeroCopy(b []byte, payloadStart, pa
 // ReadZeroCopy implements the Reader ReadZeroCopy method.
 func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (int, error) {
 	if rw.r == nil { // first read
+		urspLen := len(rw.unsafeResponseStreamPrefix)
 		saltLen := len(rw.cipherConfig.PSK)
-		bufferLen := saltLen + TCPRequestFixedLengthHeaderLength + saltLen + 16
+		fixedLengthHeaderStart := urspLen + saltLen
+		bufferLen := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength + saltLen + 16
 		hb := make([]byte, bufferLen)
 
 		// Read response header.
@@ -362,9 +395,15 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 			return 0, &HeaderError[int]{ErrFirstRead, bufferLen, n}
 		}
 
+		// Check unsafe response stream prefix.
+		ursp := hb[:urspLen]
+		if !bytes.Equal(ursp, rw.unsafeResponseStreamPrefix) {
+			return 0, &HeaderError[[]byte]{ErrUnsafeStreamPrefixMismatch, rw.unsafeResponseStreamPrefix, ursp}
+		}
+
 		// Derive key and create cipher.
-		salt := hb[:saltLen]
-		ciphertext := hb[saltLen:]
+		salt := hb[urspLen:fixedLengthHeaderStart]
+		ciphertext := hb[fixedLengthHeaderStart:]
 		shadowStreamCipher := rw.cipherConfig.NewShadowStreamCipher(salt)
 
 		// Create reader.

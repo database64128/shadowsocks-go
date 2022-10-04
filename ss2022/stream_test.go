@@ -11,7 +11,7 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientInitialPayload []byte) {
+func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientInitialPayload, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) {
 	pl, pr := pipe.NewDuplexPipe()
 	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
 	saltPool := NewSaltPool[string](ReplayWindowDuration)
@@ -28,12 +28,12 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherCo
 	ctrlCh := make(chan struct{})
 
 	go func() {
-		c, _, cerr = NewShadowStreamClientReadWriter(&plo, clientCipherConfig, clientCipherConfig.ClientPSKHashes(), clientTargetAddr, clientInitialPayload)
+		c, _, cerr = NewShadowStreamClientReadWriter(&plo, clientCipherConfig, clientCipherConfig.ClientPSKHashes(), clientTargetAddr, clientInitialPayload, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
 		ctrlCh <- struct{}{}
 	}()
 
 	go func() {
-		s, serverTargetAddr, serverInitialPayload, serr = NewShadowStreamServerReadWriter(pr, serverCipherConfig, saltPool, serverCipherConfig.ServerPSKHashMap())
+		s, serverTargetAddr, serverInitialPayload, serr = NewShadowStreamServerReadWriter(pr, serverCipherConfig, saltPool, serverCipherConfig.ServerPSKHashMap(), unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
 		ctrlCh <- struct{}{}
 	}()
 
@@ -67,7 +67,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig, serverCi
 
 	// Start client.
 	go func() {
-		_, _, cerr = NewShadowStreamClientReadWriter(&plo, clientCipherConfig, clientCipherConfig.ClientPSKHashes(), clientTargetAddr, nil)
+		_, _, cerr = NewShadowStreamClientReadWriter(&plo, clientCipherConfig, clientCipherConfig.ClientPSKHashes(), clientTargetAddr, nil, nil, nil)
 		ctrlCh <- struct{}{}
 	}()
 
@@ -94,7 +94,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig, serverCi
 	go sendFunc()
 
 	// Start server.
-	_, _, _, serr = NewShadowStreamServerReadWriter(pr, serverCipherConfig, saltPool, serverCipherConfig.ServerPSKHashMap())
+	_, _, _, serr = NewShadowStreamServerReadWriter(pr, serverCipherConfig, saltPool, serverCipherConfig.ServerPSKHashMap(), nil, nil)
 	if serr != nil {
 		t.Fatal(serr)
 	}
@@ -103,7 +103,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig, serverCi
 	go sendFunc()
 
 	// Start server from replay.
-	_, _, _, serr = NewShadowStreamServerReadWriter(pr, serverCipherConfig, saltPool, serverCipherConfig.ServerPSKHashMap())
+	_, _, _, serr = NewShadowStreamServerReadWriter(pr, serverCipherConfig, saltPool, serverCipherConfig.ServerPSKHashMap(), nil, nil)
 	if serr != ErrRepeatedSalt {
 		t.Errorf("Expected ErrRepeatedSalt, got %v", serr)
 	}
@@ -120,15 +120,25 @@ func TestShadowStreamReadWriterNoEIH(t *testing.T) {
 	}
 
 	initialPayload := make([]byte, 1024)
-	_, err = rand.Read(initialPayload)
-	if err != nil {
+	unsafeRequestStreamPrefix := make([]byte, 64)
+	unsafeResponseStreamPrefix := make([]byte, 64)
+
+	if _, err = rand.Read(initialPayload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = rand.Read(unsafeRequestStreamPrefix); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = rand.Read(unsafeResponseStreamPrefix); err != nil {
 		t.Fatal(err)
 	}
 
-	testShadowStreamReadWriter(t, cipherConfig128, cipherConfig128, nil)
-	testShadowStreamReadWriter(t, cipherConfig128, cipherConfig128, initialPayload)
-	testShadowStreamReadWriter(t, cipherConfig256, cipherConfig256, nil)
-	testShadowStreamReadWriter(t, cipherConfig256, cipherConfig256, initialPayload)
+	testShadowStreamReadWriter(t, cipherConfig128, cipherConfig128, nil, nil, nil)
+	testShadowStreamReadWriter(t, cipherConfig128, cipherConfig128, initialPayload, nil, nil)
+	testShadowStreamReadWriter(t, cipherConfig128, cipherConfig128, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
+	testShadowStreamReadWriter(t, cipherConfig256, cipherConfig256, nil, nil, nil)
+	testShadowStreamReadWriter(t, cipherConfig256, cipherConfig256, initialPayload, nil, nil)
+	testShadowStreamReadWriter(t, cipherConfig256, cipherConfig256, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
 
 	testShadowStreamReadWriterReplay(t, cipherConfig128, cipherConfig128)
 	testShadowStreamReadWriterReplay(t, cipherConfig256, cipherConfig256)
@@ -154,15 +164,25 @@ func TestShadowStreamReadWriterWithEIH(t *testing.T) {
 	}
 
 	initialPayload := make([]byte, 1024)
-	_, err = rand.Read(initialPayload)
-	if err != nil {
+	unsafeRequestStreamPrefix := make([]byte, 64)
+	unsafeResponseStreamPrefix := make([]byte, 64)
+
+	if _, err = rand.Read(initialPayload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = rand.Read(unsafeRequestStreamPrefix); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = rand.Read(unsafeResponseStreamPrefix); err != nil {
 		t.Fatal(err)
 	}
 
-	testShadowStreamReadWriter(t, &clientCipherConfig128, serverCipherConfig128, nil)
-	testShadowStreamReadWriter(t, &clientCipherConfig128, serverCipherConfig128, initialPayload)
-	testShadowStreamReadWriter(t, &clientCipherConfig256, serverCipherConfig256, nil)
-	testShadowStreamReadWriter(t, &clientCipherConfig256, serverCipherConfig256, initialPayload)
+	testShadowStreamReadWriter(t, &clientCipherConfig128, serverCipherConfig128, nil, nil, nil)
+	testShadowStreamReadWriter(t, &clientCipherConfig128, serverCipherConfig128, initialPayload, nil, nil)
+	testShadowStreamReadWriter(t, &clientCipherConfig128, serverCipherConfig128, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
+	testShadowStreamReadWriter(t, &clientCipherConfig256, serverCipherConfig256, nil, nil, nil)
+	testShadowStreamReadWriter(t, &clientCipherConfig256, serverCipherConfig256, initialPayload, nil, nil)
+	testShadowStreamReadWriter(t, &clientCipherConfig256, serverCipherConfig256, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
 
 	testShadowStreamReadWriterReplay(t, &clientCipherConfig128, serverCipherConfig128)
 	testShadowStreamReadWriterReplay(t, &clientCipherConfig256, serverCipherConfig256)
