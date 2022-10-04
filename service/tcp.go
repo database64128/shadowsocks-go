@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/database64128/tfo-go/v2"
@@ -35,12 +36,13 @@ type TCPRelay struct {
 	waitForInitialPayload bool
 	server                zerocopy.TCPServer
 	connCloser            zerocopy.TCPConnCloser
+	fallbackAddress       *conn.Addr
 	router                *router.Router
 	logger                *zap.Logger
 	listener              *net.TCPListener
 }
 
-func NewTCPRelay(serverName, listenAddress string, listenerFwmark int, listenerTFO, waitForInitialPayload bool, server zerocopy.TCPServer, connCloser zerocopy.TCPConnCloser, router *router.Router, logger *zap.Logger) *TCPRelay {
+func NewTCPRelay(serverName, listenAddress string, listenerFwmark int, listenerTFO, waitForInitialPayload bool, server zerocopy.TCPServer, connCloser zerocopy.TCPConnCloser, fallbackAddress *conn.Addr, router *router.Router, logger *zap.Logger) *TCPRelay {
 	return &TCPRelay{
 		serverName:            serverName,
 		listenAddress:         listenAddress,
@@ -48,6 +50,7 @@ func NewTCPRelay(serverName, listenAddress string, listenerFwmark int, listenerT
 		waitForInitialPayload: waitForInitialPayload,
 		server:                server,
 		connCloser:            connCloser,
+		fallbackAddress:       fallbackAddress,
 		router:                router,
 		logger:                logger,
 	}
@@ -124,8 +127,13 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 			zap.Error(err),
 		)
 
-		s.connCloser(clientConn, s.serverName, s.listenAddress, clientAddress, s.logger)
-		return
+		if s.fallbackAddress == nil || len(payload) == 0 {
+			s.connCloser(clientConn, s.serverName, s.listenAddress, clientAddress, s.logger)
+			return
+		}
+
+		clientRW = direct.NewDirectStreamReadWriter(clientConn)
+		targetAddr = *s.fallbackAddress
 	}
 
 	// Route.

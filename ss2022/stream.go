@@ -46,6 +46,7 @@ func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 		return
 	}
 	if n < bufferLen {
+		payload = b[:n]
 		err = &HeaderError[int]{ErrFirstRead, bufferLen, n}
 		return
 	}
@@ -54,13 +55,14 @@ func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 	ciphertext := b[saltLen+identityHeaderLen:]
 
 	if identityHeaderLen != 0 {
+		var uPSKHash [IdentityHeaderLength]byte
 		identityHeader := b[saltLen : saltLen+identityHeaderLen]
 		identityHeaderCipher := cipherConfig.NewTCPIdentityHeaderServerCipher(salt)
-		identityHeaderCipher.Decrypt(identityHeader, identityHeader)
+		identityHeaderCipher.Decrypt(uPSKHash[:], identityHeader)
 
-		uPSKHash := *(*[IdentityHeaderLength]byte)(identityHeader)
 		userCipherConfig, ok := uPSKMap[uPSKHash]
 		if !ok {
+			payload = b[:n]
 			err = ErrIdentityHeaderUserPSKNotFound
 			return
 		}
@@ -71,8 +73,9 @@ func NewShadowStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, cipherCo
 	shadowStreamCipher := cipherConfig.NewShadowStreamCipher(salt)
 
 	// AEAD open.
-	plaintext, err := shadowStreamCipher.DecryptInPlace(ciphertext)
+	plaintext, err := shadowStreamCipher.DecryptTo(nil, ciphertext)
 	if err != nil {
+		payload = b[:n]
 		return
 	}
 

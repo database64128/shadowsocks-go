@@ -40,11 +40,13 @@ type TCPClient interface {
 type TCPServer interface {
 	InitialPayloader
 
-	// Accept takes a newly-accepted TCP connection and wraps it into a
-	// protocol stream server.
+	// Accept takes a newly-accepted TCP connection and wraps it into a protocol stream server.
 	//
 	// If the returned error is ErrAcceptDoneNoRelay, the connection has been handled by this method.
 	// Two-way relay is not needed.
+	//
+	// If accept fails, the returned payload must be either nil/empty or the data that has been read
+	// from the connection.
 	Accept(tc *net.TCPConn) (rw ReadWriter, targetAddr conn.Addr, payload []byte, err error)
 
 	// DefaultTCPConnCloser returns the default function to handle the closing

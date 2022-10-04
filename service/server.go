@@ -42,6 +42,9 @@ type ServerConfig struct {
 	RejectPolicy  string   `json:"rejectPolicy"`
 	cipherConfig  *ss2022.CipherConfig
 	uPSKMap       map[[ss2022.IdentityHeaderLength]byte]*ss2022.CipherConfig
+
+	// Taint
+	UnsafeFallbackAddress *conn.Addr `json:"unsafeFallbackAddress"`
 }
 
 // TCPRelay creates a TCP relay service from the ServerConfig.
@@ -89,9 +92,16 @@ func (sc *ServerConfig) TCPRelay(router *router.Router, logger *zap.Logger) (*TC
 		return nil, err
 	}
 
+	if sc.UnsafeFallbackAddress != nil {
+		logger.Warn("Unsafe fallback taints the server",
+			zap.String("server", sc.Name),
+			zap.Stringer("fallbackAddress", sc.UnsafeFallbackAddress),
+		)
+	}
+
 	waitForInitialPayload := !server.NativeInitialPayload() && !sc.DisableInitialPayloadWait
 
-	return NewTCPRelay(sc.Name, sc.Listen, sc.ListenerFwmark, sc.ListenerTFO, waitForInitialPayload, server, connCloser, router, logger), nil
+	return NewTCPRelay(sc.Name, sc.Listen, sc.ListenerFwmark, sc.ListenerTFO, waitForInitialPayload, server, connCloser, sc.UnsafeFallbackAddress, router, logger), nil
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
