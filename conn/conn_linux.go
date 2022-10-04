@@ -12,8 +12,28 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// SocketControlMessageBufferSize specifies the buffer size for receiving socket control messages.
-const SocketControlMessageBufferSize = unix.SizeofCmsghdr + (unix.SizeofInet6Pktinfo+unix.SizeofPtr-1) & ^(unix.SizeofPtr-1)
+const (
+	// SocketControlMessageBufferSize specifies the buffer size for receiving socket control messages.
+	SocketControlMessageBufferSize = unix.SizeofCmsghdr + (unix.SizeofInet6Pktinfo+unix.SizeofPtr-1) & ^(unix.SizeofPtr-1)
+
+	// TransparentSocketControlMessageBufferSize specifies the buffer size for receiving IPV6_RECVORIGDSTADDR socket control messages.
+	TransparentSocketControlMessageBufferSize = unix.SizeofCmsghdr + (unix.SizeofSockaddrInet6+unix.SizeofPtr-1) & ^(unix.SizeofPtr-1)
+)
+
+func setFwmark(fd, fwmark int) error {
+	return unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_MARK, fwmark)
+}
+
+func setTransparent(fd int, network string) error {
+	switch network {
+	case "tcp4", "udp4":
+		return unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TRANSPARENT, 1)
+	case "tcp6", "udp6":
+		return unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TRANSPARENT, 1)
+	default:
+		return fmt.Errorf("unsupported network: %s", network)
+	}
+}
 
 // NewDialer returns a tfo.Dialer with the specified options applied.
 func NewDialer(dialerTFO bool, dialerFwmark int) (dialer tfo.Dialer) {
@@ -21,7 +41,7 @@ func NewDialer(dialerTFO bool, dialerFwmark int) (dialer tfo.Dialer) {
 	if dialerFwmark != 0 {
 		dialer.Control = func(network, address string, c syscall.RawConn) (err error) {
 			cerr := c.Control(func(fd uintptr) {
-				err = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, dialerFwmark)
+				err = setFwmark(int(fd), dialerFwmark)
 			})
 			if err == nil {
 				err = cerr
@@ -33,12 +53,19 @@ func NewDialer(dialerTFO bool, dialerFwmark int) (dialer tfo.Dialer) {
 }
 
 // NewListenConfig returns a tfo.ListenConfig with the specified options applied.
-func NewListenConfig(listenerTFO bool, listenerFwmark int) (lc tfo.ListenConfig) {
+func NewListenConfig(listenerTFO, listenerTransparent bool, listenerFwmark int) (lc tfo.ListenConfig) {
 	lc.DisableTFO = !listenerTFO
-	if listenerFwmark != 0 {
+	if listenerTransparent || listenerFwmark != 0 {
 		lc.Control = func(network, address string, c syscall.RawConn) (err error) {
 			cerr := c.Control(func(fd uintptr) {
-				err = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, listenerFwmark)
+				if listenerTransparent {
+					if err = setTransparent(int(fd), network); err != nil {
+						return
+					}
+				}
+				if listenerFwmark != 0 {
+					err = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, listenerFwmark)
+				}
 			})
 			if err == nil {
 				err = cerr

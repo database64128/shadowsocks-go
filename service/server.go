@@ -56,14 +56,22 @@ func (sc *ServerConfig) TCPRelay(router *router.Router, logger *zap.Logger) (*TC
 	}
 
 	var (
-		server     zerocopy.TCPServer
-		connCloser zerocopy.TCPConnCloser
-		err        error
+		server              zerocopy.TCPServer
+		connCloser          zerocopy.TCPConnCloser
+		err                 error
+		listenerTransparent bool
 	)
 
 	switch sc.Protocol {
 	case "direct":
 		server = direct.NewTCPServer(sc.TunnelRemoteAddress)
+
+	case "tproxy":
+		server, err = direct.NewTCPTransparentServer()
+		if err != nil {
+			return nil, err
+		}
+		listenerTransparent = true
 
 	case "none", "plain":
 		server = direct.NewShadowsocksNoneTCPServer()
@@ -107,7 +115,7 @@ func (sc *ServerConfig) TCPRelay(router *router.Router, logger *zap.Logger) (*TC
 
 	waitForInitialPayload := !server.NativeInitialPayload() && !sc.DisableInitialPayloadWait
 
-	return NewTCPRelay(sc.Name, sc.Listen, sc.ListenerFwmark, sc.ListenerTFO, waitForInitialPayload, server, connCloser, sc.UnsafeFallbackAddress, router, logger), nil
+	return NewTCPRelay(sc.Name, sc.Listen, sc.ListenerFwmark, sc.ListenerTFO, listenerTransparent, waitForInitialPayload, server, connCloser, sc.UnsafeFallbackAddress, router, logger), nil
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.

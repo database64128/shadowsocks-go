@@ -42,11 +42,11 @@ type TCPRelay struct {
 	listener              *net.TCPListener
 }
 
-func NewTCPRelay(serverName, listenAddress string, listenerFwmark int, listenerTFO, waitForInitialPayload bool, server zerocopy.TCPServer, connCloser zerocopy.TCPConnCloser, fallbackAddress *conn.Addr, router *router.Router, logger *zap.Logger) *TCPRelay {
+func NewTCPRelay(serverName, listenAddress string, listenerFwmark int, listenerTFO, listenerTransparent, waitForInitialPayload bool, server zerocopy.TCPServer, connCloser zerocopy.TCPConnCloser, fallbackAddress *conn.Addr, router *router.Router, logger *zap.Logger) *TCPRelay {
 	return &TCPRelay{
 		serverName:            serverName,
 		listenAddress:         listenAddress,
-		listenConfig:          conn.NewListenConfig(listenerTFO, listenerFwmark),
+		listenConfig:          conn.NewListenConfig(listenerTFO, listenerTransparent, listenerFwmark),
 		waitForInitialPayload: waitForInitialPayload,
 		server:                server,
 		connCloser:            connCloser,
