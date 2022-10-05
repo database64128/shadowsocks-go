@@ -238,7 +238,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 						return
 					}
 
-					natConn, err, serr := conn.ListenUDP("udp", "", false, natConnFwmark)
+					natConn, err := conn.ListenUDP("udp", "", false, natConnFwmark)
 					if err != nil {
 						s.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.String("server", s.serverName),
@@ -249,16 +249,6 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 							zap.Error(err),
 						)
 						return
-					}
-					if serr != nil {
-						s.logger.Warn("An error occurred while setting socket options on natConn",
-							zap.String("server", s.serverName),
-							zap.String("listenAddress", s.listenAddress),
-							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", targetAddr),
-							zap.Int("natConnFwmark", natConnFwmark),
-							zap.Error(serr),
-						)
 					}
 
 					err = natConn.SetReadDeadline(time.Now().Add(s.natTimeout))

@@ -127,17 +127,9 @@ func (s *UDPNATRelay) String() string {
 
 // Start implements the Service Start method.
 func (s *UDPNATRelay) Start() error {
-	serverConn, err, serr := conn.ListenUDP("udp", s.listenAddress, true, s.listenerFwmark)
+	serverConn, err := conn.ListenUDP("udp", s.listenAddress, true, s.listenerFwmark)
 	if err != nil {
 		return err
-	}
-	if serr != nil {
-		s.logger.Warn("An error occurred while setting socket options on serverConn",
-			zap.String("server", s.serverName),
-			zap.String("listenAddress", s.listenAddress),
-			zap.Int("listenerFwmark", s.listenerFwmark),
-			zap.NamedError("serr", serr),
-		)
 	}
 	s.serverConn = serverConn
 
@@ -324,7 +316,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 					return
 				}
 
-				natConn, err, serr := conn.ListenUDP("udp", "", false, natConnFwmark)
+				natConn, err := conn.ListenUDP("udp", "", false, natConnFwmark)
 				if err != nil {
 					s.logger.Warn("Failed to create UDP socket for new NAT session",
 						zap.String("server", s.serverName),
@@ -335,16 +327,6 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 						zap.Error(err),
 					)
 					return
-				}
-				if serr != nil {
-					s.logger.Warn("An error occurred while setting socket options on natConn",
-						zap.String("server", s.serverName),
-						zap.String("listenAddress", s.listenAddress),
-						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
-						zap.Int("natConnFwmark", natConnFwmark),
-						zap.Error(serr),
-					)
 				}
 
 				err = natConn.SetReadDeadline(time.Now().Add(s.natTimeout))

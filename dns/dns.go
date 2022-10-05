@@ -282,7 +282,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	packerRearHeadroom := packer.RearHeadroom()
 
 	// Prepare UDP socket.
-	udpConn, err, serr := conn.ListenUDP("udp", "", false, fwmark)
+	udpConn, err := conn.ListenUDP("udp", "", false, fwmark)
 	if err != nil {
 		r.logger.Warn("Failed to create UDP socket for DNS lookup",
 			zap.String("resolver", r.name),
@@ -290,13 +290,6 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 			zap.Error(err),
 		)
 		return
-	}
-	if serr != nil {
-		r.logger.Warn("An error occurred while setting socket options",
-			zap.String("resolver", r.name),
-			zap.Int("fwmark", fwmark),
-			zap.NamedError("serr", serr),
-		)
 	}
 	defer udpConn.Close()
 
