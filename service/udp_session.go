@@ -66,10 +66,8 @@ type UDPSessionRelay struct {
 	listenerFwmark         int
 	mtu                    int
 	packetBufFrontHeadroom int
-	packetBufRearHeadroom  int
 	packetBufRecvSize      int
 	batchSize              int
-	preferIPv6             bool
 	natTimeout             time.Duration
 	server                 zerocopy.UDPSessionServer
 	serverConn             *net.UDPConn
@@ -86,7 +84,6 @@ type UDPSessionRelay struct {
 func NewUDPSessionRelay(
 	batchMode, serverName, listenAddress string,
 	batchSize, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
-	preferIPv6 bool,
 	natTimeout time.Duration,
 	server zerocopy.UDPSessionServer,
 	router *router.Router,
@@ -100,10 +97,10 @@ func NewUDPSessionRelay(
 	if packetBufRearHeadroom < 0 {
 		packetBufRearHeadroom = 0
 	}
-	packetBufSize := mtu - zerocopy.IPv4HeaderLength - zerocopy.UDPHeaderLength
+	packetBufRecvSize := mtu - zerocopy.IPv4HeaderLength - zerocopy.UDPHeaderLength
 	packetBufPool := &sync.Pool{
 		New: func() any {
-			b := make([]byte, packetBufFrontHeadroom+packetBufSize+packetBufRearHeadroom)
+			b := make([]byte, packetBufFrontHeadroom+packetBufRecvSize+packetBufRearHeadroom)
 			return &b
 		},
 	}
@@ -113,10 +110,8 @@ func NewUDPSessionRelay(
 		listenerFwmark:         listenerFwmark,
 		mtu:                    mtu,
 		packetBufFrontHeadroom: packetBufFrontHeadroom,
-		packetBufRearHeadroom:  packetBufRearHeadroom,
-		packetBufRecvSize:      packetBufSize,
+		packetBufRecvSize:      packetBufRecvSize,
 		batchSize:              batchSize,
-		preferIPv6:             preferIPv6,
 		natTimeout:             natTimeout,
 		server:                 server,
 		router:                 router,

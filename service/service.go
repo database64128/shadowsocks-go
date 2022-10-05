@@ -145,7 +145,7 @@ func (sc *Config) Start(logger *zap.Logger) error {
 			return fmt.Errorf("failed to create TCP relay service for %s: %w", serverConfig.Name, err)
 		}
 
-		udpRelay, err := serverConfig.UDPRelay(sc.router, logger, sc.UDPPreferIPv6, sc.UDPBatchMode, sc.UDPBatchSize, maxClientFrontHeadroom, maxClientRearHeadroom)
+		udpRelay, err := serverConfig.UDPRelay(sc.router, logger, sc.UDPBatchMode, sc.UDPBatchSize, maxClientFrontHeadroom, maxClientRearHeadroom)
 		switch err {
 		case errNetworkDisabled:
 		case nil:

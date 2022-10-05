@@ -58,10 +58,8 @@ type UDPNATRelay struct {
 	listenerFwmark         int
 	mtu                    int
 	packetBufFrontHeadroom int
-	packetBufRearHeadroom  int
 	packetBufRecvSize      int
 	batchSize              int
-	preferIPv6             bool
 	natTimeout             time.Duration
 	server                 zerocopy.UDPNATServer
 	serverConn             *net.UDPConn
@@ -78,7 +76,6 @@ type UDPNATRelay struct {
 func NewUDPNATRelay(
 	batchMode, serverName, listenAddress string,
 	batchSize, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
-	preferIPv6 bool,
 	natTimeout time.Duration,
 	server zerocopy.UDPNATServer,
 	router *router.Router,
@@ -105,10 +102,8 @@ func NewUDPNATRelay(
 		listenerFwmark:         listenerFwmark,
 		mtu:                    mtu,
 		packetBufFrontHeadroom: packetBufFrontHeadroom,
-		packetBufRearHeadroom:  packetBufRearHeadroom,
 		packetBufRecvSize:      packetBufRecvSize,
 		batchSize:              batchSize,
-		preferIPv6:             preferIPv6,
 		natTimeout:             natTimeout,
 		server:                 server,
 		router:                 router,
