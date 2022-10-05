@@ -148,6 +148,8 @@ func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, batc
 	case "direct":
 		natServer = direct.NewDirectUDPNATServer(sc.TunnelRemoteAddress, sc.TunnelUDPTargetOnly)
 
+	case "tproxy":
+
 	case "none", "plain":
 		natServer = direct.DefaultShadowsocksNoneUDPNATServer
 
@@ -179,6 +181,8 @@ func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, batc
 		return NewUDPNATRelay(batchMode, sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, natServer, router, logger), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		return NewUDPSessionRelay(batchMode, sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, server, router, logger), nil
+	case "tproxy":
+		return NewUDPTransparentRelay(sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, router, logger)
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}
