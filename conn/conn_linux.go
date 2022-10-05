@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"syscall"
 	"unsafe"
 
@@ -74,19 +75,25 @@ func setPktinfo(fd int, network string) error {
 	return nil
 }
 
+func setReusePort(fd int) error {
+	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
+		return fmt.Errorf("failed to set socket option SO_REUSEPORT: %w", err)
+	}
+	return nil
+}
+
 func setRecvOrigDstAddr(fd int, network string) error {
-	switch network {
-	case "udp4":
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_RECVORIGDSTADDR, 1); err != nil {
-			return fmt.Errorf("failed to set socket option IP_RECVORIGDSTADDR: %w", err)
-		}
-	case "udp6":
+	// Set IP_RECVORIGDSTADDR for both v4 and v6.
+	if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_RECVORIGDSTADDR, 1); err != nil {
+		return fmt.Errorf("failed to set socket option IP_RECVORIGDSTADDR: %w", err)
+	}
+
+	if network == "udp6" {
 		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_RECVORIGDSTADDR, 1); err != nil {
 			return fmt.Errorf("failed to set socket option IPV6_RECVORIGDSTADDR: %w", err)
 		}
-	default:
-		return fmt.Errorf("unsupported network: %s", network)
 	}
+
 	return nil
 }
 
@@ -168,16 +175,28 @@ func ListenUDP(network string, laddr string, pktinfo bool, fwmark int) (*net.UDP
 	return pc.(*net.UDPConn), nil
 }
 
-func ListenUDPTransparent(network string, laddr string, fwmark int) (*net.UDPConn, error) {
+func ListenUDPTransparent(network string, laddr string, recvOrigDstAddr, reusePort bool, fwmark int) (*net.UDPConn, error) {
 	lc := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) (err error) {
 			if cerr := c.Control(func(fd uintptr) {
+				if err = setDF(int(fd), network); err != nil {
+					return
+				}
+
 				if err = setTransparent(int(fd), network); err != nil {
 					return
 				}
 
-				if err = setRecvOrigDstAddr(int(fd), network); err != nil {
-					return
+				if recvOrigDstAddr {
+					if err = setRecvOrigDstAddr(int(fd), network); err != nil {
+						return
+					}
+				}
+
+				if reusePort {
+					if err = setReusePort(int(fd)); err != nil {
+						return
+					}
 				}
 
 				if fwmark != 0 {
@@ -299,6 +318,20 @@ func AddrPortToSockaddr(addrPort netip.AddrPort) (name *byte, namelen uint32) {
 	return
 }
 
+func AddrPortUnmappedToSockaddr(addrPort netip.AddrPort) (name *byte, namelen uint32) {
+	if addr := addrPort.Addr(); addr.Is4() || addr.Is4In6() {
+		rsa4 := AddrPortToSockaddrInet4(addrPort)
+		name = (*byte)(unsafe.Pointer(&rsa4))
+		namelen = unix.SizeofSockaddrInet4
+	} else {
+		rsa6 := AddrPortToSockaddrInet6(addrPort)
+		name = (*byte)(unsafe.Pointer(&rsa6))
+		namelen = unix.SizeofSockaddrInet6
+	}
+
+	return
+}
+
 func AddrPortToSockaddrInet4(addrPort netip.AddrPort) unix.RawSockaddrInet4 {
 	addr := addrPort.Addr()
 	port := addrPort.Port()
@@ -366,7 +399,7 @@ func Recvmmsg(conn *net.UDPConn, msgvec []Mmsghdr) (n int, err error) {
 			return false
 		}
 		if e1 != 0 {
-			err = fmt.Errorf("recvmmsg failed: %w", e1)
+			err = os.NewSyscallError("recvmmsg", e1)
 			return true
 		}
 		n = int(r0)
@@ -392,7 +425,7 @@ func Sendmmsg(conn *net.UDPConn, msgvec []Mmsghdr) (n int, err error) {
 			return false
 		}
 		if e1 != 0 {
-			err = fmt.Errorf("sendmmsg failed: %w", e1)
+			err = os.NewSyscallError("sendmmsg", e1)
 			return true
 		}
 		n = int(r0)
@@ -424,7 +457,7 @@ func WriteMsgvec(conn *net.UDPConn, msgvec []Mmsghdr) error {
 			return false
 		}
 		if e1 != 0 {
-			err = fmt.Errorf("sendmmsg failed: %w", e1)
+			err = os.NewSyscallError("sendmmsg", e1)
 			r0 = 1
 		}
 		processed += int(r0)
