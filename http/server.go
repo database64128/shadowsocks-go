@@ -2,6 +2,7 @@ package http
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,30 +20,23 @@ import (
 
 // NewHttpStreamServerReadWriter handles a HTTP request from rw and wraps rw into a ReadWriter ready for use.
 func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *zap.Logger) (*direct.DirectStreamReadWriter, conn.Addr, error) {
-	var targetAddr conn.Addr
-
 	rwbr := bufio.NewReader(rw)
 	req, err := magic.ReadRequest(rwbr)
 	if err != nil {
-		return nil, targetAddr, err
+		return nil, conn.Addr{}, err
 	}
 
 	// Host -> targetAddr
-	if strings.IndexByte(req.Host, ':') != -1 {
-		targetAddr, err = conn.ParseAddr(req.Host)
-	} else {
-		targetAddr, err = conn.AddrFromHostPort(req.Host, 80)
-	}
+	targetAddr, err := hostHeaderToAddr(req.Host)
 	if err != nil {
 		send418(rw)
-		return nil, targetAddr, err
+		return nil, conn.Addr{}, err
 	}
 
 	// Fast-track CONNECT.
 	if req.Method == http.MethodConnect {
-		_, err = fmt.Fprintf(rw, "HTTP/1.1 200 OK\r\nDate: %s\r\n\r\n", time.Now().UTC().Format(http.TimeFormat))
-		if err != nil {
-			return nil, targetAddr, err
+		if _, err = fmt.Fprintf(rw, "HTTP/1.1 200 OK\r\nDate: %s\r\n\r\n", time.Now().UTC().Format(http.TimeFormat)); err != nil {
+			return nil, conn.Addr{}, err
 		}
 		return direct.NewDirectStreamReadWriter(rw), targetAddr, nil
 	}
@@ -173,6 +167,30 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 
 	// Wrap pr into a direct stream ReadWriter.
 	return direct.NewDirectStreamReadWriter(pr), targetAddr, nil
+}
+
+var errEmptyHostHeader = errors.New("empty host header")
+
+// hostHeaderToAddr parses the Host header into an address.
+//
+// Host may be in any of the following forms:
+//   - example.com
+//   - example.com:443
+//   - 1.1.1.1
+//   - 1.1.1.1:443
+//   - [2606:4700:4700::1111]
+//   - [2606:4700:4700::1111]:443
+func hostHeaderToAddr(host string) (conn.Addr, error) {
+	switch {
+	case len(host) == 0:
+		return conn.Addr{}, errEmptyHostHeader
+	case strings.IndexByte(host, ':') == -1:
+		return conn.AddrFromHostPort(host, 80)
+	case host[0] == '[' && host[len(host)-1] == ']':
+		return conn.AddrFromHostPort(host[1:len(host)-1], 80)
+	default:
+		return conn.ParseAddr(host)
+	}
 }
 
 func send418(w io.Writer) error {
