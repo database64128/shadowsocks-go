@@ -470,6 +470,7 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(csid uint64, entry *se
 				zap.Stringer("clientAddress", queuedPacket.clientAddrPort),
 				zap.Stringer("targetAddress", queuedPacket.targetAddr),
 				zap.Uint64("clientSessionID", csid),
+				zap.Int("payloadLength", queuedPacket.length),
 				zap.Error(err),
 			)
 
@@ -601,6 +602,8 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(csid uint64, entry *se
 				zap.Stringer("packetSourceAddress", packetSourceAddrPort),
 				zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
 				zap.Uint64("clientSessionID", csid),
+				zap.Int("payloadLength", payloadLength),
+				zap.Int("maxClientPacketSize", maxClientPacketSize),
 				zap.Error(err),
 			)
 			continue

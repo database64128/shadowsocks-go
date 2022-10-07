@@ -413,6 +413,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrP
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
 				zap.Stringer("targetAddress", queuedPacket.targetAddr),
+				zap.Int("payloadLength", queuedPacket.length),
 				zap.Error(err),
 			)
 
@@ -534,6 +535,8 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 				zap.Stringer("clientAddress", clientAddrPort),
 				zap.Stringer("packetSourceAddress", packetSourceAddrPort),
 				zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
+				zap.Int("payloadLength", payloadLength),
+				zap.Int("maxClientPacketSize", maxClientPacketSize),
 				zap.Error(err),
 			)
 			continue

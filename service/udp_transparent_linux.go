@@ -390,6 +390,7 @@ main:
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
 					zap.Stringer("targetAddress", queuedPacket.targetAddrPort),
+					zap.Uint32("payloadLength", queuedPacket.msglen),
 					zap.Error(err),
 				)
 
