@@ -14,7 +14,8 @@ A versatile and efficient proxy platform for secure communications.
 
 - Reference Go implementation of Shadowsocks 2022 and later editions.
 - Client and server implementation of SOCKS5, HTTP proxy, and Shadowsocks "none" method.
-- Built-in router and DNS with support for extensible routing rules.
+- Transparent proxy support for Linux.
+- Built-in router and DNS resolver with support for extensible routing rules.
 - TCP relay fast path on Linux with `splice(2)`.
 - UDP relay fast path on Linux with `recvmmsg(2)` and `sendmmsg(2)`.
 
@@ -26,9 +27,11 @@ All configuration examples and systemd unit files can be found in the [docs](doc
 
 The `clients` field can be omitted or left empty. A default "direct" client will be automatically added.
 
-On production servers, you may want to set `udpBatchSize` to a lower value like 4 to reduce memory usage while still benefiting from `recvmmsg(2)` and `sendmmsg(2)`.
+On production servers, you may want to set `udpBatchSize` to a lower value like 8 to reduce memory usage while still benefiting from `recvmmsg(2)` and `sendmmsg(2)`.
 
 UDP packets may be padded to up to the maximum packet size calculated from `mtu`. If the server may be used from a PPPoE connection, `mtu` should be reduced to 1492. If the client-to-server PMTU is unknown, padding can be completely disabled by setting `paddingPolicy` to `NoPadding`.
+
+For servers without any user PSKs (single-user mode), the `psk` field specifies the PSK. When one or more user PSKs are specified, the `psk` field specifies the identity PSK.
 
 ```json
 {
@@ -84,9 +87,9 @@ By default, the router uses the configured DNS server to resolve domain names an
             "dialerTFO": true,
             "enableUDP": true,
             "mtu": 1500,
-            "psk": "qQln3GlVCZi5iJUObJVNCw==",
+            "psk": "oE/s2z9Q8EWORAB8B3UCxw==",
             "iPSKs": [
-                "oE/s2z9Q8EWORAB8B3UCxw=="
+                "qQln3GlVCZi5iJUObJVNCw=="
             ]
         },
         {
@@ -262,6 +265,18 @@ Reject policies are implemented for all TCP servers. A TCP server's reject polic
 - `ForceReset`: Forcibly reset the connection. Many protocols behave this way when invalid data is received. (Default for Shadowsocks 2022)
 - `CloseWriteDrain`: Send FIN and keep reading until EOF. This is typically how legacy Shadowsocks servers handle replay.
 - `ReplyWithGibberish`: Keep reading and send random garbage after each read returns. This emulates how a legacy Shadowsocks server without replay protection behaves, except it doesn't actually relay the replayed payload.
+
+### 3. Unsafe Fallback
+
+A Shadowsocks 2022 server can be configured to forward TCP connections to a fallback address when the handshake fails. Add the `unsafeFallbackAddress` field to the server block to specify the fallback address. On startup a warning message will be printed to tell you that using this feature "taints" the server. Unsafe fallback only works for TCP connections.
+
+This feature might be useful when your threat model only includes off-path attackers, and you want to reuse the port or trick probes into thinking the server is something else. An on-path attacker (e.g. a typical censor) can easily tell that the regular traffic does not match the fallback traffic.
+
+### 4. Unsafe Stream Prefix
+
+The unsafe stream prefix feature allows you to configure a pair of pre-shared cleartext prefixes for Shadowsocks 2022 streams. The prefixes are prepended to the request and response streams to trick simple firewalls.
+
+To use this feature, add `unsafeRequestStreamPrefix` and `unsafeResponseStreamPrefix` to both client and server blocks, and specify the prefixes in base64 encoding. The client and server must agree on the same pair of prefixes. On startup a warning message will be printed to tell you that using this feature "taints" the client and server.
 
 ## License
 

@@ -20,6 +20,17 @@
             "listenerTFO": true
         },
         {
+            "name": "tproxy",
+            "listen": ":12345",
+            "protocol": "tproxy",
+            "listenerFwmark": 52140,
+            "enableTCP": true,
+            "listenerTFO": true,
+            "enableUDP": true,
+            "mtu": 1500,
+            "natTimeoutSec": 150
+        },
+        {
             "name": "tunnel",
             "listen": ":53",
             "protocol": "direct",
@@ -60,9 +71,9 @@
             "dialerTFO": true,
             "enableUDP": true,
             "mtu": 1500,
-            "psk": "qQln3GlVCZi5iJUObJVNCw==",
+            "psk": "oE/s2z9Q8EWORAB8B3UCxw==",
             "iPSKs": [
-                "oE/s2z9Q8EWORAB8B3UCxw=="
+                "qQln3GlVCZi5iJUObJVNCw=="
             ],
             "paddingPolicy": ""
         },
