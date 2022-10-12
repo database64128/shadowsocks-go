@@ -66,7 +66,7 @@ func TestWriteAndParseTCPRequestFixedLengthHeader(t *testing.T) {
 }
 
 func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
-	payloadLen := mrand.Intn(1024)
+	payloadLen := 1 + mrand.Intn(1024)
 	payload := make([]byte, payloadLen)
 	_, err := rand.Read(payload)
 	if err != nil {
@@ -74,18 +74,15 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 	}
 	targetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 443))
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
-	expectedHeaderWithPayloadLength := targetAddrLen + 2 + payloadLen
-	bufLen := TCPRequestVariableLengthHeaderNoPayloadMaxLength + payloadLen
+	noPayloadLen := targetAddrLen + 2 + 1 + mrand.Intn(MaxPaddingLength)
+	noPaddingLen := targetAddrLen + 2 + payloadLen
+	bufLen := noPaddingLen + MaxPaddingLength
 	b := make([]byte, bufLen)
 
-	// 1. Good header (with initial payload)
-	n := WriteTCPRequestVariableLengthHeader(b, targetAddr, payload)
-	if n != expectedHeaderWithPayloadLength {
-		t.Fatalf("Expected n %d, got %d", expectedHeaderWithPayloadLength, n)
-	}
-	header := b[:n]
+	// 1. Good header (padding + initial payload)
+	WriteTCPRequestVariableLengthHeader(b, targetAddr, payload)
 
-	ta, p, err := ParseTCPRequestVariableLengthHeader(header)
+	ta, p, err := ParseTCPRequestVariableLengthHeader(b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,14 +93,26 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 		t.Fatalf("Expected target address %s, got %s", targetAddr, ta)
 	}
 
-	// 2. Good header (no payload)
-	n = WriteTCPRequestVariableLengthHeader(b, targetAddr, nil)
-	if n <= targetAddrLen+2 {
-		t.Fatalf("Header should have been padded!\nActual length: %d", n)
-	}
-	header = b[:n]
+	// 2. Good header (initial payload)
+	b = b[:noPaddingLen]
+	WriteTCPRequestVariableLengthHeader(b, targetAddr, payload)
 
-	ta, p, err = ParseTCPRequestVariableLengthHeader(header)
+	ta, p, err = ParseTCPRequestVariableLengthHeader(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(p, payload) {
+		t.Fatalf("Expected payload %v\nGot: %v", payload, p)
+	}
+	if ta != targetAddr {
+		t.Fatalf("Expected target address %s, got %s", targetAddr, ta)
+	}
+
+	// 3. Good header (padding)
+	b = b[:noPayloadLen]
+	WriteTCPRequestVariableLengthHeader(b, targetAddr, nil)
+
+	ta, p, err = ParseTCPRequestVariableLengthHeader(b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,27 +123,10 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 		t.Fatalf("Expected target address %s, got %s", targetAddr, ta)
 	}
 
-	// 3. Good header (padding + payload)
-	n += copy(b[n:], payload)
-	header = b[:n]
-
-	ta, p, err = ParseTCPRequestVariableLengthHeader(header)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(p, payload) {
-		t.Fatalf("Expected payload %v\nGot: %v", payload, p)
-	}
-	if ta != targetAddr {
-		t.Fatalf("Expected target address %s, got %s", targetAddr, ta)
-	}
-
 	// 4. Bad header (incomplete padding)
-	n -= payloadLen
-	n -= 1
-	header = b[:n]
+	b = b[:noPayloadLen-1]
 
-	_, _, err = ParseTCPRequestVariableLengthHeader(header)
+	_, _, err = ParseTCPRequestVariableLengthHeader(b)
 	if !errors.Is(err, ErrPaddingExceedChunkBorder) {
 		t.Fatalf("Expected: %s\nGot: %s", ErrPaddingExceedChunkBorder, err)
 	}
@@ -142,46 +134,46 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 	// 5. Bad header (padding length out of range)
 	binary.BigEndian.PutUint16(b[targetAddrLen:], MaxPaddingLength+1)
 
-	_, _, err = ParseTCPRequestVariableLengthHeader(header)
+	_, _, err = ParseTCPRequestVariableLengthHeader(b)
 	if !errors.Is(err, ErrPaddingLengthOutOfRange) {
 		t.Fatalf("Expected: %s\nGot: %s", ErrPaddingLengthOutOfRange, err)
 	}
 
 	// 6. Bad header (incomplete padding length)
-	n = targetAddrLen + 1
-	header = b[:n]
+	b = b[:targetAddrLen+1]
 
-	_, _, err = ParseTCPRequestVariableLengthHeader(header)
+	_, _, err = ParseTCPRequestVariableLengthHeader(b)
 	if !errors.Is(err, ErrIncompleteHeaderInFirstChunk) {
 		t.Fatalf("Expected: %s\nGot: %s", ErrIncompleteHeaderInFirstChunk, err)
 	}
 
 	// 7. Bad header (incomplete SOCKS address)
-	n = targetAddrLen - 1
-	header = b[:n]
+	b = b[:targetAddrLen-1]
 
-	_, _, err = ParseTCPRequestVariableLengthHeader(header)
+	_, _, err = ParseTCPRequestVariableLengthHeader(b)
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
 }
 
 func TestWriteAndParseTCPResponseHeader(t *testing.T) {
-	b := make([]byte, TCPResponseHeaderMaxLength)
+	const (
+		saltLen = 32
+		bufLen  = 1 + 8 + saltLen + 2
+	)
+
+	b := make([]byte, bufLen)
 	length := mrand.Intn(math.MaxUint16)
-	requestSalt := make([]byte, 32)
+	requestSalt := make([]byte, saltLen)
 	_, err := rand.Read(requestSalt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 1. Good header
-	n := WriteTCPResponseHeader(b, requestSalt, uint16(length))
-	if n != TCPResponseHeaderMaxLength {
-		t.Fatalf("Expected: %d\nGot: %d", TCPResponseHeaderMaxLength, n)
-	}
+	WriteTCPResponseHeader(b, requestSalt, uint16(length))
 
-	n, err = ParseTCPResponseHeader(b, requestSalt)
+	n, err := ParseTCPResponseHeader(b, requestSalt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +182,7 @@ func TestWriteAndParseTCPResponseHeader(t *testing.T) {
 	}
 
 	// 2. Bad request salt
-	_, err = rand.Read(b[1+8 : 1+8+32])
+	_, err = rand.Read(b[1+8 : 1+8+saltLen])
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -193,29 +193,27 @@ func ParseTCPRequestVariableLengthHeader(b []byte) (targetAddr conn.Addr, payloa
 	return
 }
 
-// WriteTCPRequestVariableLengthHeader writes a TCP request variable-length header into the buffer
-// and returns the number of bytes written.
+// WriteTCPRequestVariableLengthHeader writes a TCP request variable-length header into the buffer.
 //
-// The buffer must be at least
-// socks5.LengthOfAddrFromConnAddr(targetAddr) + 2 + MaxPaddingLength bytes long if there's no payload, or
-// socks5.LengthOfAddrFromConnAddr(targetAddr) + 2 + len(payload) bytes long if there's initial payload.
-// The total header length must not exceed MaxPayloadSize.
-func WriteTCPRequestVariableLengthHeader(b []byte, targetAddr conn.Addr, payload []byte) (n int) {
+// The header fills the whole buffer. Excess bytes are used as padding.
+//
+// The buffer size can be calculated with:
+//
+//	socks5.LengthOfAddrFromConnAddr(targetAddr) + 2 + len(payload) + paddingLen
+//
+// The buffer size must not exceed [MaxPayloadSize].
+// The excess space in the buffer must not be larger than [MaxPaddingLength] bytes.
+func WriteTCPRequestVariableLengthHeader(b []byte, targetAddr conn.Addr, payload []byte) {
 	// SOCKS address
-	n = socks5.WriteAddrFromConnAddr(b, targetAddr)
+	n := socks5.WriteAddrFromConnAddr(b, targetAddr)
 
 	// Padding length
-	var paddingLen int
-	if len(payload) == 0 {
-		paddingLen = rand.Intn(MaxPaddingLength) + 1
-	}
+	paddingLen := len(b) - n - 2 - len(payload)
 	binary.BigEndian.PutUint16(b[n:], uint16(paddingLen))
 	n += 2 + paddingLen
 
 	// Initial payload
-	n += copy(b[n:], payload)
-
-	return
+	copy(b[n:], payload)
 }
 
 // ParseTCPResponseHeader parses a TCP response fixed-length header and returns the length
@@ -256,12 +254,10 @@ func ParseTCPResponseHeader(b []byte, requestSalt []byte) (n int, err error) {
 	return
 }
 
-// WriteTCPResponseHeader writes a TCP response fixed-length header into the buffer
-// and returns the number of bytes written.
+// WriteTCPResponseHeader writes a TCP response fixed-length header into the buffer.
 //
-// This function does not check buffer length.
-// The buffer must be at least 1 + 8 + salt length + 2 bytes long.
-func WriteTCPResponseHeader(b []byte, requestSalt []byte, length uint16) (n int) {
+// The buffer size must be exactly 1 + 8 + len(requestSalt) + 2 bytes.
+func WriteTCPResponseHeader(b []byte, requestSalt []byte, length uint16) {
 	// Type
 	b[0] = HeaderTypeServerStream
 
@@ -269,13 +265,10 @@ func WriteTCPResponseHeader(b []byte, requestSalt []byte, length uint16) (n int)
 	binary.BigEndian.PutUint64(b[1:], uint64(time.Now().Unix()))
 
 	// Request salt
-	n = 1 + 8
-	n += copy(b[n:], requestSalt)
+	copy(b[1+8:], requestSalt)
 
 	// Length
-	binary.BigEndian.PutUint16(b[n:], length)
-	n += 2
-	return
+	binary.BigEndian.PutUint16(b[1+8+len(requestSalt):], length)
 }
 
 // ParseSessionIDAndPacketID parses the session ID and packet ID segment of a decrypted UDP packet.

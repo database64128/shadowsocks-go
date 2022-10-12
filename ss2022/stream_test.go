@@ -3,6 +3,7 @@ package ss2022
 import (
 	"bytes"
 	"crypto/rand"
+	"io"
 	"net/netip"
 	"testing"
 
@@ -34,6 +35,14 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherCo
 
 	go func() {
 		s, serverTargetAddr, serverInitialPayload, serr = NewShadowStreamServerReadWriter(pr, serverCipherConfig, saltPool, serverCipherConfig.ServerPSKHashMap(), unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
+		if serr == nil && len(serverInitialPayload) < len(clientInitialPayload) {
+			// Read excess payload.
+			b := make([]byte, len(clientInitialPayload))
+			copy(b, serverInitialPayload)
+			scrw := zerocopy.NewCopyReadWriter(s)
+			_, serr = io.ReadFull(scrw, b[len(serverInitialPayload):])
+			serverInitialPayload = b
+		}
 		ctrlCh <- struct{}{}
 	}()
 
@@ -109,6 +118,43 @@ func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig, serverCi
 	}
 }
 
+func testShadowStreamReadWriterWithCipher(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig) {
+	smallInitialPayload := make([]byte, 1024)
+	largeInitialPayload := make([]byte, 128*1024)
+	unsafeRequestStreamPrefix := make([]byte, 64)
+	unsafeResponseStreamPrefix := make([]byte, 64)
+
+	if _, err := rand.Read(smallInitialPayload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rand.Read(largeInitialPayload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rand.Read(unsafeRequestStreamPrefix); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rand.Read(unsafeResponseStreamPrefix); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("NoInitialPayload", func(t *testing.T) {
+		testShadowStreamReadWriter(t, clientCipherConfig, serverCipherConfig, nil, nil, nil)
+	})
+	t.Run("SmallInitialPayload", func(t *testing.T) {
+		testShadowStreamReadWriter(t, clientCipherConfig, serverCipherConfig, smallInitialPayload, nil, nil)
+	})
+	t.Run("LargeInitialPayload", func(t *testing.T) {
+		testShadowStreamReadWriter(t, clientCipherConfig, serverCipherConfig, largeInitialPayload, nil, nil)
+	})
+	t.Run("UnsafeStreamPrefix", func(t *testing.T) {
+		testShadowStreamReadWriter(t, clientCipherConfig, serverCipherConfig, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
+	})
+
+	t.Run("Replay", func(t *testing.T) {
+		testShadowStreamReadWriterReplay(t, clientCipherConfig, serverCipherConfig)
+	})
+}
+
 func TestShadowStreamReadWriterNoEIH(t *testing.T) {
 	cipherConfig128, err := NewRandomCipherConfig("2022-blake3-aes-128-gcm", 16, 0)
 	if err != nil {
@@ -119,29 +165,12 @@ func TestShadowStreamReadWriterNoEIH(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	initialPayload := make([]byte, 1024)
-	unsafeRequestStreamPrefix := make([]byte, 64)
-	unsafeResponseStreamPrefix := make([]byte, 64)
-
-	if _, err = rand.Read(initialPayload); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = rand.Read(unsafeRequestStreamPrefix); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = rand.Read(unsafeResponseStreamPrefix); err != nil {
-		t.Fatal(err)
-	}
-
-	testShadowStreamReadWriter(t, cipherConfig128, cipherConfig128, nil, nil, nil)
-	testShadowStreamReadWriter(t, cipherConfig128, cipherConfig128, initialPayload, nil, nil)
-	testShadowStreamReadWriter(t, cipherConfig128, cipherConfig128, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
-	testShadowStreamReadWriter(t, cipherConfig256, cipherConfig256, nil, nil, nil)
-	testShadowStreamReadWriter(t, cipherConfig256, cipherConfig256, initialPayload, nil, nil)
-	testShadowStreamReadWriter(t, cipherConfig256, cipherConfig256, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
-
-	testShadowStreamReadWriterReplay(t, cipherConfig128, cipherConfig128)
-	testShadowStreamReadWriterReplay(t, cipherConfig256, cipherConfig256)
+	t.Run("128", func(t *testing.T) {
+		testShadowStreamReadWriterWithCipher(t, cipherConfig128, cipherConfig128)
+	})
+	t.Run("256", func(t *testing.T) {
+		testShadowStreamReadWriterWithCipher(t, cipherConfig256, cipherConfig256)
+	})
 }
 
 func TestShadowStreamReadWriterWithEIH(t *testing.T) {
@@ -163,27 +192,10 @@ func TestShadowStreamReadWriterWithEIH(t *testing.T) {
 		PSKs: [][]byte{serverCipherConfig256.PSK},
 	}
 
-	initialPayload := make([]byte, 1024)
-	unsafeRequestStreamPrefix := make([]byte, 64)
-	unsafeResponseStreamPrefix := make([]byte, 64)
-
-	if _, err = rand.Read(initialPayload); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = rand.Read(unsafeRequestStreamPrefix); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = rand.Read(unsafeResponseStreamPrefix); err != nil {
-		t.Fatal(err)
-	}
-
-	testShadowStreamReadWriter(t, &clientCipherConfig128, serverCipherConfig128, nil, nil, nil)
-	testShadowStreamReadWriter(t, &clientCipherConfig128, serverCipherConfig128, initialPayload, nil, nil)
-	testShadowStreamReadWriter(t, &clientCipherConfig128, serverCipherConfig128, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
-	testShadowStreamReadWriter(t, &clientCipherConfig256, serverCipherConfig256, nil, nil, nil)
-	testShadowStreamReadWriter(t, &clientCipherConfig256, serverCipherConfig256, initialPayload, nil, nil)
-	testShadowStreamReadWriter(t, &clientCipherConfig256, serverCipherConfig256, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
-
-	testShadowStreamReadWriterReplay(t, &clientCipherConfig128, serverCipherConfig128)
-	testShadowStreamReadWriterReplay(t, &clientCipherConfig256, serverCipherConfig256)
+	t.Run("128", func(t *testing.T) {
+		testShadowStreamReadWriterWithCipher(t, &clientCipherConfig128, serverCipherConfig128)
+	})
+	t.Run("256", func(t *testing.T) {
+		testShadowStreamReadWriterWithCipher(t, &clientCipherConfig256, serverCipherConfig256)
+	})
 }

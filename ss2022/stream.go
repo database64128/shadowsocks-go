@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	mrand "math/rand"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/socks5"
@@ -166,14 +167,14 @@ func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, pa
 	if rw.w == nil { // first write
 		urspLen := len(rw.unsafeResponseStreamPrefix)
 		saltLen := len(rw.cipherConfig.PSK)
-		fixedLengthHeaderStart := urspLen + saltLen
-		responseHeaderPlaintextEnd := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength + saltLen
-		payloadBufStart := responseHeaderPlaintextEnd + 16
+		responseHeaderStart := urspLen + saltLen
+		responseHeaderEnd := responseHeaderStart + TCPRequestFixedLengthHeaderLength + saltLen
+		payloadBufStart := responseHeaderEnd + 16
 		bufferLen := payloadBufStart + payloadLen + 16
 		hb := make([]byte, bufferLen)
 		ursp := hb[:urspLen]
-		salt := hb[urspLen:fixedLengthHeaderStart]
-		responseHeader := hb[fixedLengthHeaderStart:responseHeaderPlaintextEnd]
+		salt := hb[urspLen:responseHeaderStart]
+		responseHeader := hb[responseHeaderStart:responseHeaderEnd]
 
 		// Write unsafe response stream prefix.
 		copy(ursp, rw.unsafeResponseStreamPrefix)
@@ -185,7 +186,7 @@ func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, pa
 		}
 
 		// Write response header.
-		_ = WriteTCPResponseHeader(responseHeader, rw.requestSalt, uint16(payloadLen))
+		WriteTCPResponseHeader(responseHeader, rw.requestSalt, uint16(payloadLen))
 
 		// Create AEAD cipher.
 		shadowStreamCipher := rw.cipherConfig.NewShadowStreamCipher(salt)
@@ -254,21 +255,25 @@ type ShadowStreamClientReadWriter struct {
 // NewShadowStreamClientReadWriter writes request headers to rw and returns a Shadowsocks stream client ready for reads and writes.
 func NewShadowStreamClientReadWriter(rwo zerocopy.DirectReadWriteCloserOpener, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte, targetAddr conn.Addr, payload, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) (sscRW *ShadowStreamClientReadWriter, rawRW zerocopy.DirectReadWriteCloser, err error) {
 	var (
-		payloadOrPaddingMaxLen int
-		excessivePayload       []byte
+		paddingPayloadLen int
+		excessPayload     []byte
 	)
 
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
+	payloadLen := len(payload)
 	roomForPayload := MaxPayloadSize - targetAddrLen - 2
 
 	switch {
-	case len(payload) > roomForPayload:
-		payloadOrPaddingMaxLen = roomForPayload
-		excessivePayload = payload[roomForPayload:]
-	case len(payload) > 0:
-		payloadOrPaddingMaxLen = len(payload)
+	case payloadLen > roomForPayload:
+		paddingPayloadLen = roomForPayload
+		excessPayload = payload[roomForPayload:]
+		payload = payload[:roomForPayload]
+	case payloadLen >= MaxPaddingLength:
+		paddingPayloadLen = payloadLen
+	case payloadLen > 0:
+		paddingPayloadLen = payloadLen + mrand.Intn(MaxPaddingLength-payloadLen+1)
 	default:
-		payloadOrPaddingMaxLen = MaxPaddingLength
+		paddingPayloadLen = 1 + mrand.Intn(MaxPaddingLength)
 	}
 
 	urspLen := len(unsafeRequestStreamPrefix)
@@ -278,7 +283,8 @@ func NewShadowStreamClientReadWriter(rwo zerocopy.DirectReadWriteCloserOpener, c
 	fixedLengthHeaderStart := identityHeadersStart + identityHeadersLen
 	fixedLengthHeaderEnd := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength
 	variableLengthHeaderStart := fixedLengthHeaderEnd + 16
-	variableLengthHeaderEnd := variableLengthHeaderStart + targetAddrLen + 2 + payloadOrPaddingMaxLen
+	variableLengthHeaderLen := targetAddrLen + 2 + paddingPayloadLen
+	variableLengthHeaderEnd := variableLengthHeaderStart + variableLengthHeaderLen
 	bufferLen := variableLengthHeaderEnd + 16
 	b := make([]byte, bufferLen)
 	ursp := b[:urspLen]
@@ -305,10 +311,10 @@ func NewShadowStreamClientReadWriter(rwo zerocopy.DirectReadWriteCloserOpener, c
 	}
 
 	// Write variable-length header.
-	n := WriteTCPRequestVariableLengthHeader(variableLengthHeaderPlaintext, targetAddr, payload)
+	WriteTCPRequestVariableLengthHeader(variableLengthHeaderPlaintext, targetAddr, payload)
 
 	// Write fixed-length header.
-	WriteTCPRequestFixedLengthHeader(fixedLengthHeaderPlaintext, uint16(n))
+	WriteTCPRequestFixedLengthHeader(fixedLengthHeaderPlaintext, uint16(variableLengthHeaderLen))
 
 	// Create AEAD cipher.
 	shadowStreamCipher := cipherConfig.NewShadowStreamCipher(salt)
@@ -317,11 +323,10 @@ func NewShadowStreamClientReadWriter(rwo zerocopy.DirectReadWriteCloserOpener, c
 	shadowStreamCipher.EncryptInPlace(fixedLengthHeaderPlaintext)
 
 	// Seal variable-length header.
-	shadowStreamCipher.EncryptInPlace(variableLengthHeaderPlaintext[:n])
+	shadowStreamCipher.EncryptInPlace(variableLengthHeaderPlaintext)
 
 	// Write out.
-	n += variableLengthHeaderStart + 16
-	rawRW, err = rwo.Open(b[:n])
+	rawRW, err = rwo.Open(b)
 	if err != nil {
 		return
 	}
@@ -331,11 +336,11 @@ func NewShadowStreamClientReadWriter(rwo zerocopy.DirectReadWriteCloserOpener, c
 		ssc:    shadowStreamCipher,
 	}
 
-	// Write excessive payload.
-	if len(excessivePayload) > 0 {
-		copy(payload[2+16:], excessivePayload)
-		_, err = w.WriteZeroCopy(payload, 2+16, len(excessivePayload))
-		if err != nil {
+	// Write excess payload, reusing the variable-length header buffer.
+	for len(excessPayload) > 0 {
+		n := copy(variableLengthHeaderPlaintext, excessPayload)
+		excessPayload = excessPayload[n:]
+		if _, err = w.WriteZeroCopy(b, variableLengthHeaderStart, n); err != nil {
 			rawRW.Close()
 			return
 		}
