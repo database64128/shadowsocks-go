@@ -45,13 +45,11 @@ func AppendAddrFromAddrPort(b []byte, addrPort netip.AddrPort) []byte {
 	case ip.Is4() || ip.Is4In6():
 		ret, out = sliceForAppend(b, 1+4+2)
 		out[0] = AtypIPv4
-		ip4 := ip.As4()
-		copy(out[1:], ip4[:])
-	case ip.Is6() || !ip.IsValid():
+		*(*[4]byte)(out[1:]) = ip.As4()
+	default:
 		ret, out = sliceForAppend(b, 1+16+2)
 		out[0] = AtypIPv6
-		ip6 := ip.As16()
-		copy(out[1:], ip6[:])
+		*(*[16]byte)(out[1:]) = ip.As16()
 	}
 	binary.BigEndian.PutUint16(out[len(out)-2:], addrPort.Port())
 	return ret
@@ -69,13 +67,11 @@ func WriteAddrFromAddrPort(b []byte, addrPort netip.AddrPort) (n int) {
 	switch {
 	case ip.Is4() || ip.Is4In6():
 		b[0] = AtypIPv4
-		ip4 := ip.As4()
-		copy(b[1:], ip4[:])
+		*(*[4]byte)(b[1:]) = ip.As4()
 		n = 1 + 4 + 2
-	case ip.Is6() || !ip.IsValid():
+	default:
 		b[0] = AtypIPv6
-		ip6 := ip.As16()
-		copy(b[1:], ip6[:])
+		*(*[16]byte)(b[1:]) = ip.As16()
 		n = 1 + 16 + 2
 	}
 	binary.BigEndian.PutUint16(b[n-2:], addrPort.Port())
@@ -84,14 +80,10 @@ func WriteAddrFromAddrPort(b []byte, addrPort netip.AddrPort) (n int) {
 
 // LengthOfAddrFromAddrPort returns the length of a SOCKS address converted from the netip.AddrPort.
 func LengthOfAddrFromAddrPort(addrPort netip.AddrPort) int {
-	ip := addrPort.Addr()
-	switch {
-	case ip.Is4() || ip.Is4In6():
+	if ip := addrPort.Addr(); ip.Is4() || ip.Is4In6() {
 		return 1 + 4 + 2
-	case ip.Is6() || !ip.IsValid():
-		return 1 + 16 + 2
 	}
-	panic("unreachable")
+	return 1 + 16 + 2
 }
 
 // AppendAddrFromConnAddr appends the address to the buffer in the SOCKS address format.
