@@ -5,13 +5,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net/netip"
+	"strconv"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/socks5"
-	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
 const (
@@ -65,12 +64,10 @@ var (
 	ErrPaddingExceedChunkBorder      = errors.New("padding in first chunk is shorter than advertised")
 	ErrBadTimestamp                  = errors.New("time diff is over 30 seconds")
 	ErrTypeMismatch                  = errors.New("header type mismatch")
-	ErrPaddingLengthOutOfRange       = errors.New("padding length is less than 0 or greater than 900")
 	ErrClientSaltMismatch            = errors.New("client salt in response header does not match request")
 	ErrClientSessionIDMismatch       = errors.New("client session ID in server message header does not match current session")
 	ErrTooManyServerSessions         = errors.New("server session changed more than once during the last minute")
 	ErrPacketIncompleteHeader        = errors.New("packet contains incomplete header")
-	ErrPacketMissingPayload          = errors.New("packet has no payload")
 	ErrReplay                        = errors.New("detected replay")
 	ErrIdentityHeaderUserPSKNotFound = errors.New("decrypted identity header does not match any known uPSK")
 )
@@ -101,6 +98,14 @@ func ValidateUnixEpochTimestamp(b []byte) error {
 		return &HeaderError[int64]{ErrBadTimestamp, nowEpoch, tsEpoch}
 	}
 	return nil
+}
+
+func intToUint16(i int) (u uint16) {
+	u = uint16(i)
+	if int(u) != i {
+		panic("int -> uint16 overflowed: " + strconv.Itoa(i))
+	}
+	return
 }
 
 // ParseTCPRequestFixedLengthHeader parses a TCP request fixed-length header and returns the length
@@ -176,10 +181,6 @@ func ParseTCPRequestVariableLengthHeader(b []byte) (targetAddr conn.Addr, payloa
 
 	// Padding length
 	paddingLen := int(binary.BigEndian.Uint16(b))
-	if paddingLen < MinPaddingLength || paddingLen > MaxPaddingLength {
-		err = &HeaderError[int]{ErrPaddingLengthOutOfRange, MaxPaddingLength, paddingLen}
-		return
-	}
 
 	// Padding
 	if 2+paddingLen > len(b) {
@@ -209,7 +210,7 @@ func WriteTCPRequestVariableLengthHeader(b []byte, targetAddr conn.Addr, payload
 
 	// Padding length
 	paddingLen := len(b) - n - 2 - len(payload)
-	binary.BigEndian.PutUint16(b[n:], uint16(paddingLen))
+	binary.BigEndian.PutUint16(b[n:], intToUint16(paddingLen))
 	n += 2 + paddingLen
 
 	// Initial payload
@@ -331,10 +332,6 @@ func ParseUDPClientMessageHeader(b []byte, cachedDomain string) (targetAddr conn
 
 	// Padding length
 	paddingLen := int(binary.BigEndian.Uint16(b[1+8:]))
-	if paddingLen < MinPaddingLength || paddingLen > MaxPaddingLength {
-		err = &HeaderError[int]{ErrPaddingLengthOutOfRange, MaxPaddingLength, paddingLen}
-		return
-	}
 
 	// Padding
 	payloadStart = UDPClientMessageHeaderFixedLength + paddingLen
@@ -353,55 +350,24 @@ func ParseUDPClientMessageHeader(b []byte, cachedDomain string) (targetAddr conn
 	// Payload
 	payloadStart += n
 	payloadLen = len(b) - payloadStart
-	if payloadLen == 0 {
-		err = ErrPacketMissingPayload
-	}
 	return
 }
 
-// WriteUDPClientMessageHeader writes a UDP client message header into the buffer,
-// starting from the end of the buffer towards the beginning, and returns the number of bytes written.
+// WriteUDPClientMessageHeader writes a UDP client message header into the buffer.
 //
-// This function checks buffer length and adds padding with best efforts.
-// The buffer must be at least 1 + 8 + 2 + len(targetAddr) bytes long.
-func WriteUDPClientMessageHeader(b []byte, targetAddr conn.Addr, shouldPad PaddingPolicy) (n int, err error) {
-	// Check buffer length.
-	addrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
-	addrStart := len(b) - addrLen
-	roomForPadding := addrStart - UDPClientMessageHeaderFixedLength
-	if roomForPadding < 0 {
-		err = zerocopy.ErrPayloadTooBig
-		return
-	}
-
-	// SOCKS address
-	bAddr := b[addrStart:]
-	n = socks5.WriteAddrFromConnAddr(bAddr, targetAddr)
-
-	// Padding
-	if roomForPadding > MaxPaddingLength {
-		roomForPadding = MaxPaddingLength
-	}
-
-	var paddingLen int
-	if roomForPadding > 0 && shouldPad(targetAddr) {
-		paddingLen = rand.Intn(roomForPadding) + 1
-	}
-
-	n += UDPClientMessageHeaderFixedLength + paddingLen
-	typeOffset := addrStart - UDPClientMessageHeaderFixedLength - paddingLen
-	hdr := b[typeOffset:]
-
+// The buffer size must be exactly 1 + 8 + 2 + paddingLen + socks5.LengthOfAddrFromConnAddr(targetAddr) bytes.
+func WriteUDPClientMessageHeader(b []byte, paddingLen int, targetAddr conn.Addr) {
 	// Type
-	hdr[0] = HeaderTypeClientPacket
+	b[0] = HeaderTypeClientPacket
 
 	// Timestamp
-	binary.BigEndian.PutUint64(hdr[1:], uint64(time.Now().Unix()))
+	binary.BigEndian.PutUint64(b[1:], uint64(time.Now().Unix()))
 
 	// Padding length
-	binary.BigEndian.PutUint16(hdr[1+8:], uint16(paddingLen))
+	binary.BigEndian.PutUint16(b[1+8:], intToUint16(paddingLen))
 
-	return
+	// SOCKS address
+	socks5.WriteAddrFromConnAddr(b[1+8+2+paddingLen:], targetAddr)
 }
 
 // ParseUDPServerMessageHeader parses a UDP server message header and returns the payload source address
@@ -444,10 +410,6 @@ func ParseUDPServerMessageHeader(b []byte, csid uint64) (payloadSourceAddrPort n
 
 	// Padding length
 	paddingLen := int(binary.BigEndian.Uint16(b[1+8+8:]))
-	if paddingLen < MinPaddingLength || paddingLen > MaxPaddingLength {
-		err = &HeaderError[int]{ErrPaddingLengthOutOfRange, MaxPaddingLength, paddingLen}
-		return
-	}
 
 	// Padding
 	payloadStart = UDPServerMessageHeaderFixedLength + paddingLen
@@ -465,56 +427,25 @@ func ParseUDPServerMessageHeader(b []byte, csid uint64) (payloadSourceAddrPort n
 	// Payload
 	payloadStart += n
 	payloadLen = len(b) - payloadStart
-	if payloadLen == 0 {
-		err = ErrPacketMissingPayload
-	}
 	return
 }
 
-// WriteUDPServerMessageHeader writes a UDP server message header into the buffer,
-// starting from the end of the buffer towards the beginning, and returns the number of bytes written.
+// WriteUDPServerMessageHeader writes a UDP server message header into the buffer.
 //
-// This function checks buffer length and adds padding with best efforts.
-// The buffer must be at least 1 + 8 + 8 + 2 + len(targetAddr) bytes long.
-func WriteUDPServerMessageHeader(b []byte, csid uint64, sourceAddrPort netip.AddrPort, shouldPad PaddingPolicy) (n int, err error) {
-	// Check buffer length.
-	addrLen := socks5.LengthOfAddrFromAddrPort(sourceAddrPort)
-	addrStart := len(b) - addrLen
-	roomForPadding := addrStart - UDPServerMessageHeaderFixedLength
-	if roomForPadding < 0 {
-		err = zerocopy.ErrPayloadTooBig
-		return
-	}
-
-	// SOCKS address
-	bAddr := b[addrStart:]
-	n = socks5.WriteAddrFromAddrPort(bAddr, sourceAddrPort)
-
-	// Padding
-	if roomForPadding > MaxPaddingLength {
-		roomForPadding = MaxPaddingLength
-	}
-
-	var paddingLen int
-	if roomForPadding > 0 && shouldPad(conn.AddrFromIPPort(sourceAddrPort)) {
-		paddingLen = rand.Intn(roomForPadding) + 1
-	}
-
-	n += UDPServerMessageHeaderFixedLength + paddingLen
-	typeOffset := addrStart - UDPServerMessageHeaderFixedLength - paddingLen
-	hdr := b[typeOffset:]
-
+// The buffer size must be exactly 1 + 8 + 8 + 2 + paddingLen + socks5.LengthOfAddrFromAddrPort(sourceAddrPort) bytes.
+func WriteUDPServerMessageHeader(b []byte, csid uint64, paddingLen int, sourceAddrPort netip.AddrPort) {
 	// Type
-	hdr[0] = HeaderTypeServerPacket
+	b[0] = HeaderTypeServerPacket
 
 	// Timestamp
-	binary.BigEndian.PutUint64(hdr[1:], uint64(time.Now().Unix()))
+	binary.BigEndian.PutUint64(b[1:], uint64(time.Now().Unix()))
 
 	// Client session ID
-	binary.BigEndian.PutUint64(hdr[1+8:], csid)
+	binary.BigEndian.PutUint64(b[1+8:], csid)
 
 	// Padding length
-	binary.BigEndian.PutUint16(hdr[1+8+8:], uint16(paddingLen))
+	binary.BigEndian.PutUint16(b[1+8+8:], intToUint16(paddingLen))
 
-	return
+	// SOCKS address
+	socks5.WriteAddrFromAddrPort(b[1+8+8+2+paddingLen:], sourceAddrPort)
 }

@@ -131,15 +131,7 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 		t.Fatalf("Expected: %s\nGot: %s", ErrPaddingExceedChunkBorder, err)
 	}
 
-	// 5. Bad header (padding length out of range)
-	binary.BigEndian.PutUint16(b[targetAddrLen:], MaxPaddingLength+1)
-
-	_, _, err = ParseTCPRequestVariableLengthHeader(b)
-	if !errors.Is(err, ErrPaddingLengthOutOfRange) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrPaddingLengthOutOfRange, err)
-	}
-
-	// 6. Bad header (incomplete padding length)
+	// 5. Bad header (incomplete padding length)
 	b = b[:targetAddrLen+1]
 
 	_, _, err = ParseTCPRequestVariableLengthHeader(b)
@@ -147,7 +139,7 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 		t.Fatalf("Expected: %s\nGot: %s", ErrIncompleteHeaderInFirstChunk, err)
 	}
 
-	// 7. Bad header (incomplete SOCKS address)
+	// 6. Bad header (incomplete SOCKS address)
 	b = b[:targetAddrLen-1]
 
 	_, _, err = ParseTCPRequestVariableLengthHeader(b)
@@ -236,326 +228,222 @@ func TestWriteAndParseSessionIDAndPacketID(t *testing.T) {
 
 func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	var cachedDomain string
-	targetAddrHttps := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 443))
-	targetAddrHttpsLen := socks5.LengthOfAddrFromConnAddr(targetAddrHttps)
 	targetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
-	payloadLen := mrand.Intn(1024)
-	expectedHeaderWithoutPaddingLength := UDPClientMessageHeaderFixedLength + targetAddrLen
-	bufLen := UDPClientMessageHeaderMaxLength + payloadLen
+	noPaddingLen := UDPClientMessageHeaderFixedLength + targetAddrLen
+	paddingLen := 1 + mrand.Intn(MaxPaddingLength)
+	headerLen := noPaddingLen + paddingLen
+	payloadLen := 1 + mrand.Intn(math.MaxUint16)
+	bufLen := headerLen + payloadLen
 	b := make([]byte, bufLen)
-	headerBuf := b[:UDPClientMessageHeaderMaxLength]
-	payload := b[UDPClientMessageHeaderMaxLength:]
+	bNoPadding := b[headerLen-noPaddingLen:]
+	headerBuf := b[:headerLen]
+	headerNoPaddingBuf := bNoPadding[:headerLen]
+	payload := b[headerLen:]
 	_, err := rand.Read(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 1. Good header (no padding)
-	n, err := WriteUDPClientMessageHeader(headerBuf, targetAddr, NoPadding)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != expectedHeaderWithoutPaddingLength {
-		t.Fatalf("Expected n %d, got %d", expectedHeaderWithoutPaddingLength, n)
-	}
-	header := b[UDPClientMessageHeaderMaxLength-n:]
+	WriteUDPClientMessageHeader(headerNoPaddingBuf, 0, targetAddr)
 
-	ta, cachedDomain, ps, pl, err := ParseUDPClientMessageHeader(header, cachedDomain)
+	ta, cachedDomain, ps, pl, err := ParseUDPClientMessageHeader(bNoPadding, cachedDomain)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := header[ps : ps+pl]
-	if !bytes.Equal(p, payload) {
-		t.Fatalf("Expected payload %v\nGot: %v", payload, p)
+	ps += headerLen - noPaddingLen
+	if ps != headerLen {
+		t.Errorf("Expected payload start %d, got %d", headerLen, ps)
+	}
+	if pl != payloadLen {
+		t.Errorf("Expected payload length %d, got %d", payloadLen, pl)
 	}
 	if ta != targetAddr {
-		t.Fatalf("Expected target address %s, got %s", targetAddr, ta)
+		t.Errorf("Expected target address %s, got %s", targetAddr, ta)
 	}
 
-	// 2. Good header (pad plain DNS)
-	n, err = WriteUDPClientMessageHeader(headerBuf, targetAddrHttps, PadPlainDNS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != expectedHeaderWithoutPaddingLength {
-		t.Fatalf("Expected n %d, got %d", expectedHeaderWithoutPaddingLength, n)
-	}
-	n, err = WriteUDPClientMessageHeader(headerBuf, targetAddr, PadPlainDNS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n <= expectedHeaderWithoutPaddingLength {
-		t.Fatalf("Expected padded header length greater than %d, got %d", expectedHeaderWithoutPaddingLength, n)
-	}
-	header = b[UDPClientMessageHeaderMaxLength-n:]
+	// 2. Good header (padding)
+	WriteUDPClientMessageHeader(headerBuf, paddingLen, targetAddr)
 
-	ta, cachedDomain, ps, pl, err = ParseUDPClientMessageHeader(header, cachedDomain)
+	ta, cachedDomain, ps, pl, err = ParseUDPClientMessageHeader(b, cachedDomain)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p = header[ps : ps+pl]
-	if !bytes.Equal(header[ps:ps+pl], payload) {
-		t.Fatalf("Expected payload %v\nGot: %v", payload, p)
+	if ps != headerLen {
+		t.Errorf("Expected payload start %d, got %d", headerLen, ps)
+	}
+	if pl != payloadLen {
+		t.Errorf("Expected payload length %d, got %d", payloadLen, pl)
 	}
 	if ta != targetAddr {
-		t.Fatalf("Expected target address %s, got %s", targetAddr, ta)
+		t.Errorf("Expected target address %s, got %s", targetAddr, ta)
 	}
 
-	// 3. Good header (pad all)
-	n, err = WriteUDPClientMessageHeader(headerBuf, targetAddrHttps, PadAll)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n <= expectedHeaderWithoutPaddingLength {
-		t.Fatalf("Expected padded header length greater than %d, got %d", expectedHeaderWithoutPaddingLength, n)
-	}
-	header = b[UDPClientMessageHeaderMaxLength-n:]
+	// 3. Bad header (incomplete SOCKS address)
+	b = b[:headerLen-1]
 
-	ta, cachedDomain, ps, pl, err = ParseUDPClientMessageHeader(header, cachedDomain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p = header[ps : ps+pl]
-	if !bytes.Equal(header[ps:ps+pl], payload) {
-		t.Fatalf("Expected payload %v\nGot: %v", payload, p)
-	}
-	if ta != targetAddrHttps {
-		t.Fatalf("Expected target address %s, got %s", targetAddrHttps, ta)
-	}
-
-	// 4. Bad header (missing payload)
-	header = header[:len(header)-payloadLen]
-
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(header, cachedDomain)
-	if !errors.Is(err, ErrPacketMissingPayload) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrPacketMissingPayload, err)
-	}
-
-	// 5. Bad header (incomplete SOCKS address)
-	header = header[:len(header)-1]
-
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(header, cachedDomain)
+	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, cachedDomain)
 	if err == nil {
-		t.Fatal("Expected error, got nil")
+		t.Error("Expected error, got nil")
 	}
 
-	// 6. Bad header (incomplete padding)
-	header = header[:len(header)-targetAddrHttpsLen]
+	// 4. Bad header (incomplete padding)
+	b = b[:len(b)-targetAddrLen]
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(header, cachedDomain)
+	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, cachedDomain)
 	if !errors.Is(err, ErrPacketIncompleteHeader) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
+		t.Errorf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
 	}
 
-	// 7. Bad header (padding length out of range)
-	binary.BigEndian.PutUint16(header[1+8:], MaxPaddingLength+1)
+	// 5. Bad header (incomplete padding length)
+	b = b[:1+8+1]
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(header, cachedDomain)
-	if !errors.Is(err, ErrPaddingLengthOutOfRange) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrPaddingLengthOutOfRange, err)
-	}
-
-	// 8. Bad header (incomplete padding length)
-	header = header[:1+8+1]
-
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(header, cachedDomain)
+	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, cachedDomain)
 	if !errors.Is(err, ErrPacketIncompleteHeader) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
+		t.Errorf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
 	}
 
-	// 9. Bad timestamp (31s ago)
-	header = header[:UDPClientMessageHeaderFixedLength]
+	// 6. Bad timestamp (31s ago)
+	b = b[:UDPClientMessageHeaderFixedLength]
 
 	ts := time.Now().Add(-31 * time.Second)
-	binary.BigEndian.PutUint64(header[1:], uint64(ts.Unix()))
+	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(header, cachedDomain)
+	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, cachedDomain)
 	if !errors.Is(err, ErrBadTimestamp) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
+		t.Errorf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
 
-	// 10. Bad timestamp (31s later)
+	// 7. Bad timestamp (31s later)
 	ts = time.Now().Add(31 * time.Second)
-	binary.BigEndian.PutUint64(header[1:], uint64(ts.Unix()))
+	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(header, cachedDomain)
+	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, cachedDomain)
 	if !errors.Is(err, ErrBadTimestamp) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
+		t.Errorf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
 
-	// 11. Bad type
-	header[0] = HeaderTypeServerPacket
+	// 8. Bad type
+	b[0] = HeaderTypeServerPacket
 
-	_, _, _, _, err = ParseUDPClientMessageHeader(header, cachedDomain)
+	_, _, _, _, err = ParseUDPClientMessageHeader(b, cachedDomain)
 	if !errors.Is(err, ErrTypeMismatch) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrTypeMismatch, err)
+		t.Errorf("Expected: %s\nGot: %s", ErrTypeMismatch, err)
 	}
 }
 
 func TestWriteAndParseUDPServerMessageHeader(t *testing.T) {
 	csid := mrand.Uint64()
-	sourceAddrPortHttps := netip.AddrPortFrom(netip.IPv6Unspecified(), 443)
-	sourceAddrPortHttpsLen := socks5.LengthOfAddrFromAddrPort(sourceAddrPortHttps)
 	sourceAddrPort := netip.AddrPortFrom(netip.IPv6Unspecified(), 53)
 	sourceAddrPortLen := socks5.LengthOfAddrFromAddrPort(sourceAddrPort)
-	payloadLen := mrand.Intn(1024)
-	expectedHeaderWithoutPaddingLength := UDPServerMessageHeaderFixedLength + sourceAddrPortLen
-	bufLen := UDPServerMessageHeaderMaxLength + payloadLen
+	noPaddingLen := UDPServerMessageHeaderFixedLength + sourceAddrPortLen
+	paddingLen := 1 + mrand.Intn(MaxPaddingLength)
+	headerLen := noPaddingLen + paddingLen
+	payloadLen := 1 + mrand.Intn(math.MaxUint16)
+	bufLen := headerLen + payloadLen
 	b := make([]byte, bufLen)
-	headerBuf := b[:UDPServerMessageHeaderMaxLength]
-	payload := b[UDPServerMessageHeaderMaxLength:]
+	bNoPadding := b[headerLen-noPaddingLen:]
+	headerBuf := b[:headerLen]
+	headerNoPaddingBuf := bNoPadding[:headerLen]
+	payload := b[headerLen:]
 	_, err := rand.Read(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 1. Good header (no padding)
-	n, err := WriteUDPServerMessageHeader(headerBuf, csid, sourceAddrPort, NoPadding)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != expectedHeaderWithoutPaddingLength {
-		t.Fatalf("Expected n %d, got %d", expectedHeaderWithoutPaddingLength, n)
-	}
-	header := b[UDPServerMessageHeaderMaxLength-n:]
+	WriteUDPServerMessageHeader(headerNoPaddingBuf, csid, 0, sourceAddrPort)
 
-	sa, ps, pl, err := ParseUDPServerMessageHeader(header, csid)
+	sa, ps, pl, err := ParseUDPServerMessageHeader(bNoPadding, csid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := header[ps : ps+pl]
-	if !bytes.Equal(p, payload) {
-		t.Fatalf("Expected payload %v\nGot: %v", payload, p)
+	ps += headerLen - noPaddingLen
+	if ps != headerLen {
+		t.Errorf("Expected payload start %d, got %d", headerLen, ps)
+	}
+	if pl != payloadLen {
+		t.Errorf("Expected payload length %d, got %d", payloadLen, pl)
 	}
 	if sa != sourceAddrPort {
-		t.Fatalf("Expected target address %s, got %s", sourceAddrPort, sa)
+		t.Errorf("Expected target address %s, got %s", sourceAddrPort, sa)
 	}
 
-	// 2. Good header (pad plain DNS)
-	n, err = WriteUDPServerMessageHeader(headerBuf, csid, sourceAddrPortHttps, PadPlainDNS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != expectedHeaderWithoutPaddingLength {
-		t.Fatalf("Expected n %d, got %d", expectedHeaderWithoutPaddingLength, n)
-	}
-	n, err = WriteUDPServerMessageHeader(headerBuf, csid, sourceAddrPort, PadPlainDNS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n <= expectedHeaderWithoutPaddingLength {
-		t.Fatalf("Expected padded header length greater than %d, got %d", expectedHeaderWithoutPaddingLength, n)
-	}
-	header = b[UDPServerMessageHeaderMaxLength-n:]
+	// 2. Good header (pad)
+	WriteUDPServerMessageHeader(headerBuf, csid, paddingLen, sourceAddrPort)
 
-	sa, ps, pl, err = ParseUDPServerMessageHeader(header, csid)
+	sa, ps, pl, err = ParseUDPServerMessageHeader(b, csid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p = header[ps : ps+pl]
-	if !bytes.Equal(p, payload) {
-		t.Fatalf("Expected payload %v\nGot: %v", payload, p)
+	if ps != headerLen {
+		t.Errorf("Expected payload start %d, got %d", headerLen, ps)
+	}
+	if pl != payloadLen {
+		t.Errorf("Expected payload length %d, got %d", payloadLen, pl)
 	}
 	if sa != sourceAddrPort {
-		t.Fatalf("Expected target address %s, got %s", sourceAddrPort, sa)
+		t.Errorf("Expected target address %s, got %s", sourceAddrPort, sa)
 	}
 
-	// 3. Good header (pad all)
-	n, err = WriteUDPServerMessageHeader(headerBuf, csid, sourceAddrPortHttps, PadAll)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n <= expectedHeaderWithoutPaddingLength {
-		t.Fatalf("Expected padded header length greater than %d, got %d", expectedHeaderWithoutPaddingLength, n)
-	}
-	header = b[UDPServerMessageHeaderMaxLength-n:]
+	// 3. Bad header (incomplete SOCKS address)
+	b = b[:headerLen-1]
 
-	sa, ps, pl, err = ParseUDPServerMessageHeader(header, csid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p = header[ps : ps+pl]
-	if !bytes.Equal(p, payload) {
-		t.Fatalf("Expected payload %v\nGot: %v", payload, p)
-	}
-	if sa != sourceAddrPortHttps {
-		t.Fatalf("Expected target address %s, got %s", sourceAddrPortHttps, sa)
-	}
-
-	// 4. Bad header (missing payload)
-	header = header[:len(header)-payloadLen]
-
-	_, _, _, err = ParseUDPServerMessageHeader(header, csid)
-	if !errors.Is(err, ErrPacketMissingPayload) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrPacketMissingPayload, err)
-	}
-
-	// 5. Bad header (incomplete SOCKS address)
-	header = header[:len(header)-1]
-
-	_, _, _, err = ParseUDPServerMessageHeader(header, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
 	if err == nil {
-		t.Fatal("Expected error, got nil")
+		t.Error("Expected error, got nil")
 	}
 
-	// 6. Bad header (incomplete padding)
-	header = header[:len(header)-sourceAddrPortHttpsLen]
+	// 4. Bad header (incomplete padding)
+	b = b[:len(b)-sourceAddrPortLen]
 
-	_, _, _, err = ParseUDPServerMessageHeader(header, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
 	if !errors.Is(err, ErrPacketIncompleteHeader) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
+		t.Errorf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
 	}
 
-	// 7. Bad header (padding length out of range)
-	binary.BigEndian.PutUint16(header[1+8+8:], MaxPaddingLength+1)
+	// 5. Bad header (incomplete padding length)
+	b = b[:1+8+8+1]
 
-	_, _, _, err = ParseUDPServerMessageHeader(header, csid)
-	if !errors.Is(err, ErrPaddingLengthOutOfRange) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrPaddingLengthOutOfRange, err)
-	}
-
-	// 8. Bad header (incomplete padding length)
-	header = header[:1+8+8+1]
-
-	_, _, _, err = ParseUDPServerMessageHeader(header, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
 	if !errors.Is(err, ErrPacketIncompleteHeader) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
+		t.Errorf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
 	}
 
-	// 9. Bad client session ID
-	header = header[:UDPServerMessageHeaderFixedLength]
+	// 6. Bad client session ID
+	b = b[:UDPServerMessageHeaderFixedLength]
 	badCsid := csid + 1
-	binary.BigEndian.PutUint64(header[1+8:], badCsid)
+	binary.BigEndian.PutUint64(b[1+8:], badCsid)
 
-	_, _, _, err = ParseUDPServerMessageHeader(header, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
 	if !errors.Is(err, ErrClientSessionIDMismatch) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrClientSessionIDMismatch, err)
+		t.Errorf("Expected: %s\nGot: %s", ErrClientSessionIDMismatch, err)
 	}
 
-	// 10. Bad timestamp (31s ago)
+	// 7. Bad timestamp (31s ago)
 	ts := time.Now().Add(-31 * time.Second)
-	binary.BigEndian.PutUint64(header[1:], uint64(ts.Unix()))
+	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, _, _, err = ParseUDPServerMessageHeader(header, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
 	if !errors.Is(err, ErrBadTimestamp) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
+		t.Errorf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
 
-	// 11. Bad timestamp (31s later)
+	// 8. Bad timestamp (31s later)
 	ts = time.Now().Add(31 * time.Second)
-	binary.BigEndian.PutUint64(header[1:], uint64(ts.Unix()))
+	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, _, _, err = ParseUDPServerMessageHeader(header, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
 	if !errors.Is(err, ErrBadTimestamp) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
+		t.Errorf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
 
-	// 12. Bad type
-	header[0] = HeaderTypeClientPacket
+	// 9. Bad type
+	b[0] = HeaderTypeClientPacket
 
-	_, _, _, err = ParseUDPServerMessageHeader(header, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
 	if !errors.Is(err, ErrTypeMismatch) {
-		t.Fatalf("Expected: %s\nGot: %s", ErrTypeMismatch, err)
+		t.Errorf("Expected: %s\nGot: %s", ErrTypeMismatch, err)
 	}
 }

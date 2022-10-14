@@ -4,6 +4,8 @@ import (
 	"crypto/cipher"
 	"encoding/binary"
 	"fmt"
+	"math"
+	"math/rand"
 	"net/netip"
 	"time"
 
@@ -90,29 +92,35 @@ func (p *ShadowPacketClientPacker) RearHeadroom() int {
 
 // PackInPlace implements the zerocopy.ClientPacker PackInPlace method.
 func (p *ShadowPacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
-	destAddrPort = p.serverAddrPort
-
-	nonAEADHeaderLength := UDPSeparateHeaderLength + IdentityHeaderLength*len(p.eihCiphers)
-	messageHeaderLengthBudget := p.maxPacketSize - payloadLen - nonAEADHeaderLength - p.aead.Overhead()
+	nonAEADHeaderLen := UDPSeparateHeaderLength + IdentityHeaderLength*len(p.eihCiphers)
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
-	if messageHeaderLengthBudget < UDPClientMessageHeaderFixedLength+targetAddrLen {
+	headerNoPaddingLen := nonAEADHeaderLen + UDPClientMessageHeaderFixedLength + targetAddrLen
+	maxPaddingLen := p.maxPacketSize - headerNoPaddingLen - payloadLen - p.aead.Overhead()
+	if mpl := payloadStart - headerNoPaddingLen; mpl < maxPaddingLen {
+		maxPaddingLen = mpl
+	}
+	if maxPaddingLen > math.MaxUint16 {
+		maxPaddingLen = math.MaxUint16
+	}
+
+	var paddingLen int
+
+	switch {
+	case maxPaddingLen < 0:
 		err = zerocopy.ErrPayloadTooBig
 		return
+	case maxPaddingLen > 0 && p.shouldPad(targetAddr):
+		paddingLen = 1 + rand.Intn(maxPaddingLen)
 	}
-	messageHeaderBufSize := payloadStart - nonAEADHeaderLength
-	if messageHeaderBufSize > messageHeaderLengthBudget {
-		messageHeaderBufSize = messageHeaderLengthBudget
-	}
+
+	messageHeaderStart := payloadStart - UDPClientMessageHeaderFixedLength - targetAddrLen - paddingLen
 
 	// Write message header.
-	n, err := WriteUDPClientMessageHeader(b[payloadStart-messageHeaderBufSize:payloadStart], targetAddr, p.shouldPad)
-	if err != nil {
-		return
-	}
+	WriteUDPClientMessageHeader(b[messageHeaderStart:payloadStart], paddingLen, targetAddr)
 
-	messageHeaderStart := payloadStart - n
-	packetStart = messageHeaderStart - nonAEADHeaderLength
-	packetLen = nonAEADHeaderLength + n + payloadLen + p.aead.Overhead()
+	destAddrPort = p.serverAddrPort
+	packetStart = messageHeaderStart - nonAEADHeaderLen
+	packetLen = payloadStart - packetStart + payloadLen + p.aead.Overhead()
 	identityHeadersStart := packetStart + UDPSeparateHeaderLength
 	separateHeader := b[packetStart:identityHeadersStart]
 	nonce := separateHeader[4:16]
@@ -175,26 +183,33 @@ func (p *ShadowPacketServerPacker) RearHeadroom() int {
 
 // PackInPlace implements the zerocopy.ServerPacker PackInPlace method.
 func (p *ShadowPacketServerPacker) PackInPlace(b []byte, sourceAddrPort netip.AddrPort, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
-	messageHeaderLengthBudget := maxPacketLen - payloadLen - UDPSeparateHeaderLength - p.aead.Overhead()
 	sourceAddrLen := socks5.LengthOfAddrFromAddrPort(sourceAddrPort)
-	if messageHeaderLengthBudget < UDPServerMessageHeaderFixedLength+sourceAddrLen {
+	headerNoPaddingLen := UDPSeparateHeaderLength + UDPServerMessageHeaderFixedLength + sourceAddrLen
+	maxPaddingLen := maxPacketLen - headerNoPaddingLen - payloadLen - p.aead.Overhead()
+	if mpl := payloadStart - headerNoPaddingLen; mpl < maxPaddingLen {
+		maxPaddingLen = mpl
+	}
+	if maxPaddingLen > math.MaxUint16 {
+		maxPaddingLen = math.MaxUint16
+	}
+
+	var paddingLen int
+
+	switch {
+	case maxPaddingLen < 0:
 		err = zerocopy.ErrPayloadTooBig
 		return
+	case maxPaddingLen > 0 && p.shouldPad(conn.AddrFromIPPort(sourceAddrPort)):
+		paddingLen = 1 + rand.Intn(maxPaddingLen)
 	}
-	messageHeaderBufSize := payloadStart - UDPSeparateHeaderLength
-	if messageHeaderBufSize > messageHeaderLengthBudget {
-		messageHeaderBufSize = messageHeaderLengthBudget
-	}
+
+	messageHeaderStart := payloadStart - UDPServerMessageHeaderFixedLength - paddingLen - sourceAddrLen
 
 	// Write message header.
-	n, err := WriteUDPServerMessageHeader(b[payloadStart-messageHeaderBufSize:payloadStart], p.csid, sourceAddrPort, p.shouldPad)
-	if err != nil {
-		return
-	}
+	WriteUDPServerMessageHeader(b[messageHeaderStart:payloadStart], p.csid, paddingLen, sourceAddrPort)
 
-	messageHeaderStart := payloadStart - n
 	packetStart = messageHeaderStart - UDPSeparateHeaderLength
-	packetLen = UDPSeparateHeaderLength + n + payloadLen + p.aead.Overhead()
+	packetLen = payloadStart - packetStart + payloadLen + p.aead.Overhead()
 	separateHeader := b[packetStart:messageHeaderStart]
 	nonce := separateHeader[4:16]
 	plaintext := b[messageHeaderStart : payloadStart+payloadLen]

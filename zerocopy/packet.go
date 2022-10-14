@@ -14,6 +14,9 @@ const (
 	IPv4HeaderLength = 20
 	IPv6HeaderLength = 40
 	UDPHeaderLength  = 8
+
+	// Next Header + Hdr Ext Len + Option Type + Opt Data Len + Jumbo Payload Length (u32be)
+	JumboPayloadOptionLength = 8
 )
 
 var (
@@ -26,6 +29,9 @@ var (
 func MaxPacketSizeForAddr(mtu int, addr netip.Addr) int {
 	if addr.Is4() || addr.Is4In6() {
 		return mtu - IPv4HeaderLength - UDPHeaderLength
+	}
+	if mtu > 65575 {
+		return mtu - IPv6HeaderLength - JumboPayloadOptionLength - UDPHeaderLength
 	}
 	return mtu - IPv6HeaderLength - UDPHeaderLength
 }
@@ -82,7 +88,10 @@ type ServerPackUnpacker interface {
 // 3. Server packer packs.
 // 4. Client unpacker unpacks.
 func ClientServerPackUnpackerTestFunc(t tester, c ClientPackUnpacker, s ServerPackUnpacker) {
-	const packetSize = 1452
+	const (
+		packetSize = 1452
+		payloadLen = 1280
+	)
 
 	frontHeadroom := c.FrontHeadroom()
 	if s.FrontHeadroom() > frontHeadroom {
@@ -92,14 +101,9 @@ func ClientServerPackUnpackerTestFunc(t tester, c ClientPackUnpacker, s ServerPa
 	if s.RearHeadroom() > rearHeadroom {
 		rearHeadroom = s.RearHeadroom()
 	}
-	if frontHeadroom+rearHeadroom >= packetSize {
-		t.Fatal("Too much headroom:", frontHeadroom, rearHeadroom)
-	}
 
-	b := make([]byte, packetSize)
-	payloadStart := frontHeadroom
-	payloadLen := packetSize - frontHeadroom - rearHeadroom
-	payload := b[payloadStart : payloadStart+payloadLen]
+	b := make([]byte, frontHeadroom+payloadLen+rearHeadroom)
+	payload := b[frontHeadroom : frontHeadroom+payloadLen]
 	targetAddrPort := netip.AddrPortFrom(netip.IPv6Unspecified(), 53)
 	targetAddr := conn.AddrFromIPPort(targetAddrPort)
 
@@ -114,7 +118,7 @@ func ClientServerPackUnpackerTestFunc(t tester, c ClientPackUnpacker, s ServerPa
 	copy(payloadBackup, payload)
 
 	// Client packs.
-	destAddr, pkts, pktl, err := c.PackInPlace(b, targetAddr, payloadStart, payloadLen)
+	destAddr, pkts, pktl, err := c.PackInPlace(b, targetAddr, frontHeadroom, payloadLen)
 	if err != nil {
 		t.Fatal(err)
 	}

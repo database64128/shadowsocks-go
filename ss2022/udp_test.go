@@ -14,7 +14,15 @@ import (
 const (
 	mtu        = 1500
 	packetSize = 1452
+	payloadLen = 1280
 	fwmark     = 10240
+)
+
+// UDP jumbograms.
+const (
+	jumboMTU        = 128 * 1024
+	jumboPacketSize = 128*1024 - 40 - 8 - 8
+	jumboPayloadLen = 127 * 1024
 )
 
 var (
@@ -26,7 +34,7 @@ var (
 	replayServerAddrPort = netip.AddrPortFrom(netip.IPv6Unspecified(), 10802)
 )
 
-func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientShouldPad, serverShouldPad PaddingPolicy) {
+func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientShouldPad, serverShouldPad PaddingPolicy, mtu, packetSize, payloadLen int) {
 	c := NewUDPClient(serverAddrPort, mtu, fwmark, clientCipherConfig, clientShouldPad, clientCipherConfig.ClientPSKHashes())
 	s := NewUDPServer(serverCipherConfig, serverShouldPad, serverCipherConfig.ServerPSKHashMap())
 
@@ -45,14 +53,8 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 
 	frontHeadroom := clientPacker.FrontHeadroom() + 8 // Compensate for server message overhead.
 	rearHeadroom := clientPacker.RearHeadroom()
-	if frontHeadroom+rearHeadroom >= packetSize {
-		t.Fatal("Too much headroom:", frontHeadroom, rearHeadroom)
-	}
-
-	b := make([]byte, packetSize)
-	payloadStart := frontHeadroom
-	payloadLen := packetSize - frontHeadroom - rearHeadroom
-	payload := b[payloadStart : payloadStart+payloadLen]
+	b := make([]byte, frontHeadroom+payloadLen+rearHeadroom)
+	payload := b[frontHeadroom : frontHeadroom+payloadLen]
 
 	// Fill random payload.
 	_, err = rand.Read(payload)
@@ -65,7 +67,7 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 	copy(payloadBackup, payload)
 
 	// Client packs.
-	dap, pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen)
+	dap, pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, frontHeadroom, payloadLen)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +113,7 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddrPort, payloadStart, payloadLen, packetSize)
+	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddrPort, frontHeadroom, payloadLen, packetSize)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,16 +152,10 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig,
 
 	frontHeadroom := clientPacker.FrontHeadroom() + 8 // Compensate for server message overhead.
 	rearHeadroom := clientPacker.RearHeadroom()
-	if frontHeadroom+rearHeadroom >= packetSize {
-		t.Fatal("Too much headroom:", frontHeadroom, rearHeadroom)
-	}
-
-	b := make([]byte, packetSize)
-	payloadStart := frontHeadroom
-	payloadLen := packetSize - frontHeadroom - rearHeadroom
+	b := make([]byte, frontHeadroom+payloadLen+rearHeadroom)
 
 	// Client packs.
-	dap, pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, payloadStart, payloadLen)
+	dap, pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, frontHeadroom, payloadLen)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +205,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig,
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddrPort, payloadStart, payloadLen, packetSize)
+	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddrPort, frontHeadroom, payloadLen, packetSize)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +226,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig,
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddrPort, payloadStart, payloadLen, packetSize)
+	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddrPort, frontHeadroom, payloadLen, packetSize)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +251,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig,
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddrPort, payloadStart, payloadLen, packetSize)
+	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddrPort, frontHeadroom, payloadLen, packetSize)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,6 +293,33 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig,
 	}
 }
 
+func testUDPClientServerPaddingPolicy(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, mtu, packetSize, payloadLen int) {
+	t.Run("NoPadding", func(t *testing.T) {
+		testUDPClientServer(t, clientCipherConfig, serverCipherConfig, NoPadding, NoPadding, mtu, packetSize, payloadLen)
+	})
+	t.Run("PadPlainDNS", func(t *testing.T) {
+		testUDPClientServer(t, clientCipherConfig, serverCipherConfig, PadPlainDNS, PadPlainDNS, mtu, packetSize, payloadLen)
+	})
+	t.Run("PadAll", func(t *testing.T) {
+		testUDPClientServer(t, clientCipherConfig, serverCipherConfig, PadAll, PadAll, mtu, packetSize, payloadLen)
+	})
+}
+
+func testUDPClientServerWithCipher(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig) {
+	t.Run("Typical", func(t *testing.T) {
+		testUDPClientServerPaddingPolicy(t, clientCipherConfig, serverCipherConfig, mtu, packetSize, payloadLen)
+	})
+	t.Run("EmptyPayload", func(t *testing.T) {
+		testUDPClientServerPaddingPolicy(t, clientCipherConfig, serverCipherConfig, mtu, packetSize, 0)
+	})
+	t.Run("Jumbogram", func(t *testing.T) {
+		testUDPClientServerPaddingPolicy(t, clientCipherConfig, serverCipherConfig, jumboMTU, jumboPacketSize, jumboPayloadLen)
+	})
+	t.Run("SessionChangeAndReplay", func(t *testing.T) {
+		testUDPClientServerSessionChangeAndReplay(t, clientCipherConfig, serverCipherConfig)
+	})
+}
+
 func TestUDPClientServerNoEIH(t *testing.T) {
 	cipherConfig128, err := NewRandomCipherConfig("2022-blake3-aes-128-gcm", 16, 0)
 	if err != nil {
@@ -307,15 +330,12 @@ func TestUDPClientServerNoEIH(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testUDPClientServer(t, cipherConfig128, cipherConfig128, NoPadding, NoPadding)
-	testUDPClientServer(t, cipherConfig128, cipherConfig128, PadPlainDNS, PadPlainDNS)
-	testUDPClientServer(t, cipherConfig128, cipherConfig128, PadAll, PadAll)
-	testUDPClientServer(t, cipherConfig256, cipherConfig256, NoPadding, NoPadding)
-	testUDPClientServer(t, cipherConfig256, cipherConfig256, PadPlainDNS, PadPlainDNS)
-	testUDPClientServer(t, cipherConfig256, cipherConfig256, PadAll, PadAll)
-
-	testUDPClientServerSessionChangeAndReplay(t, cipherConfig128, cipherConfig128)
-	testUDPClientServerSessionChangeAndReplay(t, cipherConfig256, cipherConfig256)
+	t.Run("128", func(t *testing.T) {
+		testUDPClientServerWithCipher(t, cipherConfig128, cipherConfig128)
+	})
+	t.Run("256", func(t *testing.T) {
+		testUDPClientServerWithCipher(t, cipherConfig256, cipherConfig256)
+	})
 }
 
 func TestUDPClientServerWithEIH(t *testing.T) {
@@ -337,13 +357,10 @@ func TestUDPClientServerWithEIH(t *testing.T) {
 		PSKs: [][]byte{serverCipherConfig256.PSK},
 	}
 
-	testUDPClientServer(t, &clientCipherConfig128, serverCipherConfig128, NoPadding, NoPadding)
-	testUDPClientServer(t, &clientCipherConfig128, serverCipherConfig128, PadPlainDNS, PadPlainDNS)
-	testUDPClientServer(t, &clientCipherConfig128, serverCipherConfig128, PadAll, PadAll)
-	testUDPClientServer(t, &clientCipherConfig256, serverCipherConfig256, NoPadding, NoPadding)
-	testUDPClientServer(t, &clientCipherConfig256, serverCipherConfig256, PadPlainDNS, PadPlainDNS)
-	testUDPClientServer(t, &clientCipherConfig256, serverCipherConfig256, PadAll, PadAll)
-
-	testUDPClientServerSessionChangeAndReplay(t, &clientCipherConfig128, serverCipherConfig128)
-	testUDPClientServerSessionChangeAndReplay(t, &clientCipherConfig256, serverCipherConfig256)
+	t.Run("128", func(t *testing.T) {
+		testUDPClientServerWithCipher(t, &clientCipherConfig128, serverCipherConfig128)
+	})
+	t.Run("256", func(t *testing.T) {
+		testUDPClientServerWithCipher(t, &clientCipherConfig256, serverCipherConfig256)
+	})
 }
