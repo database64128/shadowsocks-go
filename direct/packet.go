@@ -115,22 +115,39 @@ func (p *DirectPacketServerPackUnpacker) UnpackInPlace(b []byte, sourceAddrPort 
 	return
 }
 
-// ShadowsocksNonePacketHeadroom implements the zerocopy Headroom interface.
-type ShadowsocksNonePacketHeadroom struct{}
+// ShadowsocksNonePacketClientMessageHeadroom defines the headroom required by a client message.
+//
+// ShadowsocksNonePacketClientMessageHeadroom implements the zerocopy Headroom interface.
+type ShadowsocksNonePacketClientMessageHeadroom struct{}
 
 // FrontHeadroom implements the zerocopy.Headroom FrontHeadroom method.
-func (p *ShadowsocksNonePacketHeadroom) FrontHeadroom() int {
+func (ShadowsocksNonePacketClientMessageHeadroom) FrontHeadroom() int {
 	return socks5.MaxAddrLen
 }
 
 // RearHeadroom implements the zerocopy.Headroom RearHeadroom method.
-func (p *ShadowsocksNonePacketHeadroom) RearHeadroom() int {
+func (ShadowsocksNonePacketClientMessageHeadroom) RearHeadroom() int {
 	return 0
 }
 
-// ShadowsocksNonePacketClientPackUnpacker implements the zerocopy ClientPacker and Unpacker interfaces.
-type ShadowsocksNonePacketClientPackUnpacker struct {
-	ShadowsocksNonePacketHeadroom
+// ShadowsocksNonePacketServerMessageHeadroom defines the headroom required by a server message.
+//
+// ShadowsocksNonePacketServerMessageHeadroom implements the zerocopy Headroom interface.
+type ShadowsocksNonePacketServerMessageHeadroom struct{}
+
+// FrontHeadroom implements the zerocopy.Headroom FrontHeadroom method.
+func (ShadowsocksNonePacketServerMessageHeadroom) FrontHeadroom() int {
+	return socks5.IPv6AddrLen
+}
+
+// RearHeadroom implements the zerocopy.Headroom RearHeadroom method.
+func (ShadowsocksNonePacketServerMessageHeadroom) RearHeadroom() int {
+	return 0
+}
+
+// ShadowsocksNonePacketClientPacker implements the zerocopy ClientPacker interface.
+type ShadowsocksNonePacketClientPacker struct {
+	ShadowsocksNonePacketClientMessageHeadroom
 
 	// serverAddrPort is the Shadowsocks none server's IP and port.
 	serverAddrPort netip.AddrPort
@@ -140,16 +157,16 @@ type ShadowsocksNonePacketClientPackUnpacker struct {
 	maxPacketSize int
 }
 
-// NewShadowsocksNonePacketClientPackUnpacker creates a zerocopy.ClientPackUnpacker for communicating with a Shadowsocks none server.
-func NewShadowsocksNonePacketClientPackUnpacker(serverAddrPort netip.AddrPort, maxPacketSize int) *ShadowsocksNonePacketClientPackUnpacker {
-	return &ShadowsocksNonePacketClientPackUnpacker{
+// NewShadowsocksNonePacketClientPacker creates a Shadowsocks none packet client packer.
+func NewShadowsocksNonePacketClientPacker(serverAddrPort netip.AddrPort, maxPacketSize int) *ShadowsocksNonePacketClientPacker {
+	return &ShadowsocksNonePacketClientPacker{
 		serverAddrPort: serverAddrPort,
 		maxPacketSize:  maxPacketSize,
 	}
 }
 
 // PackInPlace implements the zerocopy.ClientPacker PackInPlace method.
-func (p *ShadowsocksNonePacketClientPackUnpacker) PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
+func (p *ShadowsocksNonePacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	destAddrPort = p.serverAddrPort
 	packetStart = payloadStart - targetAddrLen
@@ -161,8 +178,23 @@ func (p *ShadowsocksNonePacketClientPackUnpacker) PackInPlace(b []byte, targetAd
 	return
 }
 
+// ShadowsocksNonePacketClientUnpacker implements the zerocopy ClientUnpacker interface.
+type ShadowsocksNonePacketClientUnpacker struct {
+	ShadowsocksNonePacketServerMessageHeadroom
+
+	// serverAddrPort is the Shadowsocks none server's IP and port.
+	serverAddrPort netip.AddrPort
+}
+
+// NewShadowsocksNonePacketClientUnpacker creates a Shadowsocks none packet client unpacker.
+func NewShadowsocksNonePacketClientUnpacker(serverAddrPort netip.AddrPort) *ShadowsocksNonePacketClientUnpacker {
+	return &ShadowsocksNonePacketClientUnpacker{
+		serverAddrPort: serverAddrPort,
+	}
+}
+
 // UnpackInPlace implements the zerocopy.ClientUnpacker UnpackInPlace method.
-func (p *ShadowsocksNonePacketClientPackUnpacker) UnpackInPlace(b []byte, packetSourceAddrPort netip.AddrPort, packetStart, packetLen int) (payloadSourceAddrPort netip.AddrPort, payloadStart, payloadLen int, err error) {
+func (p *ShadowsocksNonePacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPort netip.AddrPort, packetStart, packetLen int) (payloadSourceAddrPort netip.AddrPort, payloadStart, payloadLen int, err error) {
 	if !conn.AddrPortMappedEqual(packetSourceAddrPort, p.serverAddrPort) {
 		err = fmt.Errorf("dropped packet from non-server source %s", packetSourceAddrPort)
 		return
@@ -174,16 +206,13 @@ func (p *ShadowsocksNonePacketClientPackUnpacker) UnpackInPlace(b []byte, packet
 	return
 }
 
-// ShadowsocksNonePacketServerPackUnpacker implements the zerocopy ServerPacker and Unpacker interfaces.
-type ShadowsocksNonePacketServerPackUnpacker struct {
-	ShadowsocksNonePacketHeadroom
-
-	// cachedDomain caches the last used domain target to avoid allocating new strings.
-	cachedDomain string
+// ShadowsocksNonePacketServerPacker implements the zerocopy ServerPacker interface.
+type ShadowsocksNonePacketServerPacker struct {
+	ShadowsocksNonePacketServerMessageHeadroom
 }
 
 // PackInPlace implements the zerocopy.ServerPacker PackInPlace method.
-func (p *ShadowsocksNonePacketServerPackUnpacker) PackInPlace(b []byte, sourceAddrPort netip.AddrPort, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
+func (ShadowsocksNonePacketServerPacker) PackInPlace(b []byte, sourceAddrPort netip.AddrPort, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
 	targetAddrLen := socks5.LengthOfAddrFromAddrPort(sourceAddrPort)
 	packetStart = payloadStart - targetAddrLen
 	packetLen = payloadLen + targetAddrLen
@@ -194,8 +223,16 @@ func (p *ShadowsocksNonePacketServerPackUnpacker) PackInPlace(b []byte, sourceAd
 	return
 }
 
+// ShadowsocksNonePacketServerUnpacker implements the zerocopy Unpacker interface.
+type ShadowsocksNonePacketServerUnpacker struct {
+	ShadowsocksNonePacketClientMessageHeadroom
+
+	// cachedDomain caches the last used domain target to avoid allocating new strings.
+	cachedDomain string
+}
+
 // UnpackInPlace implements the zerocopy.ServerUnpacker UnpackInPlace method.
-func (p *ShadowsocksNonePacketServerPackUnpacker) UnpackInPlace(b []byte, sourceAddrPort netip.AddrPort, packetStart, packetLen int) (targetAddr conn.Addr, payloadStart, payloadLen int, err error) {
+func (p *ShadowsocksNonePacketServerUnpacker) UnpackInPlace(b []byte, sourceAddrPort netip.AddrPort, packetStart, packetLen int) (targetAddr conn.Addr, payloadStart, payloadLen int, err error) {
 	var targetAddrLen int
 	targetAddr, targetAddrLen, p.cachedDomain, err = socks5.ConnAddrFromSliceWithDomainCache(b[packetStart:packetStart+packetLen], p.cachedDomain)
 	payloadStart = packetStart + targetAddrLen
@@ -203,22 +240,39 @@ func (p *ShadowsocksNonePacketServerPackUnpacker) UnpackInPlace(b []byte, source
 	return
 }
 
-// Socks5PacketHeadroom implements the zerocopy Headroom interface.
-type Socks5PacketHeadroom struct{}
+// Socks5PacketClientMessageHeadroom defines the headroom required by a client message.
+//
+// Socks5PacketClientMessageHeadroom implements the zerocopy Headroom interface.
+type Socks5PacketClientMessageHeadroom struct{}
 
 // FrontHeadroom implements the zerocopy.Headroom FrontHeadroom method.
-func (p *Socks5PacketHeadroom) FrontHeadroom() int {
+func (Socks5PacketClientMessageHeadroom) FrontHeadroom() int {
 	return 3 + socks5.MaxAddrLen
 }
 
 // RearHeadroom implements the zerocopy.Headroom RearHeadroom method.
-func (p *Socks5PacketHeadroom) RearHeadroom() int {
+func (Socks5PacketClientMessageHeadroom) RearHeadroom() int {
 	return 0
 }
 
-// Socks5PacketClientPackUnpacker implements the zerocopy ClientPacker and Unpacker interfaces.
-type Socks5PacketClientPackUnpacker struct {
-	Socks5PacketHeadroom
+// Socks5PacketServerMessageHeadroom defines the headroom required by a server message.
+//
+// Socks5PacketServerMessageHeadroom implements the zerocopy Headroom interface.
+type Socks5PacketServerMessageHeadroom struct{}
+
+// FrontHeadroom implements the zerocopy.Headroom FrontHeadroom method.
+func (Socks5PacketServerMessageHeadroom) FrontHeadroom() int {
+	return 3 + socks5.IPv6AddrLen
+}
+
+// RearHeadroom implements the zerocopy.Headroom RearHeadroom method.
+func (Socks5PacketServerMessageHeadroom) RearHeadroom() int {
+	return 0
+}
+
+// Socks5PacketClientPacker implements the zerocopy ClientPacker interface.
+type Socks5PacketClientPacker struct {
+	Socks5PacketClientMessageHeadroom
 
 	// serverAddrPort is the SOCKS5 server's IP and port.
 	serverAddrPort netip.AddrPort
@@ -228,16 +282,16 @@ type Socks5PacketClientPackUnpacker struct {
 	maxPacketSize int
 }
 
-// NewSocks5PacketClientPackUnpacker creates a zerocopy.ClientPackUnpacker for communicating with a SOCKS5 server.
-func NewSocks5PacketClientPackUnpacker(serverAddrPort netip.AddrPort, maxPacketSize int) *Socks5PacketClientPackUnpacker {
-	return &Socks5PacketClientPackUnpacker{
+// NewSocks5PacketClientPacker creates a SOCKS5 packet client packer.
+func NewSocks5PacketClientPacker(serverAddrPort netip.AddrPort, maxPacketSize int) *Socks5PacketClientPacker {
+	return &Socks5PacketClientPacker{
 		serverAddrPort: serverAddrPort,
 		maxPacketSize:  maxPacketSize,
 	}
 }
 
 // PackInPlace implements the zerocopy.ClientPacker PackInPlace method.
-func (p *Socks5PacketClientPackUnpacker) PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
+func (p *Socks5PacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	destAddrPort = p.serverAddrPort
 	packetStart = payloadStart - targetAddrLen - 3
@@ -250,8 +304,23 @@ func (p *Socks5PacketClientPackUnpacker) PackInPlace(b []byte, targetAddr conn.A
 	return
 }
 
+// Socks5PacketClientUnpacker implements the zerocopy Unpacker interface.
+type Socks5PacketClientUnpacker struct {
+	Socks5PacketServerMessageHeadroom
+
+	// serverAddrPort is the SOCKS5 server's IP and port.
+	serverAddrPort netip.AddrPort
+}
+
+// NewSocks5PacketClientUnpacker creates a SOCKS5 packet client unpacker.
+func NewSocks5PacketClientUnpacker(serverAddrPort netip.AddrPort) *Socks5PacketClientUnpacker {
+	return &Socks5PacketClientUnpacker{
+		serverAddrPort: serverAddrPort,
+	}
+}
+
 // UnpackInPlace implements the zerocopy.ClientUnpacker UnpackInPlace method.
-func (p *Socks5PacketClientPackUnpacker) UnpackInPlace(b []byte, packetSourceAddrPort netip.AddrPort, packetStart, packetLen int) (payloadSourceAddrPort netip.AddrPort, payloadStart, payloadLen int, err error) {
+func (p *Socks5PacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPort netip.AddrPort, packetStart, packetLen int) (payloadSourceAddrPort netip.AddrPort, payloadStart, payloadLen int, err error) {
 	if !conn.AddrPortMappedEqual(packetSourceAddrPort, p.serverAddrPort) {
 		err = fmt.Errorf("dropped packet from non-server source %s", packetSourceAddrPort)
 		return
@@ -275,16 +344,13 @@ func (p *Socks5PacketClientPackUnpacker) UnpackInPlace(b []byte, packetSourceAdd
 	return
 }
 
-// Socks5PacketServerPackUnpacker implements the zerocopy ServerPacker and Unpacker interfaces.
-type Socks5PacketServerPackUnpacker struct {
-	Socks5PacketHeadroom
-
-	// cachedDomain caches the last used domain target to avoid allocating new strings.
-	cachedDomain string
+// Socks5PacketServerPacker implements the zerocopy ServerPacker interface.
+type Socks5PacketServerPacker struct {
+	Socks5PacketServerMessageHeadroom
 }
 
 // PackInPlace implements the zerocopy.ServerPacker PackInPlace method.
-func (p *Socks5PacketServerPackUnpacker) PackInPlace(b []byte, sourceAddrPort netip.AddrPort, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
+func (Socks5PacketServerPacker) PackInPlace(b []byte, sourceAddrPort netip.AddrPort, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
 	targetAddrLen := socks5.LengthOfAddrFromAddrPort(sourceAddrPort)
 	packetStart = payloadStart - targetAddrLen - 3
 	packetLen = payloadLen + targetAddrLen + 3
@@ -296,8 +362,16 @@ func (p *Socks5PacketServerPackUnpacker) PackInPlace(b []byte, sourceAddrPort ne
 	return
 }
 
+// Socks5PacketServerUnpacker implements the zerocopy Unpacker interface.
+type Socks5PacketServerUnpacker struct {
+	Socks5PacketClientMessageHeadroom
+
+	// cachedDomain caches the last used domain target to avoid allocating new strings.
+	cachedDomain string
+}
+
 // UnpackInPlace implements the zerocopy.ServerUnpacker UnpackInPlace method.
-func (p *Socks5PacketServerPackUnpacker) UnpackInPlace(b []byte, sourceAddrPort netip.AddrPort, packetStart, packetLen int) (targetAddr conn.Addr, payloadStart, payloadLen int, err error) {
+func (p *Socks5PacketServerUnpacker) UnpackInPlace(b []byte, sourceAddrPort netip.AddrPort, packetStart, packetLen int) (targetAddr conn.Addr, payloadStart, payloadLen int, err error) {
 	if packetLen < 3 {
 		err = fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, packetLen)
 		return

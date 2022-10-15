@@ -22,15 +22,17 @@ var (
 func TestDirectPacketPackUnpacker(t *testing.T) {
 	c := NewDirectPacketClientPackUnpacker(mtu, true)
 	s := NewDirectPacketServerPackUnpacker(targetAddr, false) // Cheat a little bit, because we have to. :P
-	zerocopy.ClientServerPackUnpackerTestFunc(t, c, s)
+	zerocopy.ClientServerPackerUnpackerTestFunc(t, c, c, s, s)
 }
 
 func TestShadowsocksNonePacketPackUnpacker(t *testing.T) {
-	c := NewShadowsocksNonePacketClientPackUnpacker(serverAddrPort, packetSize)
-	zerocopy.ClientServerPackUnpackerTestFunc(t, c, &ShadowsocksNonePacketServerPackUnpacker{})
+	clientPacker := NewShadowsocksNonePacketClientPacker(serverAddrPort, packetSize)
+	clientUnpacker := NewShadowsocksNonePacketClientUnpacker(serverAddrPort)
+	zerocopy.ClientServerPackerUnpackerTestFunc(t, clientPacker, clientUnpacker, ShadowsocksNonePacketServerPacker{}, &ShadowsocksNonePacketServerUnpacker{})
 }
 
 func TestSocks5PacketPackUnpacker(t *testing.T) {
-	c := NewSocks5PacketClientPackUnpacker(serverAddrPort, packetSize)
-	zerocopy.ClientServerPackUnpackerTestFunc(t, c, &Socks5PacketServerPackUnpacker{})
+	clientPacker := NewSocks5PacketClientPacker(serverAddrPort, packetSize)
+	clientUnpacker := NewSocks5PacketClientUnpacker(serverAddrPort)
+	zerocopy.ClientServerPackerUnpackerTestFunc(t, clientPacker, clientUnpacker, Socks5PacketServerPacker{}, &Socks5PacketServerUnpacker{})
 }

@@ -15,7 +15,7 @@ type UDPClient interface {
 
 // UDPNATServer stores information for creating new server sessions.
 type UDPNATServer interface {
-	// Headroom reports server pack-unpacker headroom requirements.
+	// Headroom reports server unpacker headroom requirements.
 	Headroom
 
 	// NewSession creates a new session and returns the packet packer
@@ -51,16 +51,16 @@ type UDPSessionServer interface {
 //
 // SimpleUDPClient implements the UDPClient interface.
 type SimpleUDPClient struct {
-	p             ClientPackUnpacker
+	Headroom
+	packer        ClientPacker
+	unpacker      ClientUnpacker
 	maxPacketSize int
 	fwmark        int
-	frontHeadroom int
-	rearHeadroom  int
 }
 
 // NewSimpleUDPClient wraps a PackUnpacker into a UDPClient and uses it for all sessions.
-func NewSimpleUDPClient(p ClientPackUnpacker, maxPacketSize, fwmark, frontHeadroom, rearHeadroom int) *SimpleUDPClient {
-	return &SimpleUDPClient{p, maxPacketSize, fwmark, frontHeadroom, rearHeadroom}
+func NewSimpleUDPClient(h Headroom, packer ClientPacker, unpacker ClientUnpacker, maxPacketSize, fwmark int) *SimpleUDPClient {
+	return &SimpleUDPClient{h, packer, unpacker, maxPacketSize, fwmark}
 }
 
 // LinkInfo implements the UDPClient LinkInfo method.
@@ -70,15 +70,5 @@ func (c *SimpleUDPClient) LinkInfo() (int, int) {
 
 // NewSession implements the UDPClient NewSession method.
 func (c *SimpleUDPClient) NewSession() (ClientPacker, ClientUnpacker, error) {
-	return c.p, c.p, nil
-}
-
-// FrontHeadroom implements the UDPClient FrontHeadroom method.
-func (c *SimpleUDPClient) FrontHeadroom() int {
-	return c.frontHeadroom
-}
-
-// RearHeadroom implements the UDPClient RearHeadroom method.
-func (c *SimpleUDPClient) RearHeadroom() int {
-	return c.rearHeadroom
+	return c.packer, c.unpacker, nil
 }

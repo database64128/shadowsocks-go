@@ -13,6 +13,7 @@ import (
 
 // UDPClient implements the zerocopy UDPClient interface.
 type UDPClient struct {
+	ShadowPacketClientMessageHeadroom
 	addrPort      netip.AddrPort
 	maxPacketSize int
 	fwmark        int
@@ -36,15 +37,16 @@ func NewUDPClient(addrPort netip.AddrPort, mtu, fwmark int, cipherConfig *Cipher
 	}
 
 	return &UDPClient{
-		addrPort:      addrPort,
-		maxPacketSize: zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr()),
-		fwmark:        fwmark,
-		packerBlock:   packerBlock,
-		unpackerBlock: unpackerBlock,
-		cipherConfig:  cipherConfig,
-		shouldPad:     shouldPad,
-		eihCiphers:    eihCiphers,
-		eihPSKHashes:  eihPSKHashes,
+		ShadowPacketClientMessageHeadroom: ShadowPacketClientMessageHeadroom{IdentityHeaderLength * len(eihCiphers)},
+		addrPort:                          addrPort,
+		maxPacketSize:                     zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr()),
+		fwmark:                            fwmark,
+		packerBlock:                       packerBlock,
+		unpackerBlock:                     unpackerBlock,
+		cipherConfig:                      cipherConfig,
+		shouldPad:                         shouldPad,
+		eihCiphers:                        eihCiphers,
+		eihPSKHashes:                      eihPSKHashes,
 	}
 }
 
@@ -59,14 +61,15 @@ func (c *UDPClient) NewSession() (zerocopy.ClientPacker, zerocopy.ClientUnpacker
 	csid := binary.BigEndian.Uint64(salt)
 
 	return &ShadowPacketClientPacker{
-			csid:           csid,
-			aead:           c.cipherConfig.NewAEAD(salt),
-			block:          c.packerBlock,
-			shouldPad:      c.shouldPad,
-			eihCiphers:     c.eihCiphers,
-			eihPSKHashes:   c.eihPSKHashes,
-			maxPacketSize:  c.maxPacketSize,
-			serverAddrPort: c.addrPort,
+			ShadowPacketClientMessageHeadroom: c.ShadowPacketClientMessageHeadroom,
+			csid:                              csid,
+			aead:                              c.cipherConfig.NewAEAD(salt),
+			block:                             c.packerBlock,
+			shouldPad:                         c.shouldPad,
+			eihCiphers:                        c.eihCiphers,
+			eihPSKHashes:                      c.eihPSKHashes,
+			maxPacketSize:                     c.maxPacketSize,
+			serverAddrPort:                    c.addrPort,
 		}, &ShadowPacketClientUnpacker{
 			csid:         csid,
 			block:        c.unpackerBlock,
@@ -79,18 +82,9 @@ func (c *UDPClient) LinkInfo() (int, int) {
 	return c.maxPacketSize, c.fwmark
 }
 
-// FrontHeadroom implements the UDPClient FrontHeadroom method.
-func (c *UDPClient) FrontHeadroom() int {
-	return UDPSeparateHeaderLength + IdentityHeaderLength*len(c.eihCiphers) + UDPClientMessageHeaderMaxLength
-}
-
-// RearHeadroom implements the UDPClient RearHeadroom method.
-func (c *UDPClient) RearHeadroom() int {
-	return 16
-}
-
 // UDPServer implements the zerocopy UDPSessionServer interface.
 type UDPServer struct {
+	ShadowPacketClientMessageHeadroom
 	block        cipher.Block
 	cipherConfig *CipherConfig
 	shouldPad    PaddingPolicy
@@ -103,27 +97,18 @@ type UDPServer struct {
 }
 
 func NewUDPServer(cipherConfig *CipherConfig, shouldPad PaddingPolicy, uPSKMap map[[IdentityHeaderLength]byte]*CipherConfig) *UDPServer {
-	return &UDPServer{
-		block:                   cipherConfig.NewBlock(),
-		cipherConfig:            cipherConfig,
-		shouldPad:               shouldPad,
-		uPSKMap:                 uPSKMap,
-		currentUserCipherConfig: cipherConfig,
-	}
-}
-
-// FrontHeadroom implements the zerocopy.UDPSessionServer FrontHeadroom method.
-func (s *UDPServer) FrontHeadroom() int {
 	var identityHeaderLen int
-	if len(s.uPSKMap) > 0 {
+	if len(uPSKMap) > 0 {
 		identityHeaderLen = IdentityHeaderLength
 	}
-	return UDPSeparateHeaderLength + identityHeaderLen + UDPClientMessageHeaderMaxLength
-}
-
-// RearHeadroom implements the zerocopy.UDPSessionServer RearHeadroom method.
-func (s *UDPServer) RearHeadroom() int {
-	return 16
+	return &UDPServer{
+		ShadowPacketClientMessageHeadroom: ShadowPacketClientMessageHeadroom{identityHeaderLen},
+		block:                             cipherConfig.NewBlock(),
+		cipherConfig:                      cipherConfig,
+		shouldPad:                         shouldPad,
+		uPSKMap:                           uPSKMap,
+		currentUserCipherConfig:           cipherConfig,
+	}
 }
 
 // SessionInfo implements the zerocopy.UDPSessionServer SessionInfo method.
@@ -141,18 +126,14 @@ func (s *UDPServer) SessionInfo(b []byte) (csid uint64, err error) {
 
 // NewUnpacker implements the zerocopy.UDPSessionServer NewUnpacker method.
 func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker, error) {
-	var identityHeaderLen int
-	hasEIH := len(s.uPSKMap) > 0
-	if hasEIH {
-		identityHeaderLen = IdentityHeaderLength
-	}
+	identityHeaderLen := s.ShadowPacketClientMessageHeadroom.identityHeadersLen
 
 	if len(b) < UDPSeparateHeaderLength+identityHeaderLen {
 		return nil, fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, len(b))
 	}
 
 	// Process identity header.
-	if hasEIH {
+	if identityHeaderLen != 0 {
 		separateHeader := b[:UDPSeparateHeaderLength]
 		identityHeader := b[UDPSeparateHeaderLength : UDPSeparateHeaderLength+identityHeaderLen]
 		s.block.Decrypt(identityHeader, identityHeader)
@@ -166,9 +147,9 @@ func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker,
 	}
 
 	return &ShadowPacketServerUnpacker{
-		csid:   csid,
-		aead:   s.currentUserCipherConfig.NewAEAD(b[:8]),
-		hasEIH: hasEIH,
+		ShadowPacketClientMessageHeadroom: s.ShadowPacketClientMessageHeadroom,
+		csid:                              csid,
+		aead:                              s.currentUserCipherConfig.NewAEAD(b[:8]),
 	}, nil
 }
 

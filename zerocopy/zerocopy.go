@@ -14,12 +14,12 @@ type Headroom interface {
 type ZeroHeadroom struct{}
 
 // FrontHeadroom implements the Headroom FrontHeadroom method.
-func (z ZeroHeadroom) FrontHeadroom() int {
+func (ZeroHeadroom) FrontHeadroom() int {
 	return 0
 }
 
 // RearHeadroom implements the Headroom RearHeadroom method.
-func (z ZeroHeadroom) RearHeadroom() int {
+func (ZeroHeadroom) RearHeadroom() int {
 	return 0
 }
 

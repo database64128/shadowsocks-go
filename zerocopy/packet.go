@@ -82,24 +82,24 @@ type ServerPackUnpacker interface {
 	ServerUnpacker
 }
 
-// ClientServerPackUnpackerTestFunc tests the client pack-unpacker and the server pack-unpacker with the following precedure:
+// ClientServerPackerUnpackerTestFunc tests the client and server following these steps:
 // 1. Client packer packs.
 // 2. Server unpacker unpacks.
 // 3. Server packer packs.
 // 4. Client unpacker unpacks.
-func ClientServerPackUnpackerTestFunc(t tester, c ClientPackUnpacker, s ServerPackUnpacker) {
+func ClientServerPackerUnpackerTestFunc(t tester, clientPacker ClientPacker, clientUnpacker ClientUnpacker, serverPacker ServerPacker, serverUnpacker ServerUnpacker) {
 	const (
 		packetSize = 1452
 		payloadLen = 1280
 	)
 
-	frontHeadroom := c.FrontHeadroom()
-	if s.FrontHeadroom() > frontHeadroom {
-		frontHeadroom = s.FrontHeadroom()
+	frontHeadroom := clientPacker.FrontHeadroom()
+	if serverPacker.FrontHeadroom() > frontHeadroom {
+		frontHeadroom = serverPacker.FrontHeadroom()
 	}
-	rearHeadroom := c.RearHeadroom()
-	if s.RearHeadroom() > rearHeadroom {
-		rearHeadroom = s.RearHeadroom()
+	rearHeadroom := clientPacker.RearHeadroom()
+	if serverPacker.RearHeadroom() > rearHeadroom {
+		rearHeadroom = serverPacker.RearHeadroom()
 	}
 
 	b := make([]byte, frontHeadroom+payloadLen+rearHeadroom)
@@ -118,13 +118,13 @@ func ClientServerPackUnpackerTestFunc(t tester, c ClientPackUnpacker, s ServerPa
 	copy(payloadBackup, payload)
 
 	// Client packs.
-	destAddr, pkts, pktl, err := c.PackInPlace(b, targetAddr, frontHeadroom, payloadLen)
+	destAddr, pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, frontHeadroom, payloadLen)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Server unpacks.
-	ta, ps, pl, err := s.UnpackInPlace(b, destAddr, pkts, pktl)
+	ta, ps, pl, err := serverUnpacker.UnpackInPlace(b, destAddr, pkts, pktl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,13 +141,13 @@ func ClientServerPackUnpackerTestFunc(t tester, c ClientPackUnpacker, s ServerPa
 	}
 
 	// Server packs.
-	pkts, pktl, err = s.PackInPlace(b, targetAddrPort, ps, pl, packetSize)
+	pkts, pktl, err = serverPacker.PackInPlace(b, targetAddrPort, ps, pl, packetSize)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Client unpacks.
-	tap, ps, pl, err := c.UnpackInPlace(b, destAddr, pkts, pktl)
+	tap, ps, pl, err := clientUnpacker.UnpackInPlace(b, destAddr, pkts, pktl)
 	if err != nil {
 		t.Fatal(err)
 	}

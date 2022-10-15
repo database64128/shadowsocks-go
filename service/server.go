@@ -151,10 +151,10 @@ func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, batc
 	case "tproxy":
 
 	case "none", "plain":
-		natServer = direct.DefaultShadowsocksNoneUDPNATServer
+		natServer = direct.ShadowsocksNoneUDPNATServer{}
 
 	case "socks5":
-		natServer = direct.DefaultSocks5UDPNATServer
+		natServer = direct.Socks5UDPNATServer{}
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		if sc.cipherConfig == nil {

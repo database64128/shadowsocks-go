@@ -18,8 +18,16 @@ const (
 	AtypIPv6       = 4
 )
 
-// MaxAddrLen is the maximum size of SOCKS address in bytes.
-const MaxAddrLen = 1 + 1 + 255 + 2
+const (
+	// IPv4AddrLen is the size of an IPv4 SOCKS address in bytes.
+	IPv4AddrLen = 1 + 4 + 2
+
+	// IPv6AddrLen is the size of an IPv6 SOCKS address in bytes.
+	IPv6AddrLen = 1 + 16 + 2
+
+	// MaxAddrLen is the maximum size of a SOCKS address in bytes.
+	MaxAddrLen = 1 + 1 + 255 + 2
+)
 
 // sliceForAppend extends the input slice by n bytes. head is the full extended
 // slice, while tail is the appended part. If the original slice has sufficient

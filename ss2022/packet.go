@@ -34,6 +34,38 @@ func (e *ShadowPacketReplayError) Error() string {
 	return fmt.Sprintf("received replay packet from %s: session ID %d, packet ID %d", e.srcAddr, e.sid, e.pid)
 }
 
+// ShadowPacketClientMessageHeadroom defines the headroom required by a client message.
+//
+// ShadowPacketClientMessageHeadroom implements the zerocopy Headroom interface.
+type ShadowPacketClientMessageHeadroom struct {
+	identityHeadersLen int
+}
+
+// FrontHeadroom implements the zerocopy.Headroom FrontHeadroom method.
+func (h ShadowPacketClientMessageHeadroom) FrontHeadroom() int {
+	return UDPSeparateHeaderLength + h.identityHeadersLen + UDPClientMessageHeaderMaxLength
+}
+
+// RearHeadroom implements the zerocopy.Headroom RearHeadroom method.
+func (h ShadowPacketClientMessageHeadroom) RearHeadroom() int {
+	return 16
+}
+
+// ShadowPacketServerMessageHeadroom defines the headroom required by a server message.
+//
+// ShadowPacketServerMessageHeadroom implements the zerocopy Headroom interface.
+type ShadowPacketServerMessageHeadroom struct{}
+
+// FrontHeadroom implements the zerocopy.Headroom FrontHeadroom method.
+func (ShadowPacketServerMessageHeadroom) FrontHeadroom() int {
+	return UDPSeparateHeaderLength + UDPServerMessageHeaderMaxLength
+}
+
+// RearHeadroom implements the zerocopy.Headroom RearHeadroom method.
+func (ShadowPacketServerMessageHeadroom) RearHeadroom() int {
+	return 16
+}
+
 // ShadowPacketClientPacker packs UDP packets into authenticated and encrypted
 // Shadowsocks packets.
 //
@@ -47,6 +79,8 @@ func (e *ShadowPacketReplayError) Error() string {
 //	|            16B            | 16B | ... | variable length + 16B tag |
 //	+---------------------------+-----+-----+---------------------------+
 type ShadowPacketClientPacker struct {
+	ShadowPacketClientMessageHeadroom
+
 	// Client session ID.
 	csid uint64
 
@@ -80,19 +114,9 @@ type ShadowPacketClientPacker struct {
 	serverAddrPort netip.AddrPort
 }
 
-// FrontHeadroom implements the zerocopy.ClientPacker FrontHeadroom method.
-func (p *ShadowPacketClientPacker) FrontHeadroom() int {
-	return UDPSeparateHeaderLength + IdentityHeaderLength*len(p.eihCiphers) + UDPClientMessageHeaderMaxLength
-}
-
-// RearHeadroom implements the zerocopy.ClientPacker RearHeadroom method.
-func (p *ShadowPacketClientPacker) RearHeadroom() int {
-	return p.aead.Overhead()
-}
-
 // PackInPlace implements the zerocopy.ClientPacker PackInPlace method.
 func (p *ShadowPacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
-	nonAEADHeaderLen := UDPSeparateHeaderLength + IdentityHeaderLength*len(p.eihCiphers)
+	nonAEADHeaderLen := UDPSeparateHeaderLength + p.ShadowPacketClientMessageHeadroom.identityHeadersLen
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	headerNoPaddingLen := nonAEADHeaderLen + UDPClientMessageHeaderFixedLength + targetAddrLen
 	maxPaddingLen := p.maxPacketSize - headerNoPaddingLen - payloadLen - p.aead.Overhead()
@@ -152,6 +176,8 @@ func (p *ShadowPacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, p
 //
 // ShadowPacketServerPacker implements the zerocopy.Packer interface.
 type ShadowPacketServerPacker struct {
+	ShadowPacketServerMessageHeadroom
+
 	// Server session ID.
 	ssid uint64
 
@@ -169,16 +195,6 @@ type ShadowPacketServerPacker struct {
 
 	// Padding policy.
 	shouldPad PaddingPolicy
-}
-
-// FrontHeadroom implements the zerocopy.ServerPacker FrontHeadroom method.
-func (p *ShadowPacketServerPacker) FrontHeadroom() int {
-	return UDPSeparateHeaderLength + UDPServerMessageHeaderMaxLength
-}
-
-// RearHeadroom implements the zerocopy.ServerPacker RearHeadroom method.
-func (p *ShadowPacketServerPacker) RearHeadroom() int {
-	return p.aead.Overhead()
 }
 
 // PackInPlace implements the zerocopy.ServerPacker PackInPlace method.
@@ -240,6 +256,8 @@ func (p *ShadowPacketServerPacker) PackInPlace(b []byte, sourceAddrPort netip.Ad
 //
 // ShadowPacketClientUnpacker implements the zerocopy.Unpacker interface.
 type ShadowPacketClientUnpacker struct {
+	ShadowPacketServerMessageHeadroom
+
 	// Client session ID.
 	csid uint64
 
@@ -269,16 +287,6 @@ type ShadowPacketClientUnpacker struct {
 
 	// Cipher config.
 	cipherConfig *CipherConfig
-}
-
-// FrontHeadroom implements the zerocopy.ClientUnpacker FrontHeadroom method.
-func (p *ShadowPacketClientUnpacker) FrontHeadroom() int {
-	return UDPSeparateHeaderLength + UDPServerMessageHeaderMaxLength
-}
-
-// RearHeadroom implements the zerocopy.ClientUnpacker RearHeadroom method.
-func (p *ShadowPacketClientUnpacker) RearHeadroom() int {
-	return 16
 }
 
 // UnpackInPlace implements the zerocopy.ClientUnpacker UnpackInPlace method.
@@ -381,6 +389,8 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPor
 //
 // ShadowPacketServerUnpacker implements the zerocopy.Unpacker interface.
 type ShadowPacketServerUnpacker struct {
+	ShadowPacketClientMessageHeadroom
+
 	// Client session ID.
 	csid uint64
 
@@ -393,25 +403,8 @@ type ShadowPacketServerUnpacker struct {
 	// We trade 2 extra nil checks during unpacking for better performance when the server is flooded by invalid packets.
 	filter *Filter
 
-	// Whether incoming packets have an identity header.
-	hasEIH bool
-
 	// cachedDomain caches the last used domain target to avoid allocating new strings.
 	cachedDomain string
-}
-
-// FrontHeadroom implements the zerocopy.ServerUnpacker FrontHeadroom method.
-func (p *ShadowPacketServerUnpacker) FrontHeadroom() int {
-	var identityHeaderLen int
-	if p.hasEIH {
-		identityHeaderLen = IdentityHeaderLength
-	}
-	return UDPSeparateHeaderLength + identityHeaderLen + UDPClientMessageHeaderMaxLength
-}
-
-// RearHeadroom implements the zerocopy.ServerUnpacker RearHeadroom method.
-func (p *ShadowPacketServerUnpacker) RearHeadroom() int {
-	return p.aead.Overhead()
 }
 
 // UnpackInPlace unpacks the AEAD encrypted part of a Shadowsocks client packet
@@ -419,18 +412,13 @@ func (p *ShadowPacketServerUnpacker) RearHeadroom() int {
 //
 // UnpackInPlace implements the zerocopy.ServerUnpacker UnpackInPlace method.
 func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, sourceAddr netip.AddrPort, packetStart, packetLen int) (targetAddr conn.Addr, payloadStart, payloadLen int, err error) {
-	var identityHeaderLen int
-	if p.hasEIH {
-		identityHeaderLen = IdentityHeaderLength
-	}
-
 	// Check length.
-	if packetLen < UDPSeparateHeaderLength+identityHeaderLen+p.aead.Overhead() {
+	if packetLen < UDPSeparateHeaderLength+p.ShadowPacketClientMessageHeadroom.identityHeadersLen+p.aead.Overhead() {
 		err = fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, packetLen)
 		return
 	}
 
-	messageHeaderStart := packetStart + UDPSeparateHeaderLength + identityHeaderLen
+	messageHeaderStart := packetStart + UDPSeparateHeaderLength + p.ShadowPacketClientMessageHeadroom.identityHeadersLen
 	separateHeader := b[packetStart : packetStart+UDPSeparateHeaderLength]
 	nonce := separateHeader[4:16]
 	ciphertext := b[messageHeaderStart : packetStart+packetLen]

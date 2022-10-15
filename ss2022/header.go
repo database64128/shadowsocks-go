@@ -47,7 +47,7 @@ const (
 	UDPClientMessageHeaderMaxLength = UDPClientMessageHeaderFixedLength + MaxPaddingLength + socks5.MaxAddrLen
 
 	// type + unix epoch timestamp + client session id + padding length + padding + SOCKS address
-	UDPServerMessageHeaderMaxLength = UDPServerMessageHeaderFixedLength + MaxPaddingLength + socks5.MaxAddrLen
+	UDPServerMessageHeaderMaxLength = UDPServerMessageHeaderFixedLength + MaxPaddingLength + socks5.IPv6AddrLen
 
 	// MaxEpochDiff is the maximum allowed time difference between a received timestamp and system time.
 	MaxEpochDiff = 30

@@ -4,17 +4,20 @@ import (
 	"net/netip"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
 func NewUDPClient(mtu, fwmark int, preferIPv6 bool) *zerocopy.SimpleUDPClient {
-	return zerocopy.NewSimpleUDPClient(NewDirectPacketClientPackUnpacker(mtu, preferIPv6), zerocopy.MaxPacketSizeForAddr(mtu, netip.IPv4Unspecified()), fwmark, 0, 0)
+	p := NewDirectPacketClientPackUnpacker(mtu, preferIPv6)
+	maxPacketSize := zerocopy.MaxPacketSizeForAddr(mtu, netip.IPv4Unspecified())
+	return zerocopy.NewSimpleUDPClient(zerocopy.ZeroHeadroom{}, p, p, maxPacketSize, fwmark)
 }
 
 func NewShadowsocksNoneUDPClient(addrPort netip.AddrPort, mtu, fwmark int) *zerocopy.SimpleUDPClient {
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr())
-	return zerocopy.NewSimpleUDPClient(NewShadowsocksNonePacketClientPackUnpacker(addrPort, maxPacketSize), maxPacketSize, fwmark, socks5.MaxAddrLen, 0)
+	packer := NewShadowsocksNonePacketClientPacker(addrPort, maxPacketSize)
+	unpacker := NewShadowsocksNonePacketClientUnpacker(addrPort)
+	return zerocopy.NewSimpleUDPClient(ShadowsocksNonePacketClientMessageHeadroom{}, packer, unpacker, maxPacketSize, fwmark)
 }
 
 // NewSocks5UDPClient creates a SOCKS5 UDP client.
@@ -24,7 +27,9 @@ func NewShadowsocksNoneUDPClient(addrPort netip.AddrPort, mtu, fwmark int) *zero
 // So we just skip this little ritual.
 func NewSocks5UDPClient(addrPort netip.AddrPort, mtu, fwmark int) *zerocopy.SimpleUDPClient {
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr())
-	return zerocopy.NewSimpleUDPClient(NewSocks5PacketClientPackUnpacker(addrPort, maxPacketSize), maxPacketSize, fwmark, 3+socks5.MaxAddrLen, 0)
+	packer := NewSocks5PacketClientPacker(addrPort, maxPacketSize)
+	unpacker := NewSocks5PacketClientUnpacker(addrPort)
+	return zerocopy.NewSimpleUDPClient(Socks5PacketClientMessageHeadroom{}, packer, unpacker, maxPacketSize, fwmark)
 }
 
 // DirectUDPNATServer implements the zerocopy UDPNATServer interface.
@@ -47,27 +52,20 @@ func (s *DirectUDPNATServer) NewSession() (zerocopy.ServerPacker, zerocopy.Serve
 
 // ShadowsocksNoneUDPNATServer implements the zerocopy UDPNATServer interface.
 type ShadowsocksNoneUDPNATServer struct {
-	ShadowsocksNonePacketHeadroom
+	ShadowsocksNonePacketClientMessageHeadroom
 }
 
 // NewSession implements the zerocopy.UDPNATServer NewSession method.
-func (s *ShadowsocksNoneUDPNATServer) NewSession() (zerocopy.ServerPacker, zerocopy.ServerUnpacker, error) {
-	var p ShadowsocksNonePacketServerPackUnpacker
-	return &p, &p, nil
+func (ShadowsocksNoneUDPNATServer) NewSession() (zerocopy.ServerPacker, zerocopy.ServerUnpacker, error) {
+	return ShadowsocksNonePacketServerPacker{}, &ShadowsocksNonePacketServerUnpacker{}, nil
 }
 
 // Socks5UDPNATServer implements the zerocopy UDPNATServer interface.
 type Socks5UDPNATServer struct {
-	Socks5PacketHeadroom
+	Socks5PacketClientMessageHeadroom
 }
 
 // NewSession implements the zerocopy.UDPNATServer NewSession method.
-func (s *Socks5UDPNATServer) NewSession() (zerocopy.ServerPacker, zerocopy.ServerUnpacker, error) {
-	var p Socks5PacketServerPackUnpacker
-	return &p, &p, nil
+func (Socks5UDPNATServer) NewSession() (zerocopy.ServerPacker, zerocopy.ServerUnpacker, error) {
+	return Socks5PacketServerPacker{}, &Socks5PacketServerUnpacker{}, nil
 }
-
-var (
-	DefaultShadowsocksNoneUDPNATServer = &ShadowsocksNoneUDPNATServer{}
-	DefaultSocks5UDPNATServer          = &Socks5UDPNATServer{}
-)
