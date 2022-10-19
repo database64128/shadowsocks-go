@@ -30,8 +30,8 @@ go4.org/netipx v0.0.0-20220925034521-797b0c90d8ab h1:+yW1yrZ09EYNu1spCUOHBBNRbrL
 go4.org/netipx v0.0.0-20220925034521-797b0c90d8ab/go.mod h1:tgPU4N2u9RByaTN3NC2p9xOzyFpte4jYwsIIRF7XlSc=
 golang.org/x/exp v0.0.0-20221018221608-02f3b879a704 h1:qeTd8Mtg7Z9G839eB0/DhF2vU3ZeXcP6vwAY/IqVRPM=
 golang.org/x/exp v0.0.0-20221018221608-02f3b879a704/go.mod h1:cyybsKvd6eL0RnXn6p/Grxp8F5bW7iYuBgsNCOHpMYE=
-golang.org/x/net v0.0.0-20221017152216-f25eb7ecb193 h1:3Moaxt4TfzNcQH6DWvlYKraN1ozhBXQHcgvXjRGeim0=
-golang.org/x/net v0.0.0-20221017152216-f25eb7ecb193/go.mod h1:RpDiru2p0u2F0lLpEoqnP2+7xs0ifAuOcJ442g6GU2s=
+golang.org/x/net v0.0.0-20221019024206-cb67ada4b0ad h1:Zx6wVVDwwNJFWXNIvDi7o952w3/1ckSwYk/7eykRmjM=
+golang.org/x/net v0.0.0-20221019024206-cb67ada4b0ad/go.mod h1:RpDiru2p0u2F0lLpEoqnP2+7xs0ifAuOcJ442g6GU2s=
 golang.org/x/sys v0.0.0-20220704084225-05e143d24a9e/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/sys v0.1.0 h1:kunALQeHf1/185U1i0GOB/fy1IPRDDpuoOOqRReG57U=
 golang.org/x/sys v0.1.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
