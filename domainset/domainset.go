@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
+
+	"github.com/database64128/shadowsocks-go/bytestrings"
+	"github.com/database64128/shadowsocks-go/mmap"
 )
 
 const (
@@ -28,7 +30,7 @@ const (
 	regexpPrefixLen  = len(regexpPrefix)
 )
 
-var errEmptyFile = errors.New("empty file")
+var errEmptySet = errors.New("empty domain set")
 
 // Config is the configuration for a DomainSet.
 type Config struct {
@@ -39,19 +41,20 @@ type Config struct {
 
 // DomainSet creates a DomainSet from the configuration.
 func (dsc Config) DomainSet() (DomainSet, error) {
-	f, err := os.Open(dsc.Path)
+	data, err := mmap.ReadFile[string](dsc.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load domain set %s: %w", dsc.Name, err)
 	}
-	defer f.Close()
+	defer mmap.Unmap(data)
 
 	var dsb Builder
 
 	switch dsc.Type {
 	case "text", "":
-		dsb, err = BuilderFromTextFast(f)
+		dsb, err = BuilderFromTextFast(data)
 	case "gob":
-		dsb, err = BuilderFromGob(f)
+		r := strings.NewReader(data)
+		dsb, err = BuilderFromGob(r)
 	default:
 		err = fmt.Errorf("invalid domain set type: %s", dsc.Type)
 	}
@@ -132,36 +135,35 @@ func BuilderFromGob(r io.Reader) (Builder, error) {
 	return bg.Builder(), nil
 }
 
-func BuilderFromText(r io.Reader) (Builder, error) {
-	return BuilderFromTextFunc(r, NewDomainMapMatcher, NewDomainSuffixTrie, NewKeywordLinearMatcher, NewRegexpMatcherBuilder)
+func BuilderFromText(text string) (Builder, error) {
+	return BuilderFromTextFunc(text, NewDomainMapMatcher, NewDomainSuffixTrie, NewKeywordLinearMatcher, NewRegexpMatcherBuilder)
 }
 
-func BuilderFromTextFast(r io.Reader) (Builder, error) {
-	return BuilderFromTextFunc(r, NewDomainMapMatcher, NewSuffixMapMatcher, NewKeywordLinearMatcher, NewRegexpMatcherBuilder)
+func BuilderFromTextFast(text string) (Builder, error) {
+	return BuilderFromTextFunc(text, NewDomainMapMatcher, NewSuffixMapMatcher, NewKeywordLinearMatcher, NewRegexpMatcherBuilder)
 }
 
 func BuilderFromTextFunc(
-	r io.Reader,
+	text string,
 	newDomainMatcherBuilderFunc,
 	newSuffixMatcherBuilderFunc,
 	newKeywordMatcherBuilderFunc,
 	newRegexpMatcherBuilderFunc func(int) MatcherBuilder,
 ) (Builder, error) {
-	s := bufio.NewScanner(r)
-	if !s.Scan() {
-		return Builder{}, errEmptyFile
+	line, text := bytestrings.NextNonEmptyLine(text)
+	if len(line) == 0 {
+		return Builder{}, errEmptySet
 	}
-	line := s.Text()
 
 	dskr, found, err := ParseCapacityHint(line)
 	if err != nil {
 		return Builder{}, err
 	}
 	if found {
-		if !s.Scan() {
-			return Builder{}, errEmptyFile
+		line, text = bytestrings.NextNonEmptyLine(text)
+		if len(line) == 0 {
+			return Builder{}, errEmptySet
 		}
-		line = s.Text()
 	}
 
 	dsb := Builder{
@@ -172,24 +174,35 @@ func BuilderFromTextFunc(
 	}
 
 	for {
-		switch {
-		case line == "" || strings.IndexByte(line, '#') == 0:
-		case strings.HasPrefix(line, domainPrefix):
-			dsb[0].Insert(line[domainPrefixLen:])
-		case strings.HasPrefix(line, suffixPrefix):
-			dsb[1].Insert(line[suffixPrefixLen:])
-		case strings.HasPrefix(line, keywordPrefix):
-			dsb[2].Insert(line[keywordPrefixLen:])
-		case strings.HasPrefix(line, regexpPrefix):
-			dsb[3].Insert(line[regexpPrefixLen:])
-		default:
-			return dsb, fmt.Errorf("invalid line: %s", line)
+		// domainPrefixLen == suffixPrefixLen == regexpPrefixLen == 7
+		if len(line) <= 7 {
+			if line[0] != '#' {
+				return dsb, fmt.Errorf("invalid line: %s", line)
+			}
+			goto next
 		}
 
-		if !s.Scan() {
+		switch line[:7] {
+		case suffixPrefix:
+			dsb[1].Insert(strings.Clone(line[7:]))
+		case domainPrefix:
+			dsb[0].Insert(strings.Clone(line[7:]))
+		case regexpPrefix:
+			dsb[3].Insert(strings.Clone(line[7:]))
+		default:
+			switch {
+			case len(line) > keywordPrefixLen && string(line[:keywordPrefixLen]) == keywordPrefix:
+				dsb[2].Insert(strings.Clone(line[keywordPrefixLen:]))
+			case line[0] != '#':
+				return dsb, fmt.Errorf("invalid line: %s", line)
+			}
+		}
+
+	next:
+		line, text = bytestrings.NextNonEmptyLine(text)
+		if len(line) == 0 {
 			break
 		}
-		line = s.Text()
 	}
 
 	return dsb, nil

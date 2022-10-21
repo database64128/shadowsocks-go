@@ -4,14 +4,14 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
+	"github.com/database64128/shadowsocks-go/bytestrings"
 	"github.com/database64128/shadowsocks-go/domainset"
+	"github.com/database64128/shadowsocks-go/mmap"
 )
 
 var (
@@ -29,7 +29,7 @@ func main() {
 	var (
 		inCount int
 		inPath  string
-		inFunc  func(io.Reader) (domainset.Builder, error)
+		inFunc  func(string) (domainset.Builder, error)
 	)
 
 	if *inDlc != "" {
@@ -47,7 +47,10 @@ func main() {
 	if *inGob != "" {
 		inCount++
 		inPath = *inGob
-		inFunc = domainset.BuilderFromGob
+		inFunc = func(s string) (domainset.Builder, error) {
+			r := strings.NewReader(s)
+			return domainset.BuilderFromGob(r)
+		}
 	}
 
 	if inCount != 1 {
@@ -62,14 +65,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	fin, err := os.Open(inPath)
+	data, err := mmap.ReadFile[string](inPath)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	defer fin.Close()
+	defer mmap.Unmap(data)
 
-	dsb, err := inFunc(fin)
+	dsb, err := inFunc(data)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -106,7 +109,7 @@ func main() {
 	}
 }
 
-func DomainSetBuilderFromDlc(r io.Reader) (domainset.Builder, error) {
+func DomainSetBuilderFromDlc(text string) (domainset.Builder, error) {
 	const (
 		domainPrefix     = "full:"
 		suffixPrefix     = "domain:"
@@ -125,12 +128,15 @@ func DomainSetBuilderFromDlc(r io.Reader) (domainset.Builder, error) {
 		domainset.NewRegexpMatcherBuilder(0),
 	}
 
-	s := bufio.NewScanner(r)
+	var line string
 
-	for s.Scan() {
-		line := s.Text()
+	for {
+		line, text = bytestrings.NextNonEmptyLine(text)
+		if len(line) == 0 {
+			break
+		}
 
-		if line == "" || strings.IndexByte(line, '#') == 0 {
+		if strings.IndexByte(line, '#') == 0 {
 			continue
 		}
 

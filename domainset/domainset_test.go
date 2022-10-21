@@ -2,7 +2,6 @@ package domainset
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 )
 
@@ -21,8 +20,7 @@ regexp:^adservice\.google\.([a-z]{2}|com?)(\.[a-z]{2})?$
 var testDomainSetBuilder = mustDomainSetBuilderFromText(testDomainSetText)
 
 func mustDomainSetBuilderFromText(s string) Builder {
-	r := strings.NewReader(s)
-	dsb, err := BuilderFromText(r)
+	dsb, err := BuilderFromText(s)
 	if err != nil {
 		panic(err)
 	}
@@ -70,8 +68,7 @@ func testDomainSet(t *testing.T, ds DomainSet) {
 }
 
 func TestDomainSetFromText(t *testing.T) {
-	r := strings.NewReader(testDomainSetText)
-	dsb, err := BuilderFromTextFast(r)
+	dsb, err := BuilderFromTextFast(testDomainSetText)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +100,7 @@ func TestBuilderWriteText(t *testing.T) {
 	if err := testDomainSetBuilder.WriteText(&buf); err != nil {
 		t.Fatal(err)
 	}
-	dsb, err := BuilderFromText(&buf)
+	dsb, err := BuilderFromText(buf.String())
 	if err != nil {
 		t.Fatal(err)
 	}
