@@ -8,7 +8,7 @@ import (
 )
 
 // ReadFile maps the named file into memory for reading.
-func ReadFile[T ~[]byte | ~string](name string) (text T, err error) {
+func ReadFile[T ~[]byte | ~string](name string) (data T, err error) {
 	f, err := os.Open(name)
 	if err != nil {
 		return
@@ -35,9 +35,9 @@ func ReadFile[T ~[]byte | ~string](name string) (text T, err error) {
 }
 
 // Unmap removes the memory mapping.
-func Unmap[T ~[]byte | ~string](b T) error {
-	if len(b) == 0 {
+func Unmap[T ~[]byte | ~string](data T) error {
+	if len(data) == 0 {
 		return nil
 	}
-	return unmap(*(*uintptr)(unsafe.Pointer(&b)), len(b))
+	return unmap(*(*uintptr)(unsafe.Pointer(&data)), len(data))
 }
