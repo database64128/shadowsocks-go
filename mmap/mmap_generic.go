@@ -2,14 +2,21 @@
 
 package mmap
 
-import "os"
+import (
+	"os"
+	"unsafe"
+)
 
 // ReadFile maps the named file into memory for reading.
-func ReadFile(name string) ([]byte, error) {
-	return os.ReadFile(name)
+func ReadFile[T ~[]byte | ~string](name string) (text T, err error) {
+	data, err := os.ReadFile(name)
+	if err != nil {
+		return
+	}
+	return *(*T)(unsafe.Pointer(&data)), nil
 }
 
 // Unmap removes the memory mapping.
-func Unmap(b []byte) error {
+func Unmap[T ~[]byte | ~string](b T) error {
 	return nil
 }

@@ -21,11 +21,11 @@ func TestReadFile(t *testing.T) {
 
 	t.Logf("Created temporary test file: %s", name)
 
-	data, err := ReadFile(name)
+	data, err := ReadFile[string](name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != name {
+	if data != name {
 		t.Errorf("Expected file content %s, got %s", name, data)
 	}
 
