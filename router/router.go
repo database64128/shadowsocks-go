@@ -8,11 +8,11 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/domainset"
+	"github.com/database64128/shadowsocks-go/slices"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/oschwald/geoip2-golang"
 	"go.uber.org/zap"
 	"go4.org/netipx"
-	"golang.org/x/exp/slices"
 )
 
 var (

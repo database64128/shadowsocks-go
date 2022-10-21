@@ -1,8 +1,8 @@
 package domainset
 
 import (
-	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
+	"github.com/database64128/shadowsocks-go/maps"
+	"github.com/database64128/shadowsocks-go/slices"
 )
 
 // MaxLinearDomains is the maximum number of domain rules under which a linear matcher can outperform a map matcher.

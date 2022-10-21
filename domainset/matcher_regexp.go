@@ -1,6 +1,10 @@
 package domainset
 
-import "regexp"
+import (
+	"regexp"
+
+	"github.com/database64128/shadowsocks-go/slices"
+)
 
 // RegexpMatcher adapts [regexp.Regexp] to the [Matcher] interface.
 type RegexpMatcher regexp.Regexp
@@ -40,7 +44,7 @@ func (rmb RegexpMatcherBuilder) AppendTo(matchers []Matcher) ([]Matcher, error) 
 		return matchers, nil
 	}
 
-	head, tail := sliceForAppend(matchers, len(rmb))
+	head, tail := slices.Extend(matchers, len(rmb))
 
 	for i, r := range rmb {
 		re, err := regexp.Compile(r)
@@ -51,15 +55,4 @@ func (rmb RegexpMatcherBuilder) AppendTo(matchers []Matcher) ([]Matcher, error) 
 	}
 
 	return head, nil
-}
-
-func sliceForAppend(in []Matcher, n int) (head, tail []Matcher) {
-	if total := len(in) + n; cap(in) >= total {
-		head = in[:total]
-	} else {
-		head = make([]Matcher, total)
-		copy(head, in)
-	}
-	tail = head[len(in):]
-	return
 }

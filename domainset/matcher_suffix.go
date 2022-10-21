@@ -1,6 +1,6 @@
 package domainset
 
-import "golang.org/x/exp/maps"
+import "github.com/database64128/shadowsocks-go/maps"
 
 // MaxLinearSuffixes is the maximum number of suffix rules under which a linear matcher can outperform a trie matcher.
 const MaxLinearSuffixes = 4
