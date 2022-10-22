@@ -136,7 +136,7 @@ func DomainSetBuilderFromDlc(text string) (domainset.Builder, error) {
 			break
 		}
 
-		if strings.IndexByte(line, '#') == 0 {
+		if line[0] == '#' {
 			continue
 		}
 
