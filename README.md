@@ -107,6 +107,12 @@ By default, the router uses the configured DNS server to resolve domain names an
             "addrPort": "[2606:4700:4700::1111]:53",
             "tcpClientName": "ss-2022",
             "udpClientName": "ss-2022"
+        },
+        {
+            "name": "systemd-resolved",
+            "addrPort": "127.0.0.53:53",
+            "tcpClientName": "direct",
+            "udpClientName": "direct"
         }
     ],
     "router": {
@@ -138,20 +144,20 @@ By default, the router uses the configured DNS server to resolve domain names an
         "routes": [
             {
                 "name": "ads",
-                "clientName": "reject",
-                "domainSets": [
+                "client": "reject",
+                "toDomainSets": [
                     "category-ads-all"
                 ]
             },
             {
                 "name": "direct",
-                "clientName": "direct",
-                "domainSets": [
+                "client": "direct",
+                "resolver": "cf-v6",
+                "toDomainSets": [
                     "private",
-                    "cn",
-                    "geolocation-!cn@cn"
+                    "cn"
                 ],
-                "prefixes": [
+                "toPrefixes": [
                     "0.0.0.0/8",
                     "10.0.0.0/8",
                     "100.64.0.0/10",
@@ -165,14 +171,23 @@ By default, the router uses the configured DNS server to resolve domain names an
                     "198.18.0.0/15",
                     "198.51.100.0/24",
                     "203.0.113.0/24",
-                    "224.0.0.0/4",
-                    "240.0.0.0/4",
-                    "255.255.255.255/32",
+                    "224.0.0.0/3",
                     "::1/128",
                     "fc00::/7",
                     "fe80::/10"
                 ],
-                "geoIPCountries": [
+                "toGeoIPCountries": [
+                    "CN"
+                ]
+            },
+            {
+                "name": "cn-verify-ip",
+                "client": "direct",
+                "resolver": "systemd-resolved",
+                "toDomainSets": [
+                    "geolocation-!cn@cn"
+                ],
+                "toMatchedDomainExpectedGeoIPCountries": [
                     "CN"
                 ]
             }
