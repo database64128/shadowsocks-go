@@ -136,6 +136,9 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 		targetAddr = *s.fallbackAddress
 	}
 
+	// Convert target address to string once for log messages.
+	targetAddress := targetAddr.String()
+
 	// Route.
 	c, err := s.router.GetTCPClient(s.serverName, clientAddrPort, targetAddr)
 	if err != nil {
@@ -143,7 +146,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 			zap.String("server", s.serverName),
 			zap.String("listenAddress", s.listenAddress),
 			zap.String("clientAddress", clientAddress),
-			zap.Stringer("targetAddress", targetAddr),
+			zap.String("targetAddress", targetAddress),
 			zap.Error(err),
 		)
 		return
@@ -169,7 +172,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.String("clientAddress", clientAddress),
-				zap.Stringer("targetAddress", targetAddr),
+				zap.String("targetAddress", targetAddress),
 				zap.Error(err),
 			)
 			return
@@ -183,7 +186,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.String("clientAddress", clientAddress),
-				zap.Stringer("targetAddress", targetAddr),
+				zap.String("targetAddress", targetAddress),
 				zap.Int("payloadLength", payloadLength),
 			)
 
@@ -192,7 +195,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.String("clientAddress", clientAddress),
-				zap.Stringer("targetAddress", targetAddr),
+				zap.String("targetAddress", targetAddress),
 			)
 
 		default:
@@ -200,7 +203,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.String("clientAddress", clientAddress),
-				zap.Stringer("targetAddress", targetAddr),
+				zap.String("targetAddress", targetAddress),
 				zap.Error(err),
 			)
 			return
@@ -212,7 +215,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.String("clientAddress", clientAddress),
-				zap.Stringer("targetAddress", targetAddr),
+				zap.String("targetAddress", targetAddress),
 				zap.Error(err),
 			)
 			return
@@ -226,7 +229,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 			zap.String("server", s.serverName),
 			zap.String("listenAddress", s.listenAddress),
 			zap.String("clientAddress", clientAddress),
-			zap.Stringer("targetAddress", targetAddr),
+			zap.String("targetAddress", targetAddress),
 			zap.Int("initialPayloadLength", len(payload)),
 			zap.Error(err),
 		)
@@ -238,7 +241,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 		zap.String("server", s.serverName),
 		zap.String("listenAddress", s.listenAddress),
 		zap.String("clientAddress", clientAddress),
-		zap.Stringer("targetAddress", targetAddr),
+		zap.String("targetAddress", targetAddress),
 		zap.Int("initialPayloadLength", len(payload)),
 	)
 
@@ -250,7 +253,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 			zap.String("server", s.serverName),
 			zap.String("listenAddress", s.listenAddress),
 			zap.String("clientAddress", clientAddress),
-			zap.Stringer("targetAddress", targetAddr),
+			zap.String("targetAddress", targetAddress),
 			zap.Int64("nl2r", nl2r),
 			zap.Int64("nr2l", nr2l),
 			zap.Error(err),
@@ -262,7 +265,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 		zap.String("server", s.serverName),
 		zap.String("listenAddress", s.listenAddress),
 		zap.String("clientAddress", clientAddress),
-		zap.Stringer("targetAddress", targetAddr),
+		zap.String("targetAddress", targetAddress),
 		zap.Int64("nl2r", nl2r),
 		zap.Int64("nr2l", nr2l),
 	)
