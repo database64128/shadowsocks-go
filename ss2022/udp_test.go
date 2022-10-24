@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	name       = "test"
 	mtu        = 1500
 	packetSize = 1452
 	payloadLen = 1280
@@ -35,8 +36,13 @@ var (
 )
 
 func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientShouldPad, serverShouldPad PaddingPolicy, mtu, packetSize, payloadLen int) {
-	c := NewUDPClient(serverAddrPort, mtu, fwmark, clientCipherConfig, clientShouldPad, clientCipherConfig.ClientPSKHashes())
+	c := NewUDPClient(serverAddrPort, name, mtu, fwmark, clientCipherConfig, clientShouldPad, clientCipherConfig.ClientPSKHashes())
 	s := NewUDPServer(serverCipherConfig, serverShouldPad, serverCipherConfig.ServerPSKHashMap())
+
+	fixedName := c.String()
+	if fixedName != name {
+		t.Errorf("Fixed name mismatch: in: %s, out: %s", name, fixedName)
+	}
 
 	fixedMaxPacketSize, fixedFwmark := c.LinkInfo()
 	if fixedFwmark != fwmark {
@@ -142,7 +148,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig,
 		t.Fatal(err)
 	}
 
-	c := NewUDPClient(serverAddrPort, mtu, fwmark, clientCipherConfig, shouldPad, clientCipherConfig.ClientPSKHashes())
+	c := NewUDPClient(serverAddrPort, name, mtu, fwmark, clientCipherConfig, shouldPad, clientCipherConfig.ClientPSKHashes())
 	s := NewUDPServer(serverCipherConfig, shouldPad, serverCipherConfig.ServerPSKHashMap())
 
 	clientPacker, clientUnpacker, err := c.NewSession()

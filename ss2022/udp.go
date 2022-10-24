@@ -15,6 +15,7 @@ import (
 type UDPClient struct {
 	ShadowPacketClientMessageHeadroom
 	addrPort      netip.AddrPort
+	name          string
 	maxPacketSize int
 	fwmark        int
 	packerBlock   cipher.Block
@@ -25,7 +26,7 @@ type UDPClient struct {
 	eihPSKHashes  [][IdentityHeaderLength]byte
 }
 
-func NewUDPClient(addrPort netip.AddrPort, mtu, fwmark int, cipherConfig *CipherConfig, shouldPad PaddingPolicy, eihPSKHashes [][IdentityHeaderLength]byte) *UDPClient {
+func NewUDPClient(addrPort netip.AddrPort, name string, mtu, fwmark int, cipherConfig *CipherConfig, shouldPad PaddingPolicy, eihPSKHashes [][IdentityHeaderLength]byte) *UDPClient {
 	eihCiphers := cipherConfig.NewUDPIdentityHeaderClientCiphers()
 	unpackerBlock := cipherConfig.NewBlock()
 
@@ -39,6 +40,7 @@ func NewUDPClient(addrPort netip.AddrPort, mtu, fwmark int, cipherConfig *Cipher
 	return &UDPClient{
 		ShadowPacketClientMessageHeadroom: ShadowPacketClientMessageHeadroom{IdentityHeaderLength * len(eihCiphers)},
 		addrPort:                          addrPort,
+		name:                              name,
 		maxPacketSize:                     zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr()),
 		fwmark:                            fwmark,
 		packerBlock:                       packerBlock,
@@ -48,6 +50,11 @@ func NewUDPClient(addrPort netip.AddrPort, mtu, fwmark int, cipherConfig *Cipher
 		eihCiphers:                        eihCiphers,
 		eihPSKHashes:                      eihPSKHashes,
 	}
+}
+
+// String implements the zerocopy.UDPClient String method.
+func (c *UDPClient) String() string {
+	return c.name
 }
 
 // NewSession implements the zerocopy.UDPClient NewSession method.

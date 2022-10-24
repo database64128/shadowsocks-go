@@ -29,6 +29,7 @@ type InitialPayloader interface {
 
 // TCPClient is a protocol's TCP client.
 type TCPClient interface {
+	fmt.Stringer
 	InitialPayloader
 
 	// Dial creates a connection to the target address under the protocol's

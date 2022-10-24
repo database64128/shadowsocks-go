@@ -9,6 +9,7 @@ import (
 
 // TCPClient implements the zerocopy TCPClient interface.
 type TCPClient struct {
+	name                       string
 	tco                        *zerocopy.TCPConnOpener
 	cipherConfig               *CipherConfig
 	eihPSKHashes               [][IdentityHeaderLength]byte
@@ -16,14 +17,20 @@ type TCPClient struct {
 	unsafeResponseStreamPrefix []byte
 }
 
-func NewTCPClient(address string, dialerTFO bool, dialerFwmark int, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPClient {
+func NewTCPClient(name, address string, dialerTFO bool, dialerFwmark int, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPClient {
 	return &TCPClient{
+		name:                       name,
 		tco:                        zerocopy.NewTCPConnOpener(conn.NewDialer(dialerTFO, dialerFwmark), "tcp", address),
 		cipherConfig:               cipherConfig,
 		eihPSKHashes:               eihPSKHashes,
 		unsafeRequestStreamPrefix:  unsafeRequestStreamPrefix,
 		unsafeResponseStreamPrefix: unsafeResponseStreamPrefix,
 	}
+}
+
+// String implements the zerocopy.TCPClient String method.
+func (c *TCPClient) String() string {
+	return c.name
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.

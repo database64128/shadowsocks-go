@@ -11,13 +11,20 @@ import (
 
 // TCPClient implements the zerocopy TCPClient interface.
 type TCPClient struct {
+	name   string
 	dialer tfo.Dialer
 }
 
-func NewTCPClient(dialerTFO bool, dialerFwmark int) *TCPClient {
+func NewTCPClient(name string, dialerTFO bool, dialerFwmark int) *TCPClient {
 	return &TCPClient{
+		name:   name,
 		dialer: conn.NewDialer(dialerTFO, dialerFwmark),
 	}
+}
+
+// String implements the zerocopy.TCPClient String method.
+func (c *TCPClient) String() string {
+	return c.name
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
@@ -68,13 +75,20 @@ func (s *TCPServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
 
 // ShadowsocksNoneTCPClient implements the zerocopy TCPClient interface.
 type ShadowsocksNoneTCPClient struct {
-	tco *zerocopy.TCPConnOpener
+	name string
+	tco  *zerocopy.TCPConnOpener
 }
 
-func NewShadowsocksNoneTCPClient(address string, dialerTFO bool, dialerFwmark int) *ShadowsocksNoneTCPClient {
+func NewShadowsocksNoneTCPClient(name, address string, dialerTFO bool, dialerFwmark int) *ShadowsocksNoneTCPClient {
 	return &ShadowsocksNoneTCPClient{
-		tco: zerocopy.NewTCPConnOpener(conn.NewDialer(dialerTFO, dialerFwmark), "tcp", address),
+		name: name,
+		tco:  zerocopy.NewTCPConnOpener(conn.NewDialer(dialerTFO, dialerFwmark), "tcp", address),
 	}
+}
+
+// String implements the zerocopy.TCPClient String method.
+func (c *ShadowsocksNoneTCPClient) String() string {
+	return c.name
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
@@ -116,15 +130,22 @@ func (s *ShadowsocksNoneTCPServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser
 
 // Socks5TCPClient implements the zerocopy TCPClient interface.
 type Socks5TCPClient struct {
+	name    string
 	address string
 	dialer  tfo.Dialer
 }
 
-func NewSocks5TCPClient(address string, dialerTFO bool, dialerFwmark int) *Socks5TCPClient {
+func NewSocks5TCPClient(name, address string, dialerTFO bool, dialerFwmark int) *Socks5TCPClient {
 	return &Socks5TCPClient{
+		name:    name,
 		address: address,
 		dialer:  conn.NewDialer(dialerTFO, dialerFwmark),
 	}
+}
+
+// String implements the zerocopy.TCPClient String method.
+func (c *Socks5TCPClient) String() string {
+	return c.name
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.

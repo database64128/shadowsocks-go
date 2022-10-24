@@ -48,13 +48,13 @@ func (cc *ClientConfig) TCPClient(logger *zap.Logger) (zerocopy.TCPClient, error
 
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewTCPClient(cc.DialerTFO, cc.DialerFwmark), nil
+		return direct.NewTCPClient(cc.Name, cc.DialerTFO, cc.DialerFwmark), nil
 	case "none", "plain":
-		return direct.NewShadowsocksNoneTCPClient(cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark), nil
+		return direct.NewShadowsocksNoneTCPClient(cc.Name, cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark), nil
 	case "socks5":
-		return direct.NewSocks5TCPClient(cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark), nil
+		return direct.NewSocks5TCPClient(cc.Name, cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark), nil
 	case "http":
-		return http.NewProxyClient(cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark), nil
+		return http.NewProxyClient(cc.Name, cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		if cc.cipherConfig == nil {
 			var err error
@@ -67,7 +67,7 @@ func (cc *ClientConfig) TCPClient(logger *zap.Logger) (zerocopy.TCPClient, error
 		if len(cc.UnsafeRequestStreamPrefix) != 0 || len(cc.UnsafeResponseStreamPrefix) != 0 {
 			logger.Warn("Unsafe stream prefix taints the client", zap.String("name", cc.Name))
 		}
-		return ss2022.NewTCPClient(cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark, cc.cipherConfig, cc.eihPSKHashes, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
+		return ss2022.NewTCPClient(cc.Name, cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark, cc.cipherConfig, cc.eihPSKHashes, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}
@@ -98,11 +98,11 @@ func (cc *ClientConfig) UDPClient(logger *zap.Logger, preferIPv6 bool) (zerocopy
 
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewUDPClient(cc.MTU, cc.DialerFwmark, preferIPv6), nil
+		return direct.NewUDPClient(cc.Name, cc.MTU, cc.DialerFwmark, preferIPv6), nil
 	case "none", "plain":
-		return direct.NewShadowsocksNoneUDPClient(endpointAddrPort, cc.MTU, cc.DialerFwmark), nil
+		return direct.NewShadowsocksNoneUDPClient(endpointAddrPort, cc.Name, cc.MTU, cc.DialerFwmark), nil
 	case "socks5":
-		return direct.NewSocks5UDPClient(endpointAddrPort, cc.MTU, cc.DialerFwmark), nil
+		return direct.NewSocks5UDPClient(endpointAddrPort, cc.Name, cc.MTU, cc.DialerFwmark), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		if cc.cipherConfig == nil {
 			cc.cipherConfig, err = ss2022.NewCipherConfig(cc.Protocol, cc.PSK, cc.IPSKs)
@@ -117,7 +117,7 @@ func (cc *ClientConfig) UDPClient(logger *zap.Logger, preferIPv6 bool) (zerocopy
 			return nil, err
 		}
 
-		return ss2022.NewUDPClient(endpointAddrPort, cc.MTU, cc.DialerFwmark, cc.cipherConfig, shouldPad, cc.eihPSKHashes), nil
+		return ss2022.NewUDPClient(endpointAddrPort, cc.Name, cc.MTU, cc.DialerFwmark, cc.cipherConfig, shouldPad, cc.eihPSKHashes), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}

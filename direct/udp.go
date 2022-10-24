@@ -7,17 +7,17 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-func NewUDPClient(mtu, fwmark int, preferIPv6 bool) *zerocopy.SimpleUDPClient {
+func NewUDPClient(name string, mtu, fwmark int, preferIPv6 bool) *zerocopy.SimpleUDPClient {
 	p := NewDirectPacketClientPackUnpacker(mtu, preferIPv6)
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(mtu, netip.IPv4Unspecified())
-	return zerocopy.NewSimpleUDPClient(zerocopy.ZeroHeadroom{}, p, p, maxPacketSize, fwmark)
+	return zerocopy.NewSimpleUDPClient(zerocopy.ZeroHeadroom{}, p, p, name, maxPacketSize, fwmark)
 }
 
-func NewShadowsocksNoneUDPClient(addrPort netip.AddrPort, mtu, fwmark int) *zerocopy.SimpleUDPClient {
+func NewShadowsocksNoneUDPClient(addrPort netip.AddrPort, name string, mtu, fwmark int) *zerocopy.SimpleUDPClient {
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr())
 	packer := NewShadowsocksNonePacketClientPacker(addrPort, maxPacketSize)
 	unpacker := NewShadowsocksNonePacketClientUnpacker(addrPort)
-	return zerocopy.NewSimpleUDPClient(ShadowsocksNonePacketClientMessageHeadroom{}, packer, unpacker, maxPacketSize, fwmark)
+	return zerocopy.NewSimpleUDPClient(ShadowsocksNonePacketClientMessageHeadroom{}, packer, unpacker, name, maxPacketSize, fwmark)
 }
 
 // NewSocks5UDPClient creates a SOCKS5 UDP client.
@@ -25,11 +25,11 @@ func NewShadowsocksNoneUDPClient(addrPort netip.AddrPort, mtu, fwmark int) *zero
 // Technically, each UDP session should be preceded by a UDP ASSOCIATE request.
 // But most censorship circumvention programs do not require this.
 // So we just skip this little ritual.
-func NewSocks5UDPClient(addrPort netip.AddrPort, mtu, fwmark int) *zerocopy.SimpleUDPClient {
+func NewSocks5UDPClient(addrPort netip.AddrPort, name string, mtu, fwmark int) *zerocopy.SimpleUDPClient {
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr())
 	packer := NewSocks5PacketClientPacker(addrPort, maxPacketSize)
 	unpacker := NewSocks5PacketClientUnpacker(addrPort)
-	return zerocopy.NewSimpleUDPClient(Socks5PacketClientMessageHeadroom{}, packer, unpacker, maxPacketSize, fwmark)
+	return zerocopy.NewSimpleUDPClient(Socks5PacketClientMessageHeadroom{}, packer, unpacker, name, maxPacketSize, fwmark)
 }
 
 // DirectUDPNATServer implements the zerocopy UDPNATServer interface.

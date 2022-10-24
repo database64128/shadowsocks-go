@@ -11,15 +11,22 @@ import (
 
 // ProxyClient implements the zerocopy TCPClient interface.
 type ProxyClient struct {
+	name    string
 	address string
 	dialer  tfo.Dialer
 }
 
-func NewProxyClient(address string, dialerTFO bool, dialerFwmark int) *ProxyClient {
+func NewProxyClient(name, address string, dialerTFO bool, dialerFwmark int) *ProxyClient {
 	return &ProxyClient{
+		name:    name,
 		address: address,
 		dialer:  conn.NewDialer(dialerTFO, dialerFwmark),
 	}
+}
+
+// String implements the zerocopy.TCPClient String method.
+func (c *ProxyClient) String() string {
+	return c.name
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.

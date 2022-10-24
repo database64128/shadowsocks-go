@@ -1,7 +1,11 @@
 package zerocopy
 
+import "fmt"
+
 // UDPClient stores information for creating new client sessions.
 type UDPClient interface {
+	fmt.Stringer
+
 	// Headroom reports client packer headroom requirements.
 	Headroom
 
@@ -54,13 +58,19 @@ type SimpleUDPClient struct {
 	Headroom
 	packer        ClientPacker
 	unpacker      ClientUnpacker
+	name          string
 	maxPacketSize int
 	fwmark        int
 }
 
 // NewSimpleUDPClient wraps a PackUnpacker into a UDPClient and uses it for all sessions.
-func NewSimpleUDPClient(h Headroom, packer ClientPacker, unpacker ClientUnpacker, maxPacketSize, fwmark int) *SimpleUDPClient {
-	return &SimpleUDPClient{h, packer, unpacker, maxPacketSize, fwmark}
+func NewSimpleUDPClient(h Headroom, packer ClientPacker, unpacker ClientUnpacker, name string, maxPacketSize, fwmark int) *SimpleUDPClient {
+	return &SimpleUDPClient{h, packer, unpacker, name, maxPacketSize, fwmark}
+}
+
+// String implements the UDPClient String method.
+func (c *SimpleUDPClient) String() string {
+	return c.name
 }
 
 // LinkInfo implements the UDPClient LinkInfo method.
