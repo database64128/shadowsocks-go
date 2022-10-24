@@ -118,14 +118,15 @@ func (r *Resolver) Lookup(name string) (Result, error) {
 	r.mu.RUnlock()
 
 	if ok && result.TTL.After(time.Now()) {
-		r.logger.Debug("DNS lookup got result from cache",
-			zap.String("resolver", r.name),
-			zap.String("name", name),
-			zap.Time("ttl", result.TTL),
-			zap.Stringers("v4", result.IPv4),
-			zap.Stringers("v6", result.IPv6),
-		)
-
+		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup got result from cache"); ce != nil {
+			ce.Write(
+				zap.String("resolver", r.name),
+				zap.String("name", name),
+				zap.Time("ttl", result.TTL),
+				zap.Stringers("v4", result.IPv4),
+				zap.Stringers("v6", result.IPv6),
+			)
+		}
 		return result, nil
 	}
 
@@ -213,14 +214,16 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 	if r.udpClient != nil {
 		result, minTTL, handled = r.sendQueriesUDP(nameString, q4Pkt, q6Pkt)
 
-		r.logger.Debug("DNS lookup sent queries via UDP",
-			zap.String("resolver", r.name),
-			zap.String("name", nameString),
-			zap.Uint32("minTTL", minTTL),
-			zap.Bool("handled", handled),
-			zap.Stringers("v4", result.IPv4),
-			zap.Stringers("v6", result.IPv6),
-		)
+		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup sent queries via UDP"); ce != nil {
+			ce.Write(
+				zap.String("resolver", r.name),
+				zap.String("name", nameString),
+				zap.Uint32("minTTL", minTTL),
+				zap.Bool("handled", handled),
+				zap.Stringers("v4", result.IPv4),
+				zap.Stringers("v6", result.IPv6),
+			)
+		}
 	}
 
 	// Fallback to TCP if UDP failed or is unavailable.
@@ -233,14 +236,16 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 
 		result, minTTL, handled = r.sendQueriesTCP(nameString, qBuf[:q6PktEnd])
 
-		r.logger.Debug("DNS lookup sent queries via TCP",
-			zap.String("resolver", r.name),
-			zap.String("name", nameString),
-			zap.Uint32("minTTL", minTTL),
-			zap.Bool("handled", handled),
-			zap.Stringers("v4", result.IPv4),
-			zap.Stringers("v6", result.IPv6),
-		)
+		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup sent queries via TCP"); ce != nil {
+			ce.Write(
+				zap.String("resolver", r.name),
+				zap.String("name", nameString),
+				zap.Uint32("minTTL", minTTL),
+				zap.Bool("handled", handled),
+				zap.Stringers("v4", result.IPv4),
+				zap.Stringers("v6", result.IPv6),
+			)
+		}
 	}
 
 	if !handled {
@@ -523,14 +528,16 @@ read:
 
 			// Set minimum TTL.
 			if answerHeader.TTL < minTTL {
-				r.logger.Debug("Updating minimum TTL",
-					zap.String("resolver", r.name),
-					zap.String("name", nameString),
-					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("answerType", answerHeader.Type),
-					zap.Uint32("oldMinTTL", minTTL),
-					zap.Uint32("newMinTTL", answerHeader.TTL),
-				)
+				if ce := r.logger.Check(zap.DebugLevel, "Updating minimum TTL"); ce != nil {
+					ce.Write(
+						zap.String("resolver", r.name),
+						zap.String("name", nameString),
+						zap.Stringer("serverAddrPort", r.serverAddrPort),
+						zap.Stringer("answerType", answerHeader.Type),
+						zap.Uint32("oldMinTTL", minTTL),
+						zap.Uint32("newMinTTL", answerHeader.TTL),
+					)
+				}
 				minTTL = answerHeader.TTL
 			}
 
@@ -549,14 +556,16 @@ read:
 				}
 
 				addr4 := netip.AddrFrom4(arr.A)
-				r.logger.Debug("Processing A RR",
-					zap.String("resolver", r.name),
-					zap.String("name", nameString),
-					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("addr", addr4),
-				)
-
 				result.IPv4 = append(result.IPv4, addr4)
+
+				if ce := r.logger.Check(zap.DebugLevel, "Processing A RR"); ce != nil {
+					ce.Write(
+						zap.String("resolver", r.name),
+						zap.String("name", nameString),
+						zap.Stringer("serverAddrPort", r.serverAddrPort),
+						zap.Stringer("addr", addr4),
+					)
+				}
 
 			case dnsmessage.TypeAAAA:
 				aaaarr, err := parser.AAAAResource()
@@ -571,14 +580,16 @@ read:
 				}
 
 				addr6 := netip.AddrFrom16(aaaarr.AAAA)
-				r.logger.Debug("Processing AAAA RR",
-					zap.String("resolver", r.name),
-					zap.String("name", nameString),
-					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("addr", addr6),
-				)
-
 				result.IPv6 = append(result.IPv6, addr6)
+
+				if ce := r.logger.Check(zap.DebugLevel, "Processing AAAA RR"); ce != nil {
+					ce.Write(
+						zap.String("resolver", r.name),
+						zap.String("name", nameString),
+						zap.Stringer("serverAddrPort", r.serverAddrPort),
+						zap.Stringer("addr", addr6),
+					)
+				}
 
 			default:
 				err = parser.SkipAnswer()
@@ -779,14 +790,16 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 
 			// Set minimum TTL.
 			if answerHeader.TTL < minTTL {
-				r.logger.Debug("Updating minimum TTL",
-					zap.String("resolver", r.name),
-					zap.String("name", nameString),
-					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("answerType", answerHeader.Type),
-					zap.Uint32("oldMinTTL", minTTL),
-					zap.Uint32("newMinTTL", answerHeader.TTL),
-				)
+				if ce := r.logger.Check(zap.DebugLevel, "Updating minimum TTL"); ce != nil {
+					ce.Write(
+						zap.String("resolver", r.name),
+						zap.String("name", nameString),
+						zap.Stringer("serverAddrPort", r.serverAddrPort),
+						zap.Stringer("answerType", answerHeader.Type),
+						zap.Uint32("oldMinTTL", minTTL),
+						zap.Uint32("newMinTTL", answerHeader.TTL),
+					)
+				}
 				minTTL = answerHeader.TTL
 			}
 
@@ -805,14 +818,16 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 				}
 
 				addr4 := netip.AddrFrom4(arr.A)
-				r.logger.Debug("Processing A RR",
-					zap.String("resolver", r.name),
-					zap.String("name", nameString),
-					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("addr", addr4),
-				)
-
 				result.IPv4 = append(result.IPv4, addr4)
+
+				if ce := r.logger.Check(zap.DebugLevel, "Processing A RR"); ce != nil {
+					ce.Write(
+						zap.String("resolver", r.name),
+						zap.String("name", nameString),
+						zap.Stringer("serverAddrPort", r.serverAddrPort),
+						zap.Stringer("addr", addr4),
+					)
+				}
 
 			case dnsmessage.TypeAAAA:
 				aaaarr, err := parser.AAAAResource()
@@ -827,14 +842,16 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 				}
 
 				addr6 := netip.AddrFrom16(aaaarr.AAAA)
-				r.logger.Debug("Processing AAAA RR",
-					zap.String("resolver", r.name),
-					zap.String("name", nameString),
-					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("addr", addr6),
-				)
-
 				result.IPv6 = append(result.IPv6, addr6)
+
+				if ce := r.logger.Check(zap.DebugLevel, "Processing AAAA RR"); ce != nil {
+					ce.Write(
+						zap.String("resolver", r.name),
+						zap.String("name", nameString),
+						zap.Stringer("serverAddrPort", r.serverAddrPort),
+						zap.Stringer("addr", addr6),
+					)
+				}
 
 			default:
 				err = parser.SkipAnswer()

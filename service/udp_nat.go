@@ -252,14 +252,16 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 			entry.clientPktinfo.Store(clientPktinfop)
 			entry.clientPktinfoCache = clientPktinfoCache
 
-			s.logger.Debug("Updated client pktinfo",
-				zap.String("server", s.serverName),
-				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", clientAddrPort),
-				zap.Stringer("targetAddress", targetAddr),
-				zap.Stringer("clientPktinfoAddr", clientPktinfoAddr),
-				zap.Uint32("clientPktinfoIfindex", clientPktinfoIfindex),
-			)
+			if ce := s.logger.Check(zap.DebugLevel, "Updated client pktinfo"); ce != nil {
+				ce.Write(
+					zap.String("server", s.serverName),
+					zap.String("listenAddress", s.listenAddress),
+					zap.Stringer("clientAddress", clientAddrPort),
+					zap.Stringer("targetAddress", targetAddr),
+					zap.Stringer("clientPktinfoAddr", clientPktinfoAddr),
+					zap.Uint32("clientPktinfoIfindex", clientPktinfoIfindex),
+				)
+			}
 		}
 
 		if !ok {
@@ -376,23 +378,27 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 				s.relayNatConnToServerConnGeneric(clientAddrPort, entry, clientPktinfop)
 			}()
 
-			s.logger.Debug("New UDP NAT session",
-				zap.String("server", s.serverName),
-				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", clientAddrPort),
-				zap.Stringer("targetAddress", targetAddr),
-			)
+			if ce := s.logger.Check(zap.DebugLevel, "New UDP NAT session"); ce != nil {
+				ce.Write(
+					zap.String("server", s.serverName),
+					zap.String("listenAddress", s.listenAddress),
+					zap.Stringer("clientAddress", clientAddrPort),
+					zap.Stringer("targetAddress", targetAddr),
+				)
+			}
 		}
 
 		select {
 		case entry.natConnSendCh <- queuedPacket{packetBufp, payloadStart, payloadLength, targetAddr}:
 		default:
-			s.logger.Debug("Dropping packet due to full send channel",
-				zap.String("server", s.serverName),
-				zap.String("listenAddress", s.listenAddress),
-				zap.Stringer("clientAddress", clientAddrPort),
-				zap.Stringer("targetAddress", targetAddr),
-			)
+			if ce := s.logger.Check(zap.DebugLevel, "Dropping packet due to full send channel"); ce != nil {
+				ce.Write(
+					zap.String("server", s.serverName),
+					zap.String("listenAddress", s.listenAddress),
+					zap.Stringer("clientAddress", clientAddrPort),
+					zap.Stringer("targetAddress", targetAddr),
+				)
+			}
 
 			s.packetBufPool.Put(packetBufp)
 		}

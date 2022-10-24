@@ -323,23 +323,27 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 					s.relayNatConnToTransparentConnSendmmsg(clientAddrPort, entry)
 				}()
 
-				s.logger.Debug("New UDP transparent session",
-					zap.String("server", s.serverName),
-					zap.String("listenAddress", s.listenAddress),
-					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Stringer("targetAddress", targetAddrPort),
-				)
+				if ce := s.logger.Check(zap.DebugLevel, "New UDP transparent session"); ce != nil {
+					ce.Write(
+						zap.String("server", s.serverName),
+						zap.String("listenAddress", s.listenAddress),
+						zap.Stringer("clientAddress", clientAddrPort),
+						zap.Stringer("targetAddress", targetAddrPort),
+					)
+				}
 			}
 
 			select {
 			case entry.natConnSendCh <- transparentQueuedPacket{packetBufp, targetAddrPort, msg.Msglen}:
 			default:
-				s.logger.Debug("Dropping packet due to full send channel",
-					zap.String("server", s.serverName),
-					zap.String("listenAddress", s.listenAddress),
-					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Stringer("targetAddress", targetAddrPort),
-				)
+				if ce := s.logger.Check(zap.DebugLevel, "Dropping packet due to full send channel"); ce != nil {
+					ce.Write(
+						zap.String("server", s.serverName),
+						zap.String("listenAddress", s.listenAddress),
+						zap.Stringer("clientAddress", clientAddrPort),
+						zap.Stringer("targetAddress", targetAddrPort),
+					)
+				}
 
 				s.packetBufPool.Put(packetBufp)
 			}

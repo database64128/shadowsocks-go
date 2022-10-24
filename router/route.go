@@ -628,10 +628,12 @@ func matchAddrToGeoIPCountries(countries []string, addr netip.Addr, geoip *geoip
 	if err != nil {
 		return false, err
 	}
-	logger.Debug("Matched GeoIP country",
-		zap.Stringer("ip", addr),
-		zap.String("country", country.Country.IsoCode),
-	)
+	if ce := logger.Check(zap.DebugLevel, "Matched GeoIP country"); ce != nil {
+		ce.Write(
+			zap.Stringer("ip", addr),
+			zap.String("country", country.Country.IsoCode),
+		)
+	}
 	return slices.Contains(countries, country.Country.IsoCode), nil
 }
 

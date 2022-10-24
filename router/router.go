@@ -132,12 +132,14 @@ func (r *Router) GetTCPClient(server string, sourceAddrPort netip.AddrPort, targ
 		return nil, err
 	}
 
-	r.logger.Debug("Matched route for TCP connection",
-		zap.String("server", server),
-		zap.Stringer("sourceAddrPort", sourceAddrPort),
-		zap.Stringer("targetAddress", targetAddr),
-		zap.Stringer("route", route),
-	)
+	if ce := r.logger.Check(zap.DebugLevel, "Matched route for TCP connection"); ce != nil {
+		ce.Write(
+			zap.String("server", server),
+			zap.Stringer("sourceAddrPort", sourceAddrPort),
+			zap.Stringer("targetAddress", targetAddr),
+			zap.Stringer("route", route),
+		)
+	}
 
 	return route.TCPClient()
 }
@@ -150,12 +152,14 @@ func (r *Router) GetUDPClient(server string, sourceAddrPort netip.AddrPort, targ
 		return nil, err
 	}
 
-	r.logger.Debug("Matched route for UDP session",
-		zap.String("server", server),
-		zap.Stringer("sourceAddrPort", sourceAddrPort),
-		zap.Stringer("targetAddress", targetAddr),
-		zap.Stringer("route", route),
-	)
+	if ce := r.logger.Check(zap.DebugLevel, "Matched route for UDP session"); ce != nil {
+		ce.Write(
+			zap.String("server", server),
+			zap.Stringer("sourceAddrPort", sourceAddrPort),
+			zap.Stringer("targetAddress", targetAddr),
+			zap.Stringer("route", route),
+		)
+	}
 
 	return route.UDPClient()
 }
