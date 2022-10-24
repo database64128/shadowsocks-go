@@ -332,6 +332,8 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 					return
 				}
 
+				clientName := c.String()
+
 				// Only add for the current goroutine here, since we don't want the router to block exiting.
 				s.wg.Add(1)
 				defer s.wg.Done()
@@ -341,6 +343,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 				if err != nil {
 					s.logger.Warn("Failed to create new UDP client session",
 						zap.String("server", s.serverName),
+						zap.String("client", clientName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
@@ -354,6 +357,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 				if err != nil {
 					s.logger.Warn("Failed to create packer for client session",
 						zap.String("server", s.serverName),
+						zap.String("client", clientName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Uint64("clientSessionID", csid),
@@ -366,6 +370,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 				if err != nil {
 					s.logger.Warn("Failed to create UDP socket for new NAT session",
 						zap.String("server", s.serverName),
+						zap.String("client", clientName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
@@ -380,6 +385,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 				if err != nil {
 					s.logger.Warn("Failed to set read deadline on natConn",
 						zap.String("server", s.serverName),
+						zap.String("client", clientName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
@@ -406,6 +412,15 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 				entry.natConnUnpacker = natConnUnpacker
 				entry.serverConnPacker = serverConnPacker
 
+				s.logger.Info("UDP session relay started",
+					zap.String("server", s.serverName),
+					zap.String("client", clientName),
+					zap.String("listenAddress", s.listenAddress),
+					zap.Stringer("clientAddress", clientAddrPort),
+					zap.Stringer("targetAddress", targetAddr),
+					zap.Uint64("clientSessionID", csid),
+				)
+
 				s.wg.Add(1)
 
 				go func() {
@@ -417,7 +432,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 				s.relayNatConnToServerConnGeneric(csid, entry, clientAddrInfop)
 			}()
 
-			s.logger.Info("New UDP session",
+			s.logger.Debug("New UDP session",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),

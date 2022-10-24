@@ -294,6 +294,8 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 					return
 				}
 
+				clientName := c.String()
+
 				// Only add for the current goroutine here, since we don't want the router to block exiting.
 				s.wg.Add(1)
 				defer s.wg.Done()
@@ -303,6 +305,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 				if err != nil {
 					s.logger.Warn("Failed to create new UDP client session",
 						zap.String("server", s.serverName),
+						zap.String("client", clientName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
@@ -315,6 +318,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 				if err != nil {
 					s.logger.Warn("Failed to create UDP socket for new NAT session",
 						zap.String("server", s.serverName),
+						zap.String("client", clientName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
@@ -328,6 +332,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 				if err != nil {
 					s.logger.Warn("Failed to set read deadline on natConn",
 						zap.String("server", s.serverName),
+						zap.String("client", clientName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", targetAddr),
@@ -352,6 +357,14 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 				entry.natConnPacker = natConnPacker
 				entry.natConnUnpacker = natConnUnpacker
 
+				s.logger.Info("UDP NAT relay started",
+					zap.String("server", s.serverName),
+					zap.String("client", clientName),
+					zap.String("listenAddress", s.listenAddress),
+					zap.Stringer("clientAddress", clientAddrPort),
+					zap.Stringer("targetAddress", targetAddr),
+				)
+
 				s.wg.Add(1)
 
 				go func() {
@@ -363,7 +376,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 				s.relayNatConnToServerConnGeneric(clientAddrPort, entry, clientPktinfop)
 			}()
 
-			s.logger.Info("New UDP NAT session",
+			s.logger.Debug("New UDP NAT session",
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
