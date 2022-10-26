@@ -2,8 +2,8 @@ package slices
 
 // Contains reports whether v is present in s.
 func Contains[E comparable](s []E, v E) bool {
-	for _, vs := range s {
-		if v == vs {
+	for i := range s {
+		if v == s[i] {
 			return true
 		}
 	}
