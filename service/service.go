@@ -175,8 +175,11 @@ func (m *Manager) Stop() {
 		}
 		m.logger.Info("Stopped service", zap.Stringer("service", s))
 	}
+}
 
-	if err := m.router.Stop(); err != nil {
-		m.logger.Warn("Failed to stop router", zap.Error(err))
+// Close closes the manager.
+func (m *Manager) Close() {
+	if err := m.router.Close(); err != nil {
+		m.logger.Warn("Failed to close router", zap.Error(err))
 	}
 }

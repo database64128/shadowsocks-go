@@ -116,8 +116,8 @@ type Router struct {
 	routes []*Route
 }
 
-// Stop stops the router.
-func (r *Router) Stop() error {
+// Close closes the router.
+func (r *Router) Close() error {
 	if r.geoip != nil {
 		return r.geoip.Close()
 	}
