@@ -45,7 +45,7 @@ type UDPTransparentRelay struct {
 	serverConn             *net.UDPConn
 	router                 *router.Router
 	logger                 *zap.Logger
-	packetBufPool          *sync.Pool
+	packetBufPool          sync.Pool
 	mu                     sync.Mutex
 	wg                     sync.WaitGroup
 	mwg                    sync.WaitGroup
@@ -60,12 +60,7 @@ func NewUDPTransparentRelay(
 	logger *zap.Logger,
 ) (Relay, error) {
 	packetBufRecvSize := mtu - zerocopy.IPv4HeaderLength - zerocopy.UDPHeaderLength
-	packetBufPool := &sync.Pool{
-		New: func() any {
-			b := make([]byte, maxClientFrontHeadroom+packetBufRecvSize+maxClientRearHeadroom)
-			return &b
-		},
-	}
+	packetBufSize := maxClientFrontHeadroom + packetBufRecvSize + maxClientRearHeadroom
 	return &UDPTransparentRelay{
 		serverName:             serverName,
 		listenAddress:          listenAddress,
@@ -77,8 +72,13 @@ func NewUDPTransparentRelay(
 		natTimeout:             natTimeout,
 		router:                 router,
 		logger:                 logger,
-		packetBufPool:          packetBufPool,
-		table:                  make(map[netip.AddrPort]*transparentNATEntry),
+		packetBufPool: sync.Pool{
+			New: func() any {
+				b := make([]byte, packetBufSize)
+				return &b
+			},
+		},
+		table: make(map[netip.AddrPort]*transparentNATEntry),
 	}, nil
 }
 
@@ -168,9 +168,11 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 
 		s.mu.Lock()
 
-		for i, msg := range msgvec[:n] {
+		msgvecn := msgvec[:n]
+
+		for i := range msgvecn {
+			msg := &msgvecn[i]
 			packetBufp := bufvec[i]
-			cmsg := cmsgvec[i][:msg.Msghdr.Controllen]
 
 			clientAddrPort, err := conn.SockaddrToAddrPort(msg.Msghdr.Name, msg.Msghdr.Namelen)
 			if err != nil {
@@ -197,7 +199,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 				continue
 			}
 
-			targetAddrPort, err := conn.ParseOrigDstAddrCmsg(cmsg)
+			targetAddrPort, err := conn.ParseOrigDstAddrCmsg(cmsgvec[i][:msg.Msghdr.Controllen])
 			if err != nil {
 				s.logger.Warn("Failed to parse original destination address control message from serverConn",
 					zap.String("server", s.serverName),
@@ -580,9 +582,10 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(clientAddrPo
 		}
 
 		var ns int
+		msgvecn := msgvec[:nr]
 
-		for i, msg := range msgvec[:nr] {
-			packetBuf := bufvec[i]
+		for i := range msgvecn {
+			msg := &msgvecn[i]
 
 			packetSourceAddrPort, err := conn.SockaddrToAddrPort(msg.Msghdr.Name, msg.Msghdr.Namelen)
 			if err != nil {
@@ -606,6 +609,8 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(clientAddrPo
 				)
 				continue
 			}
+
+			packetBuf := bufvec[i]
 
 			payloadSourceAddrPort, payloadStart, payloadLength, err := entry.natConnUnpacker.UnpackInPlace(packetBuf, packetSourceAddrPort, 0, int(msg.Msglen))
 			if err != nil {

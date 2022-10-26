@@ -73,7 +73,7 @@ type UDPSessionRelay struct {
 	serverConn             *net.UDPConn
 	router                 *router.Router
 	logger                 *zap.Logger
-	packetBufPool          *sync.Pool
+	packetBufPool          sync.Pool
 	mu                     sync.Mutex
 	wg                     sync.WaitGroup
 	mwg                    sync.WaitGroup
@@ -98,12 +98,7 @@ func NewUDPSessionRelay(
 		packetBufRearHeadroom = 0
 	}
 	packetBufRecvSize := mtu - zerocopy.IPv4HeaderLength - zerocopy.UDPHeaderLength
-	packetBufPool := &sync.Pool{
-		New: func() any {
-			b := make([]byte, packetBufFrontHeadroom+packetBufRecvSize+packetBufRearHeadroom)
-			return &b
-		},
-	}
+	packetBufSize := packetBufFrontHeadroom + packetBufRecvSize + packetBufRearHeadroom
 	s := UDPSessionRelay{
 		serverName:             serverName,
 		listenAddress:          listenAddress,
@@ -116,8 +111,13 @@ func NewUDPSessionRelay(
 		server:                 server,
 		router:                 router,
 		logger:                 logger,
-		packetBufPool:          packetBufPool,
-		table:                  make(map[uint64]*session),
+		packetBufPool: sync.Pool{
+			New: func() any {
+				b := make([]byte, packetBufSize)
+				return &b
+			},
+		},
+		table: make(map[uint64]*session),
 	}
 	s.setRelayFunc(batchMode)
 	return &s
@@ -195,8 +195,8 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 			s.packetBufPool.Put(packetBufp)
 			continue
 		}
+
 		packet := recvBuf[:n]
-		cmsg := cmsgBuf[:cmsgn]
 
 		csid, err := s.server.SessionInfo(packet)
 		if err != nil {
@@ -255,6 +255,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 		payloadBytesReceived += uint64(payloadLength)
 
 		var clientAddrInfop *sessionClientAddrInfo
+		cmsg := cmsgBuf[:cmsgn]
 
 		updateClientAddrPort := entry.clientAddrPortCache != clientAddrPort
 		updateClientPktinfo := !bytes.Equal(entry.clientPktinfoCache, cmsg)

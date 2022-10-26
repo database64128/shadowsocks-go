@@ -76,21 +76,24 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	udpClientMap := make(map[string]zerocopy.UDPClient, len(sc.Clients))
 	var maxClientFrontHeadroom, maxClientRearHeadroom int
 
-	for _, clientConfig := range sc.Clients {
+	for i := range sc.Clients {
+		clientConfig := &sc.Clients[i]
+		clientName := clientConfig.Name
+
 		tcpClient, err := clientConfig.TCPClient(logger)
 		switch err {
 		case errNetworkDisabled:
 		case nil:
-			tcpClientMap[clientConfig.Name] = tcpClient
+			tcpClientMap[clientName] = tcpClient
 		default:
-			return nil, fmt.Errorf("failed to create TCP client for %s: %w", clientConfig.Name, err)
+			return nil, fmt.Errorf("failed to create TCP client for %s: %w", clientName, err)
 		}
 
 		udpClient, err := clientConfig.UDPClient(logger, sc.UDPPreferIPv6)
 		switch err {
 		case errNetworkDisabled:
 		case nil:
-			udpClientMap[clientConfig.Name] = udpClient
+			udpClientMap[clientName] = udpClient
 			frontHeadroom := udpClient.FrontHeadroom()
 			if frontHeadroom > maxClientFrontHeadroom {
 				maxClientFrontHeadroom = frontHeadroom
@@ -100,21 +103,21 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 				maxClientRearHeadroom = rearHeadroom
 			}
 		default:
-			return nil, fmt.Errorf("failed to create UDP client for %s: %w", clientConfig.Name, err)
+			return nil, fmt.Errorf("failed to create UDP client for %s: %w", clientName, err)
 		}
 	}
 
 	resolvers := make([]*dns.Resolver, len(sc.DNS))
 	resolverMap := make(map[string]*dns.Resolver, len(sc.DNS))
 
-	for i, resolverConfig := range sc.DNS {
-		resolver, err := resolverConfig.Resolver(tcpClientMap, udpClientMap, logger)
+	for i := range sc.DNS {
+		resolver, err := sc.DNS[i].Resolver(tcpClientMap, udpClientMap, logger)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create DNS resolver %s: %w", resolverConfig.Name, err)
+			return nil, fmt.Errorf("failed to create DNS resolver %s: %w", sc.DNS[i].Name, err)
 		}
 
 		resolvers[i] = resolver
-		resolverMap[resolverConfig.Name] = resolver
+		resolverMap[sc.DNS[i].Name] = resolver
 	}
 
 	router, err := sc.Router.Router(logger, resolvers, resolverMap, tcpClientMap, udpClientMap)
@@ -124,23 +127,23 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 
 	services := make([]Relay, 0, 2*len(sc.Servers))
 
-	for _, serverConfig := range sc.Servers {
-		tcpRelay, err := serverConfig.TCPRelay(router, logger)
+	for i := range sc.Servers {
+		tcpRelay, err := sc.Servers[i].TCPRelay(router, logger)
 		switch err {
 		case errNetworkDisabled:
 		case nil:
 			services = append(services, tcpRelay)
 		default:
-			return nil, fmt.Errorf("failed to create TCP relay service for %s: %w", serverConfig.Name, err)
+			return nil, fmt.Errorf("failed to create TCP relay service for %s: %w", sc.Servers[i].Name, err)
 		}
 
-		udpRelay, err := serverConfig.UDPRelay(router, logger, sc.UDPBatchMode, sc.UDPBatchSize, maxClientFrontHeadroom, maxClientRearHeadroom)
+		udpRelay, err := sc.Servers[i].UDPRelay(router, logger, sc.UDPBatchMode, sc.UDPBatchSize, maxClientFrontHeadroom, maxClientRearHeadroom)
 		switch err {
 		case errNetworkDisabled:
 		case nil:
 			services = append(services, udpRelay)
 		default:
-			return nil, fmt.Errorf("failed to create UDP relay service for %s: %w", serverConfig.Name, err)
+			return nil, fmt.Errorf("failed to create UDP relay service for %s: %w", sc.Servers[i].Name, err)
 		}
 	}
 
@@ -156,9 +159,9 @@ type Manager struct {
 
 // Start starts all configured services.
 func (m *Manager) Start() error {
-	for _, service := range m.services {
-		if err := service.Start(); err != nil {
-			return fmt.Errorf("failed to start %s: %w", service.String(), err)
+	for _, s := range m.services {
+		if err := s.Start(); err != nil {
+			return fmt.Errorf("failed to start %s: %w", s.String(), err)
 		}
 	}
 	return nil

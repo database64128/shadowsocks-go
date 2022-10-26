@@ -81,11 +81,11 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 
 		s.mu.Lock()
 
-		for i, msg := range msgvec[:n] {
+		msgvecn := msgvec[:n]
+
+		for i := range msgvecn {
+			msg := &msgvecn[i]
 			packetBufp := bufvec[i]
-			packetBuf := *packetBufp
-			packet := packetBuf[s.packetBufFrontHeadroom : s.packetBufFrontHeadroom+int(msg.Msglen)]
-			cmsg := cmsgvec[i][:msg.Msghdr.Controllen]
 
 			if msg.Msghdr.Controllen == 0 {
 				s.logger.Warn("Skipping packet with no control message from serverConn",
@@ -122,6 +122,9 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 				s.packetBufPool.Put(packetBufp)
 				continue
 			}
+
+			packetBuf := *packetBufp
+			packet := packetBuf[s.packetBufFrontHeadroom : s.packetBufFrontHeadroom+int(msg.Msglen)]
 
 			csid, err := s.server.SessionInfo(packet)
 			if err != nil {
@@ -175,6 +178,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 			payloadBytesReceived += uint64(payloadLength)
 
 			var clientAddrInfop *sessionClientAddrInfo
+			cmsg := cmsgvec[i][:msg.Msghdr.Controllen]
 
 			updateClientAddrPort := entry.clientAddrPortCache != clientAddrPort
 			updateClientPktinfo := !bytes.Equal(entry.clientPktinfoCache, cmsg)
@@ -599,9 +603,10 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 		}
 
 		var ns int
+		rmsgvecn := rmsgvec[:nr]
 
-		for i, msg := range rmsgvec[:nr] {
-			packetBuf := bufvec[i]
+		for i := range rmsgvecn {
+			msg := &rmsgvecn[i]
 
 			packetSourceAddrPort, err := conn.SockaddrToAddrPort(msg.Msghdr.Name, msg.Msghdr.Namelen)
 			if err != nil {
@@ -628,6 +633,8 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 				)
 				continue
 			}
+
+			packetBuf := bufvec[i]
 
 			payloadSourceAddrPort, payloadStart, payloadLength, err := entry.natConnUnpacker.UnpackInPlace(packetBuf, packetSourceAddrPort, frontHeadroom, int(msg.Msglen))
 			if err != nil {

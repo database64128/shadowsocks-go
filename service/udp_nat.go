@@ -65,7 +65,7 @@ type UDPNATRelay struct {
 	serverConn             *net.UDPConn
 	router                 *router.Router
 	logger                 *zap.Logger
-	packetBufPool          *sync.Pool
+	packetBufPool          sync.Pool
 	mu                     sync.Mutex
 	wg                     sync.WaitGroup
 	mwg                    sync.WaitGroup
@@ -90,12 +90,7 @@ func NewUDPNATRelay(
 		packetBufRearHeadroom = 0
 	}
 	packetBufRecvSize := mtu - zerocopy.IPv4HeaderLength - zerocopy.UDPHeaderLength
-	packetBufPool := &sync.Pool{
-		New: func() any {
-			b := make([]byte, packetBufFrontHeadroom+packetBufRecvSize+packetBufRearHeadroom)
-			return &b
-		},
-	}
+	packetBufSize := packetBufFrontHeadroom + packetBufRecvSize + packetBufRearHeadroom
 	s := UDPNATRelay{
 		serverName:             serverName,
 		listenAddress:          listenAddress,
@@ -108,8 +103,13 @@ func NewUDPNATRelay(
 		server:                 server,
 		router:                 router,
 		logger:                 logger,
-		packetBufPool:          packetBufPool,
-		table:                  make(map[netip.AddrPort]*natEntry),
+		packetBufPool: sync.Pool{
+			New: func() any {
+				b := make([]byte, packetBufSize)
+				return &b
+			},
+		},
+		table: make(map[netip.AddrPort]*natEntry),
 	}
 	s.setRelayFunc(batchMode)
 	return &s
@@ -187,7 +187,6 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 			s.packetBufPool.Put(packetBufp)
 			continue
 		}
-		cmsg := cmsgBuf[:cmsgn]
 
 		s.mu.Lock()
 
@@ -229,6 +228,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 		payloadBytesReceived += uint64(payloadLength)
 
 		var clientPktinfop *[]byte
+		cmsg := cmsgBuf[:cmsgn]
 
 		if !bytes.Equal(entry.clientPktinfoCache, cmsg) {
 			clientPktinfoAddr, clientPktinfoIfindex, err := conn.ParsePktinfoCmsg(cmsg)

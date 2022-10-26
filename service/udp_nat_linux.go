@@ -81,10 +81,11 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 
 		s.mu.Lock()
 
-		for i, msg := range msgvec[:n] {
+		msgvecn := msgvec[:n]
+
+		for i := range msgvecn {
+			msg := &msgvecn[i]
 			packetBufp := bufvec[i]
-			packetBuf := *packetBufp
-			cmsg := cmsgvec[i][:msg.Msghdr.Controllen]
 
 			if msg.Msghdr.Controllen == 0 {
 				s.logger.Warn("Skipping packet with no control message from serverConn",
@@ -140,7 +141,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 				}
 			}
 
-			targetAddr, payloadStart, payloadLength, err := entry.serverConnUnpacker.UnpackInPlace(packetBuf, clientAddrPort, s.packetBufFrontHeadroom, int(msg.Msglen))
+			targetAddr, payloadStart, payloadLength, err := entry.serverConnUnpacker.UnpackInPlace(*packetBufp, clientAddrPort, s.packetBufFrontHeadroom, int(msg.Msglen))
 			if err != nil {
 				s.logger.Warn("Failed to unpack packet from serverConn",
 					zap.String("server", s.serverName),
@@ -157,6 +158,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 			payloadBytesReceived += uint64(payloadLength)
 
 			var clientPktinfop *[]byte
+			cmsg := cmsgvec[i][:msg.Msghdr.Controllen]
 
 			if !bytes.Equal(entry.clientPktinfoCache, cmsg) {
 				clientPktinfoAddr, clientPktinfoIfindex, err := conn.ParsePktinfoCmsg(cmsg)
@@ -531,9 +533,10 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 		}
 
 		var ns int
+		rmsgvecn := rmsgvec[:nr]
 
-		for i, msg := range rmsgvec[:nr] {
-			packetBuf := bufvec[i]
+		for i := range rmsgvecn {
+			msg := &rmsgvecn[i]
 
 			packetSourceAddrPort, err := conn.SockaddrToAddrPort(msg.Msghdr.Name, msg.Msghdr.Namelen)
 			if err != nil {
@@ -558,6 +561,8 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 				)
 				continue
 			}
+
+			packetBuf := bufvec[i]
 
 			payloadSourceAddrPort, payloadStart, payloadLength, err := entry.natConnUnpacker.UnpackInPlace(packetBuf, packetSourceAddrPort, frontHeadroom, int(msg.Msglen))
 			if err != nil {
