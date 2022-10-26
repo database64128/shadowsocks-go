@@ -72,25 +72,25 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []*dns.Resolver, resolver
 
 	domainSetMap := make(map[string]domainset.DomainSet, len(rc.DomainSets))
 
-	for _, domainSetConfig := range rc.DomainSets {
-		domainSet, err := domainSetConfig.DomainSet()
+	for i := range rc.DomainSets {
+		domainSet, err := rc.DomainSets[i].DomainSet()
 		if err != nil {
 			return nil, err
 		}
-		domainSetMap[domainSetConfig.Name] = domainSet
+		domainSetMap[rc.DomainSets[i].Name] = domainSet
 	}
 
 	prefixSetMap := make(map[string]*netipx.IPSet, len(rc.PrefixSets))
 
-	for _, prefixSetConfig := range rc.PrefixSets {
-		s, err := prefixSetConfig.IPSet()
+	for i := range rc.PrefixSets {
+		s, err := rc.PrefixSets[i].IPSet()
 		if err != nil {
 			return nil, err
 		}
-		prefixSetMap[prefixSetConfig.Name] = s
+		prefixSetMap[rc.PrefixSets[i].Name] = s
 	}
 
-	routes := make([]*Route, len(rc.Routes)+1)
+	routes := make([]Route, len(rc.Routes)+1)
 
 	for i := range rc.Routes {
 		route, err := rc.Routes[i].Route(geoip, logger, resolvers, resolverMap, tcpClientMap, udpClientMap, domainSetMap, prefixSetMap)
@@ -100,7 +100,7 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []*dns.Resolver, resolver
 		routes[i] = route
 	}
 
-	routes[len(rc.Routes)] = &defaultRoute
+	routes[len(rc.Routes)] = defaultRoute
 
 	return &Router{
 		geoip:  geoip,
@@ -113,7 +113,7 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []*dns.Resolver, resolver
 type Router struct {
 	geoip  *geoip2.Reader
 	logger *zap.Logger
-	routes []*Route
+	routes []Route
 }
 
 // Close closes the router.
@@ -166,13 +166,13 @@ func (r *Router) GetUDPClient(server string, sourceAddrPort netip.AddrPort, targ
 
 // match returns the matched route for the new TCP request or UDP session.
 func (r *Router) match(network protocol, server string, sourceAddrPort netip.AddrPort, targetAddr conn.Addr) (*Route, error) {
-	for _, route := range r.routes {
-		matched, err := route.Match(network, server, sourceAddrPort, targetAddr)
+	for i := range r.routes {
+		matched, err := r.routes[i].Match(network, server, sourceAddrPort, targetAddr)
 		if err != nil {
 			return nil, err
 		}
 		if matched {
-			return route, nil
+			return &r.routes[i], nil
 		}
 	}
 	panic("did not match default route")

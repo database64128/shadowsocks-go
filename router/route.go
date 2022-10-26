@@ -15,13 +15,8 @@ import (
 	"go4.org/netipx"
 )
 
-var (
-	ErrRejected             = errors.New("rejected")
-	errBadRouteName         = errors.New("route name cannot be empty or 'default'")
-	errNoGeoLite2Db         = errors.New("missing GeoLite2 country database path")
-	errNoResolvers          = errors.New("missing resolvers")
-	errNoDestDomainCriteria = errors.New("missing destination domain criteria")
-)
+// ErrRejected is a special error that indicates the request is rejected.
+var ErrRejected = errors.New("rejected")
 
 // RouteConfig is a routing rule.
 type RouteConfig struct {
@@ -115,16 +110,16 @@ type RouteConfig struct {
 }
 
 // Route creates a route from the RouteConfig.
-func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers []*dns.Resolver, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*netipx.IPSet) (*Route, error) {
+func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers []*dns.Resolver, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*netipx.IPSet) (Route, error) {
 	// Bad name.
 	switch rc.Name {
 	case "", "default":
-		return nil, errBadRouteName
+		return Route{}, errors.New("route name cannot be empty or 'default'")
 	}
 
 	// Has GeoIP criteria but no GeoIP database.
 	if geoip == nil && (len(rc.FromGeoIPCountries) > 0 || len(rc.ToGeoIPCountries) > 0 || len(rc.ToMatchedDomainExpectedGeoIPCountries) > 0) {
-		return nil, errNoGeoLite2Db
+		return Route{}, errors.New("missing GeoLite2 country database path")
 	}
 
 	// Needs to resolve domain names but has no resolvers.
@@ -134,7 +129,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 			len(rc.ToMatchedDomainExpectedGeoIPCountries) > 0 ||
 			!rc.DisableNameResolutionForIPRules &&
 				(len(rc.ToPrefixes) > 0 || len(rc.ToPrefixSets) > 0 || len(rc.ToGeoIPCountries) > 0)) {
-		return nil, errNoResolvers
+		return Route{}, errors.New("missing resolvers")
 	}
 
 	// Has resolved IP expectations but no destination domain criteria.
@@ -142,13 +137,13 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 		(len(rc.ToMatchedDomainExpectedPrefixes) > 0 ||
 			len(rc.ToMatchedDomainExpectedPrefixSets) > 0 ||
 			len(rc.ToMatchedDomainExpectedGeoIPCountries) > 0) {
-		return nil, errNoDestDomainCriteria
+		return Route{}, errors.New("missing destination domain criteria")
 	}
 
 	if rc.Resolver != "" {
 		resolver, ok := resolverMap[rc.Resolver]
 		if !ok {
-			return nil, fmt.Errorf("resolver not found: %s", rc.Resolver)
+			return Route{}, fmt.Errorf("resolver not found: %s", rc.Resolver)
 		}
 		resolvers = []*dns.Resolver{resolver}
 	}
@@ -162,7 +157,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 	case "udp":
 		route.AddCriterion(NetworkUDPCriterion{}, false)
 	default:
-		return nil, fmt.Errorf("invalid network: %s", rc.Network)
+		return Route{}, fmt.Errorf("invalid network: %s", rc.Network)
 	}
 
 	if rc.Client != "reject" {
@@ -170,7 +165,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 		case "", "tcp":
 			route.tcpClient = tcpClientMap[rc.Client]
 			if route.tcpClient == nil {
-				return nil, fmt.Errorf("TCP client not found: %s", rc.Client)
+				return Route{}, fmt.Errorf("TCP client not found: %s", rc.Client)
 			}
 		}
 
@@ -178,7 +173,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 		case "", "udp":
 			route.udpClient = udpClientMap[rc.Client]
 			if route.udpClient == nil {
-				return nil, fmt.Errorf("UDP client not found: %s", rc.Client)
+				return Route{}, fmt.Errorf("UDP client not found: %s", rc.Client)
 			}
 		}
 	}
@@ -200,14 +195,14 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 			for _, prefixSet := range rc.FromPrefixSets {
 				s, ok := prefixSetMap[prefixSet]
 				if !ok {
-					return nil, fmt.Errorf("prefix set not found: %s", prefixSet)
+					return Route{}, fmt.Errorf("prefix set not found: %s", prefixSet)
 				}
 				sb.AddSet(s)
 			}
 
 			sourceIPSet, err := sb.IPSet()
 			if err != nil {
-				return nil, fmt.Errorf("failed to build sourceIPSet: %w", err)
+				return Route{}, fmt.Errorf("failed to build sourceIPSet: %w", err)
 			}
 
 			group.AddCriterion((*SourceIPCriterion)(sourceIPSet), rc.InvertFromPrefixes)
@@ -244,15 +239,15 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 				mb := domainset.DomainLinearMatcher(rc.ToDomains)
 				ds, err := mb.AppendTo(nil)
 				if err != nil {
-					return nil, err
+					return Route{}, err
 				}
 				domainSets[0] = ds
 			}
 
-			for i, dsc := range rc.ToDomainSets {
-				ds, ok := domainSetMap[dsc]
+			for i, tds := range rc.ToDomainSets {
+				ds, ok := domainSetMap[tds]
 				if !ok {
-					return nil, fmt.Errorf("domain set not found: %s", dsc)
+					return Route{}, fmt.Errorf("domain set not found: %s", tds)
 				}
 				domainSets[defaultDomainSetCount+i] = ds
 			}
@@ -270,14 +265,14 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 					for _, prefixSet := range rc.ToMatchedDomainExpectedPrefixSets {
 						s, ok := prefixSetMap[prefixSet]
 						if !ok {
-							return nil, fmt.Errorf("prefix set not found: %s", prefixSet)
+							return Route{}, fmt.Errorf("prefix set not found: %s", prefixSet)
 						}
 						sb.AddSet(s)
 					}
 
 					expectedIPSet, err := sb.IPSet()
 					if err != nil {
-						return nil, fmt.Errorf("failed to build expectedIPSet: %w", err)
+						return Route{}, fmt.Errorf("failed to build expectedIPSet: %w", err)
 					}
 
 					expectedIPCriterionGroup.AddCriterion(&DestResolvedIPCriterion{expectedIPSet, resolvers}, rc.InvertToMatchedDomainExpectedPrefixes)
@@ -308,14 +303,14 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 			for _, prefixSet := range rc.ToPrefixSets {
 				s, ok := prefixSetMap[prefixSet]
 				if !ok {
-					return nil, fmt.Errorf("prefix set not found: %s", prefixSet)
+					return Route{}, fmt.Errorf("prefix set not found: %s", prefixSet)
 				}
 				sb.AddSet(s)
 			}
 
 			destIPSet, err := sb.IPSet()
 			if err != nil {
-				return nil, fmt.Errorf("failed to build destIPSet: %w", err)
+				return Route{}, fmt.Errorf("failed to build destIPSet: %w", err)
 			}
 
 			if rc.DisableNameResolutionForIPRules {
@@ -349,7 +344,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 		route.AddCriterion((*DestPortCriterion)(&rc.ToPorts), rc.InvertToPorts)
 	}
 
-	return &route, nil
+	return route, nil
 }
 
 // Route controls which client a request is routed to.
