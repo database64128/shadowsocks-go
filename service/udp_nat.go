@@ -17,9 +17,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// queuedPacket is the structure used by send channels to queue packets for sending.
-type queuedPacket struct {
-	bufp       *[]byte
+// natQueuedPacket is the structure used by send channels to queue packets for sending.
+type natQueuedPacket struct {
+	buf        []byte
 	start      int
 	length     int
 	targetAddr conn.Addr
@@ -42,7 +42,7 @@ type natEntry struct {
 	clientPktinfoCache []byte
 	natConn            *net.UDPConn
 	natConnRecvBufSize int
-	natConnSendCh      chan queuedPacket
+	natConnSendCh      chan *natQueuedPacket
 	natConnPacker      zerocopy.ClientPacker
 	natConnUnpacker    zerocopy.ClientUnpacker
 	serverConnPacker   zerocopy.ServerPacker
@@ -65,7 +65,7 @@ type UDPNATRelay struct {
 	serverConn             *net.UDPConn
 	router                 *router.Router
 	logger                 *zap.Logger
-	packetBufPool          sync.Pool
+	queuedPacketPool       sync.Pool
 	mu                     sync.Mutex
 	wg                     sync.WaitGroup
 	mwg                    sync.WaitGroup
@@ -103,10 +103,11 @@ func NewUDPNATRelay(
 		server:                 server,
 		router:                 router,
 		logger:                 logger,
-		packetBufPool: sync.Pool{
+		queuedPacketPool: sync.Pool{
 			New: func() any {
-				b := make([]byte, packetBufSize)
-				return &b
+				return &natQueuedPacket{
+					buf: make([]byte, packetBufSize),
+				}
 			},
 		},
 		table: make(map[netip.AddrPort]*natEntry),
@@ -152,14 +153,14 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 	)
 
 	for {
-		packetBufp := s.packetBufPool.Get().(*[]byte)
-		packetBuf := *packetBufp
+		queuedPacket := s.getQueuedPacket()
+		packetBuf := queuedPacket.buf
 		recvBuf := packetBuf[s.packetBufFrontHeadroom : s.packetBufFrontHeadroom+s.packetBufRecvSize]
 
 		n, cmsgn, flags, clientAddrPort, err := s.serverConn.ReadMsgUDPAddrPort(recvBuf, cmsgBuf)
 		if err != nil {
 			if errors.Is(err, os.ErrDeadlineExceeded) {
-				s.packetBufPool.Put(packetBufp)
+				s.putQueuedPacket(queuedPacket)
 				break
 			}
 
@@ -171,7 +172,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 				zap.Error(err),
 			)
 
-			s.packetBufPool.Put(packetBufp)
+			s.putQueuedPacket(queuedPacket)
 			continue
 		}
 		err = conn.ParseFlagsForError(flags)
@@ -184,7 +185,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 				zap.Error(err),
 			)
 
-			s.packetBufPool.Put(packetBufp)
+			s.putQueuedPacket(queuedPacket)
 			continue
 		}
 
@@ -203,13 +204,13 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 					zap.Error(err),
 				)
 
-				s.packetBufPool.Put(packetBufp)
+				s.putQueuedPacket(queuedPacket)
 				s.mu.Unlock()
 				continue
 			}
 		}
 
-		targetAddr, payloadStart, payloadLength, err := entry.serverConnUnpacker.UnpackInPlace(packetBuf, clientAddrPort, s.packetBufFrontHeadroom, n)
+		queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length, err = entry.serverConnUnpacker.UnpackInPlace(packetBuf, clientAddrPort, s.packetBufFrontHeadroom, n)
 		if err != nil {
 			s.logger.Warn("Failed to unpack packet from serverConn",
 				zap.String("server", s.serverName),
@@ -219,13 +220,13 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 				zap.Error(err),
 			)
 
-			s.packetBufPool.Put(packetBufp)
+			s.putQueuedPacket(queuedPacket)
 			s.mu.Unlock()
 			continue
 		}
 
 		packetsReceived++
-		payloadBytesReceived += uint64(payloadLength)
+		payloadBytesReceived += uint64(queuedPacket.length)
 
 		var clientPktinfop *[]byte
 		cmsg := cmsgBuf[:cmsgn]
@@ -237,11 +238,11 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Stringer("targetAddress", targetAddr),
+					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 					zap.Error(err),
 				)
 
-				s.packetBufPool.Put(packetBufp)
+				s.putQueuedPacket(queuedPacket)
 				s.mu.Unlock()
 				continue
 			}
@@ -257,7 +258,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Stringer("targetAddress", targetAddr),
+					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 					zap.Stringer("clientPktinfoAddr", clientPktinfoAddr),
 					zap.Uint32("clientPktinfoIfindex", clientPktinfoIfindex),
 				)
@@ -265,7 +266,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 		}
 
 		if !ok {
-			entry.natConnSendCh = make(chan queuedPacket, sendChannelCapacity)
+			entry.natConnSendCh = make(chan *natQueuedPacket, sendChannelCapacity)
 			s.table[clientAddrPort] = entry
 
 			go func() {
@@ -279,18 +280,18 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 
 					if !sendChClean {
 						for queuedPacket := range entry.natConnSendCh {
-							s.packetBufPool.Put(queuedPacket.bufp)
+							s.putQueuedPacket(queuedPacket)
 						}
 					}
 				}()
 
-				c, err := s.router.GetUDPClient(s.serverName, clientAddrPort, targetAddr)
+				c, err := s.router.GetUDPClient(s.serverName, clientAddrPort, queuedPacket.targetAddr)
 				if err != nil {
 					s.logger.Warn("Failed to get UDP client for new NAT session",
 						zap.String("server", s.serverName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 						zap.Error(err),
 					)
 					return
@@ -310,7 +311,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 						zap.String("client", clientName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 						zap.Error(err),
 					)
 					return
@@ -323,7 +324,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 						zap.String("client", clientName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 						zap.Int("natConnFwmark", natConnFwmark),
 						zap.Error(err),
 					)
@@ -337,7 +338,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 						zap.String("client", clientName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 						zap.Duration("natTimeout", s.natTimeout),
 						zap.Error(err),
 					)
@@ -364,7 +365,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 					zap.String("client", clientName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Stringer("targetAddress", targetAddr),
+					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 				)
 
 				s.wg.Add(1)
@@ -383,24 +384,24 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Stringer("targetAddress", targetAddr),
+					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 				)
 			}
 		}
 
 		select {
-		case entry.natConnSendCh <- queuedPacket{packetBufp, payloadStart, payloadLength, targetAddr}:
+		case entry.natConnSendCh <- queuedPacket:
 		default:
 			if ce := s.logger.Check(zap.DebugLevel, "Dropping packet due to full send channel"); ce != nil {
 				ce.Write(
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Stringer("targetAddress", targetAddr),
+					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 				)
 			}
 
-			s.packetBufPool.Put(packetBufp)
+			s.putQueuedPacket(queuedPacket)
 		}
 
 		s.mu.Unlock()
@@ -425,7 +426,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrP
 	)
 
 	for queuedPacket := range entry.natConnSendCh {
-		destAddrPort, packetStart, packetLength, err = entry.natConnPacker.PackInPlace(*queuedPacket.bufp, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length)
+		destAddrPort, packetStart, packetLength, err = entry.natConnPacker.PackInPlace(queuedPacket.buf, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length)
 		if err != nil {
 			s.logger.Warn("Failed to pack packet for natConn",
 				zap.String("server", s.serverName),
@@ -436,11 +437,11 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrP
 				zap.Error(err),
 			)
 
-			s.packetBufPool.Put(queuedPacket.bufp)
+			s.putQueuedPacket(queuedPacket)
 			continue
 		}
 
-		_, err = entry.natConn.WriteToUDPAddrPort((*queuedPacket.bufp)[packetStart:packetStart+packetLength], destAddrPort)
+		_, err = entry.natConn.WriteToUDPAddrPort(queuedPacket.buf[packetStart:packetStart+packetLength], destAddrPort)
 		if err != nil {
 			s.logger.Warn("Failed to write packet to natConn",
 				zap.String("server", s.serverName),
@@ -463,7 +464,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrP
 			)
 		}
 
-		s.packetBufPool.Put(queuedPacket.bufp)
+		s.putQueuedPacket(queuedPacket)
 		packetsSent++
 		payloadBytesSent += uint64(queuedPacket.length)
 	}
@@ -589,6 +590,16 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 		zap.Uint64("packetsSent", packetsSent),
 		zap.Uint64("payloadBytesSent", payloadBytesSent),
 	)
+}
+
+// getQueuedPacket retrieves a queued packet from the pool.
+func (s *UDPNATRelay) getQueuedPacket() *natQueuedPacket {
+	return s.queuedPacketPool.Get().(*natQueuedPacket)
+}
+
+// putQueuedPacket puts the queued packet back into the pool.
+func (s *UDPNATRelay) putQueuedPacket(queuedPacket *natQueuedPacket) {
+	s.queuedPacketPool.Put(queuedPacket)
 }
 
 // Stop implements the Service Stop method.

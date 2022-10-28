@@ -18,7 +18,7 @@ import (
 
 // transparentQueuedPacket is the structure used by send channels to queue packets for sending.
 type transparentQueuedPacket struct {
-	bufp           *[]byte
+	buf            []byte
 	targetAddrPort netip.AddrPort
 	msglen         uint32
 }
@@ -27,7 +27,7 @@ type transparentQueuedPacket struct {
 type transparentNATEntry struct {
 	natConn            *net.UDPConn
 	natConnRecvBufSize int
-	natConnSendCh      chan transparentQueuedPacket
+	natConnSendCh      chan *transparentQueuedPacket
 	natConnPacker      zerocopy.ClientPacker
 	natConnUnpacker    zerocopy.ClientUnpacker
 }
@@ -45,7 +45,7 @@ type UDPTransparentRelay struct {
 	serverConn             *net.UDPConn
 	router                 *router.Router
 	logger                 *zap.Logger
-	packetBufPool          sync.Pool
+	queuedPacketPool       sync.Pool
 	mu                     sync.Mutex
 	wg                     sync.WaitGroup
 	mwg                    sync.WaitGroup
@@ -72,10 +72,11 @@ func NewUDPTransparentRelay(
 		natTimeout:             natTimeout,
 		router:                 router,
 		logger:                 logger,
-		packetBufPool: sync.Pool{
+		queuedPacketPool: sync.Pool{
 			New: func() any {
-				b := make([]byte, packetBufSize)
-				return &b
+				return &transparentQueuedPacket{
+					buf: make([]byte, packetBufSize),
+				}
 			},
 		},
 		table: make(map[netip.AddrPort]*transparentNATEntry),
@@ -111,7 +112,7 @@ func (s *UDPTransparentRelay) Start() error {
 }
 
 func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
-	bufvec := make([]*[]byte, conn.UIO_MAXIOV)
+	qpvec := make([]*transparentQueuedPacket, conn.UIO_MAXIOV)
 	namevec := make([]unix.RawSockaddrInet6, conn.UIO_MAXIOV)
 	iovec := make([]unix.Iovec, conn.UIO_MAXIOV)
 	cmsgvec := make([][]byte, conn.UIO_MAXIOV)
@@ -138,10 +139,9 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 
 	for {
 		for i := range iovec[:n] {
-			packetBufp := s.packetBufPool.Get().(*[]byte)
-			packetBuf := *packetBufp
-			bufvec[i] = packetBufp
-			iovec[i].Base = &packetBuf[s.packetBufFrontHeadroom]
+			queuedPacket := s.getQueuedPacket()
+			qpvec[i] = queuedPacket
+			iovec[i].Base = &queuedPacket.buf[s.packetBufFrontHeadroom]
 			iovec[i].SetLen(s.packetBufRecvSize)
 			msgvec[i].Msghdr.SetControllen(conn.TransparentSocketControlMessageBufferSize)
 		}
@@ -159,7 +159,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 			)
 
 			n = 1
-			s.packetBufPool.Put(bufvec[0])
+			s.putQueuedPacket(qpvec[0])
 			continue
 		}
 
@@ -172,7 +172,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 
 		for i := range msgvecn {
 			msg := &msgvecn[i]
-			packetBufp := bufvec[i]
+			queuedPacket := qpvec[i]
 
 			clientAddrPort, err := conn.SockaddrToAddrPort(msg.Msghdr.Name, msg.Msghdr.Namelen)
 			if err != nil {
@@ -182,7 +182,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 					zap.Error(err),
 				)
 
-				s.packetBufPool.Put(packetBufp)
+				s.putQueuedPacket(queuedPacket)
 				continue
 			}
 
@@ -195,11 +195,11 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 					zap.Error(err),
 				)
 
-				s.packetBufPool.Put(packetBufp)
+				s.putQueuedPacket(queuedPacket)
 				continue
 			}
 
-			targetAddrPort, err := conn.ParseOrigDstAddrCmsg(cmsgvec[i][:msg.Msghdr.Controllen])
+			queuedPacket.targetAddrPort, err = conn.ParseOrigDstAddrCmsg(cmsgvec[i][:msg.Msghdr.Controllen])
 			if err != nil {
 				s.logger.Warn("Failed to parse original destination address control message from serverConn",
 					zap.String("server", s.serverName),
@@ -208,16 +208,17 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 					zap.Error(err),
 				)
 
-				s.packetBufPool.Put(packetBufp)
+				s.putQueuedPacket(queuedPacket)
 				continue
 			}
 
+			queuedPacket.msglen = msg.Msglen
 			payloadBytesReceived += uint64(msg.Msglen)
 
 			entry := s.table[clientAddrPort]
 			if entry == nil {
 				entry = &transparentNATEntry{
-					natConnSendCh: make(chan transparentQueuedPacket, sendChannelCapacity),
+					natConnSendCh: make(chan *transparentQueuedPacket, sendChannelCapacity),
 				}
 
 				s.table[clientAddrPort] = entry
@@ -233,18 +234,18 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 
 						if !sendChClean {
 							for queuedPacket := range entry.natConnSendCh {
-								s.packetBufPool.Put(queuedPacket.bufp)
+								s.putQueuedPacket(queuedPacket)
 							}
 						}
 					}()
 
-					c, err := s.router.GetUDPClient(s.serverName, clientAddrPort, conn.AddrFromIPPort(targetAddrPort))
+					c, err := s.router.GetUDPClient(s.serverName, clientAddrPort, conn.AddrFromIPPort(queuedPacket.targetAddrPort))
 					if err != nil {
 						s.logger.Warn("Failed to get UDP client for new NAT session",
 							zap.String("server", s.serverName),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", targetAddrPort),
+							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
 							zap.Error(err),
 						)
 						return
@@ -264,7 +265,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 							zap.String("client", clientName),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", targetAddrPort),
+							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
 							zap.Error(err),
 						)
 						return
@@ -277,7 +278,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 							zap.String("client", clientName),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", targetAddrPort),
+							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
 							zap.Int("natConnFwmark", natConnFwmark),
 							zap.Error(err),
 						)
@@ -290,7 +291,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 							zap.String("client", clientName),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", targetAddrPort),
+							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
 							zap.Duration("natTimeout", s.natTimeout),
 							zap.Error(err),
 						)
@@ -311,7 +312,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 						zap.String("client", clientName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddrPort),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
 					)
 
 					s.wg.Add(1)
@@ -330,32 +331,32 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 						zap.String("server", s.serverName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddrPort),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
 					)
 				}
 			}
 
 			select {
-			case entry.natConnSendCh <- transparentQueuedPacket{packetBufp, targetAddrPort, msg.Msglen}:
+			case entry.natConnSendCh <- queuedPacket:
 			default:
 				if ce := s.logger.Check(zap.DebugLevel, "Dropping packet due to full send channel"); ce != nil {
 					ce.Write(
 						zap.String("server", s.serverName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddrPort),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
 					)
 				}
 
-				s.packetBufPool.Put(packetBufp)
+				s.putQueuedPacket(queuedPacket)
 			}
 		}
 
 		s.mu.Unlock()
 	}
 
-	for _, packetBufp := range bufvec {
-		s.packetBufPool.Put(packetBufp)
+	for i := range qpvec {
+		s.putQueuedPacket(qpvec[i])
 	}
 
 	s.logger.Info("Finished receiving from serverConn",
@@ -378,7 +379,7 @@ func (s *UDPTransparentRelay) relayServerConnToNatConnSendmmsg(clientAddrPort ne
 		payloadBytesSent uint64
 	)
 
-	dequeuedPackets := make([]transparentQueuedPacket, s.batchSize)
+	qpvec := make([]*transparentQueuedPacket, s.batchSize)
 	namevec := make([]unix.RawSockaddrInet6, s.batchSize)
 	iovec := make([]unix.Iovec, s.batchSize)
 	msgvec := make([]conn.Mmsghdr, s.batchSize)
@@ -402,18 +403,18 @@ main:
 
 	dequeue:
 		for {
-			destAddrPort, packetStart, packetLength, err = entry.natConnPacker.PackInPlace(*queuedPacket.bufp, conn.AddrFromIPPort(queuedPacket.targetAddrPort), s.packetBufFrontHeadroom, int(queuedPacket.msglen))
+			destAddrPort, packetStart, packetLength, err = entry.natConnPacker.PackInPlace(queuedPacket.buf, conn.AddrFromIPPort(queuedPacket.targetAddrPort), s.packetBufFrontHeadroom, int(queuedPacket.msglen))
 			if err != nil {
 				s.logger.Warn("Failed to pack packet for natConn",
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Stringer("targetAddress", queuedPacket.targetAddrPort),
+					zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
 					zap.Uint32("payloadLength", queuedPacket.msglen),
 					zap.Error(err),
 				)
 
-				s.packetBufPool.Put(queuedPacket.bufp)
+				s.putQueuedPacket(queuedPacket)
 
 				if count == 0 {
 					continue main
@@ -421,9 +422,9 @@ main:
 				goto next
 			}
 
-			dequeuedPackets[count] = queuedPacket
+			qpvec[count] = queuedPacket
 			namevec[count] = conn.AddrPortToSockaddrInet6(destAddrPort)
-			iovec[count].Base = &(*queuedPacket.bufp)[packetStart]
+			iovec[count].Base = &queuedPacket.buf[packetStart]
 			iovec[count].SetLen(packetLength)
 			count++
 			payloadBytesSent += uint64(queuedPacket.msglen)
@@ -448,7 +449,7 @@ main:
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
-				zap.Stringer("lastTargetAddress", dequeuedPackets[count-1].targetAddrPort),
+				zap.Stringer("lastTargetAddress", &qpvec[count-1].targetAddrPort),
 				zap.Stringer("lastWriteDestAddress", destAddrPort),
 				zap.Error(err),
 			)
@@ -467,8 +468,10 @@ main:
 		sendmmsgCount++
 		packetsSent += uint64(count)
 
-		for _, packet := range dequeuedPackets[:count] {
-			s.packetBufPool.Put(packet.bufp)
+		qpvecn := qpvec[:count]
+
+		for i := range qpvecn {
+			s.putQueuedPacket(qpvecn[i])
 		}
 
 		if !ok {
@@ -485,6 +488,16 @@ main:
 		zap.Uint64("packetsSent", packetsSent),
 		zap.Uint64("payloadBytesSent", payloadBytesSent),
 	)
+}
+
+// getQueuedPacket retrieves a queued packet from the pool.
+func (s *UDPTransparentRelay) getQueuedPacket() *transparentQueuedPacket {
+	return s.queuedPacketPool.Get().(*transparentQueuedPacket)
+}
+
+// putQueuedPacket puts the queued packet back into the pool.
+func (s *UDPTransparentRelay) putQueuedPacket(queuedPacket *transparentQueuedPacket) {
+	s.queuedPacketPool.Put(queuedPacket)
 }
 
 type transparentConn struct {

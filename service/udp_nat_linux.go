@@ -24,7 +24,7 @@ func (s *UDPNATRelay) setRelayFunc(batchMode string) {
 }
 
 func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
-	bufvec := make([]*[]byte, conn.UIO_MAXIOV)
+	qpvec := make([]*natQueuedPacket, conn.UIO_MAXIOV)
 	namevec := make([]unix.RawSockaddrInet6, conn.UIO_MAXIOV)
 	iovec := make([]unix.Iovec, conn.UIO_MAXIOV)
 	cmsgvec := make([][]byte, conn.UIO_MAXIOV)
@@ -51,10 +51,9 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 
 	for {
 		for i := range iovec[:n] {
-			packetBufp := s.packetBufPool.Get().(*[]byte)
-			packetBuf := *packetBufp
-			bufvec[i] = packetBufp
-			iovec[i].Base = &packetBuf[s.packetBufFrontHeadroom]
+			queuedPacket := s.getQueuedPacket()
+			qpvec[i] = queuedPacket
+			iovec[i].Base = &queuedPacket.buf[s.packetBufFrontHeadroom]
 			iovec[i].SetLen(s.packetBufRecvSize)
 			msgvec[i].Msghdr.SetControllen(conn.SocketControlMessageBufferSize)
 		}
@@ -72,7 +71,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 			)
 
 			n = 1
-			s.packetBufPool.Put(bufvec[0])
+			s.putQueuedPacket(qpvec[0])
 			continue
 		}
 
@@ -85,7 +84,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 
 		for i := range msgvecn {
 			msg := &msgvecn[i]
-			packetBufp := bufvec[i]
+			queuedPacket := qpvec[i]
 
 			if msg.Msghdr.Controllen == 0 {
 				s.logger.Warn("Skipping packet with no control message from serverConn",
@@ -93,7 +92,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 					zap.String("listenAddress", s.listenAddress),
 				)
 
-				s.packetBufPool.Put(packetBufp)
+				s.putQueuedPacket(queuedPacket)
 				continue
 			}
 
@@ -105,7 +104,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 					zap.Error(err),
 				)
 
-				s.packetBufPool.Put(packetBufp)
+				s.putQueuedPacket(queuedPacket)
 				continue
 			}
 
@@ -119,7 +118,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 					zap.Error(err),
 				)
 
-				s.packetBufPool.Put(packetBufp)
+				s.putQueuedPacket(queuedPacket)
 				continue
 			}
 
@@ -136,12 +135,12 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 						zap.Error(err),
 					)
 
-					s.packetBufPool.Put(packetBufp)
+					s.putQueuedPacket(queuedPacket)
 					continue
 				}
 			}
 
-			targetAddr, payloadStart, payloadLength, err := entry.serverConnUnpacker.UnpackInPlace(*packetBufp, clientAddrPort, s.packetBufFrontHeadroom, int(msg.Msglen))
+			queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length, err = entry.serverConnUnpacker.UnpackInPlace(queuedPacket.buf, clientAddrPort, s.packetBufFrontHeadroom, int(msg.Msglen))
 			if err != nil {
 				s.logger.Warn("Failed to unpack packet from serverConn",
 					zap.String("server", s.serverName),
@@ -151,11 +150,11 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 					zap.Error(err),
 				)
 
-				s.packetBufPool.Put(packetBufp)
+				s.putQueuedPacket(queuedPacket)
 				continue
 			}
 
-			payloadBytesReceived += uint64(payloadLength)
+			payloadBytesReceived += uint64(queuedPacket.length)
 
 			var clientPktinfop *[]byte
 			cmsg := cmsgvec[i][:msg.Msghdr.Controllen]
@@ -167,11 +166,11 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 						zap.String("server", s.serverName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 						zap.Error(err),
 					)
 
-					s.packetBufPool.Put(packetBufp)
+					s.putQueuedPacket(queuedPacket)
 					continue
 				}
 
@@ -186,7 +185,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 						zap.String("server", s.serverName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 						zap.Stringer("clientPktinfoAddr", clientPktinfoAddr),
 						zap.Uint32("clientPktinfoIfindex", clientPktinfoIfindex),
 					)
@@ -194,7 +193,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 			}
 
 			if !ok {
-				entry.natConnSendCh = make(chan queuedPacket, sendChannelCapacity)
+				entry.natConnSendCh = make(chan *natQueuedPacket, sendChannelCapacity)
 				s.table[clientAddrPort] = entry
 
 				go func() {
@@ -208,18 +207,18 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 
 						if !sendChClean {
 							for queuedPacket := range entry.natConnSendCh {
-								s.packetBufPool.Put(queuedPacket.bufp)
+								s.putQueuedPacket(queuedPacket)
 							}
 						}
 					}()
 
-					c, err := s.router.GetUDPClient(s.serverName, clientAddrPort, targetAddr)
+					c, err := s.router.GetUDPClient(s.serverName, clientAddrPort, queuedPacket.targetAddr)
 					if err != nil {
 						s.logger.Warn("Failed to get UDP client for new NAT session",
 							zap.String("server", s.serverName),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", targetAddr),
+							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 							zap.Error(err),
 						)
 						return
@@ -239,7 +238,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 							zap.String("client", clientName),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", targetAddr),
+							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 							zap.Error(err),
 						)
 						return
@@ -252,7 +251,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 							zap.String("client", clientName),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", targetAddr),
+							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 							zap.Int("natConnFwmark", natConnFwmark),
 							zap.Error(err),
 						)
@@ -266,7 +265,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 							zap.String("client", clientName),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", targetAddr),
+							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 							zap.Duration("natTimeout", s.natTimeout),
 							zap.Error(err),
 						)
@@ -293,7 +292,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 						zap.String("client", clientName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 					)
 
 					s.wg.Add(1)
@@ -312,32 +311,32 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 						zap.String("server", s.serverName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 					)
 				}
 			}
 
 			select {
-			case entry.natConnSendCh <- queuedPacket{packetBufp, payloadStart, payloadLength, targetAddr}:
+			case entry.natConnSendCh <- queuedPacket:
 			default:
 				if ce := s.logger.Check(zap.DebugLevel, "Dropping packet due to full send channel"); ce != nil {
 					ce.Write(
 						zap.String("server", s.serverName),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", targetAddr),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 					)
 				}
 
-				s.packetBufPool.Put(packetBufp)
+				s.putQueuedPacket(queuedPacket)
 			}
 		}
 
 		s.mu.Unlock()
 	}
 
-	for _, packetBufp := range bufvec {
-		s.packetBufPool.Put(packetBufp)
+	for i := range qpvec {
+		s.putQueuedPacket(qpvec[i])
 	}
 
 	s.logger.Info("Finished receiving from serverConn",
@@ -360,7 +359,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 		payloadBytesSent uint64
 	)
 
-	dequeuedPackets := make([]queuedPacket, s.batchSize)
+	qpvec := make([]*natQueuedPacket, s.batchSize)
 	namevec := make([]unix.RawSockaddrInet6, s.batchSize)
 	iovec := make([]unix.Iovec, s.batchSize)
 	msgvec := make([]conn.Mmsghdr, s.batchSize)
@@ -384,18 +383,18 @@ main:
 
 	dequeue:
 		for {
-			destAddrPort, packetStart, packetLength, err = entry.natConnPacker.PackInPlace(*queuedPacket.bufp, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length)
+			destAddrPort, packetStart, packetLength, err = entry.natConnPacker.PackInPlace(queuedPacket.buf, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length)
 			if err != nil {
 				s.logger.Warn("Failed to pack packet for natConn",
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Stringer("targetAddress", queuedPacket.targetAddr),
+					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 					zap.Int("payloadLength", queuedPacket.length),
 					zap.Error(err),
 				)
 
-				s.packetBufPool.Put(queuedPacket.bufp)
+				s.putQueuedPacket(queuedPacket)
 
 				if count == 0 {
 					continue main
@@ -403,9 +402,9 @@ main:
 				goto next
 			}
 
-			dequeuedPackets[count] = queuedPacket
+			qpvec[count] = queuedPacket
 			namevec[count] = conn.AddrPortToSockaddrInet6(destAddrPort)
-			iovec[count].Base = &(*queuedPacket.bufp)[packetStart]
+			iovec[count].Base = &queuedPacket.buf[packetStart]
 			iovec[count].SetLen(packetLength)
 			count++
 			payloadBytesSent += uint64(queuedPacket.length)
@@ -430,7 +429,7 @@ main:
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
-				zap.Stringer("lastTargetAddress", dequeuedPackets[count-1].targetAddr),
+				zap.Stringer("lastTargetAddress", &qpvec[count-1].targetAddr),
 				zap.Stringer("lastWriteDestAddress", destAddrPort),
 				zap.Error(err),
 			)
@@ -449,8 +448,10 @@ main:
 		sendmmsgCount++
 		packetsSent += uint64(count)
 
-		for _, packet := range dequeuedPackets[:count] {
-			s.packetBufPool.Put(packet.bufp)
+		qpvecn := qpvec[:count]
+
+		for i := range qpvecn {
+			s.putQueuedPacket(qpvecn[i])
 		}
 
 		if !ok {
