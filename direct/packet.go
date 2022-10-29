@@ -23,22 +23,18 @@ type DirectPacketClientPackUnpacker struct {
 
 	// mtu is used in the PackInPlace method to determine whether the payload is too big.
 	mtu int
-
-	// preferIPv6 controls whether the direct client prefers IPv6 addresses when resolving domain targets.
-	preferIPv6 bool
 }
 
 // NewDirectPacketClientPackUnpacker creates a zerocopy.ClientPackUnpacker for direct connection.
-func NewDirectPacketClientPackUnpacker(mtu int, preferIPv6 bool) *DirectPacketClientPackUnpacker {
+func NewDirectPacketClientPackUnpacker(mtu int) *DirectPacketClientPackUnpacker {
 	return &DirectPacketClientPackUnpacker{
-		mtu:        mtu,
-		preferIPv6: preferIPv6,
+		mtu: mtu,
 	}
 }
 
 func (p *DirectPacketClientPackUnpacker) updateDomainIPCache(targetAddr conn.Addr) error {
 	if p.cachedDomain != targetAddr.Domain() {
-		ip, err := targetAddr.ResolveIP(p.preferIPv6)
+		ip, err := targetAddr.ResolveIP()
 		if err != nil {
 			return err
 		}

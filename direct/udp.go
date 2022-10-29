@@ -7,8 +7,8 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-func NewUDPClient(name string, mtu, fwmark int, preferIPv6 bool) *zerocopy.SimpleUDPClient {
-	p := NewDirectPacketClientPackUnpacker(mtu, preferIPv6)
+func NewUDPClient(name string, mtu, fwmark int) *zerocopy.SimpleUDPClient {
+	p := NewDirectPacketClientPackUnpacker(mtu)
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(mtu, netip.IPv4Unspecified())
 	return zerocopy.NewSimpleUDPClient(zerocopy.ZeroHeadroom{}, p, p, name, maxPacketSize, fwmark)
 }

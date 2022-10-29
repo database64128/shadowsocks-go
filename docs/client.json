@@ -131,6 +131,5 @@
                 ]
             }
         ]
-    },
-    "udpPreferIPv6": true
+    }
 }

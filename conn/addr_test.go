@@ -78,76 +78,41 @@ func TestAddrIPPort(t *testing.T) {
 }
 
 func TestAddrResolveIP(t *testing.T) {
-	ip, err := addrIP.ResolveIP(false)
+	ip, err := addrIP.ResolveIP()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ip != addrIPAddr {
-		t.Errorf("addrIP.ResolveIP(false) returned %s, expected %s.", ip, addrIPAddr)
+		t.Errorf("addrIP.ResolveIP() returned %s, expected %s.", ip, addrIPAddr)
 	}
 
-	ip, err = addrIP.ResolveIP(true)
+	ip, err = addrDomain.ResolveIP()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ip != addrIPAddr {
-		t.Errorf("addrIP.ResolveIP(true) returned %s, expected %s.", ip, addrIPAddr)
-	}
-
-	ip, err = addrDomain.ResolveIP(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ip.Is4() && !ip.Is4In6() {
-		t.Errorf("addrDomain.ResolveIP(false) returned %s, expected IPv4 or IPv4-mapped IPv6 address.", ip)
-	}
-
-	ip, err = addrDomain.ResolveIP(true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ip.Is4() || ip.Is4In6() {
-		t.Errorf("addrDomain.ResolveIP(true) returned %s, expected IPv6 address.", ip)
+	if !ip.IsValid() {
+		t.Error("addrDomain.ResolveIP() returned invalid IP address.")
 	}
 }
 
 func TestAddrResolveIPPort(t *testing.T) {
-	ipPort, err := addrIP.ResolveIPPort(false)
+	ipPort, err := addrIP.ResolveIPPort()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ipPort != addrIPAddrPort {
-		t.Errorf("addrIP.ResolveIPPort(false) returned %s, expected %s.", ipPort, addrIPAddrPort)
+		t.Errorf("addrIP.ResolveIPPort() returned %s, expected %s.", ipPort, addrIPAddrPort)
 	}
 
-	ipPort, err = addrIP.ResolveIPPort(true)
+	ipPort, err = addrDomain.ResolveIPPort()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ipPort != addrIPAddrPort {
-		t.Errorf("addrIP.ResolveIPPort(true) returned %s, expected %s.", ipPort, addrIPAddrPort)
-	}
-
-	ipPort, err = addrDomain.ResolveIPPort(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ip := ipPort.Addr(); !ip.Is4() && !ip.Is4In6() {
-		t.Errorf("addrDomain.ResolveIPPort(false) returned %s, expected IPv4 or IPv4-mapped IPv6 address.", ipPort)
+	if !ipPort.Addr().IsValid() {
+		t.Error("addrDomain.ResolveIPPort() returned invalid IP address.")
 	}
 	if ipPort.Port() != addrDomainPort {
 		t.Errorf("addrDomain.ResolveIPPort(false) returned %s, expected port %d.", ipPort, addrDomainPort)
-	}
-
-	ipPort, err = addrDomain.ResolveIPPort(true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ip := ipPort.Addr(); ip.Is4() || ip.Is4In6() {
-		t.Errorf("addrDomain.ResolveIPPort(true) returned %s, expected IPv6 address.", ipPort)
-	}
-	if ipPort.Port() != addrDomainPort {
-		t.Errorf("addrDomain.ResolveIPPort(true) returned %s, expected port %d.", ipPort, addrDomainPort)
 	}
 }
 

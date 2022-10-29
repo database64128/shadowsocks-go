@@ -48,21 +48,21 @@ func (a Addr) IPPort() netip.AddrPort {
 }
 
 // ResolveIP returns the IP address itself or the resolved IP address of the domain name.
-func (a Addr) ResolveIP(preferIPv6 bool) (netip.Addr, error) {
+func (a Addr) ResolveIP() (netip.Addr, error) {
 	if a.ip.IsValid() {
 		return a.ip, nil
 	}
-	return ResolveAddr(a.domain, preferIPv6)
+	return ResolveAddr(a.domain)
 }
 
 // ResolveIPPort returns the IP address itself or the resolved IP address of the domain name
 // and the port number as a netip.AddrPort.
-func (a Addr) ResolveIPPort(preferIPv6 bool) (netip.AddrPort, error) {
+func (a Addr) ResolveIPPort() (netip.AddrPort, error) {
 	if a.ip.IsValid() {
 		return a.IPPort(), nil
 	}
 
-	ip, err := ResolveAddr(a.domain, preferIPv6)
+	ip, err := ResolveAddr(a.domain)
 	if err != nil {
 		return netip.AddrPort{}, err
 	}

@@ -49,8 +49,7 @@ For servers without any user PSKs (single-user mode), the `psk` field specifies 
                 "oE/s2z9Q8EWORAB8B3UCxw=="
             ]
         }
-    ],
-    "udpPreferIPv6": true
+    ]
 }
 ```
 
@@ -192,8 +191,7 @@ By default, the router uses the configured DNS server to resolve domain names an
                 ]
             }
         ]
-    },
-    "udpPreferIPv6": true
+    }
 }
 ```
 

@@ -28,13 +28,12 @@ type Relay interface {
 // Config is the main configuration structure.
 // It may be marshaled as or unmarshaled from JSON.
 type Config struct {
-	Servers       []ServerConfig       `json:"servers"`
-	Clients       []ClientConfig       `json:"clients"`
-	DNS           []dns.ResolverConfig `json:"dns"`
-	Router        router.Config        `json:"router"`
-	UDPBatchMode  string               `json:"udpBatchMode"`
-	UDPBatchSize  int                  `json:"udpBatchSize"`
-	UDPPreferIPv6 bool                 `json:"udpPreferIPv6"`
+	Servers      []ServerConfig       `json:"servers"`
+	Clients      []ClientConfig       `json:"clients"`
+	DNS          []dns.ResolverConfig `json:"dns"`
+	Router       router.Config        `json:"router"`
+	UDPBatchMode string               `json:"udpBatchMode"`
+	UDPBatchSize int                  `json:"udpBatchSize"`
 }
 
 // Manager initializes the service manager.
@@ -89,7 +88,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 			return nil, fmt.Errorf("failed to create TCP client for %s: %w", clientName, err)
 		}
 
-		udpClient, err := clientConfig.UDPClient(logger, sc.UDPPreferIPv6)
+		udpClient, err := clientConfig.UDPClient(logger)
 		switch err {
 		case errNetworkDisabled:
 		case nil:

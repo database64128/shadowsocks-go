@@ -73,7 +73,7 @@ func (cc *ClientConfig) TCPClient(logger *zap.Logger) (zerocopy.TCPClient, error
 	}
 }
 
-func (cc *ClientConfig) UDPClient(logger *zap.Logger, preferIPv6 bool) (zerocopy.UDPClient, error) {
+func (cc *ClientConfig) UDPClient(logger *zap.Logger) (zerocopy.UDPClient, error) {
 	if !cc.EnableUDP {
 		return nil, errNetworkDisabled
 	}
@@ -90,7 +90,7 @@ func (cc *ClientConfig) UDPClient(logger *zap.Logger, preferIPv6 bool) (zerocopy
 	// Resolve endpoint address for some protocols.
 	switch cc.Protocol {
 	case "none", "plain", "socks5", "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		endpointAddrPort, err = cc.Endpoint.ResolveIPPort(preferIPv6)
+		endpointAddrPort, err = cc.Endpoint.ResolveIPPort()
 		if err != nil {
 			return nil, err
 		}
@@ -98,7 +98,7 @@ func (cc *ClientConfig) UDPClient(logger *zap.Logger, preferIPv6 bool) (zerocopy
 
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewUDPClient(cc.Name, cc.MTU, cc.DialerFwmark, preferIPv6), nil
+		return direct.NewUDPClient(cc.Name, cc.MTU, cc.DialerFwmark), nil
 	case "none", "plain":
 		return direct.NewShadowsocksNoneUDPClient(endpointAddrPort, cc.Name, cc.MTU, cc.DialerFwmark), nil
 	case "socks5":

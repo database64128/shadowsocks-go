@@ -198,6 +198,5 @@
         ]
     },
     "udpBatchMode": "",
-    "udpBatchSize": 0,
-    "udpPreferIPv6": true
+    "udpBatchSize": 0
 }
