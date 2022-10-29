@@ -12,7 +12,7 @@ import (
 
 func NewUDPTransparentRelay(
 	serverName, listenAddress string,
-	batchSize, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
+	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
 	natTimeout time.Duration,
 	router *router.Router,
 	logger *zap.Logger,

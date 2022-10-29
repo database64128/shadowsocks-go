@@ -59,7 +59,9 @@ type UDPNATRelay struct {
 	mtu                    int
 	packetBufFrontHeadroom int
 	packetBufRecvSize      int
-	batchSize              int
+	relayBatchSize         int
+	serverRecvBatchSize    int
+	sendChannelCapacity    int
 	natTimeout             time.Duration
 	server                 zerocopy.UDPNATServer
 	serverConn             *net.UDPConn
@@ -75,7 +77,7 @@ type UDPNATRelay struct {
 
 func NewUDPNATRelay(
 	batchMode, serverName, listenAddress string,
-	batchSize, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
+	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
 	natTimeout time.Duration,
 	server zerocopy.UDPNATServer,
 	router *router.Router,
@@ -98,7 +100,9 @@ func NewUDPNATRelay(
 		mtu:                    mtu,
 		packetBufFrontHeadroom: packetBufFrontHeadroom,
 		packetBufRecvSize:      packetBufRecvSize,
-		batchSize:              batchSize,
+		relayBatchSize:         relayBatchSize,
+		serverRecvBatchSize:    serverRecvBatchSize,
+		sendChannelCapacity:    sendChannelCapacity,
 		natTimeout:             natTimeout,
 		server:                 server,
 		router:                 router,
@@ -266,7 +270,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 		}
 
 		if !ok {
-			entry.natConnSendCh = make(chan *natQueuedPacket, sendChannelCapacity)
+			entry.natConnSendCh = make(chan *natQueuedPacket, s.sendChannelCapacity)
 			s.table[clientAddrPort] = entry
 
 			go func() {

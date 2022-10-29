@@ -31,6 +31,12 @@ type ServerConfig struct {
 	MTU           int  `json:"mtu"`
 	NatTimeoutSec int  `json:"natTimeoutSec"`
 
+	// UDP performance tuning
+	UDPBatchMode           string `json:"udpBatchMode"`
+	UDPRelayBatchSize      int    `json:"udpRelayBatchSize"`
+	UDPServerRecvBatchSize int    `json:"udpServerRecvBatchSize"`
+	UDPSendChannelCapacity int    `json:"udpSendChannelCapacity"`
+
 	// Simple tunnel
 	TunnelRemoteAddress conn.Addr `json:"tunnelRemoteAddress"`
 	TunnelUDPTargetOnly bool      `json:"tunnelUDPTargetOnly"`
@@ -119,13 +125,43 @@ func (sc *ServerConfig) TCPRelay(router *router.Router, logger *zap.Logger) (*TC
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
-func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, batchMode string, batchSize, maxClientFrontHeadroom, maxClientRearHeadroom int) (Relay, error) {
+func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, maxClientFrontHeadroom, maxClientRearHeadroom int) (Relay, error) {
 	if !sc.EnableUDP {
 		return nil, errNetworkDisabled
 	}
 
 	if sc.MTU < minimumMTU {
 		return nil, ErrMTUTooSmall
+	}
+
+	switch sc.UDPBatchMode {
+	case "", "no", "sendmmsg":
+	default:
+		return nil, fmt.Errorf("unknown UDP batch mode: %s", sc.UDPBatchMode)
+	}
+
+	switch {
+	case sc.UDPRelayBatchSize > 0 && sc.UDPRelayBatchSize <= 1024:
+	case sc.UDPRelayBatchSize == 0:
+		sc.UDPRelayBatchSize = defaultRelayBatchSize
+	default:
+		return nil, fmt.Errorf("UDP relay batch size out of range [0, 1024]: %d", sc.UDPRelayBatchSize)
+	}
+
+	switch {
+	case sc.UDPServerRecvBatchSize > 0 && sc.UDPServerRecvBatchSize <= 1024:
+	case sc.UDPServerRecvBatchSize == 0:
+		sc.UDPServerRecvBatchSize = defaultServerRecvBatchSize
+	default:
+		return nil, fmt.Errorf("UDP server recv batch size out of range [0, 1024]: %d", sc.UDPServerRecvBatchSize)
+	}
+
+	switch {
+	case sc.UDPSendChannelCapacity >= 64:
+	case sc.UDPSendChannelCapacity == 0:
+		sc.UDPSendChannelCapacity = defaultSendChannelCapacity
+	default:
+		return nil, fmt.Errorf("UDP send channel capacity must be at least 64: %d", sc.UDPSendChannelCapacity)
 	}
 
 	var (
@@ -178,11 +214,11 @@ func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, batc
 
 	switch sc.Protocol {
 	case "direct", "none", "plain", "socks5":
-		return NewUDPNATRelay(batchMode, sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, natServer, router, logger), nil
+		return NewUDPNATRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, natServer, router, logger), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		return NewUDPSessionRelay(batchMode, sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, server, router, logger), nil
+		return NewUDPSessionRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, server, router, logger), nil
 	case "tproxy":
-		return NewUDPTransparentRelay(sc.Name, sc.Listen, batchSize, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, router, logger)
+		return NewUDPTransparentRelay(sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, router, logger)
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}

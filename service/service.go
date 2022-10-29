@@ -28,12 +28,10 @@ type Relay interface {
 // Config is the main configuration structure.
 // It may be marshaled as or unmarshaled from JSON.
 type Config struct {
-	Servers      []ServerConfig       `json:"servers"`
-	Clients      []ClientConfig       `json:"clients"`
-	DNS          []dns.ResolverConfig `json:"dns"`
-	Router       router.Config        `json:"router"`
-	UDPBatchMode string               `json:"udpBatchMode"`
-	UDPBatchSize int                  `json:"udpBatchSize"`
+	Servers []ServerConfig       `json:"servers"`
+	Clients []ClientConfig       `json:"clients"`
+	DNS     []dns.ResolverConfig `json:"dns"`
+	Router  router.Config        `json:"router"`
 }
 
 // Manager initializes the service manager.
@@ -55,20 +53,6 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 				MTU:       1500,
 			},
 		}
-	}
-
-	switch sc.UDPBatchMode {
-	case "", "no", "sendmmsg":
-	default:
-		return nil, fmt.Errorf("unknown UDP batch mode: %s", sc.UDPBatchMode)
-	}
-
-	switch {
-	case sc.UDPBatchSize > 0 && sc.UDPBatchSize <= 1024:
-	case sc.UDPBatchSize == 0:
-		sc.UDPBatchSize = defaultRecvmmsgMsgvecSize
-	default:
-		return nil, fmt.Errorf("UDP batch size out of range [0, 1024]: %d", sc.UDPBatchSize)
 	}
 
 	tcpClientMap := make(map[string]zerocopy.TCPClient, len(sc.Clients))
@@ -136,7 +120,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 			return nil, fmt.Errorf("failed to create TCP relay service for %s: %w", sc.Servers[i].Name, err)
 		}
 
-		udpRelay, err := sc.Servers[i].UDPRelay(router, logger, sc.UDPBatchMode, sc.UDPBatchSize, maxClientFrontHeadroom, maxClientRearHeadroom)
+		udpRelay, err := sc.Servers[i].UDPRelay(router, logger, maxClientFrontHeadroom, maxClientRearHeadroom)
 		switch err {
 		case errNetworkDisabled:
 		case nil:

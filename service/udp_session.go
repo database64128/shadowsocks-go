@@ -67,7 +67,9 @@ type UDPSessionRelay struct {
 	mtu                    int
 	packetBufFrontHeadroom int
 	packetBufRecvSize      int
-	batchSize              int
+	relayBatchSize         int
+	serverRecvBatchSize    int
+	sendChannelCapacity    int
 	natTimeout             time.Duration
 	server                 zerocopy.UDPSessionServer
 	serverConn             *net.UDPConn
@@ -83,7 +85,7 @@ type UDPSessionRelay struct {
 
 func NewUDPSessionRelay(
 	batchMode, serverName, listenAddress string,
-	batchSize, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
+	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
 	natTimeout time.Duration,
 	server zerocopy.UDPSessionServer,
 	router *router.Router,
@@ -106,7 +108,9 @@ func NewUDPSessionRelay(
 		mtu:                    mtu,
 		packetBufFrontHeadroom: packetBufFrontHeadroom,
 		packetBufRecvSize:      packetBufRecvSize,
-		batchSize:              batchSize,
+		relayBatchSize:         relayBatchSize,
+		serverRecvBatchSize:    serverRecvBatchSize,
+		sendChannelCapacity:    sendChannelCapacity,
 		natTimeout:             natTimeout,
 		server:                 server,
 		router:                 router,
@@ -307,7 +311,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 		}
 
 		if !ok {
-			entry.natConnSendCh = make(chan *sessionQueuedPacket, sendChannelCapacity)
+			entry.natConnSendCh = make(chan *sessionQueuedPacket, s.sendChannelCapacity)
 			s.table[csid] = entry
 
 			go func() {

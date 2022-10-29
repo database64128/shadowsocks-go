@@ -9,7 +9,11 @@
             "listenerTFO": true,
             "enableUDP": true,
             "mtu": 1500,
-            "natTimeoutSec": 300
+            "natTimeoutSec": 300,
+            "udpBatchMode": "sendmmsg",
+            "udpRelayBatchSize": 64,
+            "udpServerRecvBatchSize": 512,
+            "udpSendChannelCapacity": 1024
         },
         {
             "name": "http",
@@ -28,7 +32,11 @@
             "listenerTFO": true,
             "enableUDP": true,
             "mtu": 1500,
-            "natTimeoutSec": 150
+            "natTimeoutSec": 150,
+            "udpBatchMode": "sendmmsg",
+            "udpRelayBatchSize": 64,
+            "udpServerRecvBatchSize": 1024,
+            "udpSendChannelCapacity": 1024
         },
         {
             "name": "tunnel",
@@ -40,6 +48,10 @@
             "enableUDP": true,
             "mtu": 1500,
             "natTimeoutSec": 60,
+            "udpBatchMode": "sendmmsg",
+            "udpRelayBatchSize": 2,
+            "udpServerRecvBatchSize": 8,
+            "udpSendChannelCapacity": 64,
             "tunnelRemoteAddress": "[2606:4700:4700::1111]:53",
             "tunnelUDPTargetOnly": false
         },
@@ -53,6 +65,10 @@
             "enableUDP": true,
             "mtu": 1500,
             "natTimeoutSec": 150,
+            "udpBatchMode": "sendmmsg",
+            "udpRelayBatchSize": 64,
+            "udpServerRecvBatchSize": 512,
+            "udpSendChannelCapacity": 1024,
             "psk": "qQln3GlVCZi5iJUObJVNCw==",
             "uPSKs": [
                 "oE/s2z9Q8EWORAB8B3UCxw=="
@@ -196,7 +212,5 @@
                 "invertToPorts": false
             }
         ]
-    },
-    "udpBatchMode": "",
-    "udpBatchSize": 0
+    }
 }

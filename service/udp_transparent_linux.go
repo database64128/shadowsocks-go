@@ -40,7 +40,9 @@ type UDPTransparentRelay struct {
 	mtu                    int
 	packetBufFrontHeadroom int
 	packetBufRecvSize      int
-	batchSize              int
+	relayBatchSize         int
+	serverRecvBatchSize    int
+	sendChannelCapacity    int
 	natTimeout             time.Duration
 	serverConn             *net.UDPConn
 	router                 *router.Router
@@ -54,7 +56,7 @@ type UDPTransparentRelay struct {
 
 func NewUDPTransparentRelay(
 	serverName, listenAddress string,
-	batchSize, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
+	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
 	natTimeout time.Duration,
 	router *router.Router,
 	logger *zap.Logger,
@@ -68,7 +70,9 @@ func NewUDPTransparentRelay(
 		mtu:                    mtu,
 		packetBufFrontHeadroom: maxClientFrontHeadroom,
 		packetBufRecvSize:      packetBufRecvSize,
-		batchSize:              batchSize,
+		relayBatchSize:         relayBatchSize,
+		serverRecvBatchSize:    serverRecvBatchSize,
+		sendChannelCapacity:    sendChannelCapacity,
 		natTimeout:             natTimeout,
 		router:                 router,
 		logger:                 logger,
@@ -112,11 +116,11 @@ func (s *UDPTransparentRelay) Start() error {
 }
 
 func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
-	qpvec := make([]*transparentQueuedPacket, conn.UIO_MAXIOV)
-	namevec := make([]unix.RawSockaddrInet6, conn.UIO_MAXIOV)
-	iovec := make([]unix.Iovec, conn.UIO_MAXIOV)
-	cmsgvec := make([][]byte, conn.UIO_MAXIOV)
-	msgvec := make([]conn.Mmsghdr, conn.UIO_MAXIOV)
+	qpvec := make([]*transparentQueuedPacket, s.serverRecvBatchSize)
+	namevec := make([]unix.RawSockaddrInet6, s.serverRecvBatchSize)
+	iovec := make([]unix.Iovec, s.serverRecvBatchSize)
+	cmsgvec := make([][]byte, s.serverRecvBatchSize)
+	msgvec := make([]conn.Mmsghdr, s.serverRecvBatchSize)
 
 	for i := range msgvec {
 		cmsgBuf := make([]byte, conn.TransparentSocketControlMessageBufferSize)
@@ -128,7 +132,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 		msgvec[i].Msghdr.Control = &cmsgBuf[0]
 	}
 
-	n := conn.UIO_MAXIOV
+	n := s.serverRecvBatchSize
 
 	var (
 		err                  error
@@ -218,7 +222,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 			entry := s.table[clientAddrPort]
 			if entry == nil {
 				entry = &transparentNATEntry{
-					natConnSendCh: make(chan *transparentQueuedPacket, sendChannelCapacity),
+					natConnSendCh: make(chan *transparentQueuedPacket, s.sendChannelCapacity),
 				}
 
 				s.table[clientAddrPort] = entry
@@ -379,10 +383,10 @@ func (s *UDPTransparentRelay) relayServerConnToNatConnSendmmsg(clientAddrPort ne
 		payloadBytesSent uint64
 	)
 
-	qpvec := make([]*transparentQueuedPacket, s.batchSize)
-	namevec := make([]unix.RawSockaddrInet6, s.batchSize)
-	iovec := make([]unix.Iovec, s.batchSize)
-	msgvec := make([]conn.Mmsghdr, s.batchSize)
+	qpvec := make([]*transparentQueuedPacket, s.relayBatchSize)
+	namevec := make([]unix.RawSockaddrInet6, s.relayBatchSize)
+	iovec := make([]unix.Iovec, s.relayBatchSize)
+	msgvec := make([]conn.Mmsghdr, s.relayBatchSize)
 
 	for i := range msgvec {
 		msgvec[i].Msghdr.Name = (*byte)(unsafe.Pointer(&namevec[i]))
@@ -429,7 +433,7 @@ main:
 			count++
 			payloadBytesSent += uint64(queuedPacket.msglen)
 
-			if count == s.batchSize {
+			if count == s.relayBatchSize {
 				break
 			}
 
@@ -560,12 +564,12 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(clientAddrPo
 	name, namelen := conn.AddrPortUnmappedToSockaddr(clientAddrPort)
 	tcMap := make(map[netip.AddrPort]*transparentConn)
 
-	savec := make([]unix.RawSockaddrInet6, s.batchSize)
-	bufvec := make([][]byte, s.batchSize)
-	iovec := make([]unix.Iovec, s.batchSize)
-	msgvec := make([]conn.Mmsghdr, s.batchSize)
+	savec := make([]unix.RawSockaddrInet6, s.relayBatchSize)
+	bufvec := make([][]byte, s.relayBatchSize)
+	iovec := make([]unix.Iovec, s.relayBatchSize)
+	msgvec := make([]conn.Mmsghdr, s.relayBatchSize)
 
-	for i := 0; i < s.batchSize; i++ {
+	for i := 0; i < s.relayBatchSize; i++ {
 		packetBuf := make([]byte, entry.natConnRecvBufSize)
 		bufvec[i] = packetBuf
 
@@ -652,7 +656,7 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(clientAddrPo
 
 			tc := tcMap[payloadSourceAddrPort]
 			if tc == nil {
-				tc, err = newTransparentConn(payloadSourceAddrPort.String(), s.listenerFwmark, s.batchSize, name, namelen)
+				tc, err = newTransparentConn(payloadSourceAddrPort.String(), s.listenerFwmark, s.relayBatchSize, name, namelen)
 				if err != nil {
 					s.logger.Warn("Failed to create transparentConn",
 						zap.String("server", s.serverName),

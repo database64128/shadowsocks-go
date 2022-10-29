@@ -24,11 +24,11 @@ func (s *UDPNATRelay) setRelayFunc(batchMode string) {
 }
 
 func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
-	qpvec := make([]*natQueuedPacket, conn.UIO_MAXIOV)
-	namevec := make([]unix.RawSockaddrInet6, conn.UIO_MAXIOV)
-	iovec := make([]unix.Iovec, conn.UIO_MAXIOV)
-	cmsgvec := make([][]byte, conn.UIO_MAXIOV)
-	msgvec := make([]conn.Mmsghdr, conn.UIO_MAXIOV)
+	qpvec := make([]*natQueuedPacket, s.serverRecvBatchSize)
+	namevec := make([]unix.RawSockaddrInet6, s.serverRecvBatchSize)
+	iovec := make([]unix.Iovec, s.serverRecvBatchSize)
+	cmsgvec := make([][]byte, s.serverRecvBatchSize)
+	msgvec := make([]conn.Mmsghdr, s.serverRecvBatchSize)
 
 	for i := range msgvec {
 		cmsgBuf := make([]byte, conn.SocketControlMessageBufferSize)
@@ -40,7 +40,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 		msgvec[i].Msghdr.Control = &cmsgBuf[0]
 	}
 
-	n := conn.UIO_MAXIOV
+	n := s.serverRecvBatchSize
 
 	var (
 		err                  error
@@ -193,7 +193,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 			}
 
 			if !ok {
-				entry.natConnSendCh = make(chan *natQueuedPacket, sendChannelCapacity)
+				entry.natConnSendCh = make(chan *natQueuedPacket, s.sendChannelCapacity)
 				s.table[clientAddrPort] = entry
 
 				go func() {
@@ -359,10 +359,10 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 		payloadBytesSent uint64
 	)
 
-	qpvec := make([]*natQueuedPacket, s.batchSize)
-	namevec := make([]unix.RawSockaddrInet6, s.batchSize)
-	iovec := make([]unix.Iovec, s.batchSize)
-	msgvec := make([]conn.Mmsghdr, s.batchSize)
+	qpvec := make([]*natQueuedPacket, s.relayBatchSize)
+	namevec := make([]unix.RawSockaddrInet6, s.relayBatchSize)
+	iovec := make([]unix.Iovec, s.relayBatchSize)
+	msgvec := make([]conn.Mmsghdr, s.relayBatchSize)
 
 	for i := range msgvec {
 		msgvec[i].Msghdr.Name = (*byte)(unsafe.Pointer(&namevec[i]))
@@ -409,7 +409,7 @@ main:
 			count++
 			payloadBytesSent += uint64(queuedPacket.length)
 
-			if count == s.batchSize {
+			if count == s.relayBatchSize {
 				break
 			}
 
@@ -490,14 +490,14 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 	)
 
 	name, namelen := conn.AddrPortToSockaddr(clientAddrPort)
-	savec := make([]unix.RawSockaddrInet6, s.batchSize)
-	bufvec := make([][]byte, s.batchSize)
-	riovec := make([]unix.Iovec, s.batchSize)
-	siovec := make([]unix.Iovec, s.batchSize)
-	rmsgvec := make([]conn.Mmsghdr, s.batchSize)
-	smsgvec := make([]conn.Mmsghdr, s.batchSize)
+	savec := make([]unix.RawSockaddrInet6, s.relayBatchSize)
+	bufvec := make([][]byte, s.relayBatchSize)
+	riovec := make([]unix.Iovec, s.relayBatchSize)
+	siovec := make([]unix.Iovec, s.relayBatchSize)
+	rmsgvec := make([]conn.Mmsghdr, s.relayBatchSize)
+	smsgvec := make([]conn.Mmsghdr, s.relayBatchSize)
 
-	for i := 0; i < s.batchSize; i++ {
+	for i := 0; i < s.relayBatchSize; i++ {
 		packetBuf := make([]byte, frontHeadroom+entry.natConnRecvBufSize+rearHeadroom)
 		bufvec[i] = packetBuf
 
