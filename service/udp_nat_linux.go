@@ -47,6 +47,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 		recvmmsgCount        uint64
 		packetsReceived      uint64
 		payloadBytesReceived uint64
+		burstBatchSize       int
 	)
 
 	for {
@@ -77,6 +78,9 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 
 		recvmmsgCount++
 		packetsReceived += uint64(n)
+		if burstBatchSize < n {
+			burstBatchSize = n
+		}
 
 		s.mu.Lock()
 
@@ -345,6 +349,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 		zap.Uint64("recvmmsgCount", recvmmsgCount),
 		zap.Uint64("packetsReceived", packetsReceived),
 		zap.Uint64("payloadBytesReceived", payloadBytesReceived),
+		zap.Int("burstBatchSize", burstBatchSize),
 	)
 }
 
@@ -357,6 +362,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(clientAddrPort netip.Addr
 		sendmmsgCount    uint64
 		packetsSent      uint64
 		payloadBytesSent uint64
+		burstBatchSize   int
 	)
 
 	qpvec := make([]*natQueuedPacket, s.relayBatchSize)
@@ -447,6 +453,9 @@ main:
 
 		sendmmsgCount++
 		packetsSent += uint64(count)
+		if burstBatchSize < count {
+			burstBatchSize = count
+		}
 
 		qpvecn := qpvec[:count]
 
@@ -467,6 +476,7 @@ main:
 		zap.Uint64("sendmmsgCount", sendmmsgCount),
 		zap.Uint64("packetsSent", packetsSent),
 		zap.Uint64("payloadBytesSent", payloadBytesSent),
+		zap.Int("burstBatchSize", burstBatchSize),
 	)
 }
 
@@ -487,6 +497,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 		sendmmsgCount    uint64
 		packetsSent      uint64
 		payloadBytesSent uint64
+		burstBatchSize   int
 	)
 
 	name, namelen := conn.AddrPortToSockaddr(clientAddrPort)
@@ -625,6 +636,9 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 
 		sendmmsgCount++
 		packetsSent += uint64(ns)
+		if burstBatchSize < ns {
+			burstBatchSize = ns
+		}
 	}
 
 	s.logger.Info("Finished relay serverConn <- natConn",
@@ -634,5 +648,6 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(clientAddrPort netip.Addr
 		zap.Uint64("sendmmsgCount", sendmmsgCount),
 		zap.Uint64("packetsSent", packetsSent),
 		zap.Uint64("payloadBytesSent", payloadBytesSent),
+		zap.Int("burstBatchSize", burstBatchSize),
 	)
 }
