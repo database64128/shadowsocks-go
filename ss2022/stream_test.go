@@ -55,7 +55,7 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherCo
 		t.Fatal(serr)
 	}
 
-	if clientTargetAddr != serverTargetAddr {
+	if !clientTargetAddr.Equals(serverTargetAddr) {
 		t.Errorf("Target address mismatch: c: %s, s: %s", clientTargetAddr, serverTargetAddr)
 	}
 	if !bytes.Equal(clientInitialPayload, serverInitialPayload) {

@@ -128,7 +128,7 @@ func testConnAddrFromSliceAndReader(t *testing.T, sa []byte, expectedAddr conn.A
 	if n != len(sa) {
 		t.Errorf("ConnAddrFromSlice(b) returned n=%d, expected n=%d.", n, len(sa))
 	}
-	if addr != expectedAddr {
+	if !addr.Equals(expectedAddr) {
 		t.Errorf("ConnAddrFromSlice(b) returned %s, expected %s.", addr, expectedAddr)
 	}
 	if !bytes.Equal(b[n:], expectedTail) {
@@ -140,7 +140,7 @@ func testConnAddrFromSliceAndReader(t *testing.T, sa []byte, expectedAddr conn.A
 	if err != nil {
 		t.Fatal(err)
 	}
-	if addr != expectedAddr {
+	if !addr.Equals(expectedAddr) {
 		t.Errorf("ConnAddrFromReader(r) returned %s, expected %s.", addr, expectedAddr)
 	}
 	tail, err := io.ReadAll(r)
@@ -176,7 +176,7 @@ func testConnAddrFromSliceWithDomainCache(t *testing.T, sa []byte, cachedDomain 
 	if n != len(sa) {
 		t.Errorf("ConnAddrFromSlice(b) returned n=%d, expected n=%d.", n, len(sa))
 	}
-	if addr != expectedAddr {
+	if !addr.Equals(expectedAddr) {
 		t.Errorf("ConnAddrFromSlice(b) returned %s, expected %s.", addr, expectedAddr)
 	}
 	if !bytes.Equal(b[n:], expectedTail) {

@@ -4,7 +4,15 @@ import (
 	"bytes"
 	"crypto/rand"
 	"net/netip"
+	"strings"
 	"testing"
+)
+
+// Test zero value.
+var (
+	addrZero       Addr
+	addrZeroPort   uint16
+	addrZeroString string
 )
 
 // Test IP address.
@@ -25,56 +33,113 @@ var (
 	addrDomainString        = "example.com:443"
 )
 
-func TestAddrIsIP(t *testing.T) {
+func TestAddrEquals(t *testing.T) {
+	if !addrZero.Equals(addrZero) {
+		t.Error("addrZero.Equals(addrZero) returned false.")
+	}
+	if !addrIP.Equals(addrIP) {
+		t.Error("addrIP.Equals(addrIP) returned false.")
+	}
+	if !addrDomain.Equals(addrDomain) {
+		t.Error("addrDomain.Equals(addrDomain) returned false.")
+	}
+
+	if addrZero.Equals(addrIP) {
+		t.Error("addrZero.Equals(addrIP) returned true.")
+	}
+	if addrZero.Equals(addrDomain) {
+		t.Error("addrZero.Equals(addrDomain) returned true.")
+	}
+	if addrIP.Equals(addrDomain) {
+		t.Error("addrIP.Equals(addrDomain) returned true.")
+	}
+
+	if addrIP443 := AddrFromIPPort(netip.AddrPortFrom(addrIPAddr, 443)); addrIP443.Equals(addrIP) {
+		t.Error("addrIP443.Equals(addrIP) returned true.")
+	}
+}
+
+func TestAddrIs(t *testing.T) {
+	if addrZero.IsValid() {
+		t.Error("addrZero.IsValid() returned true.")
+	}
+	if addrZero.IsIP() {
+		t.Error("addrZero.IsIP() returned true.")
+	}
+	if addrZero.IsDomain() {
+		t.Error("addrZero.IsDomain() returned true.")
+	}
+
+	if !addrIP.IsValid() {
+		t.Error("addrIP.IsValid() returned false.")
+	}
 	if !addrIP.IsIP() {
 		t.Error("addrIP.IsIP() returned false.")
 	}
+	if addrIP.IsDomain() {
+		t.Error("addrIP.IsDomain() returned true.")
+	}
 
+	if !addrDomain.IsValid() {
+		t.Error("addrDomain.IsValid() returned false.")
+	}
 	if addrDomain.IsIP() {
 		t.Error("addrDomain.IsIP() returned true.")
 	}
+	if !addrDomain.IsDomain() {
+		t.Error("addrDomain.IsDomain() returned false.")
+	}
+}
+
+func assertPanic(t *testing.T, f func()) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic, got none.")
+		}
+	}()
+	f()
 }
 
 func TestAddrIP(t *testing.T) {
-	if addrIP.IP() != addrIPAddr {
-		t.Errorf("addrIP.IP() returned %s, expected %s.", addrIP.IP(), addrIPAddr)
+	if ip := addrIP.IP(); ip != addrIPAddr {
+		t.Errorf("addrIP.IP() returned %s, expected %s.", ip, addrIPAddr)
 	}
 
-	var netipAddrZeroValue netip.Addr
-	if addrDomain.IP() != netipAddrZeroValue {
-		t.Errorf("addrDomain.IP() returned %s, expected zero value.", addrDomain.IP())
-	}
+	assertPanic(t, func() { addrZero.IP() })
+	assertPanic(t, func() { addrDomain.IP() })
 }
 
 func TestAddrDomain(t *testing.T) {
-	if addrIP.Domain() != "" {
-		t.Errorf("addrIP.Domain() returned %s, expected empty string.", addrIP.Domain())
+	if domain := addrDomain.Domain(); domain != addrDomainHost {
+		t.Errorf("addrDomain.Domain() returned %s, expected %s.", domain, addrDomainHost)
 	}
 
-	if addrDomain.Domain() != addrDomainHost {
-		t.Errorf("addrDomain.Domain() returned %s, expected %s.", addrDomain.Domain(), addrDomainHost)
-	}
+	assertPanic(t, func() { addrZero.Domain() })
+	assertPanic(t, func() { addrIP.Domain() })
 }
 
 func TestAddrPort(t *testing.T) {
-	if addrIP.Port() != addrIPPort {
-		t.Errorf("addrIP.Port() returned %d, expected %d.", addrIP.Port(), addrIPPort)
+	if port := addrZero.Port(); port != addrZeroPort {
+		t.Errorf("addrZero.Port() returned %d, expected %d.", port, addrZeroPort)
 	}
 
-	if addrDomain.Port() != addrDomainPort {
-		t.Errorf("addrDomain.Port() returned %d, expected %d.", addrDomain.Port(), addrDomainPort)
+	if port := addrIP.Port(); port != addrIPPort {
+		t.Errorf("addrIP.Port() returned %d, expected %d.", port, addrIPPort)
+	}
+
+	if port := addrDomain.Port(); port != addrDomainPort {
+		t.Errorf("addrDomain.Port() returned %d, expected %d.", port, addrDomainPort)
 	}
 }
 
 func TestAddrIPPort(t *testing.T) {
-	if addrIP.IPPort() != addrIPAddrPort {
-		t.Errorf("addrIP.IPPort() returned %s, expected %s.", addrIP.IPPort(), addrIPAddrPort)
+	if ap := addrIP.IPPort(); ap != addrIPAddrPort {
+		t.Errorf("addrIP.IPPort() returned %s, expected %s.", ap, addrIPAddrPort)
 	}
 
-	addrPort := netip.AddrPortFrom(netip.Addr{}, addrDomainPort)
-	if addrDomain.IPPort() != addrPort {
-		t.Errorf("addrDomain.IPPort() returned %s, expected zero-value address and %d.", addrDomain.IPPort(), addrDomainPort)
-	}
+	assertPanic(t, func() { addrZero.IPPort() })
+	assertPanic(t, func() { addrDomain.IPPort() })
 }
 
 func TestAddrResolveIP(t *testing.T) {
@@ -93,6 +158,8 @@ func TestAddrResolveIP(t *testing.T) {
 	if !ip.IsValid() {
 		t.Error("addrDomain.ResolveIP() returned invalid IP address.")
 	}
+
+	assertPanic(t, func() { addrZero.ResolveIP() })
 }
 
 func TestAddrResolveIPPort(t *testing.T) {
@@ -114,25 +181,33 @@ func TestAddrResolveIPPort(t *testing.T) {
 	if ipPort.Port() != addrDomainPort {
 		t.Errorf("addrDomain.ResolveIPPort(false) returned %s, expected port %d.", ipPort, addrDomainPort)
 	}
+
+	assertPanic(t, func() { addrZero.ResolveIPPort() })
 }
 
 func TestAddrHost(t *testing.T) {
-	if addrIP.Host() != addrIPHost {
-		t.Errorf("addrIP.Host() returned %s, expected %s.", addrIP.Host(), addrIPHost)
+	if host := addrIP.Host(); host != addrIPHost {
+		t.Errorf("addrIP.Host() returned %s, expected %s.", host, addrIPHost)
 	}
 
-	if addrDomain.Host() != addrDomainHost {
-		t.Errorf("addrDomain.Host() returned %s, expected %s.", addrDomain.Host(), addrDomainHost)
+	if host := addrDomain.Host(); host != addrDomainHost {
+		t.Errorf("addrDomain.Host() returned %s, expected %s.", host, addrDomainHost)
 	}
+
+	assertPanic(t, func() { addrZero.Host() })
 }
 
 func TestAddrString(t *testing.T) {
-	if addrIP.String() != addrIPString {
-		t.Errorf("addrIP.String() returned %s, expected %s.", addrIP.String(), addrIPString)
+	if s := addrZero.String(); s != addrZeroString {
+		t.Errorf("addrZero.String() returned %s, expected %s.", s, addrZeroString)
 	}
 
-	if addrDomain.String() != addrDomainString {
-		t.Errorf("addrDomain.String() returned %s, expected %s.", addrDomain.String(), addrDomainString)
+	if s := addrIP.String(); s != addrIPString {
+		t.Errorf("addrIP.String() returned %s, expected %s.", s, addrIPString)
+	}
+
+	if s := addrDomain.String(); s != addrDomainString {
+		t.Errorf("addrDomain.String() returned %s, expected %s.", s, addrDomainString)
 	}
 }
 
@@ -147,12 +222,20 @@ func TestAddrAppendTo(t *testing.T) {
 	b = append(b, head...)
 	bHead := b
 
+	b = addrZero.AppendTo(b)
+	if !bytes.Equal(bHead, head) {
+		t.Error("addrIP.AppendTo() returned modified head.")
+	}
+	if string(b[64:]) != addrZeroString {
+		t.Errorf("addrZero.AppendTo() returned %s, expected %s.", b[64:], addrZeroString)
+	}
+
 	b = addrIP.AppendTo(bHead)
 	if !bytes.Equal(bHead, head) {
 		t.Error("addrIP.AppendTo() returned modified head.")
 	}
 	if string(b[64:]) != addrIPString {
-		t.Errorf("addrIP.AppendTo() returned %s, expected %s.", string(b[64:]), addrIPString)
+		t.Errorf("addrIP.AppendTo() returned %s, expected %s.", b[64:], addrIPString)
 	}
 
 	b = addrDomain.AppendTo(bHead)
@@ -160,12 +243,20 @@ func TestAddrAppendTo(t *testing.T) {
 		t.Error("addrDomain.AppendTo() returned modified head.")
 	}
 	if string(b[64:]) != addrDomainString {
-		t.Errorf("addrDomain.AppendTo() returned %s, expected %s.", string(b[64:]), addrDomainString)
+		t.Errorf("addrDomain.AppendTo() returned %s, expected %s.", b[64:], addrDomainString)
 	}
 }
 
 func TestAddrMarshalAndUnmarshalText(t *testing.T) {
-	text, err := addrIP.MarshalText()
+	text, err := addrZero.MarshalText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(text) != addrZeroString {
+		t.Errorf("addrZero.MarshalText() returned %s, expected %s.", text, addrZeroString)
+	}
+
+	text, err = addrIP.MarshalText()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +269,7 @@ func TestAddrMarshalAndUnmarshalText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if addrUnmarshaled != addrIP {
+	if !addrUnmarshaled.Equals(addrIP) {
 		t.Errorf("addrIP.UnmarshalText() returned %s, expected %s.", addrUnmarshaled, addrIP)
 	}
 
@@ -194,8 +285,18 @@ func TestAddrMarshalAndUnmarshalText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if addrUnmarshaled != addrDomain {
+	if !addrUnmarshaled.Equals(addrDomain) {
 		t.Errorf("addrDomain.UnmarshalText() returned %s, expected %s.", addrUnmarshaled, addrDomain)
+	}
+}
+
+func TestAddrFromDomainPort(t *testing.T) {
+	if _, err := AddrFromDomainPort("", 443); err == nil {
+		t.Error("AddrFromDomainPort(\"\", 443) did not return error.")
+	}
+	s := strings.Repeat(" ", 256)
+	if _, err := AddrFromDomainPort(s, 443); err == nil {
+		t.Error("AddrFromDomainPort(s, 443) did not return error.")
 	}
 }
 
@@ -204,7 +305,7 @@ func TestAddrFromHostPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if addrFromHostPort != addrIP {
+	if !addrFromHostPort.Equals(addrIP) {
 		t.Errorf("AddrFromHostPort() returned %s, expected %s.", addrFromHostPort, addrIP)
 	}
 
@@ -212,7 +313,7 @@ func TestAddrFromHostPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if addrFromHostPort != addrDomain {
+	if !addrFromHostPort.Equals(addrDomain) {
 		t.Errorf("AddrFromHostPort() returned %s, expected %s.", addrFromHostPort, addrDomain)
 	}
 }
@@ -222,7 +323,7 @@ func TestAddrParsing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if addrParsed != addrIP {
+	if !addrParsed.Equals(addrIP) {
 		t.Errorf("ParseAddr() returned %s, expected %s.", addrParsed, addrIP)
 	}
 
@@ -230,7 +331,7 @@ func TestAddrParsing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if addrParsed != addrDomain {
+	if !addrParsed.Equals(addrDomain) {
 		t.Errorf("ParseAddr() returned %s, expected %s.", addrParsed, addrDomain)
 	}
 }

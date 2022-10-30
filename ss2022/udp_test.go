@@ -97,7 +97,7 @@ func testUDPClientServer(t *testing.T, clientCipherConfig, serverCipherConfig *C
 	}
 
 	// Check target address.
-	if ta != targetAddr {
+	if !ta.Equals(targetAddr) {
 		t.Errorf("Target address mismatch: c: %s, s: %s", targetAddr, ta)
 	}
 

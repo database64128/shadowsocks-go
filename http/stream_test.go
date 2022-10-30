@@ -50,7 +50,7 @@ func TestHttpStreamReadWriter(t *testing.T) {
 		t.Fatal(serr)
 	}
 
-	if clientTargetAddr != serverTargetAddr {
+	if !clientTargetAddr.Equals(serverTargetAddr) {
 		t.Errorf("Target address mismatch: c: %s, s: %s", clientTargetAddr, serverTargetAddr)
 	}
 

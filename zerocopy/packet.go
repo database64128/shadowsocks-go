@@ -130,7 +130,7 @@ func ClientServerPackerUnpackerTestFunc(t tester, clientPacker ClientPacker, cli
 	}
 
 	// Check target address.
-	if ta != targetAddr {
+	if !ta.Equals(targetAddr) {
 		t.Errorf("Target address mismatch: c: %s, s: %s", targetAddr, ta)
 	}
 
