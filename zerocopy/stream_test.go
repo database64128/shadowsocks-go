@@ -3,36 +3,26 @@ package zerocopy
 import (
 	"bytes"
 	"crypto/rand"
+	"errors"
+	"fmt"
 	"io"
 	"testing"
 )
 
-type testBytesReadCloser struct {
-	*bytes.Reader
-}
-
-func (r *testBytesReadCloser) Close() error {
-	return nil
-}
+var errExpectDirect = errors.New("buffered relay method is used")
 
 type testReader struct {
 	ZeroHeadroom
-	t *testing.T
-	r *testBytesReadCloser
+	r *bytes.Reader
 }
 
 func newTestReader(t *testing.T) (*testReader, []byte) {
 	b := make([]byte, 1024)
-	bcopy := make([]byte, 1024)
 	_, err := rand.Read(b)
 	if err != nil {
 		t.Fatal(err)
 	}
-	copy(bcopy, b)
-	return &testReader{
-		t: t,
-		r: &testBytesReadCloser{bytes.NewReader(b)},
-	}, bcopy
+	return &testReader{r: bytes.NewReader(b)}, append([]byte{}, b...)
 }
 
 func (r *testReader) MinPayloadBufferSizePerRead() int {
@@ -40,9 +30,7 @@ func (r *testReader) MinPayloadBufferSizePerRead() int {
 }
 
 func (r *testReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
-	readBuf := b[payloadBufStart : payloadBufStart+payloadBufLen]
-	payloadLen, err = r.r.Read(readBuf)
-	return
+	return r.r.Read(b[payloadBufStart : payloadBufStart+payloadBufLen])
 }
 
 func (r *testReader) Close() error {
@@ -55,9 +43,7 @@ type testBigReader struct {
 
 func newTestBigReader(t *testing.T) (*testBigReader, []byte) {
 	r, b := newTestReader(t)
-	return &testBigReader{
-		testReader: r,
-	}, b
+	return &testBigReader{r}, b
 }
 
 func (r *testBigReader) MinPayloadBufferSizePerRead() int {
@@ -66,7 +52,7 @@ func (r *testBigReader) MinPayloadBufferSizePerRead() int {
 
 func (r *testBigReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
 	if len(b) < 64 {
-		r.t.Errorf("The read buffer is too small: %d", len(b))
+		return 0, fmt.Errorf("read buffer too small: %d", len(b))
 	}
 	return r.testReader.ReadZeroCopy(b, payloadBufStart, payloadBufLen)
 }
@@ -77,18 +63,15 @@ type testDirectReadCloser struct {
 
 func newTestDirectReadCloser(t *testing.T) (*testDirectReadCloser, []byte) {
 	r, b := newTestReader(t)
-	return &testDirectReadCloser{
-		testReader: r,
-	}, b
+	return &testDirectReadCloser{r}, b
 }
 
 func (r *testDirectReadCloser) DirectReadCloser() io.ReadCloser {
-	return r.r
+	return io.NopCloser(r.r)
 }
 
 func (r *testDirectReadCloser) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
-	r.t.Error("Buffered relay method is used!")
-	return
+	return 0, errExpectDirect
 }
 
 type testBytesBufferCloser struct {
@@ -101,16 +84,7 @@ func (w *testBytesBufferCloser) Close() error {
 
 type testWriter struct {
 	ZeroHeadroom
-	t *testing.T
-	w *testBytesBufferCloser
-}
-
-func newTestWriter(t *testing.T) *testWriter {
-	b := make([]byte, 0, 1024)
-	return &testWriter{
-		t: t,
-		w: &testBytesBufferCloser{bytes.NewBuffer(b)},
-	}
+	w bytes.Buffer
 }
 
 func (w *testWriter) MaxPayloadSizePerWrite() int {
@@ -118,9 +92,7 @@ func (w *testWriter) MaxPayloadSizePerWrite() int {
 }
 
 func (w *testWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
-	writeBuf := b[payloadStart : payloadStart+payloadLen]
-	payloadWritten, err = w.w.Write(writeBuf)
-	return
+	return w.w.Write(b[payloadStart : payloadStart+payloadLen])
 }
 
 func (w *testWriter) Close() error {
@@ -132,13 +104,7 @@ func (w *testWriter) Bytes() []byte {
 }
 
 type testSmallWriter struct {
-	*testWriter
-}
-
-func newTestSmallWriter(t *testing.T) *testSmallWriter {
-	return &testSmallWriter{
-		testWriter: newTestWriter(t),
-	}
+	testWriter
 }
 
 func (w *testSmallWriter) MaxPayloadSizePerWrite() int {
@@ -147,28 +113,21 @@ func (w *testSmallWriter) MaxPayloadSizePerWrite() int {
 
 func (w *testSmallWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
 	if len(b) > 32 {
-		w.t.Errorf("The write buffer is too big: %d", len(b))
+		return 0, fmt.Errorf("write buffer too big: %d", len(b))
 	}
 	return w.testWriter.WriteZeroCopy(b, payloadStart, payloadLen)
 }
 
 type testDirectWriteCloser struct {
-	*testWriter
-}
-
-func newTestDirectWriteCloser(t *testing.T) *testDirectWriteCloser {
-	return &testDirectWriteCloser{
-		testWriter: newTestWriter(t),
-	}
+	testWriter
 }
 
 func (w *testDirectWriteCloser) DirectWriteCloser() io.WriteCloser {
-	return w.w
+	return &testBytesBufferCloser{&w.w}
 }
 
 func (w *testDirectWriteCloser) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
-	w.t.Error("Buffered relay method is used!")
-	return
+	return 0, errExpectDirect
 }
 
 type getBytes interface {
@@ -180,9 +139,14 @@ type testReadWriter interface {
 	getBytes
 }
 
+type testWriterBytes interface {
+	Writer
+	getBytes
+}
+
 type testReadWriterImpl struct {
 	Reader
-	Writer
+	testWriterBytes
 }
 
 func (rw *testReadWriterImpl) FrontHeadroom() int {
@@ -198,35 +162,31 @@ func (rw *testReadWriterImpl) CloseRead() error {
 }
 
 func (rw *testReadWriterImpl) CloseWrite() error {
-	return rw.Writer.Close()
+	return rw.testWriterBytes.Close()
 }
 
 func (rw *testReadWriterImpl) Close() error {
 	crErr := rw.Reader.Close()
-	cwErr := rw.Writer.Close()
+	cwErr := rw.testWriterBytes.Close()
 	if crErr != nil {
 		return crErr
 	}
 	return cwErr
 }
 
-func (rw *testReadWriterImpl) Bytes() []byte {
-	return rw.Writer.(getBytes).Bytes()
-}
-
 func newTestTypicalReadWriter(t *testing.T) (*testReadWriterImpl, []byte) {
 	r, b := newTestReader(t)
 	return &testReadWriterImpl{
-		Reader: r,
-		Writer: newTestWriter(t),
+		Reader:          r,
+		testWriterBytes: &testWriter{},
 	}, b
 }
 
 func newTestBigReaderSmallWriter(t *testing.T) (*testReadWriterImpl, []byte) {
 	r, b := newTestBigReader(t)
 	return &testReadWriterImpl{
-		Reader: r,
-		Writer: newTestSmallWriter(t),
+		Reader:          r,
+		testWriterBytes: &testSmallWriter{},
 	}, b
 }
 
@@ -268,7 +228,7 @@ func newTestDirectReadWriter(t *testing.T) (*testDirectReadWriter, []byte) {
 	r, b := newTestDirectReadCloser(t)
 	return &testDirectReadWriter{
 		testDirectReadCloser:  r,
-		testDirectWriteCloser: newTestDirectWriteCloser(t),
+		testDirectWriteCloser: &testDirectWriteCloser{},
 	}, b
 }
 
@@ -278,10 +238,10 @@ func testTwoWayRelay(t *testing.T, l, r testReadWriter, ldata, rdata []byte) {
 		t.Error(err)
 	}
 	if nl2r != 1024 {
-		t.Errorf("Expected nl2r: 1024\nGot: %d", nl2r)
+		t.Errorf("Expected nl2r 1024, got %d", nl2r)
 	}
 	if nr2l != 1024 {
-		t.Errorf("Expected nr2l: 1024\nGot: %d", nr2l)
+		t.Errorf("Expected nr2l 1024, got %d", nr2l)
 	}
 
 	ldataAfter := l.Bytes()
