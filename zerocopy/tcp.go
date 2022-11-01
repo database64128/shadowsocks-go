@@ -7,6 +7,7 @@ import (
 	"io"
 	mrand "math/rand"
 	"net"
+	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/tfo-go/v2"
@@ -134,13 +135,32 @@ func CloseWriteDrain(conn *net.TCPConn, serverName, listenAddress, clientAddress
 
 // ReplyWithGibberish keeps reading and replying with random garbage until EOF or error.
 func ReplyWithGibberish(conn *net.TCPConn, serverName, listenAddress, clientAddress string, logger *zap.Logger) {
-	var (
-		bytesRead, bytesWritten int64
-		n                       int
-		err                     error
+	const (
+		riBits = 7
+		riMask = 1<<riBits - 1
+		riMax  = 63 / riBits
 	)
 
-	b := make([]byte, 65535) // Hopefully b is stack allocated.
+	var (
+		ri        int64
+		remaining int
+	)
+
+	rng := mrand.NewSource(time.Now().UnixNano())
+
+	const (
+		bufBaseSize    = 1 << 14
+		bufVarSizeMask = bufBaseSize - 1
+	)
+
+	var (
+		bytesRead    int64
+		bytesWritten int64
+		n            int
+		err          error
+	)
+
+	b := make([]byte, bufBaseSize+int(rng.Int63()&bufVarSizeMask)) // [16k, 32k)
 
 	for {
 		n, err = conn.Read(b)
@@ -149,9 +169,16 @@ func ReplyWithGibberish(conn *net.TCPConn, serverName, listenAddress, clientAddr
 			break
 		}
 
-		// n is in [128, 256].
+		// n is in [129, 256].
 		// getrandom(2) won't block if the request size is not greater than 256.
-		n = 128 + mrand.Intn(129)
+		if remaining == 0 {
+			ri = rng.Int63()
+			remaining = riMax
+		}
+		n = 129 + int(ri&riMask)
+		ri >>= riBits
+		remaining--
+
 		garbage := b[:n]
 		_, err = rand.Read(garbage)
 		if err != nil {

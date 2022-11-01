@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	mrand "math/rand"
 	"net/netip"
 
 	"github.com/database64128/shadowsocks-go/magic"
@@ -72,6 +73,7 @@ func (c *UDPClient) NewSession() (zerocopy.ClientPacker, zerocopy.ClientUnpacker
 			csid:                              csid,
 			aead:                              c.cipherConfig.NewAEAD(salt),
 			block:                             c.packerBlock,
+			rng:                               mrand.New(mrand.NewSource(int64(csid))),
 			shouldPad:                         c.shouldPad,
 			eihCiphers:                        c.eihCiphers,
 			eihPSKHashes:                      c.eihPSKHashes,
@@ -175,6 +177,7 @@ func (s *UDPServer) NewPacker(csid uint64) (zerocopy.ServerPacker, error) {
 		csid:      csid,
 		aead:      s.currentUserCipherConfig.NewAEAD(salt),
 		block:     s.currentUserCipherConfig.NewBlock(),
+		rng:       mrand.New(mrand.NewSource(int64(ssid))),
 		shouldPad: s.shouldPad,
 	}, nil
 }

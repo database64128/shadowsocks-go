@@ -93,6 +93,9 @@ type ShadowPacketClientPacker struct {
 	// Block cipher for the separate header.
 	block cipher.Block
 
+	// Padding length RNG.
+	rng *rand.Rand
+
 	// Padding policy.
 	shouldPad PaddingPolicy
 
@@ -134,7 +137,7 @@ func (p *ShadowPacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, p
 		err = zerocopy.ErrPayloadTooBig
 		return
 	case maxPaddingLen > 0 && p.shouldPad(targetAddr):
-		paddingLen = 1 + rand.Intn(maxPaddingLen)
+		paddingLen = 1 + p.rng.Intn(maxPaddingLen)
 	}
 
 	messageHeaderStart := payloadStart - UDPClientMessageHeaderFixedLength - targetAddrLen - paddingLen
@@ -193,6 +196,9 @@ type ShadowPacketServerPacker struct {
 	// Block cipher for the separate header.
 	block cipher.Block
 
+	// Padding length RNG.
+	rng *rand.Rand
+
 	// Padding policy.
 	shouldPad PaddingPolicy
 }
@@ -216,7 +222,7 @@ func (p *ShadowPacketServerPacker) PackInPlace(b []byte, sourceAddrPort netip.Ad
 		err = zerocopy.ErrPayloadTooBig
 		return
 	case maxPaddingLen > 0 && p.shouldPad(conn.AddrFromIPPort(sourceAddrPort)):
-		paddingLen = 1 + rand.Intn(maxPaddingLen)
+		paddingLen = 1 + p.rng.Intn(maxPaddingLen)
 	}
 
 	messageHeaderStart := payloadStart - UDPServerMessageHeaderFixedLength - paddingLen - sourceAddrLen

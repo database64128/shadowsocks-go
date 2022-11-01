@@ -10,6 +10,7 @@ import (
 	mrand "math/rand"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	_ "github.com/database64128/shadowsocks-go/mrandseed"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )

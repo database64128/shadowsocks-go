@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	_ "github.com/database64128/shadowsocks-go/mrandseed"
 	"github.com/database64128/shadowsocks-go/socks5"
 )
 
