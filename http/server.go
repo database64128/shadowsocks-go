@@ -47,6 +47,8 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 	// Spin up a goroutine to write processed requests to pl
 	// and read responses from pl.
 	go func() {
+		var rerr, werr error
+
 		plbr := bufio.NewReader(pl)
 		plbw := bufio.NewWriter(pl)
 		rwbw := bufio.NewWriter(rw)
@@ -65,39 +67,32 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 
 			delete(req.Header, "Proxy-Connection")
 
-			// Write request.
-			err := req.Write(plbw)
-			if err != nil {
-				logger.Warn("Failed to write HTTP request",
+			if ce := logger.Check(zap.DebugLevel, "Writing HTTP request"); ce != nil {
+				ce.Write(
 					zap.String("proto", req.Proto),
 					zap.String("method", req.Method),
 					zap.String("url", req.RequestURI),
-					zap.Error(err),
 				)
+			}
+
+			// Write request.
+			if werr = req.Write(plbw); werr != nil {
+				werr = fmt.Errorf("failed to write HTTP request: %w", werr)
 				break
 			}
 
 			// Flush request.
-			err = plbw.Flush()
-			if err != nil {
-				logger.Warn("Failed to flush HTTP request",
-					zap.String("proto", req.Proto),
-					zap.String("method", req.Method),
-					zap.String("url", req.RequestURI),
-					zap.Error(err),
-				)
+			if werr = plbw.Flush(); werr != nil {
+				werr = fmt.Errorf("failed to flush HTTP request: %w", werr)
 				break
 			}
 
+			var resp *http.Response
+
 			// Read response.
-			resp, err := http.ReadResponse(plbr, req)
-			if err != nil {
-				logger.Warn("Failed to read HTTP response",
-					zap.String("proto", req.Proto),
-					zap.String("method", req.Method),
-					zap.String("url", req.RequestURI),
-					zap.Error(err),
-				)
+			resp, rerr = http.ReadResponse(plbr, req)
+			if rerr != nil {
+				rerr = fmt.Errorf("failed to read HTTP response: %w", rerr)
 				break
 			}
 
@@ -122,27 +117,22 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 				}
 			}
 
-			// Write response.
-			err = resp.Write(rwbw)
-			if err != nil {
-				logger.Warn("Failed to write HTTP response",
+			if ce := logger.Check(zap.DebugLevel, "Writing HTTP response"); ce != nil {
+				ce.Write(
 					zap.String("proto", resp.Proto),
 					zap.String("status", resp.Status),
-					zap.String("proto", resp.Proto),
-					zap.Error(err),
 				)
+			}
+
+			// Write response.
+			if rerr = resp.Write(rwbw); rerr != nil {
+				rerr = fmt.Errorf("failed to write HTTP response: %w", rerr)
 				break
 			}
 
 			// Flush response.
-			err = rwbw.Flush()
-			if err != nil {
-				logger.Warn("Failed to flush HTTP response",
-					zap.String("proto", resp.Proto),
-					zap.String("status", resp.Status),
-					zap.String("proto", resp.Proto),
-					zap.Error(err),
-				)
+			if rerr = rwbw.Flush(); rerr != nil {
+				rerr = fmt.Errorf("failed to flush HTTP response: %w", rerr)
 				break
 			}
 
@@ -151,18 +141,17 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 			}
 
 			// Read request.
-			req, err = magic.ReadRequest(rwbr)
-			if err != nil {
-				if err != io.EOF {
-					logger.Warn("Failed to read HTTP request", zap.Error(err))
+			req, werr = magic.ReadRequest(rwbr)
+			if werr != nil {
+				if werr != io.EOF {
+					werr = fmt.Errorf("failed to read HTTP request: %w", werr)
 				}
 				break
 			}
 		}
 
-		if err := pl.Close(); err != nil {
-			logger.Warn("Failed to close pipe", zap.Error(err))
-		}
+		pl.CloseReadWithError(rerr)
+		pl.CloseWriteWithError(werr)
 	}()
 
 	// Wrap pr into a direct stream ReadWriter.

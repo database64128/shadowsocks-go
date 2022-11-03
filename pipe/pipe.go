@@ -39,10 +39,20 @@ func (p *DuplexPipeEnd) CloseWrite() error {
 }
 
 func (p *DuplexPipeEnd) Close() error {
-	rerr := p.r.Close()
-	werr := p.w.Close()
-	if rerr != nil {
-		return rerr
-	}
-	return werr
+	p.r.Close()
+	p.w.Close()
+	return nil
+}
+
+func (p *DuplexPipeEnd) CloseReadWithError(err error) {
+	p.r.CloseWithError(err)
+}
+
+func (p *DuplexPipeEnd) CloseWriteWithError(err error) {
+	p.w.CloseWithError(err)
+}
+
+func (p *DuplexPipeEnd) CloseWithError(err error) {
+	p.r.CloseWithError(err)
+	p.w.CloseWithError(err)
 }
