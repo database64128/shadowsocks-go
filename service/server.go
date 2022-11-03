@@ -98,7 +98,7 @@ func (sc *ServerConfig) TCPRelay(router *router.Router, logger *zap.Logger) (*TC
 		}
 
 		if len(sc.UnsafeRequestStreamPrefix) != 0 || len(sc.UnsafeResponseStreamPrefix) != 0 {
-			logger.Warn("Unsafe stream prefix taints the server", zap.String("name", sc.Name))
+			logger.Warn("Unsafe stream prefix taints the server", zap.String("server", sc.Name))
 		}
 
 		server = ss2022.NewTCPServer(sc.cipherConfig, sc.uPSKMap, sc.UnsafeRequestStreamPrefix, sc.UnsafeResponseStreamPrefix)

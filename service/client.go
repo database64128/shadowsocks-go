@@ -65,7 +65,7 @@ func (cc *ClientConfig) TCPClient(logger *zap.Logger) (zerocopy.TCPClient, error
 			cc.eihPSKHashes = cc.cipherConfig.ClientPSKHashes()
 		}
 		if len(cc.UnsafeRequestStreamPrefix) != 0 || len(cc.UnsafeResponseStreamPrefix) != 0 {
-			logger.Warn("Unsafe stream prefix taints the client", zap.String("name", cc.Name))
+			logger.Warn("Unsafe stream prefix taints the client", zap.String("client", cc.Name))
 		}
 		return ss2022.NewTCPClient(cc.Name, cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark, cc.cipherConfig, cc.eihPSKHashes, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
 	default:
