@@ -235,12 +235,7 @@ func (rw *ShadowStreamServerReadWriter) CloseWrite() error {
 
 // Close implements the ReadWriter Close method.
 func (rw *ShadowStreamServerReadWriter) Close() error {
-	crErr := rw.CloseRead()
-	cwErr := rw.CloseWrite()
-	if crErr != nil {
-		return crErr
-	}
-	return cwErr
+	return rw.rawRW.Close()
 }
 
 // ShadowStreamClientReadWriter implements Shadowsocks stream client.
@@ -462,12 +457,7 @@ func (rw *ShadowStreamClientReadWriter) CloseWrite() error {
 
 // Close implements the ReadWriter Close method.
 func (rw *ShadowStreamClientReadWriter) Close() error {
-	crErr := rw.CloseRead()
-	cwErr := rw.CloseWrite()
-	if crErr != nil {
-		return crErr
-	}
-	return cwErr
+	return rw.rawRW.Close()
 }
 
 // ShadowStreamWriter wraps an io.WriteCloser and feeds an encrypted Shadowsocks stream to it.
