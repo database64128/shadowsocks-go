@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	_ zerocopy.DirectReadCloser  = (*DirectStreamReadWriter)(nil)
-	_ zerocopy.DirectWriteCloser = (*DirectStreamReadWriter)(nil)
+	_ zerocopy.DirectReader = (*DirectStreamReadWriter)(nil)
+	_ zerocopy.DirectWriter = (*DirectStreamReadWriter)(nil)
 )
 
 // DirectStreamReadWriter implements the zerocopy ReadWriter interface and reads/writes everything
@@ -32,8 +32,8 @@ func (rw *DirectStreamReadWriter) WriteZeroCopy(b []byte, payloadStart, payloadL
 	return
 }
 
-// DirectWriteCloser implements the DirectWriteCloser DirectWriteCloser method.
-func (rw *DirectStreamReadWriter) DirectWriteCloser() io.WriteCloser {
+// DirectWriter implements the DirectWriter DirectWriter method.
+func (rw *DirectStreamReadWriter) DirectWriter() io.Writer {
 	return rw.rw
 }
 
@@ -48,8 +48,8 @@ func (rw *DirectStreamReadWriter) ReadZeroCopy(b []byte, payloadBufStart, payloa
 	return
 }
 
-// DirectReadCloser implements the DirectReadCloser DirectReadCloser method.
-func (rw *DirectStreamReadWriter) DirectReadCloser() io.ReadCloser {
+// DirectReader implements the DirectReader DirectReader method.
+func (rw *DirectStreamReadWriter) DirectReader() io.Reader {
 	return rw.rw
 }
 

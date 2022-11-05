@@ -33,10 +33,6 @@ func (r *testReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) 
 	return r.r.Read(b[payloadBufStart : payloadBufStart+payloadBufLen])
 }
 
-func (r *testReader) Close() error {
-	return nil
-}
-
 type testBigReader struct {
 	*testReader
 }
@@ -57,29 +53,21 @@ func (r *testBigReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen in
 	return r.testReader.ReadZeroCopy(b, payloadBufStart, payloadBufLen)
 }
 
-type testDirectReadCloser struct {
+type testDirectReader struct {
 	*testReader
 }
 
-func newTestDirectReadCloser(t *testing.T) (*testDirectReadCloser, []byte) {
+func newTestDirectReadCloser(t *testing.T) (*testDirectReader, []byte) {
 	r, b := newTestReader(t)
-	return &testDirectReadCloser{r}, b
+	return &testDirectReader{r}, b
 }
 
-func (r *testDirectReadCloser) DirectReadCloser() io.ReadCloser {
-	return io.NopCloser(r.r)
+func (r *testDirectReader) DirectReader() io.Reader {
+	return r.r
 }
 
-func (r *testDirectReadCloser) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
+func (r *testDirectReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
 	return 0, errExpectDirect
-}
-
-type testBytesBufferCloser struct {
-	*bytes.Buffer
-}
-
-func (w *testBytesBufferCloser) Close() error {
-	return nil
 }
 
 type testWriter struct {
@@ -93,10 +81,6 @@ func (w *testWriter) MaxPayloadSizePerWrite() int {
 
 func (w *testWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
 	return w.w.Write(b[payloadStart : payloadStart+payloadLen])
-}
-
-func (w *testWriter) Close() error {
-	return nil
 }
 
 func (w *testWriter) Bytes() []byte {
@@ -118,15 +102,15 @@ func (w *testSmallWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) 
 	return w.testWriter.WriteZeroCopy(b, payloadStart, payloadLen)
 }
 
-type testDirectWriteCloser struct {
+type testDirectWriter struct {
 	testWriter
 }
 
-func (w *testDirectWriteCloser) DirectWriteCloser() io.WriteCloser {
-	return &testBytesBufferCloser{&w.w}
+func (w *testDirectWriter) DirectWriter() io.Writer {
+	return &w.w
 }
 
-func (w *testDirectWriteCloser) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
+func (w *testDirectWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
 	return 0, errExpectDirect
 }
 
@@ -158,20 +142,15 @@ func (rw *testReadWriterImpl) RearHeadroom() int {
 }
 
 func (rw *testReadWriterImpl) CloseRead() error {
-	return rw.Reader.Close()
+	return nil
 }
 
 func (rw *testReadWriterImpl) CloseWrite() error {
-	return rw.testWriterBytes.Close()
+	return nil
 }
 
 func (rw *testReadWriterImpl) Close() error {
-	crErr := rw.Reader.Close()
-	cwErr := rw.testWriterBytes.Close()
-	if crErr != nil {
-		return crErr
-	}
-	return cwErr
+	return nil
 }
 
 func newTestTypicalReadWriter(t *testing.T) (*testReadWriterImpl, []byte) {
@@ -191,8 +170,8 @@ func newTestBigReaderSmallWriter(t *testing.T) (*testReadWriterImpl, []byte) {
 }
 
 type testDirectReadWriter struct {
-	*testDirectReadCloser
-	*testDirectWriteCloser
+	*testDirectReader
+	*testDirectWriter
 }
 
 func (rw *testDirectReadWriter) FrontHeadroom() int {
@@ -204,20 +183,15 @@ func (rw *testDirectReadWriter) RearHeadroom() int {
 }
 
 func (rw *testDirectReadWriter) CloseRead() error {
-	return rw.testDirectReadCloser.Close()
+	return nil
 }
 
 func (rw *testDirectReadWriter) CloseWrite() error {
-	return rw.testDirectWriteCloser.Close()
+	return nil
 }
 
 func (rw *testDirectReadWriter) Close() error {
-	crErr := rw.testDirectReadCloser.Close()
-	cwErr := rw.testDirectWriteCloser.Close()
-	if crErr != nil {
-		return crErr
-	}
-	return cwErr
+	return nil
 }
 
 func (rw *testDirectReadWriter) Bytes() []byte {
@@ -227,8 +201,8 @@ func (rw *testDirectReadWriter) Bytes() []byte {
 func newTestDirectReadWriter(t *testing.T) (*testDirectReadWriter, []byte) {
 	r, b := newTestDirectReadCloser(t)
 	return &testDirectReadWriter{
-		testDirectReadCloser:  r,
-		testDirectWriteCloser: &testDirectWriteCloser{},
+		testDirectReader: r,
+		testDirectWriter: &testDirectWriter{},
 	}, b
 }
 

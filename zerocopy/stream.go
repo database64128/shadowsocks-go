@@ -33,8 +33,6 @@ type Reader interface {
 	//
 	// If no error occurs, the returned payload is b[payloadBufStart : payloadBufStart+payloadLen].
 	ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error)
-
-	io.Closer
 }
 
 // Writer provides a stream interface for writing.
@@ -59,30 +57,28 @@ type Writer interface {
 	//
 	// The write operation may use the whole space of b.
 	WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error)
-
-	io.Closer
 }
 
-// DirectReadCloser provides access to the underlying io.ReadCloser.
-type DirectReadCloser interface {
-	// DirectReadCloser returns the underlying reader for direct reads.
-	DirectReadCloser() io.ReadCloser
+// DirectReader provides access to the underlying [io.Reader].
+type DirectReader interface {
+	// DirectReader returns the underlying reader for direct reads.
+	DirectReader() io.Reader
 }
 
-// DirectWriteCloser provides access to the underlying io.WriteCloser.
-type DirectWriteCloser interface {
-	// DirectWriteCloser returns the underlying writer for direct writes.
-	DirectWriteCloser() io.WriteCloser
+// DirectWriter provides access to the underlying [io.Writer].
+type DirectWriter interface {
+	// DirectWriter returns the underlying writer for direct writes.
+	DirectWriter() io.Writer
 }
 
 // Relay reads from r and writes to w using zero-copy methods.
 // It returns the number of bytes transferred, and any error occurred during transfer.
 func Relay(w Writer, r Reader) (n int64, err error) {
 	// Use direct read/write when possible.
-	if dr, ok := r.(DirectReadCloser); ok {
-		if dw, ok := w.(DirectWriteCloser); ok {
-			r := dr.DirectReadCloser()
-			w := dw.DirectWriteCloser()
+	if dr, ok := r.(DirectReader); ok {
+		if dw, ok := w.(DirectWriter); ok {
+			r := dr.DirectReader()
+			w := dw.DirectWriter()
 			return io.Copy(w, r)
 		}
 	}
@@ -209,6 +205,7 @@ type ReadWriter interface {
 	Writer
 	CloseRead
 	CloseWrite
+	io.Closer
 }
 
 // TwoWayRelay relays data between left and right using zero-copy methods.

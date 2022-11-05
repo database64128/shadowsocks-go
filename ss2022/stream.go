@@ -516,11 +516,6 @@ func (w *ShadowStreamWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen in
 	return
 }
 
-// Close implements the Writer Close method.
-func (w *ShadowStreamWriter) Close() error {
-	return w.writer.Close()
-}
-
 // ShadowStreamReader wraps an io.ReadCloser and reads from it as an encrypted Shadowsocks stream.
 type ShadowStreamReader struct {
 	reader io.ReadCloser
@@ -582,11 +577,6 @@ func (r *ShadowStreamReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufL
 	}
 
 	return
-}
-
-// Close implements the Reader Close method.
-func (r *ShadowStreamReader) Close() error {
-	return r.reader.Close()
 }
 
 // ShadowStreamCipher wraps an AEAD cipher and provides methods that transparently increments
