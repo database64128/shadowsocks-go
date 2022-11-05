@@ -107,7 +107,7 @@ func TestSocks5StreamReadWriter(t *testing.T) {
 	}()
 
 	go func() {
-		s, serverTargetAddr, serr = NewSocks5StreamServerReadWriter(pr, true, false, nil)
+		s, serverTargetAddr, serr = NewSocks5StreamServerReadWriter(pr, true, false)
 		ctrlCh <- struct{}{}
 	}()
 

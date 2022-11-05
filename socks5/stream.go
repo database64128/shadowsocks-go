@@ -128,11 +128,13 @@ func ClientUDPAssociate(rw io.ReadWriter, targetAddr conn.Addr) (conn.Addr, erro
 	return ClientRequest(rw, CmdUDPAssociate, targetAddr)
 }
 
-// ServerAccept processes an incoming request from r.
+// ServerAccept processes an incoming request from rw.
+//
 // enableTCP enables the CONNECT command.
 // enableUDP enables the UDP ASSOCIATE command.
-// conn must be provided when UDP is enabled.
-func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, tc *net.TCPConn) (addr conn.Addr, err error) {
+//
+// When UDP is enabled, rw must be a [*net.TCPConn].
+func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool) (addr conn.Addr, err error) {
 	b := make([]byte, 3+MaxAddrLen)
 
 	// Read VER, NMETHODS.
@@ -208,7 +210,7 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool, tc *net.TCPConn) 
 
 	case b[1] == CmdUDPAssociate && enableUDP:
 		// Use the connection's local address as the returned UDP bound address.
-		localAddrPort := tc.LocalAddr().(*net.TCPAddr).AddrPort()
+		localAddrPort := rw.(*net.TCPConn).LocalAddr().(*net.TCPAddr).AddrPort()
 
 		// Construct reply.
 		b[1] = Succeeded

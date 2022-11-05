@@ -190,7 +190,7 @@ func NewSocks5TCPServer(enableTCP, enableUDP bool) *Socks5TCPServer {
 
 // Accept implements the zerocopy.TCPServer Accept method.
 func (s *Socks5TCPServer) Accept(tc *net.TCPConn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
-	rw, targetAddr, err = NewSocks5StreamServerReadWriter(tc, s.enableTCP, s.enableUDP, tc)
+	rw, targetAddr, err = NewSocks5StreamServerReadWriter(tc, s.enableTCP, s.enableUDP)
 	if err == socks5.ErrUDPAssociateDone {
 		err = zerocopy.ErrAcceptDoneNoRelay
 	}
