@@ -30,6 +30,14 @@ const (
 	MaxAddrLen = 1 + 1 + 255 + 2
 )
 
+var (
+	// IPv4UnspecifiedAddr represents 0.0.0.0:0.
+	IPv4UnspecifiedAddr = [IPv4AddrLen]byte{AtypIPv4}
+
+	// IPv6UnspecifiedAddr represents [::]:0.
+	IPv6UnspecifiedAddr = [IPv6AddrLen]byte{AtypIPv6}
+)
+
 // AppendAddrFromAddrPort appends the netip.AddrPort to the buffer in the SOCKS address format.
 //
 // If the address is an IPv4-mapped IPv6 address, it is converted to an IPv4 address.

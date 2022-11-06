@@ -49,17 +49,26 @@ var (
 )
 
 // replyWithStatus writes a reply to w with the REP field set to status.
-func replyWithStatus(w io.Writer, status byte) error {
-	_, err := w.Write([]byte{Version, status, 0, 1, 0, 0, 0, 0, 0, 0})
+func replyWithStatus(w io.Writer, b []byte, status byte) error {
+	const replyLen = 3 + IPv4AddrLen
+	reply := b[:replyLen]
+	reply[0] = Version
+	reply[1] = status
+	reply[2] = 0
+	*(*[IPv4AddrLen]byte)(reply[3:]) = IPv4UnspecifiedAddr
+	_, err := w.Write(reply)
 	return err
 }
 
 // ClientRequest writes a request to targetAddr and returns the bound address in reply.
 func ClientRequest(rw io.ReadWriter, command byte, targetAddr conn.Addr) (addr conn.Addr, err error) {
 	b := make([]byte, 3+MaxAddrLen)
+	b[0] = Version
+	b[1] = 1
+	b[2] = MethodNoAuthenticationRequired
 
 	// Write VER NMETHDOS METHODS.
-	_, err = rw.Write([]byte{Version, 1, MethodNoAuthenticationRequired})
+	_, err = rw.Write(b[:3])
 	if err != nil {
 		return
 	}
@@ -163,7 +172,9 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool) (addr conn.Addr, 
 
 	// Check METHODS.
 	if bytes.IndexByte(b[:b[1]], MethodNoAuthenticationRequired) == -1 {
-		_, err = rw.Write([]byte{Version, MethodNoAcceptable})
+		b[0] = Version
+		b[1] = MethodNoAcceptable
+		_, err = rw.Write(b[:2])
 		if err == nil {
 			err = ErrUnsupportedAuthenticationMethod
 		}
@@ -177,7 +188,9 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool) (addr conn.Addr, 
 	// 	+-----+--------+
 	// 	|  1  |   1    |
 	// 	+-----+--------+
-	_, err = rw.Write([]byte{Version, MethodNoAuthenticationRequired})
+	b[0] = Version
+	b[1] = MethodNoAuthenticationRequired
+	_, err = rw.Write(b[:2])
 	if err != nil {
 		return
 	}
@@ -206,7 +219,7 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool) (addr conn.Addr, 
 
 	switch {
 	case b[1] == CmdConnect && enableTCP:
-		err = replyWithStatus(rw, Succeeded)
+		err = replyWithStatus(rw, b, Succeeded)
 
 	case b[1] == CmdUDPAssociate && enableUDP:
 		// Use the connection's local address as the returned UDP bound address.
@@ -229,7 +242,7 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool) (addr conn.Addr, 
 		}
 
 	default:
-		err = replyWithStatus(rw, ErrCommandNotSupported)
+		err = replyWithStatus(rw, b, ErrCommandNotSupported)
 		if err == nil {
 			err = fmt.Errorf("%w: %d", ErrUnsupportedCommand, b[1])
 		}
