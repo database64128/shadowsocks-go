@@ -237,9 +237,9 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	payloadLen := 1 + mrand.Intn(math.MaxUint16)
 	bufLen := headerLen + payloadLen
 	b := make([]byte, bufLen)
-	bNoPadding := b[headerLen-noPaddingLen:]
+	bNoPadding := b[paddingLen:]
 	headerBuf := b[:headerLen]
-	headerNoPaddingBuf := bNoPadding[:headerLen]
+	headerNoPaddingBuf := bNoPadding[:noPaddingLen]
 	payload := b[headerLen:]
 	_, err := rand.Read(payload)
 	if err != nil {
@@ -344,9 +344,9 @@ func TestWriteAndParseUDPServerMessageHeader(t *testing.T) {
 	payloadLen := 1 + mrand.Intn(math.MaxUint16)
 	bufLen := headerLen + payloadLen
 	b := make([]byte, bufLen)
-	bNoPadding := b[headerLen-noPaddingLen:]
+	bNoPadding := b[paddingLen:]
 	headerBuf := b[:headerLen]
-	headerNoPaddingBuf := bNoPadding[:headerLen]
+	headerNoPaddingBuf := bNoPadding[:noPaddingLen]
 	payload := b[headerLen:]
 	_, err := rand.Read(payload)
 	if err != nil {
