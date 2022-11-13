@@ -55,13 +55,9 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 
 		for {
 			// Delete hop-by-hop headers specified in Connection.
-			var closeAfterResp bool
 			connectionHeader := req.Header["Connection"]
-			for _, v := range connectionHeader {
-				if strings.EqualFold(v, "close") {
-					closeAfterResp = true
-				}
-				req.Header.Del(v)
+			for i := range connectionHeader {
+				req.Header.Del(connectionHeader[i])
 			}
 			delete(req.Header, "Connection")
 
@@ -101,6 +97,15 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 			switch resp.StatusCode {
 			case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect:
 				location := resp.Header["Location"]
+
+				if ce := logger.Check(zap.DebugLevel, "Checking HTTP 3xx response Location header"); ce != nil {
+					ce.Write(
+						zap.String("proto", resp.Proto),
+						zap.String("status", resp.Status),
+						zap.Strings("location", location),
+					)
+				}
+
 				if len(location) != 1 {
 					break
 				}
@@ -136,7 +141,13 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 				break
 			}
 
-			if closeAfterResp || req.ProtoMajor == 1 && req.ProtoMinor == 0 {
+			// Stop relaying if either client or server indicates that the connection should be closed.
+			//
+			// RFC 7230 section 6.6 says:
+			// The server SHOULD send a "close" connection option in its final response on that connection.
+			//
+			// It's not a "MUST", so we check both.
+			if req.Close || resp.Close {
 				break
 			}
 
