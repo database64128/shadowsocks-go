@@ -1,4 +1,4 @@
-//go:build unix && !freebsd && !linux
+//go:build unix && ((!freebsd && !linux) || (!amd64 && arm64 && loong64 && mips64 && mips64le && ppc64 && ppc64le && riscv64 && sparc64))
 
 package mmap
 
