@@ -11,7 +11,7 @@ const (
 
 	// defaultRelayBatchSize is the default batch size of recvmmsg(2) and sendmmsg(2) calls in relay sessions.
 	//
-	// On an i5-7400, the average number of messages received in a single recvmmsg(2) call is
+	// On an i9-13900K, the average number of messages received in a single recvmmsg(2) call is
 	// around 100 in iperf3 tests. Bumping the msgvec size to greater than 256 does not seem to
 	// yield any performance improvement.
 	//
@@ -20,7 +20,7 @@ const (
 	defaultRelayBatchSize = 256
 
 	// defaultServerRecvBatchSize is the default batch size of a UDP relay's main receive routine.
-	defaultServerRecvBatchSize = 1024
+	defaultServerRecvBatchSize = 64
 
 	// defaultSendChannelCapacity is the default capacity of a UDP relay session's uplink send channel.
 	defaultSendChannelCapacity = 1024
