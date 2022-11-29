@@ -222,10 +222,10 @@ func (a *Addr) UnmarshalText(text []byte) error {
 }
 
 // AddrFromIPPort returns an Addr from the provided netip.AddrPort.
-func AddrFromIPPort(addrPort netip.AddrPort) Addr {
-	addr := Addr{af: addressFamilyNetip}
+func AddrFromIPPort(addrPort netip.AddrPort) (addr Addr) {
 	*(*netip.AddrPort)(unsafe.Pointer(&addr)) = addrPort
-	return addr
+	addr.af = addressFamilyNetip
+	return
 }
 
 // AddrFromDomainPort returns an Addr from the provided domain name and port number.
