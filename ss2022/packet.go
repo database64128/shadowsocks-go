@@ -2,6 +2,7 @@ package ss2022
 
 import (
 	"crypto/cipher"
+	"crypto/subtle"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/magic"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
@@ -161,7 +161,7 @@ func (p *ShadowPacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, p
 	for i := range p.eihCiphers {
 		start := identityHeadersStart + i*IdentityHeaderLength
 		identityHeader := b[start : start+IdentityHeaderLength]
-		magic.XORWords(identityHeader, p.eihPSKHashes[i][:], separateHeader)
+		subtle.XORBytes(identityHeader, p.eihPSKHashes[i][:], separateHeader)
 		p.eihCiphers[i].Encrypt(identityHeader, identityHeader)
 	}
 

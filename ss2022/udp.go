@@ -3,12 +3,12 @@ package ss2022
 import (
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/binary"
 	"fmt"
 	mrand "math/rand"
 	"net/netip"
 
-	"github.com/database64128/shadowsocks-go/magic"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
@@ -146,7 +146,7 @@ func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker,
 		separateHeader := b[:UDPSeparateHeaderLength]
 		identityHeader := b[UDPSeparateHeaderLength : UDPSeparateHeaderLength+identityHeaderLen]
 		s.block.Decrypt(identityHeader, identityHeader)
-		magic.XORWords(identityHeader, identityHeader, separateHeader)
+		subtle.XORBytes(identityHeader, identityHeader, separateHeader)
 		uPSKHash := *(*[IdentityHeaderLength]byte)(identityHeader)
 		userCipherConfig, ok := s.uPSKMap[uPSKHash]
 		if !ok {
