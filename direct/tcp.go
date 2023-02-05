@@ -1,8 +1,6 @@
 package direct
 
 import (
-	"net"
-
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -28,13 +26,13 @@ func (c *TCPClient) String() string {
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (tc *net.TCPConn, rw zerocopy.ReadWriter, err error) {
+func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
 	nc, err := c.dialer.Dial("tcp", targetAddr.String(), payload)
 	if err != nil {
 		return
 	}
-	tc = nc.(*net.TCPConn)
-	rw = &DirectStreamReadWriter{rw: tc}
+	rawRW = nc.(zerocopy.DirectReadWriteCloser)
+	rw = &DirectStreamReadWriter{rw: rawRW}
 	return
 }
 
@@ -90,11 +88,8 @@ func (c *ShadowsocksNoneTCPClient) String() string {
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *ShadowsocksNoneTCPClient) Dial(targetAddr conn.Addr, payload []byte) (tc *net.TCPConn, rw zerocopy.ReadWriter, err error) {
-	rw, rawRW, err := NewShadowsocksNoneStreamClientReadWriter(c.tco, targetAddr, payload)
-	if err == nil {
-		tc = rawRW.(*net.TCPConn)
-	}
+func (c *ShadowsocksNoneTCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
+	rw, rawRW, err = NewShadowsocksNoneStreamClientReadWriter(c.tco, targetAddr, payload)
 	return
 }
 
@@ -147,22 +142,22 @@ func (c *Socks5TCPClient) String() string {
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *Socks5TCPClient) Dial(targetAddr conn.Addr, payload []byte) (tc *net.TCPConn, rw zerocopy.ReadWriter, err error) {
+func (c *Socks5TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
 	nc, err := c.dialer.Dial("tcp", c.address, nil)
 	if err != nil {
 		return
 	}
-	tc = nc.(*net.TCPConn)
+	rawRW = nc.(zerocopy.DirectReadWriteCloser)
 
-	rw, err = NewSocks5StreamClientReadWriter(tc, targetAddr)
+	rw, err = NewSocks5StreamClientReadWriter(rawRW, targetAddr)
 	if err != nil {
-		tc.Close()
+		rawRW.Close()
 		return
 	}
 
 	if len(payload) > 0 {
 		if _, err = rw.WriteZeroCopy(payload, 0, len(payload)); err != nil {
-			tc.Close()
+			rawRW.Close()
 		}
 	}
 	return

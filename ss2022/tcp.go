@@ -1,8 +1,6 @@
 package ss2022
 
 import (
-	"net"
-
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
@@ -34,11 +32,8 @@ func (c *TCPClient) String() string {
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (tc *net.TCPConn, rw zerocopy.ReadWriter, err error) {
-	rw, rawRW, err := NewShadowStreamClientReadWriter(c.tco, c.cipherConfig, c.eihPSKHashes, targetAddr, payload, c.unsafeRequestStreamPrefix, c.unsafeResponseStreamPrefix)
-	if err == nil {
-		tc = rawRW.(*net.TCPConn)
-	}
+func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
+	rw, rawRW, err = NewShadowStreamClientReadWriter(c.tco, c.cipherConfig, c.eihPSKHashes, targetAddr, payload, c.unsafeRequestStreamPrefix, c.unsafeResponseStreamPrefix)
 	return
 }
 

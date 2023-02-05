@@ -38,7 +38,7 @@ type TCPClient interface {
 
 	// Dial creates a connection to the target address under the protocol's
 	// encapsulation and returns the established connection and a ReadWriter for read-write access.
-	Dial(targetAddr conn.Addr, payload []byte) (tc *net.TCPConn, rw ReadWriter, err error)
+	Dial(targetAddr conn.Addr, payload []byte) (rawRW DirectReadWriteCloser, rw ReadWriter, err error)
 }
 
 // TCPServer provides a protocol's TCP service.

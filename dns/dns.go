@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/netip"
 	"os"
 	"sync"
@@ -17,9 +18,13 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 )
 
-// maxDNSPacketSize is the maximum packet size to advertise in EDNS(0).
-// We use the same value as Go itself.
-const maxDNSPacketSize = 1232
+const (
+	// maxDNSPacketSize is the maximum packet size to advertise in EDNS(0).
+	// We use the same value as Go itself.
+	maxDNSPacketSize = 1232
+
+	lookupTimeout = 20 * time.Second
+)
 
 var ErrLookup = errors.New("name lookup failed")
 
@@ -298,8 +303,8 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	}
 	defer udpConn.Close()
 
-	// Set 20s read deadline.
-	err = udpConn.SetReadDeadline(time.Now().Add(20 * time.Second))
+	// Set read deadline.
+	err = udpConn.SetReadDeadline(time.Now().Add(lookupTimeout))
 	if err != nil {
 		r.logger.Warn("Failed to set read deadline",
 			zap.String("resolver", r.name),
@@ -644,7 +649,7 @@ read:
 // It's the caller's responsibility to examine the minTTL and decide whether to cache the result.
 func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Result, minTTL uint32, handled bool) {
 	// Write.
-	tfoConn, rw, err := r.tcpClient.Dial(r.serverAddr, queries)
+	rawRW, rw, err := r.tcpClient.Dial(r.serverAddr, queries)
 	if err != nil {
 		r.logger.Warn("Failed to dial DNS server",
 			zap.String("resolver", r.name),
@@ -654,18 +659,19 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 		)
 		return
 	}
-	defer tfoConn.Close()
+	defer rawRW.Close()
 
 	// Set read deadline.
-	err = tfoConn.SetReadDeadline(time.Now().Add(20 * time.Second))
-	if err != nil {
-		r.logger.Warn("Failed to set read deadline",
-			zap.String("resolver", r.name),
-			zap.String("name", nameString),
-			zap.Stringer("serverAddrPort", r.serverAddrPort),
-			zap.Error(err),
-		)
-		return
+	if tc, ok := rawRW.(*net.TCPConn); ok {
+		if err = tc.SetReadDeadline(time.Now().Add(lookupTimeout)); err != nil {
+			r.logger.Warn("Failed to set read deadline",
+				zap.String("resolver", r.name),
+				zap.String("name", nameString),
+				zap.Stringer("serverAddrPort", r.serverAddrPort),
+				zap.Error(err),
+			)
+			return
+		}
 	}
 
 	// Read.
