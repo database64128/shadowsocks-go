@@ -15,12 +15,19 @@ import (
 func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig, clientInitialPayload, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) {
 	pl, pr := pipe.NewDuplexPipe()
 	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
-	saltPool := NewSaltPool[string](ReplayWindowDuration)
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+	c := TCPClient{
+		rwo:                        &plo,
+		cipherConfig:               clientCipherConfig,
+		eihPSKHashes:               clientCipherConfig.ClientPSKHashes(),
+		unsafeRequestStreamPrefix:  unsafeRequestStreamPrefix,
+		unsafeResponseStreamPrefix: unsafeResponseStreamPrefix,
+	}
+	s := NewTCPServer(serverCipherConfig, serverCipherConfig.ServerPSKHashMap(), unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
 
 	var (
-		c                    *ShadowStreamClientReadWriter
-		s                    *ShadowStreamServerReadWriter
+		crw                  zerocopy.ReadWriter
+		srw                  zerocopy.ReadWriter
 		serverTargetAddr     conn.Addr
 		serverInitialPayload []byte
 		cerr, serr           error
@@ -29,17 +36,17 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherCo
 	ctrlCh := make(chan struct{})
 
 	go func() {
-		c, _, cerr = NewShadowStreamClientReadWriter(&plo, clientCipherConfig, clientCipherConfig.ClientPSKHashes(), clientTargetAddr, clientInitialPayload, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
+		_, crw, cerr = c.Dial(clientTargetAddr, clientInitialPayload)
 		ctrlCh <- struct{}{}
 	}()
 
 	go func() {
-		s, serverTargetAddr, serverInitialPayload, serr = NewShadowStreamServerReadWriter(pr, serverCipherConfig, saltPool, serverCipherConfig.ServerPSKHashMap(), unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
+		srw, serverTargetAddr, serverInitialPayload, serr = s.Accept(pr)
 		if serr == nil && len(serverInitialPayload) < len(clientInitialPayload) {
 			// Read excess payload.
 			b := make([]byte, len(clientInitialPayload))
 			copy(b, serverInitialPayload)
-			scrw := zerocopy.NewCopyReadWriter(s)
+			scrw := zerocopy.NewCopyReadWriter(srw)
 			_, serr = io.ReadFull(scrw, b[len(serverInitialPayload):])
 			serverInitialPayload = b
 		}
@@ -62,21 +69,26 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig, serverCipherCo
 		t.Errorf("Initial payload mismatch: c: %v, s: %v", clientInitialPayload, serverInitialPayload)
 	}
 
-	zerocopy.ReadWriterTestFunc(t, c, s)
+	zerocopy.ReadWriterTestFunc(t, crw, srw)
 }
 
 func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig, serverCipherConfig *CipherConfig) {
 	pl, pr := pipe.NewDuplexPipe()
 	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
-	saltPool := NewSaltPool[string](ReplayWindowDuration)
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+	c := TCPClient{
+		rwo:          &plo,
+		cipherConfig: clientCipherConfig,
+		eihPSKHashes: clientCipherConfig.ClientPSKHashes(),
+	}
+	s := NewTCPServer(serverCipherConfig, serverCipherConfig.ServerPSKHashMap(), nil, nil)
 
 	var cerr, serr error
 	ctrlCh := make(chan struct{})
 
 	// Start client.
 	go func() {
-		_, _, cerr = NewShadowStreamClientReadWriter(&plo, clientCipherConfig, clientCipherConfig.ClientPSKHashes(), clientTargetAddr, nil, nil, nil)
+		_, _, cerr = c.Dial(clientTargetAddr, nil)
 		ctrlCh <- struct{}{}
 	}()
 
@@ -103,7 +115,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig, serverCi
 	go sendFunc()
 
 	// Start server.
-	_, _, _, serr = NewShadowStreamServerReadWriter(pr, serverCipherConfig, saltPool, serverCipherConfig.ServerPSKHashMap(), nil, nil)
+	_, _, _, serr = s.Accept(pr)
 	if serr != nil {
 		t.Fatal(serr)
 	}
@@ -112,7 +124,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig, serverCi
 	go sendFunc()
 
 	// Start server from replay.
-	_, _, _, serr = NewShadowStreamServerReadWriter(pr, serverCipherConfig, saltPool, serverCipherConfig.ServerPSKHashMap(), nil, nil)
+	_, _, _, serr = s.Accept(pr)
 	if serr != ErrRepeatedSalt {
 		t.Errorf("Expected ErrRepeatedSalt, got %v", serr)
 	}

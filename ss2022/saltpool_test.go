@@ -16,24 +16,24 @@ func TestSaltPoolAddDuplicateSalts(t *testing.T) {
 
 	pool := NewSaltPool[[32]byte](retention)
 
-	// Add fresh salt.
-	ok := pool.Add(salt)
-	if !ok {
-		t.Fatal("Failed to add fresh salt.")
+	// Check fresh salt.
+	if !pool.Check(salt) {
+		t.Fatal("Denied fresh salt.")
 	}
 
-	// Add the same salt again.
-	ok = pool.Add(salt)
-	if ok {
-		t.Fatal("Accepted repeated salt.")
+	// Add fresh salt.
+	pool.Add(salt)
+
+	// Check the same salt again.
+	if pool.Check(salt) {
+		t.Fatal("Accepted duplicate salt.")
 	}
 
 	// Wait until salt expires.
 	time.Sleep(2 * retention)
 
-	// Add the expired salt.
-	ok = pool.Add(salt)
-	if !ok {
-		t.Fatal("Failed to add expired salt.")
+	// Check the expired salt.
+	if !pool.Check(salt) {
+		t.Fatal("Denied expired salt.")
 	}
 }
