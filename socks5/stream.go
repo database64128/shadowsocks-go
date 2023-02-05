@@ -8,6 +8,7 @@ import (
 	"net"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
 // SOCKS version 5.
@@ -223,7 +224,12 @@ func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool) (addr conn.Addr, 
 
 	case b[1] == CmdUDPAssociate && enableUDP:
 		// Use the connection's local address as the returned UDP bound address.
-		localAddrPort := rw.(*net.TCPConn).LocalAddr().(*net.TCPAddr).AddrPort()
+		tc, ok := rw.(*net.TCPConn)
+		if !ok {
+			err = zerocopy.ErrAcceptRequiresTCPConn
+			return
+		}
+		localAddrPort := tc.LocalAddr().(*net.TCPAddr).AddrPort()
 
 		// Construct reply.
 		b[1] = Succeeded

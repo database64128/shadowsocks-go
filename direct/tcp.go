@@ -57,10 +57,8 @@ func NewTCPServer(targetAddr conn.Addr) *TCPServer {
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *TCPServer) Accept(tc *net.TCPConn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
-	return &DirectStreamReadWriter{
-		rw: tc,
-	}, s.targetAddr, nil, nil
+func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
+	return &DirectStreamReadWriter{rw: rawRW}, s.targetAddr, nil, nil
 }
 
 // NativeInitialPayload implements the zerocopy.TCPServer NativeInitialPayload method.
@@ -113,8 +111,8 @@ func NewShadowsocksNoneTCPServer() *ShadowsocksNoneTCPServer {
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *ShadowsocksNoneTCPServer) Accept(tc *net.TCPConn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
-	rw, targetAddr, err = NewShadowsocksNoneStreamServerReadWriter(tc)
+func (s *ShadowsocksNoneTCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
+	rw, targetAddr, err = NewShadowsocksNoneStreamServerReadWriter(rawRW)
 	return
 }
 
@@ -189,8 +187,8 @@ func NewSocks5TCPServer(enableTCP, enableUDP bool) *Socks5TCPServer {
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *Socks5TCPServer) Accept(tc *net.TCPConn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
-	rw, targetAddr, err = NewSocks5StreamServerReadWriter(tc, s.enableTCP, s.enableUDP)
+func (s *Socks5TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
+	rw, targetAddr, err = NewSocks5StreamServerReadWriter(rawRW, s.enableTCP, s.enableUDP)
 	if err == socks5.ErrUDPAssociateDone {
 		err = zerocopy.ErrAcceptDoneNoRelay
 	}

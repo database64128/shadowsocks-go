@@ -67,8 +67,8 @@ func NewTCPServer(cipherConfig *CipherConfig, uPSKMap map[[IdentityHeaderLength]
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *TCPServer) Accept(tc *net.TCPConn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
-	return NewShadowStreamServerReadWriter(tc, s.cipherConfig, s.saltPool, s.uPSKMap, s.unsafeRequestStreamPrefix, s.unsafeResponseStreamPrefix)
+func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
+	return NewShadowStreamServerReadWriter(rawRW, s.cipherConfig, s.saltPool, s.uPSKMap, s.unsafeRequestStreamPrefix, s.unsafeResponseStreamPrefix)
 }
 
 // NativeInitialPayload implements the zerocopy.TCPServer NativeInitialPayload method.

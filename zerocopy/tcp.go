@@ -14,7 +14,10 @@ import (
 	"go.uber.org/zap"
 )
 
-var ErrAcceptDoneNoRelay = errors.New("the accepted connection has been handled without relaying")
+var (
+	ErrAcceptDoneNoRelay     = errors.New("the accepted connection has been handled without relaying")
+	ErrAcceptRequiresTCPConn = errors.New("rawRW is required to be a *net.TCPConn")
+)
 
 // InitialPayloader is implemented by a protocol's TCP client or server
 // when the protocol's initial handshake message can carry payload.
@@ -44,12 +47,16 @@ type TCPServer interface {
 
 	// Accept takes a newly-accepted TCP connection and wraps it into a protocol stream server.
 	//
-	// If the returned error is ErrAcceptDoneNoRelay, the connection has been handled by this method.
+	// To make it easier to write tests, rawRW is of type [DirectReadWriteCloser].
+	// If the stream server needs to access TCP-specific features, it must type-assert and return
+	// [ErrAcceptRequiresTCPConn] on error.
+	//
+	// If the returned error is [ErrAcceptDoneNoRelay], the connection has been handled by this method.
 	// Two-way relay is not needed.
 	//
 	// If accept fails, the returned payload must be either nil/empty or the data that has been read
 	// from the connection.
-	Accept(tc *net.TCPConn) (rw ReadWriter, targetAddr conn.Addr, payload []byte, err error)
+	Accept(rawRW DirectReadWriteCloser) (rw ReadWriter, targetAddr conn.Addr, payload []byte, err error)
 
 	// DefaultTCPConnCloser returns the default function to handle the closing
 	// of a potentially malicious TCP connection.

@@ -17,8 +17,12 @@ func NewTCPTransparentServer() (zerocopy.TCPServer, error) {
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *TCPTransparentServer) Accept(tc *net.TCPConn) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
-	return &DirectStreamReadWriter{rw: tc}, conn.AddrFromIPPort(tc.LocalAddr().(*net.TCPAddr).AddrPort()), nil, nil
+func (s *TCPTransparentServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
+	tc, ok := rawRW.(*net.TCPConn)
+	if !ok {
+		return nil, conn.Addr{}, nil, zerocopy.ErrAcceptRequiresTCPConn
+	}
+	return &DirectStreamReadWriter{rw: rawRW}, conn.AddrFromIPPort(tc.LocalAddr().(*net.TCPAddr).AddrPort()), nil, nil
 }
 
 // NativeInitialPayload implements the zerocopy.TCPServer NativeInitialPayload method.
