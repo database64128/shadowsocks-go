@@ -1,6 +1,9 @@
 package zerocopy
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 // UDPClient stores information for creating new client sessions.
 type UDPClient interface {
@@ -29,6 +32,8 @@ type UDPNATServer interface {
 
 // UDPSessionServer deals with incoming sessions.
 type UDPSessionServer interface {
+	sync.Locker
+
 	// Headroom reports server unpacker headroom requirements.
 	Headroom
 

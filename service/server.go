@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/http"
 	"github.com/database64128/shadowsocks-go/router"
@@ -42,12 +43,12 @@ type ServerConfig struct {
 	TunnelUDPTargetOnly bool      `json:"tunnelUDPTargetOnly"`
 
 	// Shadowsocks
-	PSK           []byte   `json:"psk"`
-	UPSKs         [][]byte `json:"uPSKs"`
-	PaddingPolicy string   `json:"paddingPolicy"`
-	RejectPolicy  string   `json:"rejectPolicy"`
-	cipherConfig  *ss2022.CipherConfig
-	uPSKMap       map[[ss2022.IdentityHeaderLength]byte]*ss2022.CipherConfig
+	PSK                  []byte `json:"psk"`
+	UPSKStorePath        string `json:"uPSKStorePath"`
+	PaddingPolicy        string `json:"paddingPolicy"`
+	RejectPolicy         string `json:"rejectPolicy"`
+	userCipherConfig     ss2022.UserCipherConfig
+	identityCipherConfig ss2022.ServerIdentityCipherConfig
 
 	// Taint
 	UnsafeFallbackAddress      *conn.Addr `json:"unsafeFallbackAddress"`
@@ -55,8 +56,39 @@ type ServerConfig struct {
 	UnsafeResponseStreamPrefix []byte     `json:"unsafeResponseStreamPrefix"`
 }
 
+// Initialize initializes the server configuration.
+func (sc *ServerConfig) Initialize(credman *cred.Manager) error {
+	switch sc.Protocol {
+	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
+		pskLength, err := ss2022.PSKLengthForMethod(sc.Protocol)
+		if err != nil {
+			return err
+		}
+
+		if len(sc.PSK) != pskLength {
+			return &ss2022.PSKLengthError{PSK: sc.PSK, ExpectedLength: pskLength}
+		}
+
+		if sc.UPSKStorePath == "" {
+			sc.userCipherConfig, err = ss2022.NewUserCipherConfig(sc.PSK, sc.EnableUDP)
+			if err != nil {
+				return err
+			}
+		} else {
+			sc.identityCipherConfig, err = ss2022.NewServerIdentityCipherConfig(sc.PSK, sc.EnableUDP)
+			if err != nil {
+				return err
+			}
+			if err = credman.RegisterServer(sc.Name, pskLength, sc.UPSKStorePath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // TCPRelay creates a TCP relay service from the ServerConfig.
-func (sc *ServerConfig) TCPRelay(router *router.Router, logger *zap.Logger) (*TCPRelay, error) {
+func (sc *ServerConfig) TCPRelay(credman *cred.Manager, router *router.Router, logger *zap.Logger) (*TCPRelay, error) {
 	if !sc.EnableTCP && sc.Protocol != "socks5" {
 		return nil, errNetworkDisabled
 	}
@@ -89,19 +121,17 @@ func (sc *ServerConfig) TCPRelay(router *router.Router, logger *zap.Logger) (*TC
 		server = http.NewProxyServer(logger)
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		if sc.cipherConfig == nil {
-			sc.cipherConfig, err = ss2022.NewCipherConfig(sc.Protocol, sc.PSK, sc.UPSKs)
-			if err != nil {
-				return nil, err
-			}
-			sc.uPSKMap = sc.cipherConfig.ServerPSKHashMap()
-		}
-
 		if len(sc.UnsafeRequestStreamPrefix) != 0 || len(sc.UnsafeResponseStreamPrefix) != 0 {
 			logger.Warn("Unsafe stream prefix taints the server", zap.String("server", sc.Name))
 		}
 
-		server = ss2022.NewTCPServer(sc.cipherConfig, sc.uPSKMap, sc.UnsafeRequestStreamPrefix, sc.UnsafeResponseStreamPrefix)
+		s := ss2022.NewTCPServer(sc.userCipherConfig, sc.identityCipherConfig, sc.UnsafeRequestStreamPrefix, sc.UnsafeResponseStreamPrefix)
+		if sc.UPSKStorePath != "" {
+			if err = credman.AddTCPCredStore(sc.Name, &s.CredStore); err != nil {
+				return nil, err
+			}
+		}
+		server = s
 
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
@@ -125,7 +155,7 @@ func (sc *ServerConfig) TCPRelay(router *router.Router, logger *zap.Logger) (*TC
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
-func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, maxClientFrontHeadroom, maxClientRearHeadroom int) (Relay, error) {
+func (sc *ServerConfig) UDPRelay(credman *cred.Manager, router *router.Router, logger *zap.Logger, maxClientFrontHeadroom, maxClientRearHeadroom int) (Relay, error) {
 	if !sc.EnableUDP {
 		return nil, errNetworkDisabled
 	}
@@ -168,7 +198,6 @@ func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, maxC
 		natTimeout time.Duration
 		natServer  zerocopy.UDPNATServer
 		server     zerocopy.UDPSessionServer
-		err        error
 	)
 
 	switch {
@@ -193,20 +222,18 @@ func (sc *ServerConfig) UDPRelay(router *router.Router, logger *zap.Logger, maxC
 		natServer = direct.Socks5UDPNATServer{}
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		if sc.cipherConfig == nil {
-			sc.cipherConfig, err = ss2022.NewCipherConfig(sc.Protocol, sc.PSK, sc.UPSKs)
-			if err != nil {
-				return nil, err
-			}
-			sc.uPSKMap = sc.cipherConfig.ServerPSKHashMap()
-		}
-
 		shouldPad, err := ss2022.ParsePaddingPolicy(sc.PaddingPolicy)
 		if err != nil {
 			return nil, err
 		}
 
-		server = ss2022.NewUDPServer(sc.cipherConfig, shouldPad, sc.uPSKMap)
+		s := ss2022.NewUDPServer(sc.userCipherConfig, sc.identityCipherConfig, shouldPad)
+		if sc.UPSKStorePath != "" {
+			if err := credman.AddUDPCredStore(sc.Name, &s.CredStore); err != nil {
+				return nil, err
+			}
+		}
+		server = s
 
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)

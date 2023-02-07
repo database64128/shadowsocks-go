@@ -76,7 +76,6 @@ type UDPSessionRelay struct {
 	router                 *router.Router
 	logger                 *zap.Logger
 	queuedPacketPool       sync.Pool
-	mu                     sync.Mutex
 	wg                     sync.WaitGroup
 	mwg                    sync.WaitGroup
 	table                  map[uint64]*session
@@ -220,7 +219,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 			continue
 		}
 
-		s.mu.Lock()
+		s.server.Lock()
 
 		entry, ok := s.table[csid]
 		if !ok {
@@ -238,7 +237,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 				)
 
 				s.putQueuedPacket(queuedPacket)
-				s.mu.Unlock()
+				s.server.Unlock()
 				continue
 			}
 		}
@@ -255,7 +254,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 			)
 
 			s.putQueuedPacket(queuedPacket)
-			s.mu.Unlock()
+			s.server.Unlock()
 			continue
 		}
 
@@ -290,7 +289,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 				)
 
 				s.putQueuedPacket(queuedPacket)
-				s.mu.Unlock()
+				s.server.Unlock()
 				continue
 			}
 
@@ -318,10 +317,10 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 				var sendChClean bool
 
 				defer func() {
-					s.mu.Lock()
+					s.server.Lock()
 					close(entry.natConnSendCh)
 					delete(s.table, csid)
-					s.mu.Unlock()
+					s.server.Unlock()
 
 					if !sendChClean {
 						for queuedPacket := range entry.natConnSendCh {
@@ -470,7 +469,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 			s.putQueuedPacket(queuedPacket)
 		}
 
-		s.mu.Unlock()
+		s.server.Unlock()
 	}
 
 	s.logger.Info("Finished receiving from serverConn",
@@ -692,7 +691,7 @@ func (s *UDPSessionRelay) Stop() error {
 	// so there won't be any new sessions added to the table.
 	s.mwg.Wait()
 
-	s.mu.Lock()
+	s.server.Lock()
 	for csid, entry := range s.table {
 		natConn := entry.state.Swap(s.serverConn)
 		if natConn == nil {
@@ -708,7 +707,7 @@ func (s *UDPSessionRelay) Stop() error {
 			)
 		}
 	}
-	s.mu.Unlock()
+	s.server.Unlock()
 
 	// Wait for all relay goroutines to exit before closing serverConn,
 	// so in-flight packets can be written out.

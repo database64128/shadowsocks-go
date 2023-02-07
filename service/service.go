@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -62,6 +63,9 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	for i := range sc.Clients {
 		clientConfig := &sc.Clients[i]
 		clientName := clientConfig.Name
+		if err := clientConfig.Initialize(); err != nil {
+			return nil, fmt.Errorf("failed to initialize client %s: %w", clientName, err)
+		}
 
 		tcpClient, err := clientConfig.TCPClient(logger)
 		switch err {
@@ -108,26 +112,36 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		return nil, fmt.Errorf("failed to create router: %w", err)
 	}
 
+	credman := cred.NewManager(logger)
 	services := make([]Relay, 0, 2*len(sc.Servers))
 
 	for i := range sc.Servers {
-		tcpRelay, err := sc.Servers[i].TCPRelay(router, logger)
+		serverConfig := &sc.Servers[i]
+		if err := serverConfig.Initialize(credman); err != nil {
+			return nil, fmt.Errorf("failed to initialize server %s: %w", serverConfig.Name, err)
+		}
+
+		tcpRelay, err := serverConfig.TCPRelay(credman, router, logger)
 		switch err {
 		case errNetworkDisabled:
 		case nil:
 			services = append(services, tcpRelay)
 		default:
-			return nil, fmt.Errorf("failed to create TCP relay service for %s: %w", sc.Servers[i].Name, err)
+			return nil, fmt.Errorf("failed to create TCP relay service for %s: %w", serverConfig.Name, err)
 		}
 
-		udpRelay, err := sc.Servers[i].UDPRelay(router, logger, maxClientFrontHeadroom, maxClientRearHeadroom)
+		udpRelay, err := serverConfig.UDPRelay(credman, router, logger, maxClientFrontHeadroom, maxClientRearHeadroom)
 		switch err {
 		case errNetworkDisabled:
 		case nil:
 			services = append(services, udpRelay)
 		default:
-			return nil, fmt.Errorf("failed to create UDP relay service for %s: %w", sc.Servers[i].Name, err)
+			return nil, fmt.Errorf("failed to create UDP relay service for %s: %w", serverConfig.Name, err)
 		}
+	}
+
+	if err = credman.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start credential manager: %w", err)
 	}
 
 	return &Manager{services, router, logger}, nil

@@ -3,216 +3,267 @@ package ss2022
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"fmt"
 
 	"lukechampine.com/blake3"
 )
 
-var (
-	ErrUnknownMethod = errors.New("unknown method")
-	ErrBadPSKLength  = errors.New("PSK length does not meet method requirements")
+const (
+	subkeyCtxSession  = "shadowsocks 2022 session subkey"
+	subkeyCtxIdentity = "shadowsocks 2022 identity subkey"
 )
 
-type CipherConfig struct {
-	// Client: uPSK
-	// Server: iPSK or uPSK
-	PSK []byte
-
-	// Client: iPSKs
-	// Server: uPSKs
-	PSKs [][]byte
-
-	// bufferedBlock buffers the block cipher returned by NewBlock.
-	bufferedBlock cipher.Block
+func deriveSubkey(psk, salt []byte, ctx string) []byte {
+	if len(psk) == 0 || len(salt) == 0 {
+		panic("empty psk or salt")
+	}
+	keyMaterial := make([]byte, len(psk)+len(salt))
+	copy(keyMaterial, psk)
+	copy(keyMaterial[len(psk):], salt)
+	key := make([]byte, len(psk))
+	blake3.DeriveKey(key, ctx, keyMaterial)
+	return key
 }
 
-func NewCipherConfig(method string, psk []byte, psks [][]byte) (*CipherConfig, error) {
-	var pskLength int
-	switch method {
-	case "2022-blake3-aes-128-gcm":
-		pskLength = 16
-	case "2022-blake3-aes-256-gcm":
-		pskLength = 32
-	default:
-		return nil, fmt.Errorf("%w: %s", ErrUnknownMethod, method)
-	}
-
-	if len(psk) != pskLength {
-		return nil, fmt.Errorf("%w: %s", ErrBadPSKLength, base64.StdEncoding.EncodeToString(psk))
-	}
-
-	for _, psk := range psks {
-		if len(psk) != pskLength {
-			return nil, fmt.Errorf("%w: %s", ErrBadPSKLength, base64.StdEncoding.EncodeToString(psk))
-		}
-	}
-
-	return &CipherConfig{psk, psks, nil}, nil
+func newAES(psk, salt []byte, ctx string) (cipher.Block, error) {
+	key := deriveSubkey(psk, salt, ctx)
+	return aes.NewCipher(key)
 }
 
-func NewRandomCipherConfig(method string, keySize, eihCount int) (cipherConfig *CipherConfig, err error) {
-	psk := make([]byte, keySize)
-	_, err = rand.Read(psk)
+func newAESGCM(psk, salt []byte) (cipher.AEAD, error) {
+	block, err := newAES(psk, salt, subkeyCtxSession)
 	if err != nil {
-		return
+		return nil, err
 	}
+	return cipher.NewGCM(block)
+}
 
-	psks := make([][]byte, eihCount)
-	for i := range psks {
-		psks[i] = make([]byte, keySize)
-		_, err = rand.Read(psks[i])
-		if err != nil {
-			return
-		}
+// UserCipherConfig stores cipher configuration for a non-EIH client/server or an EIH user.
+type UserCipherConfig struct {
+	PSK   []byte
+	block cipher.Block
+}
+
+// NewUserCipherConfig returns a new UserCipherConfig.
+func NewUserCipherConfig(psk []byte, enableUDP bool) (c UserCipherConfig, err error) {
+	c.PSK = psk
+	if enableUDP {
+		c.block, err = aes.NewCipher(psk)
 	}
-
-	cipherConfig, err = NewCipherConfig(method, psk, psks)
 	return
 }
 
-func (c *CipherConfig) NewAEAD(salt []byte) cipher.AEAD {
-	var key []byte
+// AEAD derives a subkey from the salt and returns a new AEAD cipher.
+func (c UserCipherConfig) AEAD(salt []byte) (cipher.AEAD, error) {
+	return newAESGCM(c.PSK, salt)
+}
 
-	if len(salt) > 0 {
-		keyMaterial := make([]byte, len(c.PSK)+len(salt))
-		copy(keyMaterial, c.PSK)
-		copy(keyMaterial[len(c.PSK):], salt)
-		key = make([]byte, len(c.PSK))
-		blake3.DeriveKey(key, "shadowsocks 2022 session subkey", keyMaterial)
-	} else {
-		key = c.PSK
-	}
-
-	block, err := aes.NewCipher(key)
+func (c UserCipherConfig) ShadowStreamCipher(salt []byte) (*ShadowStreamCipher, error) {
+	aead, err := c.AEAD(salt)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		panic(err)
-	}
-
-	return aead
+	return NewShadowStreamCipher(aead), nil
 }
 
-func (c *CipherConfig) NewShadowStreamCipher(salt []byte) *ShadowStreamCipher {
-	aead := c.NewAEAD(salt)
-	nonce := make([]byte, aead.NonceSize())
-	return &ShadowStreamCipher{
-		aead:  aead,
-		nonce: nonce,
-	}
+// Block returns the block cipher for UDP separate header.
+func (c UserCipherConfig) Block() cipher.Block {
+	return c.block
 }
 
-func (c *CipherConfig) NewBlock() cipher.Block {
-	if c.bufferedBlock == nil {
-		var err error
-		c.bufferedBlock, err = aes.NewCipher(c.PSK)
-		if err != nil {
-			panic(err)
-		}
-	}
-	return c.bufferedBlock
+// ClientCipherConfig stores cipher configuration for a client.
+type ClientCipherConfig struct {
+	UserCipherConfig
+	iPSKs        [][]byte
+	eihCiphers   []cipher.Block
+	eihPSKHashes [][IdentityHeaderLength]byte
 }
 
-// NewTCPIdentityHeaderClientCiphers creates block ciphers for a client TCP session's identity headers.
-func (c *CipherConfig) NewTCPIdentityHeaderClientCiphers(salt []byte) []cipher.Block {
-	ciphers := make([]cipher.Block, len(c.PSKs))
-
-	for i := range ciphers {
-		keyMaterial := make([]byte, len(c.PSKs[i])+len(salt))
-		copy(keyMaterial, c.PSKs[i])
-		copy(keyMaterial[len(c.PSKs[i]):], salt)
-		key := make([]byte, len(c.PSKs[i]))
-		blake3.DeriveKey(key, "shadowsocks 2022 identity subkey", keyMaterial)
-
-		var err error
-		ciphers[i], err = aes.NewCipher(key)
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	return ciphers
-}
-
-// NewTCPIdentityHeaderServerCiphers creates a block cipher for a server TCP session's identity header.
-func (c *CipherConfig) NewTCPIdentityHeaderServerCipher(salt []byte) cipher.Block {
-	// Skip if no uPSKs.
-	if len(c.PSKs) == 0 {
-		return nil
-	}
-
-	keyMaterial := make([]byte, len(c.PSK)+len(salt))
-	copy(keyMaterial, c.PSK)
-	copy(keyMaterial[len(c.PSK):], salt)
-	key := make([]byte, len(c.PSK))
-	blake3.DeriveKey(key, "shadowsocks 2022 identity subkey", keyMaterial)
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		panic(err)
-	}
-	return block
-}
-
-// NewUDPIdentityHeaderClientCiphers creates block ciphers for a client UDP service's identity headers.
-func (c *CipherConfig) NewUDPIdentityHeaderClientCiphers() []cipher.Block {
-	ciphers := make([]cipher.Block, len(c.PSKs))
+// TCPIdentityHeaderCiphers creates block ciphers for a client TCP session's identity headers.
+func (c *ClientCipherConfig) TCPIdentityHeaderCiphers(salt []byte) ([]cipher.Block, error) {
+	ciphers := make([]cipher.Block, len(c.iPSKs))
 
 	for i := range ciphers {
 		var err error
-		ciphers[i], err = aes.NewCipher(c.PSKs[i])
+		ciphers[i], err = newAES(c.iPSKs[i], salt, subkeyCtxIdentity)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 	}
 
-	return ciphers
+	return ciphers, nil
 }
 
-// NewUDPIdentityHeaderServerCipher creates a block cipher for a server UDP service's identity header.
-func (c *CipherConfig) NewUDPIdentityHeaderServerCipher() cipher.Block {
-	// Skip if no uPSKs.
-	if len(c.PSKs) == 0 {
+// UDPIdentityHeaderCiphers returns the block ciphers for a client UDP service's identity headers.
+func (c *ClientCipherConfig) UDPIdentityHeaderCiphers() []cipher.Block {
+	return c.eihCiphers
+}
+
+// EIHPSKHashes returns the truncated BLAKE3 hashes of c.iPSKs[1:] and c.PSK.
+func (c *ClientCipherConfig) EIHPSKHashes() [][IdentityHeaderLength]byte {
+	return c.eihPSKHashes
+}
+
+// UDPSeparateHeaderPackerCipher returns the block cipher used by the client packer to encrypt the separate header.
+func (c *ClientCipherConfig) UDPSeparateHeaderPackerCipher() cipher.Block {
+	if len(c.eihCiphers) > 0 {
+		return c.eihCiphers[0]
+	}
+	return c.block
+}
+
+func udpIdentityHeaderClientCiphers(iPSKs [][]byte) ([]cipher.Block, error) {
+	ciphers := make([]cipher.Block, len(iPSKs))
+
+	for i := range ciphers {
+		var err error
+		ciphers[i], err = aes.NewCipher(iPSKs[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return ciphers, nil
+}
+
+func clientPSKHashes(iPSKs [][]byte, psk []byte) [][IdentityHeaderLength]byte {
+	if len(iPSKs) == 0 {
 		return nil
 	}
 
-	return c.NewBlock()
-}
+	hashes := make([][IdentityHeaderLength]byte, len(iPSKs))
 
-// ClientPSKHashes returns the BLAKE3 hashes of c.PSKs[1:] and c.PSK.
-func (c *CipherConfig) ClientPSKHashes() [][IdentityHeaderLength]byte {
-	// Skip if no uPSKs.
-	if len(c.PSKs) == 0 {
-		return nil
+	for i := 1; i < len(iPSKs); i++ {
+		hash := blake3.Sum512(iPSKs[i])
+		hashes[i-1] = [IdentityHeaderLength]byte(hash[:])
 	}
 
-	hashes := make([][IdentityHeaderLength]byte, len(c.PSKs))
-
-	for i := 1; i < len(c.PSKs); i++ {
-		hash := blake3.Sum512(c.PSKs[i])
-		copy(hashes[i-1][:], hash[:])
-	}
-
-	hash := blake3.Sum512(c.PSK)
-	copy(hashes[len(hashes)-1][:], hash[:])
+	hash := blake3.Sum512(psk)
+	hashes[len(hashes)-1] = [IdentityHeaderLength]byte(hash[:])
 
 	return hashes
 }
 
-// ServerPSKHashMap returns a uPSKHash-*CipherConfig map.
-func (c *CipherConfig) ServerPSKHashMap() map[[IdentityHeaderLength]byte]*CipherConfig {
-	uPSKMap := make(map[[IdentityHeaderLength]byte]*CipherConfig, len(c.PSKs))
+// NewClientCipherConfig returns a new ClientCipherConfig.
+func NewClientCipherConfig(psk []byte, iPSKs [][]byte, enableUDP bool) (c *ClientCipherConfig, err error) {
+	c = &ClientCipherConfig{
+		UserCipherConfig: UserCipherConfig{
+			PSK: psk,
+		},
+		iPSKs:        iPSKs,
+		eihPSKHashes: clientPSKHashes(iPSKs, psk),
+	}
+	if enableUDP {
+		c.block, err = aes.NewCipher(psk)
+		if err != nil {
+			return
+		}
+		c.eihCiphers, err = udpIdentityHeaderClientCiphers(iPSKs)
+	}
+	return
+}
 
-	for _, psk := range c.PSKs {
-		hash := blake3.Sum512(psk)
-		truncatedHash := *(*[IdentityHeaderLength]byte)(hash[:])
-		uPSKMap[truncatedHash] = &CipherConfig{psk, nil, nil}
+// ServerIdentityCipherConfig stores cipher configuration for a server's identity header.
+type ServerIdentityCipherConfig struct {
+	IPSK  []byte
+	block cipher.Block
+}
+
+// NewServerIdentityCipherConfig returns a new ServerIdentityCipherConfig.
+func NewServerIdentityCipherConfig(iPSK []byte, enableUDP bool) (c ServerIdentityCipherConfig, err error) {
+	c.IPSK = iPSK
+	if enableUDP {
+		c.block, err = aes.NewCipher(iPSK)
+	}
+	return
+}
+
+// TCP creates a block cipher for a server TCP session's identity header.
+func (c ServerIdentityCipherConfig) TCP(salt []byte) (cipher.Block, error) {
+	return newAES(c.IPSK, salt, subkeyCtxIdentity)
+}
+
+// UDP returns the block cipher for a server UDP service's identity header.
+func (c ServerIdentityCipherConfig) UDP() cipher.Block {
+	return c.block
+}
+
+// ServerUserCipherConfig stores cipher configuration for a server's EIH user.
+type ServerUserCipherConfig struct {
+	UserCipherConfig
+	Name string
+}
+
+// NewServerUserCipherConfig returns a new ServerUserCipherConfig.
+func NewServerUserCipherConfig(name string, psk []byte, enableUDP bool) (c *ServerUserCipherConfig, err error) {
+	c = &ServerUserCipherConfig{Name: name}
+	c.UserCipherConfig, err = NewUserCipherConfig(psk, enableUDP)
+	return
+}
+
+// PSKHash returns the truncated BLAKE3 hash of c.PSK.
+func (c *ServerUserCipherConfig) PSKHash() [IdentityHeaderLength]byte {
+	hash := blake3.Sum512(c.PSK)
+	return [IdentityHeaderLength]byte(hash[:])
+}
+
+// PSKLengthForMethod returns the required length of the PSK for the given method.
+func PSKLengthForMethod(method string) (int, error) {
+	switch method {
+	case "2022-blake3-aes-128-gcm":
+		return 16, nil
+	case "2022-blake3-aes-256-gcm":
+		return 32, nil
+	default:
+		return 0, fmt.Errorf("unknown method: %s", method)
+	}
+}
+
+type PSKLengthError struct {
+	PSK            []byte
+	ExpectedLength int
+}
+
+func (e PSKLengthError) Error() string {
+	return fmt.Sprintf("expected PSK length %d, got %d from %s", e.ExpectedLength, len(e.PSK), base64.StdEncoding.EncodeToString(e.PSK))
+}
+
+// CheckPSKLength checks that the PSK is the correct length for the given method.
+func CheckPSKLength(method string, psk []byte, psks [][]byte) error {
+	pskLength, err := PSKLengthForMethod(method)
+	if err != nil {
+		return err
 	}
 
-	return uPSKMap
+	if len(psk) != pskLength {
+		return &PSKLengthError{psk, pskLength}
+	}
+
+	for _, psk := range psks {
+		if len(psk) != pskLength {
+			return &PSKLengthError{psk, pskLength}
+		}
+	}
+
+	return nil
+}
+
+func NewUPSKMap(pskLength int, userMap map[string][]byte, enableUDP bool) (map[[IdentityHeaderLength]byte]*ServerUserCipherConfig, error) {
+	uPSKMap := make(map[[IdentityHeaderLength]byte]*ServerUserCipherConfig, len(userMap))
+
+	for name, psk := range userMap {
+		if len(psk) != pskLength {
+			return nil, &PSKLengthError{psk, pskLength}
+		}
+
+		c, err := NewServerUserCipherConfig(name, psk, enableUDP)
+		if err != nil {
+			return nil, err
+		}
+
+		uPSKMap[c.PSKHash()] = c
+	}
+
+	return uPSKMap, nil
 }

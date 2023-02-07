@@ -26,7 +26,7 @@ type ShadowStreamServerReadWriter struct {
 	r                          *ShadowStreamReader
 	w                          *ShadowStreamWriter
 	rawRW                      zerocopy.DirectReadWriteCloser
-	cipherConfig               *CipherConfig
+	cipherConfig               UserCipherConfig
 	requestSalt                []byte
 	unsafeResponseStreamPrefix []byte
 }
@@ -78,7 +78,10 @@ func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, pa
 		WriteTCPResponseHeader(responseHeader, rw.requestSalt, uint16(payloadLen))
 
 		// Create AEAD cipher.
-		shadowStreamCipher := rw.cipherConfig.NewShadowStreamCipher(salt)
+		shadowStreamCipher, err := rw.cipherConfig.ShadowStreamCipher(salt)
+		if err != nil {
+			return 0, err
+		}
 
 		// Create writer.
 		rw.w = &ShadowStreamWriter{
@@ -131,7 +134,7 @@ type ShadowStreamClientReadWriter struct {
 	r                          *ShadowStreamReader
 	w                          *ShadowStreamWriter
 	rawRW                      zerocopy.DirectReadWriteCloser
-	cipherConfig               *CipherConfig
+	cipherConfig               *ClientCipherConfig
 	requestSalt                []byte
 	unsafeResponseStreamPrefix []byte
 }
@@ -188,7 +191,10 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 		// Derive key and create cipher.
 		salt := hb[urspLen:fixedLengthHeaderStart]
 		ciphertext := hb[fixedLengthHeaderStart:]
-		shadowStreamCipher := rw.cipherConfig.NewShadowStreamCipher(salt)
+		shadowStreamCipher, err := rw.cipherConfig.ShadowStreamCipher(salt)
+		if err != nil {
+			return 0, err
+		}
 
 		// Create reader.
 		rw.r = &ShadowStreamReader{
@@ -367,6 +373,14 @@ func (r *ShadowStreamReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufL
 type ShadowStreamCipher struct {
 	aead  cipher.AEAD
 	nonce []byte
+}
+
+// NewShadowStreamCipher wraps the given AEAD cipher into a new ShadowStreamCipher.
+func NewShadowStreamCipher(aead cipher.AEAD) *ShadowStreamCipher {
+	return &ShadowStreamCipher{
+		aead:  aead,
+		nonce: make([]byte, aead.NonceSize()),
+	}
 }
 
 // Overhead returns the tag size of the AEAD cipher.

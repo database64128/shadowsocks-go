@@ -288,11 +288,8 @@ type ShadowPacketClientUnpacker struct {
 	// Old server session last seen time.
 	oldServerSessionLastSeenTime time.Time
 
-	// Block cipher for the separate header.
-	block cipher.Block
-
 	// Cipher config.
-	cipherConfig *CipherConfig
+	cipherConfig *ClientCipherConfig
 }
 
 // UnpackInPlace implements the zerocopy.ClientUnpacker UnpackInPlace method.
@@ -323,7 +320,7 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPor
 	ciphertext := b[messageHeaderStart : packetStart+packetLen]
 
 	// Decrypt separate header.
-	p.block.Decrypt(separateHeader, separateHeader)
+	p.cipherConfig.Block().Decrypt(separateHeader, separateHeader)
 
 	// Determine session status.
 	ssid = binary.BigEndian.Uint64(separateHeader)
@@ -344,7 +341,10 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPor
 	default:
 		// Likely a new server session.
 		// Delay sfilter creation after validation to avoid a possibly unnecessary allocation.
-		saead = p.cipherConfig.NewAEAD(separateHeader[:8])
+		saead, err = p.cipherConfig.AEAD(separateHeader[:8])
+		if err != nil {
+			return
+		}
 		sessionStatus = newServerSession
 	}
 

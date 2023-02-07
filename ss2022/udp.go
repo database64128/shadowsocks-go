@@ -19,37 +19,19 @@ type UDPClient struct {
 	name          string
 	maxPacketSize int
 	fwmark        int
-	packerBlock   cipher.Block
-	unpackerBlock cipher.Block
-	cipherConfig  *CipherConfig
+	cipherConfig  *ClientCipherConfig
 	shouldPad     PaddingPolicy
-	eihCiphers    []cipher.Block
-	eihPSKHashes  [][IdentityHeaderLength]byte
 }
 
-func NewUDPClient(addrPort netip.AddrPort, name string, mtu, fwmark int, cipherConfig *CipherConfig, shouldPad PaddingPolicy, eihPSKHashes [][IdentityHeaderLength]byte) *UDPClient {
-	eihCiphers := cipherConfig.NewUDPIdentityHeaderClientCiphers()
-	unpackerBlock := cipherConfig.NewBlock()
-
-	var packerBlock cipher.Block
-	if len(eihCiphers) > 0 {
-		packerBlock = eihCiphers[0]
-	} else {
-		packerBlock = unpackerBlock
-	}
-
+func NewUDPClient(addrPort netip.AddrPort, name string, mtu, fwmark int, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
 	return &UDPClient{
-		ShadowPacketClientMessageHeadroom: ShadowPacketClientMessageHeadroom{IdentityHeaderLength * len(eihCiphers)},
+		ShadowPacketClientMessageHeadroom: ShadowPacketClientMessageHeadroom{IdentityHeaderLength * len(cipherConfig.iPSKs)},
 		addrPort:                          addrPort,
 		name:                              name,
 		maxPacketSize:                     zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr()),
 		fwmark:                            fwmark,
-		packerBlock:                       packerBlock,
-		unpackerBlock:                     unpackerBlock,
 		cipherConfig:                      cipherConfig,
 		shouldPad:                         shouldPad,
-		eihCiphers:                        eihCiphers,
-		eihPSKHashes:                      eihPSKHashes,
 	}
 }
 
@@ -67,21 +49,24 @@ func (c *UDPClient) NewSession() (zerocopy.ClientPacker, zerocopy.ClientUnpacker
 		return nil, nil, err
 	}
 	csid := binary.BigEndian.Uint64(salt)
+	aead, err := c.cipherConfig.AEAD(salt)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	return &ShadowPacketClientPacker{
 			ShadowPacketClientMessageHeadroom: c.ShadowPacketClientMessageHeadroom,
 			csid:                              csid,
-			aead:                              c.cipherConfig.NewAEAD(salt),
-			block:                             c.packerBlock,
+			aead:                              aead,
+			block:                             c.cipherConfig.UDPSeparateHeaderPackerCipher(),
 			rng:                               mrand.New(mrand.NewSource(int64(csid))),
 			shouldPad:                         c.shouldPad,
-			eihCiphers:                        c.eihCiphers,
-			eihPSKHashes:                      c.eihPSKHashes,
+			eihCiphers:                        c.cipherConfig.UDPIdentityHeaderCiphers(),
+			eihPSKHashes:                      c.cipherConfig.EIHPSKHashes(),
 			maxPacketSize:                     c.maxPacketSize,
 			serverAddrPort:                    c.addrPort,
 		}, &ShadowPacketClientUnpacker{
 			csid:         csid,
-			block:        c.unpackerBlock,
 			cipherConfig: c.cipherConfig,
 		}, nil
 }
@@ -93,30 +78,32 @@ func (c *UDPClient) LinkInfo() (int, int) {
 
 // UDPServer implements the zerocopy UDPSessionServer interface.
 type UDPServer struct {
+	CredStore
 	ShadowPacketClientMessageHeadroom
-	block        cipher.Block
-	cipherConfig *CipherConfig
-	shouldPad    PaddingPolicy
-	uPSKMap      map[[IdentityHeaderLength]byte]*CipherConfig
+	block                cipher.Block
+	identityCipherConfig ServerIdentityCipherConfig
+	shouldPad            PaddingPolicy
 
-	// Initialized as the same main cipher config referenced by cipherConfig.
+	// Initialized as the same primary cipher config.
 	// Produced by NewSession as the current session's user cipher config.
 	// Consumed by a follow-up call to NewPacker.
-	currentUserCipherConfig *CipherConfig
+	currentUserCipherConfig UserCipherConfig
 }
 
-func NewUDPServer(cipherConfig *CipherConfig, shouldPad PaddingPolicy, uPSKMap map[[IdentityHeaderLength]byte]*CipherConfig) *UDPServer {
+func NewUDPServer(userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, shouldPad PaddingPolicy) *UDPServer {
 	var identityHeaderLen int
-	if len(uPSKMap) > 0 {
+	block := userCipherConfig.Block()
+	if block == nil {
 		identityHeaderLen = IdentityHeaderLength
+		block = identityCipherConfig.UDP()
 	}
+
 	return &UDPServer{
 		ShadowPacketClientMessageHeadroom: ShadowPacketClientMessageHeadroom{identityHeaderLen},
-		block:                             cipherConfig.NewBlock(),
-		cipherConfig:                      cipherConfig,
+		block:                             block,
+		identityCipherConfig:              identityCipherConfig,
 		shouldPad:                         shouldPad,
-		uPSKMap:                           uPSKMap,
-		currentUserCipherConfig:           cipherConfig,
+		currentUserCipherConfig:           userCipherConfig,
 	}
 }
 
@@ -152,13 +139,18 @@ func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker,
 		if !ok {
 			return nil, ErrIdentityHeaderUserPSKNotFound
 		}
-		s.currentUserCipherConfig = userCipherConfig
+		s.currentUserCipherConfig = userCipherConfig.UserCipherConfig
+	}
+
+	aead, err := s.currentUserCipherConfig.AEAD(b[:8])
+	if err != nil {
+		return nil, err
 	}
 
 	return &ShadowPacketServerUnpacker{
 		ShadowPacketClientMessageHeadroom: s.ShadowPacketClientMessageHeadroom,
 		csid:                              csid,
-		aead:                              s.currentUserCipherConfig.NewAEAD(b[:8]),
+		aead:                              aead,
 	}, nil
 }
 
@@ -172,11 +164,16 @@ func (s *UDPServer) NewPacker(csid uint64) (zerocopy.ServerPacker, error) {
 	}
 	ssid := binary.BigEndian.Uint64(salt)
 
+	aead, err := s.currentUserCipherConfig.AEAD(salt)
+	if err != nil {
+		return nil, err
+	}
+
 	return &ShadowPacketServerPacker{
 		ssid:      ssid,
 		csid:      csid,
-		aead:      s.currentUserCipherConfig.NewAEAD(salt),
-		block:     s.currentUserCipherConfig.NewBlock(),
+		aead:      aead,
+		block:     s.currentUserCipherConfig.Block(),
 		rng:       mrand.New(mrand.NewSource(int64(ssid))),
 		shouldPad: s.shouldPad,
 	}, nil

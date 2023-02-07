@@ -32,12 +32,27 @@ type ClientConfig struct {
 	PSK           []byte   `json:"psk"`
 	IPSKs         [][]byte `json:"iPSKs"`
 	PaddingPolicy string   `json:"paddingPolicy"`
-	cipherConfig  *ss2022.CipherConfig
-	eihPSKHashes  [][ss2022.IdentityHeaderLength]byte
+	cipherConfig  *ss2022.ClientCipherConfig
 
 	// Taint
 	UnsafeRequestStreamPrefix  []byte `json:"unsafeRequestStreamPrefix"`
 	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix"`
+}
+
+// Initialize initializes the client configuration.
+func (cc *ClientConfig) Initialize() error {
+	switch cc.Protocol {
+	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
+		err := ss2022.CheckPSKLength(cc.Protocol, cc.PSK, cc.IPSKs)
+		if err != nil {
+			return err
+		}
+		cc.cipherConfig, err = ss2022.NewClientCipherConfig(cc.PSK, cc.IPSKs, cc.EnableUDP)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // TCPClient creates a zerocopy.TCPClient from the ClientConfig.
@@ -56,18 +71,10 @@ func (cc *ClientConfig) TCPClient(logger *zap.Logger) (zerocopy.TCPClient, error
 	case "http":
 		return http.NewProxyClient(cc.Name, cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		if cc.cipherConfig == nil {
-			var err error
-			cc.cipherConfig, err = ss2022.NewCipherConfig(cc.Protocol, cc.PSK, cc.IPSKs)
-			if err != nil {
-				return nil, err
-			}
-			cc.eihPSKHashes = cc.cipherConfig.ClientPSKHashes()
-		}
 		if len(cc.UnsafeRequestStreamPrefix) != 0 || len(cc.UnsafeResponseStreamPrefix) != 0 {
 			logger.Warn("Unsafe stream prefix taints the client", zap.String("client", cc.Name))
 		}
-		return ss2022.NewTCPClient(cc.Name, cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark, cc.cipherConfig, cc.eihPSKHashes, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
+		return ss2022.NewTCPClient(cc.Name, cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark, cc.cipherConfig, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}
@@ -104,20 +111,11 @@ func (cc *ClientConfig) UDPClient(logger *zap.Logger) (zerocopy.UDPClient, error
 	case "socks5":
 		return direct.NewSocks5UDPClient(endpointAddrPort, cc.Name, cc.MTU, cc.DialerFwmark), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		if cc.cipherConfig == nil {
-			cc.cipherConfig, err = ss2022.NewCipherConfig(cc.Protocol, cc.PSK, cc.IPSKs)
-			if err != nil {
-				return nil, err
-			}
-			cc.eihPSKHashes = cc.cipherConfig.ClientPSKHashes()
-		}
-
 		shouldPad, err := ss2022.ParsePaddingPolicy(cc.PaddingPolicy)
 		if err != nil {
 			return nil, err
 		}
-
-		return ss2022.NewUDPClient(endpointAddrPort, cc.Name, cc.MTU, cc.DialerFwmark, cc.cipherConfig, shouldPad, cc.eihPSKHashes), nil
+		return ss2022.NewUDPClient(endpointAddrPort, cc.Name, cc.MTU, cc.DialerFwmark, cc.cipherConfig, shouldPad), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}

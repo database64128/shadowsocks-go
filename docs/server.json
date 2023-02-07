@@ -9,9 +9,7 @@
             "enableUDP": true,
             "mtu": 1500,
             "psk": "qQln3GlVCZi5iJUObJVNCw==",
-            "uPSKs": [
-                "oE/s2z9Q8EWORAB8B3UCxw=="
-            ]
+            "uPSKStorePath": "/etc/shadowsocks-go/upsks.json"
         }
     ]
 }

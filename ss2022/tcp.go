@@ -2,10 +2,10 @@ package ss2022
 
 import (
 	"bytes"
+	"crypto/cipher"
 	"crypto/rand"
 	"io"
 	mrand "math/rand"
-	"sync"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/socks5"
@@ -16,18 +16,16 @@ import (
 type TCPClient struct {
 	name                       string
 	rwo                        zerocopy.DirectReadWriteCloserOpener
-	cipherConfig               *CipherConfig
-	eihPSKHashes               [][IdentityHeaderLength]byte
+	cipherConfig               *ClientCipherConfig
 	unsafeRequestStreamPrefix  []byte
 	unsafeResponseStreamPrefix []byte
 }
 
-func NewTCPClient(name, address string, dialerTFO bool, dialerFwmark int, cipherConfig *CipherConfig, eihPSKHashes [][IdentityHeaderLength]byte, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPClient {
+func NewTCPClient(name, address string, dialerTFO bool, dialerFwmark int, cipherConfig *ClientCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPClient {
 	return &TCPClient{
 		name:                       name,
 		rwo:                        zerocopy.NewTCPConnOpener(conn.NewDialer(dialerTFO, dialerFwmark), "tcp", address),
 		cipherConfig:               cipherConfig,
-		eihPSKHashes:               eihPSKHashes,
 		unsafeRequestStreamPrefix:  unsafeRequestStreamPrefix,
 		unsafeResponseStreamPrefix: unsafeResponseStreamPrefix,
 	}
@@ -64,7 +62,8 @@ func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.D
 
 	urspLen := len(c.unsafeRequestStreamPrefix)
 	saltLen := len(c.cipherConfig.PSK)
-	identityHeadersLen := IdentityHeaderLength * len(c.eihPSKHashes)
+	eihPSKHashes := c.cipherConfig.EIHPSKHashes()
+	identityHeadersLen := IdentityHeaderLength * len(eihPSKHashes)
 	identityHeadersStart := urspLen + saltLen
 	fixedLengthHeaderStart := identityHeadersStart + identityHeadersLen
 	fixedLengthHeaderEnd := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength
@@ -89,11 +88,14 @@ func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.D
 	}
 
 	// Write and encrypt identity headers.
-	eihCiphers := c.cipherConfig.NewTCPIdentityHeaderClientCiphers(salt)
+	eihCiphers, err := c.cipherConfig.TCPIdentityHeaderCiphers(salt)
+	if err != nil {
+		return
+	}
 
-	for i := range c.eihPSKHashes {
+	for i := range eihPSKHashes {
 		identityHeader := identityHeaders[i*IdentityHeaderLength : (i+1)*IdentityHeaderLength]
-		eihCiphers[i].Encrypt(identityHeader, c.eihPSKHashes[i][:])
+		eihCiphers[i].Encrypt(identityHeader, eihPSKHashes[i][:])
 	}
 
 	// Write variable-length header.
@@ -103,7 +105,10 @@ func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.D
 	WriteTCPRequestFixedLengthHeader(fixedLengthHeaderPlaintext, uint16(variableLengthHeaderLen))
 
 	// Create AEAD cipher.
-	shadowStreamCipher := c.cipherConfig.NewShadowStreamCipher(salt)
+	shadowStreamCipher, err := c.cipherConfig.ShadowStreamCipher(salt)
+	if err != nil {
+		return
+	}
 
 	// Seal fixed-length header.
 	shadowStreamCipher.EncryptInPlace(fixedLengthHeaderPlaintext)
@@ -150,19 +155,19 @@ func (c *TCPClient) NativeInitialPayload() bool {
 
 // TCPServer implements the zerocopy TCPServer interface.
 type TCPServer struct {
-	mu                         sync.Mutex
-	cipherConfig               *CipherConfig
+	CredStore
 	saltPool                   *SaltPool[string]
-	uPSKMap                    map[[IdentityHeaderLength]byte]*CipherConfig
+	userCipherConfig           UserCipherConfig
+	identityCipherConfig       ServerIdentityCipherConfig
 	unsafeRequestStreamPrefix  []byte
 	unsafeResponseStreamPrefix []byte
 }
 
-func NewTCPServer(cipherConfig *CipherConfig, uPSKMap map[[IdentityHeaderLength]byte]*CipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPServer {
+func NewTCPServer(userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPServer {
 	return &TCPServer{
-		cipherConfig:               cipherConfig,
 		saltPool:                   NewSaltPool[string](ReplayWindowDuration),
-		uPSKMap:                    uPSKMap,
+		userCipherConfig:           userCipherConfig,
+		identityCipherConfig:       identityCipherConfig,
 		unsafeRequestStreamPrefix:  unsafeRequestStreamPrefix,
 		unsafeResponseStreamPrefix: unsafeResponseStreamPrefix,
 	}
@@ -171,12 +176,14 @@ func NewTCPServer(cipherConfig *CipherConfig, uPSKMap map[[IdentityHeaderLength]
 // Accept implements the zerocopy.TCPServer Accept method.
 func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
 	var identityHeaderLen int
-	if len(s.uPSKMap) > 0 {
+	userCipherConfig := s.userCipherConfig
+	saltLen := len(userCipherConfig.PSK)
+	if saltLen == 0 {
+		saltLen = len(s.identityCipherConfig.IPSK)
 		identityHeaderLen = IdentityHeaderLength
 	}
 
 	urspLen := len(s.unsafeRequestStreamPrefix)
-	saltLen := len(s.cipherConfig.PSK)
 	identityHeaderStart := urspLen + saltLen
 	fixedLengthHeaderStart := identityHeaderStart + identityHeaderLen
 	bufferLen := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength + 16
@@ -197,11 +204,11 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 	salt := b[urspLen:identityHeaderStart]
 	ciphertext := b[fixedLengthHeaderStart:]
 
-	s.mu.Lock()
+	s.Lock()
 
 	// Check but not add request salt to pool.
 	if !s.saltPool.Check(string(salt)) { // Is the compiler smart enough to not incur an allocation here?
-		s.mu.Unlock()
+		s.Unlock()
 		payload = b[:n]
 		err = ErrRepeatedSalt
 		return
@@ -209,7 +216,7 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 
 	// Check unsafe request stream prefix.
 	if !bytes.Equal(ursp, s.unsafeRequestStreamPrefix) {
-		s.mu.Unlock()
+		s.Unlock()
 		payload = b[:n]
 		err = &HeaderError[[]byte]{ErrUnsafeStreamPrefixMismatch, s.unsafeRequestStreamPrefix, ursp}
 		return
@@ -217,28 +224,38 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 
 	// Process identity header.
 	if identityHeaderLen != 0 {
+		var identityHeaderCipher cipher.Block
+		identityHeaderCipher, err = s.identityCipherConfig.TCP(salt)
+		if err != nil {
+			s.Unlock()
+			return
+		}
+
 		var uPSKHash [IdentityHeaderLength]byte
 		identityHeader := b[identityHeaderStart:fixedLengthHeaderStart]
-		identityHeaderCipher := s.cipherConfig.NewTCPIdentityHeaderServerCipher(salt)
 		identityHeaderCipher.Decrypt(uPSKHash[:], identityHeader)
 
-		userCipherConfig, ok := s.uPSKMap[uPSKHash]
+		serverUserCipherConfig, ok := s.uPSKMap[uPSKHash]
 		if !ok {
-			s.mu.Unlock()
+			s.Unlock()
 			payload = b[:n]
 			err = ErrIdentityHeaderUserPSKNotFound
 			return
 		}
-		s.cipherConfig = userCipherConfig
+		userCipherConfig = serverUserCipherConfig.UserCipherConfig
 	}
 
 	// Derive key and create cipher.
-	shadowStreamCipher := s.cipherConfig.NewShadowStreamCipher(salt)
+	shadowStreamCipher, err := userCipherConfig.ShadowStreamCipher(salt)
+	if err != nil {
+		s.Unlock()
+		return
+	}
 
 	// AEAD open.
 	plaintext, err := shadowStreamCipher.DecryptTo(nil, ciphertext)
 	if err != nil {
-		s.mu.Unlock()
+		s.Unlock()
 		payload = b[:n]
 		return
 	}
@@ -246,14 +263,14 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 	// Parse fixed-length header.
 	vhlen, err := ParseTCPRequestFixedLengthHeader(plaintext)
 	if err != nil {
-		s.mu.Unlock()
+		s.Unlock()
 		return
 	}
 
 	// Add request salt to pool.
 	s.saltPool.Add(string(salt))
 
-	s.mu.Unlock()
+	s.Unlock()
 
 	b = make([]byte, vhlen+16)
 
@@ -282,7 +299,7 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 	rw = &ShadowStreamServerReadWriter{
 		r:                          &r,
 		rawRW:                      rawRW,
-		cipherConfig:               s.cipherConfig,
+		cipherConfig:               userCipherConfig,
 		requestSalt:                salt,
 		unsafeResponseStreamPrefix: s.unsafeResponseStreamPrefix,
 	}

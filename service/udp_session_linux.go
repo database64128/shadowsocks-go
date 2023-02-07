@@ -82,7 +82,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 			burstBatchSize = n
 		}
 
-		s.mu.Lock()
+		s.server.Lock()
 
 		msgvecn := msgvec[:n]
 
@@ -234,10 +234,10 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 					var sendChClean bool
 
 					defer func() {
-						s.mu.Lock()
+						s.server.Lock()
 						close(entry.natConnSendCh)
 						delete(s.table, csid)
-						s.mu.Unlock()
+						s.server.Unlock()
 
 						if !sendChClean {
 							for queuedPacket := range entry.natConnSendCh {
@@ -387,7 +387,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 			}
 		}
 
-		s.mu.Unlock()
+		s.server.Unlock()
 	}
 
 	for i := range qpvec {

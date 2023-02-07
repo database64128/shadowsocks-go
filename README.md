@@ -31,7 +31,7 @@ On production servers, you may want to set `udpRelayBatchSize` to a lower value 
 
 UDP packets may be padded to up to the maximum packet size calculated from `mtu`. If the server may be used from a PPPoE connection, `mtu` should be reduced to 1492. If the client-to-server PMTU is unknown, padding can be completely disabled by setting `paddingPolicy` to `NoPadding`.
 
-For servers without any user PSKs (single-user mode), the `psk` field specifies the PSK. When one or more user PSKs are specified, the `psk` field specifies the identity PSK.
+For servers without any user PSKs (single-user mode), the `psk` field specifies the PSK, and the `uPSKStorePath` field can be omitted or left empty. When one or more user PSKs are specified in the uPSK store file, the `psk` field specifies the identity PSK.
 
 ```json
 {
@@ -45,11 +45,16 @@ For servers without any user PSKs (single-user mode), the `psk` field specifies 
             "enableUDP": true,
             "mtu": 1500,
             "psk": "qQln3GlVCZi5iJUObJVNCw==",
-            "uPSKs": [
-                "oE/s2z9Q8EWORAB8B3UCxw=="
-            ]
+            "uPSKStorePath": "/etc/shadowsocks-go/upsks.json"
         }
     ]
+}
+```
+
+```json
+{
+    "Steve": "oE/s2z9Q8EWORAB8B3UCxw==",
+    "Alex": "hWXLOSW/r/LtNKynrA3S8Q=="
 }
 ```
 

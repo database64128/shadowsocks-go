@@ -2,75 +2,56 @@ package ss2022
 
 import (
 	"crypto/rand"
-	"errors"
-	"testing"
+	"strconv"
 )
 
-func TestNewCipherConfigUnknownMethod(t *testing.T) {
-	_, err := NewCipherConfig("2022-blake3-chacha20-poly1305", nil, nil)
-	if !errors.Is(err, ErrUnknownMethod) {
-		t.Errorf("Expected %s, got %s.", ErrUnknownMethod, err)
-	}
-}
-
-func TestNewCipherConfigBadPSKLength(t *testing.T) {
-	_, err := NewRandomCipherConfig("2022-blake3-aes-128-gcm", 32, 1)
-	if !errors.Is(err, ErrBadPSKLength) {
-		t.Errorf("Expected %s, got %s.", ErrBadPSKLength, err)
-	}
-
-	_, err = NewRandomCipherConfig("2022-blake3-aes-256-gcm", 16, 1)
-	if !errors.Is(err, ErrBadPSKLength) {
-		t.Errorf("Expected %s, got %s.", ErrBadPSKLength, err)
-	}
-}
-
-func testNewCipherConfigEIHBehavior(t *testing.T, method string, keySize, eihCount int) {
-	cipherConfig, err := NewRandomCipherConfig(method, keySize, eihCount)
+func newRandomCipherConfigTupleNoEIH(method string, enableUDP bool) (clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, err error) {
+	keySize, err := PSKLengthForMethod(method)
 	if err != nil {
-		t.Fatal(err)
+		return
 	}
-
-	salt := make([]byte, keySize)
-	_, err = rand.Read(salt)
+	psk := make([]byte, keySize)
+	if _, err = rand.Read(psk); err != nil {
+		return
+	}
+	clientCipherConfig, err = NewClientCipherConfig(psk, nil, enableUDP)
 	if err != nil {
-		t.Fatal(err)
+		return
 	}
-
-	eihCiphers := cipherConfig.NewTCPIdentityHeaderClientCiphers(salt)
-	if len(eihCiphers) != eihCount {
-		t.Errorf("Expected TCP identity header client cipher count %d, got %d.", eihCount, len(eihCiphers))
-	}
-
-	eihCipher := cipherConfig.NewTCPIdentityHeaderServerCipher(salt)
-	if eihCount == 0 && eihCipher != nil || eihCount != 0 && eihCipher == nil {
-		t.Error("Incorrect TCP identity header server cipher nil-ness.")
-	}
-
-	eihCiphers = cipherConfig.NewUDPIdentityHeaderClientCiphers()
-	if len(eihCiphers) != eihCount {
-		t.Errorf("Expected UDP identity header client cipher count %d, got %d.", eihCount, len(eihCiphers))
-	}
-
-	eihCipher = cipherConfig.NewUDPIdentityHeaderServerCipher()
-	if eihCount == 0 && eihCipher != nil || eihCount != 0 && eihCipher == nil {
-		t.Error("Incorrect UDP identity header server cipher nil-ness.")
-	}
-
-	hashes := cipherConfig.ClientPSKHashes()
-	if len(hashes) != eihCount {
-		t.Errorf("Expected client PSK hash count %d, got %d.", eihCount, len(hashes))
-	}
-
-	uPSKMap := cipherConfig.ServerPSKHashMap()
-	if len(uPSKMap) != eihCount {
-		t.Errorf("Expected server uPSK map key-value count %d, got %d.", eihCount, len(uPSKMap))
-	}
+	userCipherConfig, err = NewUserCipherConfig(psk, enableUDP)
+	return
 }
 
-func TestNewCipherConfigEIHBehavior(t *testing.T) {
-	testNewCipherConfigEIHBehavior(t, "2022-blake3-aes-128-gcm", 16, 0)
-	testNewCipherConfigEIHBehavior(t, "2022-blake3-aes-128-gcm", 16, 7)
-	testNewCipherConfigEIHBehavior(t, "2022-blake3-aes-256-gcm", 32, 0)
-	testNewCipherConfigEIHBehavior(t, "2022-blake3-aes-256-gcm", 32, 7)
+func newRandomCipherConfigTupleWithEIH(method string, enableUDP bool) (clientCipherConfig *ClientCipherConfig, identityCipherConfig ServerIdentityCipherConfig, uPSKMap map[[IdentityHeaderLength]byte]*ServerUserCipherConfig, err error) {
+	keySize, err := PSKLengthForMethod(method)
+	if err != nil {
+		return
+	}
+
+	iPSK := make([]byte, keySize)
+	if _, err = rand.Read(iPSK); err != nil {
+		return
+	}
+	iPSKs := [][]byte{iPSK}
+
+	userMap := make(map[string][]byte, 7)
+	for i := 0; i < 7; i++ {
+		psk := make([]byte, keySize)
+		if _, err = rand.Read(psk); err != nil {
+			return
+		}
+		userMap[strconv.Itoa(i)] = psk
+	}
+	uPSK := userMap["0"]
+
+	clientCipherConfig, err = NewClientCipherConfig(uPSK, iPSKs, enableUDP)
+	if err != nil {
+		return
+	}
+	identityCipherConfig, err = NewServerIdentityCipherConfig(iPSK, enableUDP)
+	if err != nil {
+		return
+	}
+	uPSKMap, err = NewUPSKMap(keySize, userMap, enableUDP)
+	return
 }

@@ -70,9 +70,7 @@
             "udpServerRecvBatchSize": 512,
             "udpSendChannelCapacity": 1024,
             "psk": "qQln3GlVCZi5iJUObJVNCw==",
-            "uPSKs": [
-                "oE/s2z9Q8EWORAB8B3UCxw=="
-            ],
+            "uPSKStorePath": "/etc/shadowsocks-go/upsks.json",
             "paddingPolicy": "",
             "rejectPolicy": ""
         }
