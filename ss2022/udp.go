@@ -121,12 +121,14 @@ func (s *UDPServer) SessionInfo(b []byte) (csid uint64, err error) {
 }
 
 // NewUnpacker implements the zerocopy.UDPSessionServer NewUnpacker method.
-func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker, error) {
+func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker, string, error) {
 	identityHeaderLen := s.ShadowPacketClientMessageHeadroom.identityHeadersLen
 
 	if len(b) < UDPSeparateHeaderLength+identityHeaderLen {
-		return nil, fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, len(b))
+		return nil, "", fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, len(b))
 	}
+
+	var username string
 
 	// Process identity header.
 	if identityHeaderLen != 0 {
@@ -137,21 +139,22 @@ func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker,
 		uPSKHash := *(*[IdentityHeaderLength]byte)(identityHeader)
 		userCipherConfig, ok := s.uPSKMap[uPSKHash]
 		if !ok {
-			return nil, ErrIdentityHeaderUserPSKNotFound
+			return nil, "", ErrIdentityHeaderUserPSKNotFound
 		}
 		s.currentUserCipherConfig = userCipherConfig.UserCipherConfig
+		username = userCipherConfig.Name
 	}
 
 	aead, err := s.currentUserCipherConfig.AEAD(b[:8])
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	return &ShadowPacketServerUnpacker{
 		ShadowPacketClientMessageHeadroom: s.ShadowPacketClientMessageHeadroom,
 		csid:                              csid,
 		aead:                              aead,
-	}, nil
+	}, username, nil
 }
 
 // NewPacker implements the zerocopy.UDPSessionServer NewPacker method.

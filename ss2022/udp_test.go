@@ -88,7 +88,7 @@ func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, u
 	if err != nil {
 		t.Fatal(err)
 	}
-	serverUnpacker, err := s.NewUnpacker(p, csid)
+	serverUnpacker, _, err := s.NewUnpacker(p, csid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 	if err != nil {
 		t.Fatal(err)
 	}
-	serverUnpacker, err := s.NewUnpacker(p, csid)
+	serverUnpacker, _, err := s.NewUnpacker(p, csid)
 	if err != nil {
 		t.Fatal(err)
 	}

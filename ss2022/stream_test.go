@@ -41,7 +41,7 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig *ClientCipherCo
 	}()
 
 	go func() {
-		srw, serverTargetAddr, serverInitialPayload, serr = s.Accept(pr)
+		srw, serverTargetAddr, serverInitialPayload, _, serr = s.Accept(pr)
 		if serr == nil && len(serverInitialPayload) < len(clientInitialPayload) {
 			// Read excess payload.
 			b := make([]byte, len(clientInitialPayload))
@@ -115,7 +115,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig *ClientCi
 	go sendFunc()
 
 	// Start server.
-	_, _, _, serr = s.Accept(pr)
+	_, _, _, _, serr = s.Accept(pr)
 	if serr != nil {
 		t.Fatal(serr)
 	}
@@ -124,7 +124,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig *ClientCi
 	go sendFunc()
 
 	// Start server from replay.
-	_, _, _, serr = s.Accept(pr)
+	_, _, _, _, serr = s.Accept(pr)
 	if serr != ErrRepeatedSalt {
 		t.Errorf("Expected ErrRepeatedSalt, got %v", serr)
 	}

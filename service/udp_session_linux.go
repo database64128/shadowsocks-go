@@ -146,7 +146,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 			if !ok {
 				entry = &session{}
 
-				entry.serverConnUnpacker, err = s.server.NewUnpacker(packet, csid)
+				entry.serverConnUnpacker, entry.username, err = s.server.NewUnpacker(packet, csid)
 				if err != nil {
 					s.logger.Warn("Failed to create unpacker for client session",
 						zap.String("server", s.serverName),
@@ -168,6 +168,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
+					zap.String("username", entry.username),
 					zap.Uint64("clientSessionID", csid),
 					zap.Uint32("packetLength", msg.Msglen),
 					zap.Error(err),
@@ -202,6 +203,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+						zap.String("username", entry.username),
 						zap.Uint64("clientSessionID", csid),
 						zap.Error(err),
 					)
@@ -221,6 +223,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 						zap.Stringer("clientPktinfoAddr", clientPktinfoAddr),
 						zap.Uint32("clientPktinfoIfindex", clientPktinfoIfindex),
+						zap.String("username", entry.username),
 						zap.Uint64("clientSessionID", csid),
 					)
 				}
@@ -253,6 +256,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+							zap.String("username", entry.username),
 							zap.Uint64("clientSessionID", csid),
 							zap.Error(err),
 						)
@@ -274,6 +278,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+							zap.String("username", entry.username),
 							zap.Uint64("clientSessionID", csid),
 							zap.Error(err),
 						)
@@ -287,6 +292,8 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 							zap.String("client", clientName),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
+							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+							zap.String("username", entry.username),
 							zap.Uint64("clientSessionID", csid),
 							zap.Error(err),
 						)
@@ -301,6 +308,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+							zap.String("username", entry.username),
 							zap.Uint64("clientSessionID", csid),
 							zap.Int("natConnFwmark", natConnFwmark),
 							zap.Error(err),
@@ -317,6 +325,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 							zap.Duration("natTimeout", s.natTimeout),
+							zap.String("username", entry.username),
 							zap.Uint64("clientSessionID", csid),
 							zap.Error(err),
 						)
@@ -345,6 +354,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+						zap.String("username", entry.username),
 						zap.Uint64("clientSessionID", csid),
 					)
 
@@ -365,6 +375,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+						zap.String("username", entry.username),
 						zap.Uint64("clientSessionID", csid),
 					)
 				}
@@ -379,6 +390,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+						zap.String("username", entry.username),
 						zap.Uint64("clientSessionID", csid),
 					)
 				}
@@ -447,6 +459,7 @@ main:
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+					zap.String("username", entry.username),
 					zap.Uint64("clientSessionID", csid),
 					zap.Int("payloadLength", queuedPacket.length),
 					zap.Error(err),
@@ -489,6 +502,7 @@ main:
 				zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 				zap.Stringer("lastTargetAddress", &qpvec[count-1].targetAddr),
 				zap.Stringer("lastWriteDestAddress", destAddrPort),
+				zap.String("username", entry.username),
 				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)
@@ -500,6 +514,7 @@ main:
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 				zap.Duration("natTimeout", s.natTimeout),
+				zap.String("username", entry.username),
 				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)
@@ -526,6 +541,7 @@ main:
 		zap.String("server", s.serverName),
 		zap.String("listenAddress", s.listenAddress),
 		zap.Stringer("lastWriteDestAddress", destAddrPort),
+		zap.String("username", entry.username),
 		zap.Uint64("clientSessionID", csid),
 		zap.Uint64("sendmmsgCount", sendmmsgCount),
 		zap.Uint64("packetsSent", packetsSent),
@@ -594,6 +610,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
+				zap.String("username", entry.username),
 				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)
@@ -625,6 +642,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
+					zap.String("username", entry.username),
 					zap.Uint64("clientSessionID", csid),
 					zap.Error(err),
 				)
@@ -638,6 +656,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
 					zap.Stringer("packetSourceAddress", packetSourceAddrPort),
+					zap.String("username", entry.username),
 					zap.Uint64("clientSessionID", csid),
 					zap.Uint32("packetLength", msg.Msglen),
 					zap.Error(err),
@@ -654,6 +673,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
 					zap.Stringer("packetSourceAddress", packetSourceAddrPort),
+					zap.String("username", entry.username),
 					zap.Uint64("clientSessionID", csid),
 					zap.Uint32("packetLength", msg.Msglen),
 					zap.Error(err),
@@ -669,6 +689,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 					zap.Stringer("clientAddress", clientAddrPort),
 					zap.Stringer("packetSourceAddress", packetSourceAddrPort),
 					zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
+					zap.String("username", entry.username),
 					zap.Uint64("clientSessionID", csid),
 					zap.Int("payloadLength", payloadLength),
 					zap.Int("maxClientPacketSize", maxClientPacketSize),
@@ -693,6 +714,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 				zap.String("server", s.serverName),
 				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
+				zap.String("username", entry.username),
 				zap.Uint64("clientSessionID", csid),
 				zap.Error(err),
 			)
@@ -709,6 +731,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 		zap.String("server", s.serverName),
 		zap.String("listenAddress", s.listenAddress),
 		zap.Stringer("clientAddress", clientAddrPort),
+		zap.String("username", entry.username),
 		zap.Uint64("clientSessionID", csid),
 		zap.Uint64("sendmmsgCount", sendmmsgCount),
 		zap.Uint64("packetsSent", packetsSent),

@@ -64,7 +64,7 @@ func NewProxyServer(logger *zap.Logger) *ProxyServer {
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *ProxyServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
+func (s *ProxyServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
 	rw, targetAddr, err = NewHttpStreamServerReadWriter(rawRW, s.logger)
 	return
 }

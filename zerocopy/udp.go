@@ -49,7 +49,7 @@ type UDPSessionServer interface {
 	// The returned unpacker is then used by the caller to unpack the incoming packet.
 	// Upon successful unpacking, NewPacker should be called to create a corresponding
 	// server session.
-	NewUnpacker(b []byte, csid uint64) (ServerUnpacker, error)
+	NewUnpacker(b []byte, csid uint64) (serverUnpacker ServerUnpacker, username string, err error)
 
 	// NewPacker creates a new server session for the specified client session
 	// and returns the server session's packer, or an error.

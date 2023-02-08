@@ -56,7 +56,7 @@ type TCPServer interface {
 	//
 	// If accept fails, the returned payload must be either nil/empty or the data that has been read
 	// from the connection.
-	Accept(rawRW DirectReadWriteCloser) (rw ReadWriter, targetAddr conn.Addr, payload []byte, err error)
+	Accept(rawRW DirectReadWriteCloser) (rw ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error)
 
 	// DefaultTCPConnCloser returns the default function to handle the closing
 	// of a potentially malicious TCP connection.

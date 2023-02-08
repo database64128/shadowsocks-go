@@ -174,7 +174,7 @@ func NewTCPServer(userCipherConfig UserCipherConfig, identityCipherConfig Server
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, err error) {
+func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
 	var identityHeaderLen int
 	userCipherConfig := s.userCipherConfig
 	saltLen := len(userCipherConfig.PSK)
@@ -243,6 +243,7 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 			return
 		}
 		userCipherConfig = serverUserCipherConfig.UserCipherConfig
+		username = serverUserCipherConfig.Name
 	}
 
 	// Derive key and create cipher.
