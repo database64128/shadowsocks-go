@@ -169,3 +169,16 @@ func (NoopCollector) CollectUDPSessionUplink(username string, uplinkPackets, upl
 func (NoopCollector) Snapshot() Server {
 	return Server{}
 }
+
+// Config stores configuration for the stats collector.
+type Config struct {
+	Enabled bool `json:"enabled"`
+}
+
+// Collector returns a new stats collector from the config.
+func (c Config) Collector() Collector {
+	if c.Enabled {
+		return NewServerCollector()
+	}
+	return NoopCollector{}
+}

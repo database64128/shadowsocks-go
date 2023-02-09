@@ -12,6 +12,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/router"
+	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
@@ -37,12 +38,21 @@ type TCPRelay struct {
 	server                zerocopy.TCPServer
 	connCloser            zerocopy.TCPConnCloser
 	fallbackAddress       *conn.Addr
+	collector             stats.Collector
 	router                *router.Router
 	logger                *zap.Logger
 	listener              *net.TCPListener
 }
 
-func NewTCPRelay(serverName, listenAddress string, listenerFwmark int, listenerTFO, listenerTransparent, waitForInitialPayload bool, server zerocopy.TCPServer, connCloser zerocopy.TCPConnCloser, fallbackAddress *conn.Addr, router *router.Router, logger *zap.Logger) *TCPRelay {
+func NewTCPRelay(
+	serverName, listenAddress string, listenerFwmark int, listenerTFO, listenerTransparent, waitForInitialPayload bool,
+	server zerocopy.TCPServer,
+	connCloser zerocopy.TCPConnCloser,
+	fallbackAddress *conn.Addr,
+	collector stats.Collector,
+	router *router.Router,
+	logger *zap.Logger,
+) *TCPRelay {
 	return &TCPRelay{
 		serverName:            serverName,
 		listenAddress:         listenAddress,
@@ -51,6 +61,7 @@ func NewTCPRelay(serverName, listenAddress string, listenerFwmark int, listenerT
 		server:                server,
 		connCloser:            connCloser,
 		fallbackAddress:       fallbackAddress,
+		collector:             collector,
 		router:                router,
 		logger:                logger,
 	}
@@ -266,6 +277,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 	// Two-way relay.
 	nl2r, nr2l, err := zerocopy.TwoWayRelay(clientRW, remoteRW)
 	nl2r += int64(len(payload))
+	s.collector.CollectTCPSession(username, uint64(nr2l), uint64(nl2r))
 	if err != nil {
 		s.logger.Warn("Two-way relay failed",
 			zap.String("server", s.serverName),

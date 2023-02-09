@@ -548,6 +548,8 @@ main:
 		zap.Uint64("payloadBytesSent", payloadBytesSent),
 		zap.Int("burstBatchSize", burstBatchSize),
 	)
+
+	s.collector.CollectUDPSessionUplink(entry.username, packetsSent, payloadBytesSent)
 }
 
 func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *session, clientAddrInfop *sessionClientAddrInfo) {
@@ -738,4 +740,6 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 		zap.Uint64("payloadBytesSent", payloadBytesSent),
 		zap.Int("burstBatchSize", burstBatchSize),
 	)
+
+	s.collector.CollectUDPSessionDownlink(entry.username, packetsSent, payloadBytesSent)
 }

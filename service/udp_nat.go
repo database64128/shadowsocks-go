@@ -13,6 +13,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/router"
+	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
@@ -65,6 +66,7 @@ type UDPNATRelay struct {
 	natTimeout             time.Duration
 	server                 zerocopy.UDPNATServer
 	serverConn             *net.UDPConn
+	collector              stats.Collector
 	router                 *router.Router
 	logger                 *zap.Logger
 	queuedPacketPool       sync.Pool
@@ -80,6 +82,7 @@ func NewUDPNATRelay(
 	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
 	natTimeout time.Duration,
 	server zerocopy.UDPNATServer,
+	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
 ) *UDPNATRelay {
@@ -105,6 +108,7 @@ func NewUDPNATRelay(
 		sendChannelCapacity:    sendChannelCapacity,
 		natTimeout:             natTimeout,
 		server:                 server,
+		collector:              collector,
 		router:                 router,
 		logger:                 logger,
 		queuedPacketPool: sync.Pool{
@@ -481,6 +485,8 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(clientAddrPort netip.AddrP
 		zap.Uint64("packetsSent", packetsSent),
 		zap.Uint64("payloadBytesSent", payloadBytesSent),
 	)
+
+	s.collector.CollectUDPSessionUplink("", packetsSent, payloadBytesSent)
 }
 
 func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrPort, entry *natEntry, clientPktinfop *[]byte) {
@@ -594,6 +600,8 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(clientAddrPort netip.AddrP
 		zap.Uint64("packetsSent", packetsSent),
 		zap.Uint64("payloadBytesSent", payloadBytesSent),
 	)
+
+	s.collector.CollectUDPSessionDownlink("", packetsSent, payloadBytesSent)
 }
 
 // getQueuedPacket retrieves a queued packet from the pool.

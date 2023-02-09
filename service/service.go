@@ -7,6 +7,7 @@ import (
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/router"
+	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
@@ -33,6 +34,7 @@ type Config struct {
 	Clients []ClientConfig       `json:"clients"`
 	DNS     []dns.ResolverConfig `json:"dns"`
 	Router  router.Config        `json:"router"`
+	Stats   stats.Config         `json:"stats"`
 }
 
 // Manager initializes the service manager.
@@ -120,8 +122,9 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		if err := serverConfig.Initialize(credman); err != nil {
 			return nil, fmt.Errorf("failed to initialize server %s: %w", serverConfig.Name, err)
 		}
+		collector := sc.Stats.Collector()
 
-		tcpRelay, err := serverConfig.TCPRelay(credman, router, logger)
+		tcpRelay, err := serverConfig.TCPRelay(credman, collector, router, logger)
 		switch err {
 		case errNetworkDisabled:
 		case nil:
@@ -130,7 +133,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 			return nil, fmt.Errorf("failed to create TCP relay service for %s: %w", serverConfig.Name, err)
 		}
 
-		udpRelay, err := serverConfig.UDPRelay(credman, router, logger, maxClientFrontHeadroom, maxClientRearHeadroom)
+		udpRelay, err := serverConfig.UDPRelay(credman, collector, router, logger, maxClientFrontHeadroom, maxClientRearHeadroom)
 		switch err {
 		case errNetworkDisabled:
 		case nil:

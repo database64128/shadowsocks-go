@@ -10,6 +10,7 @@ import (
 	"github.com/database64128/shadowsocks-go/http"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/ss2022"
+	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
@@ -88,7 +89,7 @@ func (sc *ServerConfig) Initialize(credman *cred.Manager) error {
 }
 
 // TCPRelay creates a TCP relay service from the ServerConfig.
-func (sc *ServerConfig) TCPRelay(credman *cred.Manager, router *router.Router, logger *zap.Logger) (*TCPRelay, error) {
+func (sc *ServerConfig) TCPRelay(credman *cred.Manager, collector stats.Collector, router *router.Router, logger *zap.Logger) (*TCPRelay, error) {
 	if !sc.EnableTCP && sc.Protocol != "socks5" {
 		return nil, errNetworkDisabled
 	}
@@ -151,11 +152,11 @@ func (sc *ServerConfig) TCPRelay(credman *cred.Manager, router *router.Router, l
 
 	waitForInitialPayload := !server.NativeInitialPayload() && !sc.DisableInitialPayloadWait
 
-	return NewTCPRelay(sc.Name, sc.Listen, sc.ListenerFwmark, sc.ListenerTFO, listenerTransparent, waitForInitialPayload, server, connCloser, sc.UnsafeFallbackAddress, router, logger), nil
+	return NewTCPRelay(sc.Name, sc.Listen, sc.ListenerFwmark, sc.ListenerTFO, listenerTransparent, waitForInitialPayload, server, connCloser, sc.UnsafeFallbackAddress, collector, router, logger), nil
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
-func (sc *ServerConfig) UDPRelay(credman *cred.Manager, router *router.Router, logger *zap.Logger, maxClientFrontHeadroom, maxClientRearHeadroom int) (Relay, error) {
+func (sc *ServerConfig) UDPRelay(credman *cred.Manager, collector stats.Collector, router *router.Router, logger *zap.Logger, maxClientFrontHeadroom, maxClientRearHeadroom int) (Relay, error) {
 	if !sc.EnableUDP {
 		return nil, errNetworkDisabled
 	}
@@ -241,11 +242,11 @@ func (sc *ServerConfig) UDPRelay(credman *cred.Manager, router *router.Router, l
 
 	switch sc.Protocol {
 	case "direct", "none", "plain", "socks5":
-		return NewUDPNATRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, natServer, router, logger), nil
+		return NewUDPNATRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, natServer, collector, router, logger), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		return NewUDPSessionRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, server, router, logger), nil
+		return NewUDPSessionRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, server, collector, router, logger), nil
 	case "tproxy":
-		return NewUDPTransparentRelay(sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, router, logger)
+		return NewUDPTransparentRelay(sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, collector, router, logger)
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}

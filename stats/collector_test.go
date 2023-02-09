@@ -93,14 +93,14 @@ func verify(t *testing.T, c Collector) {
 }
 
 func TestServerCollector(t *testing.T) {
-	c := NewServerCollector()
+	c := Config{Enabled: true}.Collector()
 	collect(t, c)
 	verify(t, c)
 }
 
 func TestNoopCollector(t *testing.T) {
-	c := NoopCollector{}
-	collect(t, &c)
+	c := Config{}.Collector()
+	collect(t, c)
 	s := c.Snapshot()
 	var zero Traffic
 	if s.Traffic != zero {

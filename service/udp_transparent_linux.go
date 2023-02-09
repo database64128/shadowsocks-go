@@ -11,6 +11,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/router"
+	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 	"golang.org/x/sys/unix"
@@ -45,6 +46,7 @@ type UDPTransparentRelay struct {
 	sendChannelCapacity    int
 	natTimeout             time.Duration
 	serverConn             *net.UDPConn
+	collector              stats.Collector
 	router                 *router.Router
 	logger                 *zap.Logger
 	queuedPacketPool       sync.Pool
@@ -58,6 +60,7 @@ func NewUDPTransparentRelay(
 	serverName, listenAddress string,
 	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
 	natTimeout time.Duration,
+	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
 ) (Relay, error) {
@@ -74,6 +77,7 @@ func NewUDPTransparentRelay(
 		serverRecvBatchSize:    serverRecvBatchSize,
 		sendChannelCapacity:    sendChannelCapacity,
 		natTimeout:             natTimeout,
+		collector:              collector,
 		router:                 router,
 		logger:                 logger,
 		queuedPacketPool: sync.Pool{
@@ -502,6 +506,8 @@ main:
 		zap.Uint64("payloadBytesSent", payloadBytesSent),
 		zap.Int("burstBatchSize", burstBatchSize),
 	)
+
+	s.collector.CollectUDPSessionUplink("", packetsSent, payloadBytesSent)
 }
 
 // getQueuedPacket retrieves a queued packet from the pool.
@@ -730,6 +736,8 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(clientAddrPo
 		zap.Uint64("payloadBytesSent", payloadBytesSent),
 		zap.Int("burstBatchSize", burstBatchSize),
 	)
+
+	s.collector.CollectUDPSessionDownlink("", packetsSent, payloadBytesSent)
 }
 
 // Stop implements the Relay Stop method.

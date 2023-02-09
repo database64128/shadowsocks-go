@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/router"
+	"github.com/database64128/shadowsocks-go/stats"
 	"go.uber.org/zap"
 )
 
@@ -14,6 +15,7 @@ func NewUDPTransparentRelay(
 	serverName, listenAddress string,
 	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
 	natTimeout time.Duration,
+	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
 ) (Relay, error) {
