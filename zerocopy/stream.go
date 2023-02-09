@@ -212,32 +212,21 @@ type ReadWriter interface {
 // It returns the number of bytes sent from left to right, from right to left,
 // and any error occurred during transfer.
 func TwoWayRelay(left, right ReadWriter) (nl2r, nr2l int64, err error) {
-	var (
-		l2rErr error
-		lcwErr error
-		rcwErr error
-	)
-
+	var l2rErr error
 	ctrlCh := make(chan struct{})
 
 	go func() {
 		nl2r, l2rErr = Relay(right, left)
-		rcwErr = right.CloseWrite()
+		right.CloseWrite()
 		ctrlCh <- struct{}{}
 	}()
 
 	nr2l, err = Relay(left, right)
-	lcwErr = left.CloseWrite()
+	left.CloseWrite()
 	<-ctrlCh
 
-	switch {
-	case err != nil:
-	case l2rErr != nil:
+	if l2rErr != nil {
 		err = l2rErr
-	case lcwErr != nil:
-		err = lcwErr
-	case rcwErr != nil:
-		err = rcwErr
 	}
 	return
 }
@@ -253,32 +242,21 @@ type DirectReadWriteCloser interface {
 // It returns the number of bytes sent from left to right, from right to left,
 // and any error occurred during transfer.
 func DirectTwoWayRelay(left, right DirectReadWriteCloser) (nl2r, nr2l int64, err error) {
-	var (
-		l2rErr error
-		lcwErr error
-		rcwErr error
-	)
-
+	var l2rErr error
 	ctrlCh := make(chan struct{})
 
 	go func() {
 		nl2r, l2rErr = io.Copy(right, left)
-		rcwErr = right.CloseWrite()
+		right.CloseWrite()
 		ctrlCh <- struct{}{}
 	}()
 
 	nr2l, err = io.Copy(left, right)
-	lcwErr = left.CloseWrite()
+	left.CloseWrite()
 	<-ctrlCh
 
-	switch {
-	case err != nil:
-	case l2rErr != nil:
+	if l2rErr != nil {
 		err = l2rErr
-	case lcwErr != nil:
-		err = lcwErr
-	case rcwErr != nil:
-		err = rcwErr
 	}
 	return
 }
