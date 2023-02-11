@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 )
 
-type traffic struct {
+type trafficCollector struct {
 	downlinkPackets atomic.Uint64
 	downlinkBytes   atomic.Uint64
 	uplinkPackets   atomic.Uint64
@@ -14,21 +14,21 @@ type traffic struct {
 	udpSessions     atomic.Uint64
 }
 
-func (t *traffic) collectTCPSession(downlinkBytes, uplinkBytes uint64) {
-	t.downlinkBytes.Add(downlinkBytes)
-	t.uplinkBytes.Add(uplinkBytes)
-	t.tcpSessions.Add(1)
+func (tc *trafficCollector) collectTCPSession(downlinkBytes, uplinkBytes uint64) {
+	tc.downlinkBytes.Add(downlinkBytes)
+	tc.uplinkBytes.Add(uplinkBytes)
+	tc.tcpSessions.Add(1)
 }
 
-func (t *traffic) collectUDPSessionDownlink(downlinkPackets, downlinkBytes uint64) {
-	t.downlinkPackets.Add(downlinkPackets)
-	t.downlinkBytes.Add(downlinkBytes)
-	t.udpSessions.Add(1)
+func (tc *trafficCollector) collectUDPSessionDownlink(downlinkPackets, downlinkBytes uint64) {
+	tc.downlinkPackets.Add(downlinkPackets)
+	tc.downlinkBytes.Add(downlinkBytes)
+	tc.udpSessions.Add(1)
 }
 
-func (t *traffic) collectUDPSessionUplink(uplinkPackets, uplinkBytes uint64) {
-	t.uplinkPackets.Add(uplinkPackets)
-	t.uplinkBytes.Add(uplinkBytes)
+func (tc *trafficCollector) collectUDPSessionUplink(uplinkPackets, uplinkBytes uint64) {
+	tc.uplinkPackets.Add(uplinkPackets)
+	tc.uplinkBytes.Add(uplinkBytes)
 }
 
 // Traffic stores the traffic statistics.
@@ -41,19 +41,39 @@ type Traffic struct {
 	UDPSessions     uint64 `json:"udpSessions"`
 }
 
-func (t *traffic) snapshot() Traffic {
+func (t *Traffic) Add(u Traffic) {
+	t.DownlinkPackets += u.DownlinkPackets
+	t.DownlinkBytes += u.DownlinkBytes
+	t.UplinkPackets += u.UplinkPackets
+	t.UplinkBytes += u.UplinkBytes
+	t.TCPSessions += u.TCPSessions
+	t.UDPSessions += u.UDPSessions
+}
+
+func (tc *trafficCollector) snapshot() Traffic {
 	return Traffic{
-		DownlinkPackets: t.downlinkPackets.Load(),
-		DownlinkBytes:   t.downlinkBytes.Load(),
-		UplinkPackets:   t.uplinkPackets.Load(),
-		UplinkBytes:     t.uplinkBytes.Load(),
-		TCPSessions:     t.tcpSessions.Load(),
-		UDPSessions:     t.udpSessions.Load(),
+		DownlinkPackets: tc.downlinkPackets.Load(),
+		DownlinkBytes:   tc.downlinkBytes.Load(),
+		UplinkPackets:   tc.uplinkPackets.Load(),
+		UplinkBytes:     tc.uplinkBytes.Load(),
+		TCPSessions:     tc.tcpSessions.Load(),
+		UDPSessions:     tc.udpSessions.Load(),
+	}
+}
+
+func (tc *trafficCollector) snapshotAndReset() Traffic {
+	return Traffic{
+		DownlinkPackets: tc.downlinkPackets.Swap(0),
+		DownlinkBytes:   tc.downlinkBytes.Swap(0),
+		UplinkPackets:   tc.uplinkPackets.Swap(0),
+		UplinkBytes:     tc.uplinkBytes.Swap(0),
+		TCPSessions:     tc.tcpSessions.Swap(0),
+		UDPSessions:     tc.udpSessions.Swap(0),
 	}
 }
 
 type userCollector struct {
-	traffic
+	trafficCollector
 }
 
 // User stores the user's traffic statistics.
@@ -65,12 +85,19 @@ type User struct {
 func (uc *userCollector) snapshot(username string) User {
 	return User{
 		Name:    username,
-		Traffic: uc.traffic.snapshot(),
+		Traffic: uc.trafficCollector.snapshot(),
+	}
+}
+
+func (uc *userCollector) snapshotAndReset(username string) User {
+	return User{
+		Name:    username,
+		Traffic: uc.trafficCollector.snapshotAndReset(),
 	}
 }
 
 type serverCollector struct {
-	traffic
+	tc  trafficCollector
 	ucs map[string]*userCollector
 	mu  sync.RWMutex
 }
@@ -98,42 +125,60 @@ func (sc *serverCollector) userCollector(username string) *userCollector {
 	return uc
 }
 
+func (sc *serverCollector) trafficCollector(username string) *trafficCollector {
+	if username == "" {
+		return &sc.tc
+	}
+	return &sc.userCollector(username).trafficCollector
+}
+
 // CollectTCPSession implements the Collector CollectTCPSession method.
 func (sc *serverCollector) CollectTCPSession(username string, downlinkBytes, uplinkBytes uint64) {
-	sc.userCollector(username).collectTCPSession(downlinkBytes, uplinkBytes)
-	sc.collectTCPSession(downlinkBytes, uplinkBytes)
+	sc.trafficCollector(username).collectTCPSession(downlinkBytes, uplinkBytes)
 }
 
 // CollectUDPSessionDownlink implements the Collector CollectUDPSessionDownlink method.
 func (sc *serverCollector) CollectUDPSessionDownlink(username string, downlinkPackets, downlinkBytes uint64) {
-	sc.userCollector(username).collectUDPSessionDownlink(downlinkPackets, downlinkBytes)
-	sc.collectUDPSessionDownlink(downlinkPackets, downlinkBytes)
+	sc.trafficCollector(username).collectUDPSessionDownlink(downlinkPackets, downlinkBytes)
 }
 
 // CollectUDPSessionUplink implements the Collector CollectUDPSessionUplink method.
 func (sc *serverCollector) CollectUDPSessionUplink(username string, uplinkPackets, uplinkBytes uint64) {
-	sc.userCollector(username).collectUDPSessionUplink(uplinkPackets, uplinkBytes)
-	sc.collectUDPSessionUplink(uplinkPackets, uplinkBytes)
+	sc.trafficCollector(username).collectUDPSessionUplink(uplinkPackets, uplinkBytes)
 }
 
 // Server stores the server's traffic statistics.
 type Server struct {
 	Traffic
-	Users []User `json:"users"`
+	Users []User `json:"users,omitempty"`
 }
 
 // Snapshot implements the Collector Snapshot method.
-func (sc *serverCollector) Snapshot() Server {
+func (sc *serverCollector) Snapshot() (s Server) {
+	s.Traffic = sc.tc.snapshot()
 	sc.mu.RLock()
-	users := make([]User, 0, len(sc.ucs))
+	s.Users = make([]User, 0, len(sc.ucs))
 	for username, uc := range sc.ucs {
-		users = append(users, uc.snapshot(username))
+		u := uc.snapshot(username)
+		s.Traffic.Add(u.Traffic)
+		s.Users = append(s.Users, u)
 	}
 	sc.mu.RUnlock()
-	return Server{
-		Traffic: sc.traffic.snapshot(),
-		Users:   users,
+	return
+}
+
+// SnapshotAndReset implements the Collector SnapshotAndReset method.
+func (sc *serverCollector) SnapshotAndReset() (s Server) {
+	s.Traffic = sc.tc.snapshotAndReset()
+	sc.mu.RLock()
+	s.Users = make([]User, 0, len(sc.ucs))
+	for username, uc := range sc.ucs {
+		u := uc.snapshotAndReset(username)
+		s.Traffic.Add(u.Traffic)
+		s.Users = append(s.Users, u)
 	}
+	sc.mu.RUnlock()
+	return
 }
 
 // Collector collects server traffic statistics.
@@ -149,6 +194,9 @@ type Collector interface {
 
 	// Snapshot returns the server's traffic statistics.
 	Snapshot() Server
+
+	// SnapshotAndReset returns the server's traffic statistics and resets the statistics.
+	SnapshotAndReset() Server
 }
 
 // NoopCollector is a no-op collector.
@@ -167,6 +215,11 @@ func (NoopCollector) CollectUDPSessionUplink(username string, uplinkPackets, upl
 
 // Snapshot implements the Collector Snapshot method.
 func (NoopCollector) Snapshot() Server {
+	return Server{}
+}
+
+// SnapshotAndReset implements the Collector SnapshotAndReset method.
+func (NoopCollector) SnapshotAndReset() Server {
 	return Server{}
 }
 
