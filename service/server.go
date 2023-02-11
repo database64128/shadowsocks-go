@@ -50,6 +50,7 @@ type ServerConfig struct {
 	RejectPolicy         string `json:"rejectPolicy"`
 	userCipherConfig     ss2022.UserCipherConfig
 	identityCipherConfig ss2022.ServerIdentityCipherConfig
+	credManagedServer    *cred.ManagedServer
 
 	// Taint
 	UnsafeFallbackAddress      *conn.Addr `json:"unsafeFallbackAddress"`
@@ -80,7 +81,8 @@ func (sc *ServerConfig) Initialize(credman *cred.Manager) error {
 			if err != nil {
 				return err
 			}
-			if err = credman.RegisterServer(sc.Name, pskLength, sc.UPSKStorePath); err != nil {
+			sc.credManagedServer, err = credman.RegisterServer(sc.Name, pskLength, sc.UPSKStorePath)
+			if err != nil {
 				return err
 			}
 		}
@@ -89,7 +91,7 @@ func (sc *ServerConfig) Initialize(credman *cred.Manager) error {
 }
 
 // TCPRelay creates a TCP relay service from the ServerConfig.
-func (sc *ServerConfig) TCPRelay(credman *cred.Manager, collector stats.Collector, router *router.Router, logger *zap.Logger) (*TCPRelay, error) {
+func (sc *ServerConfig) TCPRelay(collector stats.Collector, router *router.Router, logger *zap.Logger) (*TCPRelay, error) {
 	if !sc.EnableTCP && sc.Protocol != "socks5" {
 		return nil, errNetworkDisabled
 	}
@@ -127,10 +129,8 @@ func (sc *ServerConfig) TCPRelay(credman *cred.Manager, collector stats.Collecto
 		}
 
 		s := ss2022.NewTCPServer(sc.userCipherConfig, sc.identityCipherConfig, sc.UnsafeRequestStreamPrefix, sc.UnsafeResponseStreamPrefix)
-		if sc.UPSKStorePath != "" {
-			if err = credman.AddTCPCredStore(sc.Name, &s.CredStore); err != nil {
-				return nil, err
-			}
+		if sc.credManagedServer != nil {
+			sc.credManagedServer.SetTCPCredStore(&s.CredStore)
 		}
 		server = s
 
@@ -156,7 +156,7 @@ func (sc *ServerConfig) TCPRelay(credman *cred.Manager, collector stats.Collecto
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
-func (sc *ServerConfig) UDPRelay(credman *cred.Manager, collector stats.Collector, router *router.Router, logger *zap.Logger, maxClientFrontHeadroom, maxClientRearHeadroom int) (Relay, error) {
+func (sc *ServerConfig) UDPRelay(collector stats.Collector, router *router.Router, logger *zap.Logger, maxClientFrontHeadroom, maxClientRearHeadroom int) (Relay, error) {
 	if !sc.EnableUDP {
 		return nil, errNetworkDisabled
 	}
@@ -229,10 +229,8 @@ func (sc *ServerConfig) UDPRelay(credman *cred.Manager, collector stats.Collecto
 		}
 
 		s := ss2022.NewUDPServer(sc.userCipherConfig, sc.identityCipherConfig, shouldPad)
-		if sc.UPSKStorePath != "" {
-			if err := credman.AddUDPCredStore(sc.Name, &s.CredStore); err != nil {
-				return nil, err
-			}
+		if sc.credManagedServer != nil {
+			sc.credManagedServer.SetUDPCredStore(&s.CredStore)
 		}
 		server = s
 

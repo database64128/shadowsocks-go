@@ -124,7 +124,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		}
 		collector := sc.Stats.Collector()
 
-		tcpRelay, err := serverConfig.TCPRelay(credman, collector, router, logger)
+		tcpRelay, err := serverConfig.TCPRelay(collector, router, logger)
 		switch err {
 		case errNetworkDisabled:
 		case nil:
@@ -133,7 +133,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 			return nil, fmt.Errorf("failed to create TCP relay service for %s: %w", serverConfig.Name, err)
 		}
 
-		udpRelay, err := serverConfig.UDPRelay(credman, collector, router, logger, maxClientFrontHeadroom, maxClientRearHeadroom)
+		udpRelay, err := serverConfig.UDPRelay(collector, router, logger, maxClientFrontHeadroom, maxClientRearHeadroom)
 		switch err {
 		case errNetworkDisabled:
 		case nil:
