@@ -83,11 +83,7 @@ type UDPServer struct {
 	block                cipher.Block
 	identityCipherConfig ServerIdentityCipherConfig
 	shouldPad            PaddingPolicy
-
-	// Initialized as the same primary cipher config.
-	// Produced by NewSession as the current session's user cipher config.
-	// Consumed by a follow-up call to NewPacker.
-	currentUserCipherConfig UserCipherConfig
+	userCipherConfig     UserCipherConfig
 }
 
 func NewUDPServer(userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, shouldPad PaddingPolicy) *UDPServer {
@@ -103,7 +99,7 @@ func NewUDPServer(userCipherConfig UserCipherConfig, identityCipherConfig Server
 		block:                             block,
 		identityCipherConfig:              identityCipherConfig,
 		shouldPad:                         shouldPad,
-		currentUserCipherConfig:           userCipherConfig,
+		userCipherConfig:                  userCipherConfig,
 	}
 }
 
@@ -121,13 +117,14 @@ func (s *UDPServer) SessionInfo(b []byte) (csid uint64, err error) {
 }
 
 // NewUnpacker implements the zerocopy.UDPSessionServer NewUnpacker method.
-func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker, string, error) {
+func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.SessionServerUnpacker, string, error) {
 	identityHeaderLen := s.ShadowPacketClientMessageHeadroom.identityHeadersLen
 
 	if len(b) < UDPSeparateHeaderLength+identityHeaderLen {
 		return nil, "", fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, len(b))
 	}
 
+	userCipherConfig := s.userCipherConfig
 	var username string
 
 	// Process identity header.
@@ -137,15 +134,15 @@ func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker,
 		s.block.Decrypt(identityHeader, identityHeader)
 		subtle.XORBytes(identityHeader, identityHeader, separateHeader)
 		uPSKHash := *(*[IdentityHeaderLength]byte)(identityHeader)
-		userCipherConfig := s.ulm[uPSKHash]
-		if userCipherConfig == nil {
+		serverUserCipherConfig := s.ulm[uPSKHash]
+		if serverUserCipherConfig == nil {
 			return nil, "", ErrIdentityHeaderUserPSKNotFound
 		}
-		s.currentUserCipherConfig = userCipherConfig.UserCipherConfig
-		username = userCipherConfig.Name
+		userCipherConfig = serverUserCipherConfig.UserCipherConfig
+		username = serverUserCipherConfig.Name
 	}
 
-	aead, err := s.currentUserCipherConfig.AEAD(b[:8])
+	aead, err := userCipherConfig.AEAD(b[:8])
 	if err != nil {
 		return nil, "", err
 	}
@@ -154,30 +151,7 @@ func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker,
 		ShadowPacketClientMessageHeadroom: s.ShadowPacketClientMessageHeadroom,
 		csid:                              csid,
 		aead:                              aead,
+		userCipherConfig:                  userCipherConfig,
+		packerShouldPad:                   s.shouldPad,
 	}, username, nil
-}
-
-// NewPacker implements the zerocopy.UDPSessionServer NewPacker method.
-func (s *UDPServer) NewPacker(csid uint64) (zerocopy.ServerPacker, error) {
-	// Random server session ID.
-	salt := make([]byte, 8)
-	_, err := rand.Read(salt)
-	if err != nil {
-		return nil, err
-	}
-	ssid := binary.BigEndian.Uint64(salt)
-
-	aead, err := s.currentUserCipherConfig.AEAD(salt)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ShadowPacketServerPacker{
-		ssid:      ssid,
-		csid:      csid,
-		aead:      aead,
-		block:     s.currentUserCipherConfig.Block(),
-		rng:       mrand.New(mrand.NewSource(int64(ssid))),
-		shouldPad: s.shouldPad,
-	}, nil
 }

@@ -55,7 +55,7 @@ type session struct {
 	natConnPacker       zerocopy.ClientPacker
 	natConnUnpacker     zerocopy.ClientUnpacker
 	serverConnPacker    zerocopy.ServerPacker
-	serverConnUnpacker  zerocopy.ServerUnpacker
+	serverConnUnpacker  zerocopy.SessionServerUnpacker
 	username            string
 }
 
@@ -373,7 +373,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 					return
 				}
 
-				serverConnPacker, err := s.server.NewPacker(csid)
+				serverConnPacker, err := entry.serverConnUnpacker.NewPacker()
 				if err != nil {
 					s.logger.Warn("Failed to create packer for client session",
 						zap.String("server", s.serverName),

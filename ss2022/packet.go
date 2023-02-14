@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	mrand "math/rand"
 	"net/netip"
 	"time"
 
@@ -393,7 +394,7 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPor
 // ShadowPacketServerUnpacker unpacks Shadowsocks client packets and returns
 // target address and plaintext payload.
 //
-// ShadowPacketServerUnpacker implements the zerocopy.Unpacker interface.
+// ShadowPacketServerUnpacker implements the zerocopy.SessionServerUnpacker interface.
 type ShadowPacketServerUnpacker struct {
 	ShadowPacketClientMessageHeadroom
 
@@ -411,12 +412,18 @@ type ShadowPacketServerUnpacker struct {
 
 	// cachedDomain caches the last used domain target to avoid allocating new strings.
 	cachedDomain string
+
+	// userCipherConfig is used when creating a new server packer.
+	userCipherConfig UserCipherConfig
+
+	// packerShouldPad is the server packer's padding policy.
+	packerShouldPad PaddingPolicy
 }
 
 // UnpackInPlace unpacks the AEAD encrypted part of a Shadowsocks client packet
 // and returns target address, payload start offset and payload length, or an error.
 //
-// UnpackInPlace implements the zerocopy.ServerUnpacker UnpackInPlace method.
+// UnpackInPlace implements the zerocopy.SessionServerUnpacker UnpackInPlace method.
 func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, sourceAddr netip.AddrPort, packetStart, packetLen int) (targetAddr conn.Addr, payloadStart, payloadLen int, err error) {
 	// Check length.
 	if packetLen < UDPSeparateHeaderLength+p.ShadowPacketClientMessageHeadroom.identityHeadersLen+p.aead.Overhead() {
@@ -456,4 +463,29 @@ func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, sourceAddr netip.Ad
 	p.filter.MustAdd(cpid)
 
 	return
+}
+
+// NewPacker implements the zerocopy.SessionServerUnpacker NewPacker method.
+func (p *ShadowPacketServerUnpacker) NewPacker() (zerocopy.ServerPacker, error) {
+	// Random server session ID.
+	salt := make([]byte, 8)
+	_, err := rand.Read(salt)
+	if err != nil {
+		return nil, err
+	}
+	ssid := binary.BigEndian.Uint64(salt)
+
+	aead, err := p.userCipherConfig.AEAD(salt)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ShadowPacketServerPacker{
+		ssid:      ssid,
+		csid:      p.csid,
+		aead:      aead,
+		block:     p.userCipherConfig.Block(),
+		rng:       mrand.New(mrand.NewSource(int64(ssid))),
+		shouldPad: p.packerShouldPad,
+	}, nil
 }

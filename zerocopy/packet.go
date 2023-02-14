@@ -70,6 +70,14 @@ type ServerUnpacker interface {
 	UnpackInPlace(b []byte, sourceAddrPort netip.AddrPort, packetStart, packetLen int) (targetAddr conn.Addr, payloadStart, payloadLen int, err error)
 }
 
+// SessionServerUnpacker is like ServerUnpacker but also provides a method to create server packers.
+type SessionServerUnpacker interface {
+	ServerUnpacker
+
+	// NewPacker creates a new server session for the current client session and returns the server session's packer, or an error.
+	NewPacker() (ServerPacker, error)
+}
+
 // ClientPackUnpacker implements both ClientPacker and ClientUnpacker interfaces.
 type ClientPackUnpacker interface {
 	ClientPacker

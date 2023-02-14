@@ -116,7 +116,7 @@ func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, u
 	copy(payloadBackup, payload)
 
 	// Server packs.
-	serverPacker, err := s.NewPacker(csid)
+	serverPacker, err := serverUnpacker.NewPacker()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 	}
 
 	// Server packs.
-	serverPacker, err := s.NewPacker(csid)
+	serverPacker, err := serverUnpacker.NewPacker()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 	}
 
 	// Refresh server session.
-	serverPacker, err = s.NewPacker(csid)
+	serverPacker, err = serverUnpacker.NewPacker()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 	}
 
 	// Refresh server session again. No tricks this time!
-	serverPacker, err = s.NewPacker(csid)
+	serverPacker, err = serverUnpacker.NewPacker()
 	if err != nil {
 		t.Fatal(err)
 	}

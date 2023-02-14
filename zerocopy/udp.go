@@ -47,13 +47,9 @@ type UDPSessionServer interface {
 	// NewUnpacker creates a new packet unpacker for the specified client session.
 	//
 	// The returned unpacker is then used by the caller to unpack the incoming packet.
-	// Upon successful unpacking, NewPacker should be called to create a corresponding
-	// server session.
-	NewUnpacker(b []byte, csid uint64) (serverUnpacker ServerUnpacker, username string, err error)
-
-	// NewPacker creates a new server session for the specified client session
-	// and returns the server session's packer, or an error.
-	NewPacker(csid uint64) (ServerPacker, error)
+	// Upon successful unpacking, the unpacker's NewPacker method can be called to create
+	// a corresponding server session.
+	NewUnpacker(b []byte, csid uint64) (sessionServerUnpacker SessionServerUnpacker, username string, err error)
 }
 
 // SimpleUDPClient wraps a PackUnpacker and uses it for all sessions.
