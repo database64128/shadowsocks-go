@@ -131,7 +131,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	for i := range sc.Servers {
 		serverConfig := &sc.Servers[i]
 		collector := sc.Stats.Collector()
-		if err := serverConfig.Initialize(credman, apiSM, collector, router, logger); err != nil {
+		if err := serverConfig.Initialize(collector, router, logger); err != nil {
 			return nil, fmt.Errorf("failed to initialize server %s: %w", serverConfig.Name, err)
 		}
 
@@ -151,6 +151,10 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 			services = append(services, udpRelay)
 		default:
 			return nil, fmt.Errorf("failed to create UDP relay service for %s: %w", serverConfig.Name, err)
+		}
+
+		if err = serverConfig.PostInit(credman, apiSM); err != nil {
+			return nil, fmt.Errorf("failed to post-initialize server %s: %w", serverConfig.Name, err)
 		}
 	}
 

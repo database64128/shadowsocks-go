@@ -51,7 +51,8 @@ type ServerConfig struct {
 	RejectPolicy         string `json:"rejectPolicy"`
 	userCipherConfig     ss2022.UserCipherConfig
 	identityCipherConfig ss2022.ServerIdentityCipherConfig
-	credManagedServer    *cred.ManagedServer
+	tcpCredStore         *ss2022.CredStore
+	udpCredStore         *ss2022.CredStore
 
 	// Taint
 	UnsafeFallbackAddress      *conn.Addr `json:"unsafeFallbackAddress"`
@@ -64,16 +65,12 @@ type ServerConfig struct {
 }
 
 // Initialize initializes the server configuration.
-func (sc *ServerConfig) Initialize(credman *cred.Manager, apiSM *v1.ServerManager, collector stats.Collector, router *router.Router, logger *zap.Logger) error {
+func (sc *ServerConfig) Initialize(collector stats.Collector, router *router.Router, logger *zap.Logger) error {
 	switch sc.Protocol {
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		pskLength, err := ss2022.PSKLengthForMethod(sc.Protocol)
+		err := ss2022.CheckPSKLength(sc.Protocol, sc.PSK, nil)
 		if err != nil {
 			return err
-		}
-
-		if len(sc.PSK) != pskLength {
-			return &ss2022.PSKLengthError{PSK: sc.PSK, ExpectedLength: pskLength}
 		}
 
 		if sc.UPSKStorePath == "" {
@@ -86,15 +83,7 @@ func (sc *ServerConfig) Initialize(credman *cred.Manager, apiSM *v1.ServerManage
 			if err != nil {
 				return err
 			}
-			sc.credManagedServer, err = credman.RegisterServer(sc.Name, pskLength, sc.UPSKStorePath)
-			if err != nil {
-				return err
-			}
 		}
-	}
-
-	if apiSM != nil {
-		apiSM.AddServer(sc.Name, sc.credManagedServer, collector)
 	}
 
 	sc.collector = collector
@@ -142,9 +131,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		}
 
 		s := ss2022.NewTCPServer(sc.userCipherConfig, sc.identityCipherConfig, sc.UnsafeRequestStreamPrefix, sc.UnsafeResponseStreamPrefix)
-		if sc.credManagedServer != nil {
-			sc.credManagedServer.SetTCPCredStore(&s.CredStore)
-		}
+		sc.tcpCredStore = &s.CredStore
 		server = s
 
 	default:
@@ -242,9 +229,7 @@ func (sc *ServerConfig) UDPRelay(maxClientFrontHeadroom, maxClientRearHeadroom i
 		}
 
 		s := ss2022.NewUDPServer(sc.userCipherConfig, sc.identityCipherConfig, shouldPad)
-		if sc.credManagedServer != nil {
-			sc.credManagedServer.SetUDPCredStore(&s.CredStore)
-		}
+		sc.udpCredStore = &s.CredStore
 		server = s
 
 	default:
@@ -261,4 +246,26 @@ func (sc *ServerConfig) UDPRelay(maxClientFrontHeadroom, maxClientRearHeadroom i
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}
+}
+
+// PostInit performs post-initialization tasks.
+func (sc *ServerConfig) PostInit(credman *cred.Manager, apiSM *v1.ServerManager) error {
+	var cms *cred.ManagedServer
+
+	switch sc.Protocol {
+	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
+		if sc.UPSKStorePath != "" {
+			var err error
+			cms, err = credman.RegisterServer(sc.Name, sc.UPSKStorePath, len(sc.PSK), sc.tcpCredStore, sc.udpCredStore)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if apiSM != nil {
+		apiSM.AddServer(sc.Name, cms, sc.collector)
+	}
+
+	return nil
 }

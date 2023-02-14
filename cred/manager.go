@@ -38,16 +38,6 @@ type ManagedServer struct {
 	logger              *zap.Logger
 }
 
-// SetTCPCredStore sets the TCP credential store.
-func (s *ManagedServer) SetTCPCredStore(tcp *ss2022.CredStore) {
-	s.tcp = tcp
-}
-
-// SetUDPCredStore sets the UDP credential store.
-func (s *ManagedServer) SetUDPCredStore(udp *ss2022.CredStore) {
-	s.udp = udp
-}
-
 // UserCredential stores a user's credential.
 type UserCredential struct {
 	Name string `json:"username"`
@@ -141,7 +131,6 @@ func (s *ManagedServer) dequeueSave() {
 
 // Start starts the managed server.
 func (s *ManagedServer) Start() {
-	s.replaceProdULM()
 	s.wg.Add(1)
 	go func() {
 		s.dequeueSave()
@@ -254,7 +243,10 @@ func (s *ManagedServer) DeleteCredential(username string) error {
 	})
 	return nil
 }
-func (s *ManagedServer) loadFromFile() error {
+
+// LoadFromFile loads credentials from the configured credential file
+// and applies the changes to the associated credential stores.
+func (s *ManagedServer) LoadFromFile() error {
 	content, err := mmap.ReadFile[string](s.path)
 	if err != nil {
 		return err
@@ -300,25 +292,14 @@ func (s *ManagedServer) loadFromFile() error {
 	s.cachedUserLookupMap = userLookupMap
 	s.cachedCredMap = credMap
 	s.mu.Unlock()
-	return nil
-}
 
-func (s *ManagedServer) replaceProdULM() {
 	if s.tcp != nil {
 		s.tcp.ReplaceUserLookupMap(maps.Clone(s.cachedUserLookupMap))
 	}
 	if s.udp != nil {
 		s.udp.ReplaceUserLookupMap(maps.Clone(s.cachedUserLookupMap))
 	}
-}
 
-// LoadFromFile loads credentials from the configured credential file
-// and applies the changes to the associated credential stores.
-func (s *ManagedServer) LoadFromFile() error {
-	if err := s.loadFromFile(); err != nil {
-		return err
-	}
-	s.replaceProdULM()
 	return nil
 }
 
@@ -381,19 +362,21 @@ func (m *Manager) Stop() error {
 }
 
 // RegisterServer registers a server to the manager.
-func (m *Manager) RegisterServer(name string, pskLength int, path string) (*ManagedServer, error) {
+func (m *Manager) RegisterServer(name, path string, pskLength int, tcpCredStore, udpCredStore *ss2022.CredStore) (*ManagedServer, error) {
 	s := m.servers[name]
 	if s != nil {
 		return nil, fmt.Errorf("server already registered: %s", name)
 	}
 	s = &ManagedServer{
 		pskLength: pskLength,
+		tcp:       tcpCredStore,
+		udp:       udpCredStore,
 		path:      path,
 		saveQueue: make(chan struct{}, 1),
 		done:      make(chan struct{}),
 		logger:    m.logger,
 	}
-	if err := s.loadFromFile(); err != nil {
+	if err := s.LoadFromFile(); err != nil {
 		return nil, fmt.Errorf("failed to load credentials for server %s: %w", name, err)
 	}
 	m.servers[name] = s
