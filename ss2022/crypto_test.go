@@ -22,7 +22,7 @@ func newRandomCipherConfigTupleNoEIH(method string, enableUDP bool) (clientCiphe
 	return
 }
 
-func newRandomCipherConfigTupleWithEIH(method string, enableUDP bool) (clientCipherConfig *ClientCipherConfig, identityCipherConfig ServerIdentityCipherConfig, uPSKMap map[[IdentityHeaderLength]byte]*ServerUserCipherConfig, err error) {
+func newRandomCipherConfigTupleWithEIH(method string, enableUDP bool) (clientCipherConfig *ClientCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, err error) {
 	keySize, err := PSKLengthForMethod(method)
 	if err != nil {
 		return
@@ -34,24 +34,28 @@ func newRandomCipherConfigTupleWithEIH(method string, enableUDP bool) (clientCip
 	}
 	iPSKs := [][]byte{iPSK}
 
-	userMap := make(map[string][]byte, 7)
+	var uPSK []byte
+	userLookupMap = make(UserLookupMap, 7)
 	for i := 0; i < 7; i++ {
-		psk := make([]byte, keySize)
-		if _, err = rand.Read(psk); err != nil {
+		uPSK = make([]byte, keySize)
+		if _, err = rand.Read(uPSK); err != nil {
 			return
 		}
-		userMap[strconv.Itoa(i)] = psk
+
+		uPSKHash := PSKHash(uPSK)
+		var c *ServerUserCipherConfig
+		c, err = NewServerUserCipherConfig(strconv.Itoa(i), uPSK, enableUDP)
+		if err != nil {
+			return
+		}
+
+		userLookupMap[uPSKHash] = c
 	}
-	uPSK := userMap["0"]
 
 	clientCipherConfig, err = NewClientCipherConfig(uPSK, iPSKs, enableUDP)
 	if err != nil {
 		return
 	}
 	identityCipherConfig, err = NewServerIdentityCipherConfig(iPSK, enableUDP)
-	if err != nil {
-		return
-	}
-	uPSKMap, err = NewUPSKMap(keySize, userMap, enableUDP)
 	return
 }

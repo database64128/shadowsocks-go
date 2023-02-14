@@ -235,8 +235,8 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 		identityHeader := b[identityHeaderStart:fixedLengthHeaderStart]
 		identityHeaderCipher.Decrypt(uPSKHash[:], identityHeader)
 
-		serverUserCipherConfig, ok := s.uPSKMap[uPSKHash]
-		if !ok {
+		serverUserCipherConfig := s.ulm[uPSKHash]
+		if serverUserCipherConfig == nil {
 			s.Unlock()
 			payload = b[:n]
 			err = ErrIdentityHeaderUserPSKNotFound

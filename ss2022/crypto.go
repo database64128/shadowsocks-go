@@ -202,9 +202,9 @@ func NewServerUserCipherConfig(name string, psk []byte, enableUDP bool) (c *Serv
 	return
 }
 
-// PSKHash returns the truncated BLAKE3 hash of c.PSK.
-func (c *ServerUserCipherConfig) PSKHash() [IdentityHeaderLength]byte {
-	hash := blake3.Sum512(c.PSK)
+// PSKHash returns the given PSK's BLAKE3 hash truncated to [IdentityHeaderLength] bytes.
+func PSKHash(psk []byte) [IdentityHeaderLength]byte {
+	hash := blake3.Sum512(psk)
 	return [IdentityHeaderLength]byte(hash[:])
 }
 
@@ -249,21 +249,6 @@ func CheckPSKLength(method string, psk []byte, psks [][]byte) error {
 	return nil
 }
 
-func NewUPSKMap(pskLength int, userMap map[string][]byte, enableUDP bool) (map[[IdentityHeaderLength]byte]*ServerUserCipherConfig, error) {
-	uPSKMap := make(map[[IdentityHeaderLength]byte]*ServerUserCipherConfig, len(userMap))
-
-	for name, psk := range userMap {
-		if len(psk) != pskLength {
-			return nil, &PSKLengthError{psk, pskLength}
-		}
-
-		c, err := NewServerUserCipherConfig(name, psk, enableUDP)
-		if err != nil {
-			return nil, err
-		}
-
-		uPSKMap[c.PSKHash()] = c
-	}
-
-	return uPSKMap, nil
-}
+// UserLookupMap is a map of uPSK hashes to [*ServerUserCipherConfig].
+// Upon decryption of an identity header, the uPSK hash is looked up in this map.
+type UserLookupMap map[[IdentityHeaderLength]byte]*ServerUserCipherConfig

@@ -4,8 +4,8 @@ import "sync"
 
 // CredStore stores credentials for a Shadowsocks 2022 server.
 type CredStore struct {
-	mu      sync.Mutex
-	uPSKMap map[[IdentityHeaderLength]byte]*ServerUserCipherConfig
+	mu  sync.Mutex
+	ulm UserLookupMap
 }
 
 // Lock locks its internal mutex.
@@ -18,16 +18,16 @@ func (s *CredStore) Unlock() {
 	s.mu.Unlock()
 }
 
-// UpdateUPSKMap calls the given function with the current uPSKMap.
-func (s *CredStore) UpdateUPSKMap(f func(uPSKMap map[[IdentityHeaderLength]byte]*ServerUserCipherConfig)) {
+// UpdateUserLookupMap calls the given function with the current user lookup map.
+func (s *CredStore) UpdateUserLookupMap(f func(ulm UserLookupMap)) {
 	s.mu.Lock()
-	f(s.uPSKMap)
+	f(s.ulm)
 	s.mu.Unlock()
 }
 
-// ReplaceUPSKMap replaces the current uPSKMap with the given one.
-func (s *CredStore) ReplaceUPSKMap(uPSKMap map[[IdentityHeaderLength]byte]*ServerUserCipherConfig) {
+// ReplaceUserLookupMap replaces the current user lookup map with the given one.
+func (s *CredStore) ReplaceUserLookupMap(ulm UserLookupMap) {
 	s.mu.Lock()
-	s.uPSKMap = uPSKMap
+	s.ulm = ulm
 	s.mu.Unlock()
 }

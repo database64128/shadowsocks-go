@@ -12,7 +12,7 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-func testShadowStreamReadWriter(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, uPSKMap map[[IdentityHeaderLength]byte]*ServerUserCipherConfig, clientInitialPayload, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) {
+func testShadowStreamReadWriter(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, clientInitialPayload, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) {
 	pl, pr := pipe.NewDuplexPipe()
 	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
@@ -23,7 +23,7 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig *ClientCipherCo
 		unsafeResponseStreamPrefix: unsafeResponseStreamPrefix,
 	}
 	s := NewTCPServer(userCipherConfig, identityCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
-	s.ReplaceUPSKMap(uPSKMap)
+	s.ReplaceUserLookupMap(userLookupMap)
 
 	var (
 		crw                  zerocopy.ReadWriter
@@ -72,7 +72,7 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig *ClientCipherCo
 	zerocopy.ReadWriterTestFunc(t, crw, srw)
 }
 
-func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, uPSKMap map[[IdentityHeaderLength]byte]*ServerUserCipherConfig) {
+func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap) {
 	pl, pr := pipe.NewDuplexPipe()
 	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
@@ -81,7 +81,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig *ClientCi
 		cipherConfig: clientCipherConfig,
 	}
 	s := NewTCPServer(userCipherConfig, identityCipherConfig, nil, nil)
-	s.ReplaceUPSKMap(uPSKMap)
+	s.ReplaceUserLookupMap(userLookupMap)
 
 	var cerr, serr error
 	ctrlCh := make(chan struct{})
@@ -130,7 +130,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig *ClientCi
 	}
 }
 
-func testShadowStreamReadWriterWithCipher(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, uPSKMap map[[IdentityHeaderLength]byte]*ServerUserCipherConfig) {
+func testShadowStreamReadWriterWithCipher(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap) {
 	smallInitialPayload := make([]byte, 1024)
 	largeInitialPayload := make([]byte, 128*1024)
 	unsafeRequestStreamPrefix := make([]byte, 64)
@@ -150,20 +150,20 @@ func testShadowStreamReadWriterWithCipher(t *testing.T, clientCipherConfig *Clie
 	}
 
 	t.Run("NoInitialPayload", func(t *testing.T) {
-		testShadowStreamReadWriter(t, clientCipherConfig, userCipherConfig, identityCipherConfig, uPSKMap, nil, nil, nil)
+		testShadowStreamReadWriter(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, nil, nil, nil)
 	})
 	t.Run("SmallInitialPayload", func(t *testing.T) {
-		testShadowStreamReadWriter(t, clientCipherConfig, userCipherConfig, identityCipherConfig, uPSKMap, smallInitialPayload, nil, nil)
+		testShadowStreamReadWriter(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, smallInitialPayload, nil, nil)
 	})
 	t.Run("LargeInitialPayload", func(t *testing.T) {
-		testShadowStreamReadWriter(t, clientCipherConfig, userCipherConfig, identityCipherConfig, uPSKMap, largeInitialPayload, nil, nil)
+		testShadowStreamReadWriter(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, largeInitialPayload, nil, nil)
 	})
 	t.Run("UnsafeStreamPrefix", func(t *testing.T) {
-		testShadowStreamReadWriter(t, clientCipherConfig, userCipherConfig, identityCipherConfig, uPSKMap, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
+		testShadowStreamReadWriter(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
 	})
 
 	t.Run("Replay", func(t *testing.T) {
-		testShadowStreamReadWriterReplay(t, clientCipherConfig, userCipherConfig, identityCipherConfig, uPSKMap)
+		testShadowStreamReadWriterReplay(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap)
 	})
 }
 
@@ -186,19 +186,19 @@ func TestShadowStreamReadWriterNoEIH(t *testing.T) {
 }
 
 func TestShadowStreamReadWriterWithEIH(t *testing.T) {
-	clientCipherConfig128, identityCipherConfig128, uPSKMap128, err := newRandomCipherConfigTupleWithEIH("2022-blake3-aes-128-gcm", false)
+	clientCipherConfig128, identityCipherConfig128, userLookupMap128, err := newRandomCipherConfigTupleWithEIH("2022-blake3-aes-128-gcm", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	clientCipherConfig256, identityCipherConfig256, uPSKMap256, err := newRandomCipherConfigTupleWithEIH("2022-blake3-aes-256-gcm", false)
+	clientCipherConfig256, identityCipherConfig256, userLookupMap256, err := newRandomCipherConfigTupleWithEIH("2022-blake3-aes-256-gcm", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	t.Run("128", func(t *testing.T) {
-		testShadowStreamReadWriterWithCipher(t, clientCipherConfig128, UserCipherConfig{}, identityCipherConfig128, uPSKMap128)
+		testShadowStreamReadWriterWithCipher(t, clientCipherConfig128, UserCipherConfig{}, identityCipherConfig128, userLookupMap128)
 	})
 	t.Run("256", func(t *testing.T) {
-		testShadowStreamReadWriterWithCipher(t, clientCipherConfig256, UserCipherConfig{}, identityCipherConfig256, uPSKMap256)
+		testShadowStreamReadWriterWithCipher(t, clientCipherConfig256, UserCipherConfig{}, identityCipherConfig256, userLookupMap256)
 	})
 }

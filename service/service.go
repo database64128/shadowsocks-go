@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/database64128/shadowsocks-go/api"
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/router"
@@ -35,6 +36,7 @@ type Config struct {
 	DNS     []dns.ResolverConfig `json:"dns"`
 	Router  router.Config        `json:"router"`
 	Stats   stats.Config         `json:"stats"`
+	API     api.Config           `json:"api"`
 }
 
 // Manager initializes the service manager.
@@ -115,16 +117,25 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	}
 
 	credman := cred.NewManager(logger)
-	services := make([]Relay, 0, 2*len(sc.Servers))
+	apiServer, apiSM, err := sc.API.Server(logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create API server: %w", err)
+	}
+
+	services := make([]Relay, 0, 2+2*len(sc.Servers))
+	services = append(services, credman)
+	if apiServer != nil {
+		services = append(services, apiServer)
+	}
 
 	for i := range sc.Servers {
 		serverConfig := &sc.Servers[i]
-		if err := serverConfig.Initialize(credman); err != nil {
+		collector := sc.Stats.Collector()
+		if err := serverConfig.Initialize(credman, apiSM, collector, router, logger); err != nil {
 			return nil, fmt.Errorf("failed to initialize server %s: %w", serverConfig.Name, err)
 		}
-		collector := sc.Stats.Collector()
 
-		tcpRelay, err := serverConfig.TCPRelay(collector, router, logger)
+		tcpRelay, err := serverConfig.TCPRelay()
 		switch err {
 		case errNetworkDisabled:
 		case nil:
@@ -133,7 +144,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 			return nil, fmt.Errorf("failed to create TCP relay service for %s: %w", serverConfig.Name, err)
 		}
 
-		udpRelay, err := serverConfig.UDPRelay(collector, router, logger, maxClientFrontHeadroom, maxClientRearHeadroom)
+		udpRelay, err := serverConfig.UDPRelay(maxClientFrontHeadroom, maxClientRearHeadroom)
 		switch err {
 		case errNetworkDisabled:
 		case nil:
@@ -141,10 +152,6 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		default:
 			return nil, fmt.Errorf("failed to create UDP relay service for %s: %w", serverConfig.Name, err)
 		}
-	}
-
-	if err = credman.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start credential manager: %w", err)
 	}
 
 	return &Manager{services, router, logger}, nil

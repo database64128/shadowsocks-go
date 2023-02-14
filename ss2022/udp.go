@@ -137,8 +137,8 @@ func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker,
 		s.block.Decrypt(identityHeader, identityHeader)
 		subtle.XORBytes(identityHeader, identityHeader, separateHeader)
 		uPSKHash := *(*[IdentityHeaderLength]byte)(identityHeader)
-		userCipherConfig, ok := s.uPSKMap[uPSKHash]
-		if !ok {
+		userCipherConfig := s.ulm[uPSKHash]
+		if userCipherConfig == nil {
 			return nil, "", ErrIdentityHeaderUserPSKNotFound
 		}
 		s.currentUserCipherConfig = userCipherConfig.UserCipherConfig

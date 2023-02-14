@@ -210,5 +210,20 @@
                 "invertToPorts": false
             }
         ]
+    },
+    "stats": {
+        "enabled": true
+    },
+    "api": {
+        "enabled": true,
+        "enableTrustedProxyCheck": false,
+        "trustedProxies": [],
+        "proxyHeader": "X-Forwarded-For",
+        "listen": ":20221",
+        "certFile": "",
+        "keyFile": "",
+        "clientCertFile": "",
+        "secretPath": "4paZvyoK3dCjyQXU33md5huJMMYVD9o8",
+        "fiberConfigPath": ""
     }
 }
