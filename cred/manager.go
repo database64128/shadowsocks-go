@@ -256,6 +256,7 @@ func (s *ManagedServer) LoadFromFile() error {
 	s.mu.Lock()
 	// Skip if the file content is unchanged.
 	if content == s.cachedContent {
+		s.mu.Unlock()
 		return nil
 	}
 
@@ -264,6 +265,7 @@ func (s *ManagedServer) LoadFromFile() error {
 	d.DisallowUnknownFields()
 	var uPSKMap map[string][]byte
 	if err = d.Decode(&uPSKMap); err != nil {
+		s.mu.Unlock()
 		return err
 	}
 
@@ -271,16 +273,19 @@ func (s *ManagedServer) LoadFromFile() error {
 	credMap := make(map[string]*cachedUserCredential, len(uPSKMap))
 	for username, uPSK := range uPSKMap {
 		if len(uPSK) != s.pskLength {
+			s.mu.Unlock()
 			return &ss2022.PSKLengthError{PSK: uPSK, ExpectedLength: s.pskLength}
 		}
 
 		uPSKHash := ss2022.PSKHash(uPSK)
 		c := userLookupMap[uPSKHash]
 		if c != nil {
+			s.mu.Unlock()
 			return fmt.Errorf("duplicate uPSK for user %s and %s", c.Name, username)
 		}
 		c, err := ss2022.NewServerUserCipherConfig(username, uPSK, s.udp != nil)
 		if err != nil {
+			s.mu.Unlock()
 			return err
 		}
 
