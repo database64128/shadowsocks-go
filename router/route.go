@@ -185,11 +185,11 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 	}
 
 	if len(rc.FromServers) > 0 {
-		route.AddCriterion((*SourceServerCriterion)(&rc.FromServers), rc.InvertFromServers)
+		route.AddCriterion(SourceServerCriterion(rc.FromServers), rc.InvertFromServers)
 	}
 
 	if len(rc.FromUsers) > 0 {
-		route.AddCriterion((*SourceUserCriterion)(&rc.FromUsers), rc.InvertFromUsers)
+		route.AddCriterion(SourceUserCriterion(rc.FromUsers), rc.InvertFromUsers)
 	}
 
 	if len(rc.FromPrefixes) > 0 || len(rc.FromPrefixSets) > 0 || len(rc.FromGeoIPCountries) > 0 {
@@ -230,7 +230,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 	}
 
 	if len(rc.FromPorts) > 0 {
-		route.AddCriterion((*SourcePortCriterion)(&rc.FromPorts), rc.InvertFromPorts)
+		route.AddCriterion(SourcePortCriterion(rc.FromPorts), rc.InvertFromPorts)
 	}
 
 	if len(rc.ToDomains) > 0 || len(rc.ToDomainSets) > 0 || len(rc.ToPrefixes) > 0 || len(rc.ToPrefixSets) > 0 || len(rc.ToGeoIPCountries) > 0 {
@@ -351,7 +351,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 	}
 
 	if len(rc.ToPorts) > 0 {
-		route.AddCriterion((*DestPortCriterion)(&rc.ToPorts), rc.InvertToPorts)
+		route.AddCriterion(DestPortCriterion(rc.ToPorts), rc.InvertToPorts)
 	}
 
 	return route, nil
