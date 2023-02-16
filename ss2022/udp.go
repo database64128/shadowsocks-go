@@ -14,72 +14,73 @@ import (
 
 // UDPClient implements the zerocopy UDPClient interface.
 type UDPClient struct {
-	ShadowPacketClientMessageHeadroom
-	addrPort      netip.AddrPort
-	name          string
-	maxPacketSize int
-	fwmark        int
-	cipherConfig  *ClientCipherConfig
-	shouldPad     PaddingPolicy
+	addrPort         netip.AddrPort
+	info             zerocopy.UDPClientInfo
+	nonAEADHeaderLen int
+	cipherConfig     *ClientCipherConfig
+	shouldPad        PaddingPolicy
 }
 
 func NewUDPClient(addrPort netip.AddrPort, name string, mtu, fwmark int, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
+	identityHeadersLen := IdentityHeaderLength * len(cipherConfig.iPSKs)
 	return &UDPClient{
-		ShadowPacketClientMessageHeadroom: ShadowPacketClientMessageHeadroom{IdentityHeaderLength * len(cipherConfig.iPSKs)},
-		addrPort:                          addrPort,
-		name:                              name,
-		maxPacketSize:                     zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr()),
-		fwmark:                            fwmark,
-		cipherConfig:                      cipherConfig,
-		shouldPad:                         shouldPad,
+		addrPort: addrPort,
+		info: zerocopy.UDPClientInfo{
+			Name:           name,
+			PackerHeadroom: ShadowPacketClientMessageHeadroom(identityHeadersLen),
+			MaxPacketSize:  zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr()),
+			Fwmark:         fwmark,
+		},
+		nonAEADHeaderLen: UDPSeparateHeaderLength + identityHeadersLen,
+		cipherConfig:     cipherConfig,
+		shouldPad:        shouldPad,
 	}
 }
 
-// String implements the zerocopy.UDPClient String method.
-func (c *UDPClient) String() string {
-	return c.name
+// Info implements the zerocopy.UDPClient Info method.
+func (c *UDPClient) Info() zerocopy.UDPClientInfo {
+	return c.info
 }
 
 // NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *UDPClient) NewSession() (zerocopy.ClientPacker, zerocopy.ClientUnpacker, error) {
+func (c *UDPClient) NewSession() (zerocopy.UDPClientInfo, zerocopy.ClientPacker, zerocopy.ClientUnpacker, error) {
 	// Random client session ID.
 	salt := make([]byte, 8)
 	_, err := rand.Read(salt)
 	if err != nil {
-		return nil, nil, err
+		return c.info, nil, nil, err
 	}
 	csid := binary.BigEndian.Uint64(salt)
 	aead, err := c.cipherConfig.AEAD(salt)
 	if err != nil {
-		return nil, nil, err
+		return c.info, nil, nil, err
 	}
 
-	return &ShadowPacketClientPacker{
-			ShadowPacketClientMessageHeadroom: c.ShadowPacketClientMessageHeadroom,
-			csid:                              csid,
-			aead:                              aead,
-			block:                             c.cipherConfig.UDPSeparateHeaderPackerCipher(),
-			rng:                               mrand.New(mrand.NewSource(int64(csid))),
-			shouldPad:                         c.shouldPad,
-			eihCiphers:                        c.cipherConfig.UDPIdentityHeaderCiphers(),
-			eihPSKHashes:                      c.cipherConfig.EIHPSKHashes(),
-			maxPacketSize:                     c.maxPacketSize,
-			serverAddrPort:                    c.addrPort,
+	return c.info, &ShadowPacketClientPacker{
+			csid:             csid,
+			aead:             aead,
+			block:            c.cipherConfig.UDPSeparateHeaderPackerCipher(),
+			rng:              mrand.New(mrand.NewSource(int64(csid))),
+			shouldPad:        c.shouldPad,
+			eihCiphers:       c.cipherConfig.UDPIdentityHeaderCiphers(),
+			eihPSKHashes:     c.cipherConfig.EIHPSKHashes(),
+			maxPacketSize:    c.info.MaxPacketSize,
+			nonAEADHeaderLen: c.nonAEADHeaderLen,
+			info: zerocopy.ClientPackerInfo{
+				Headroom: c.info.PackerHeadroom,
+			},
+			serverAddrPort: c.addrPort,
 		}, &ShadowPacketClientUnpacker{
 			csid:         csid,
 			cipherConfig: c.cipherConfig,
 		}, nil
 }
 
-// LinkInfo implements the UDPClient LinkInfo method.
-func (c *UDPClient) LinkInfo() (int, int) {
-	return c.maxPacketSize, c.fwmark
-}
-
 // UDPServer implements the zerocopy UDPSessionServer interface.
 type UDPServer struct {
 	CredStore
-	ShadowPacketClientMessageHeadroom
+	info                 zerocopy.UDPSessionServerInfo
+	identityHeaderLen    int
 	block                cipher.Block
 	identityCipherConfig ServerIdentityCipherConfig
 	shouldPad            PaddingPolicy
@@ -95,12 +96,20 @@ func NewUDPServer(userCipherConfig UserCipherConfig, identityCipherConfig Server
 	}
 
 	return &UDPServer{
-		ShadowPacketClientMessageHeadroom: ShadowPacketClientMessageHeadroom{identityHeaderLen},
-		block:                             block,
-		identityCipherConfig:              identityCipherConfig,
-		shouldPad:                         shouldPad,
-		userCipherConfig:                  userCipherConfig,
+		info: zerocopy.UDPSessionServerInfo{
+			UnpackerHeadroom: ShadowPacketClientMessageHeadroom(identityHeaderLen),
+		},
+		identityHeaderLen:    identityHeaderLen,
+		block:                block,
+		identityCipherConfig: identityCipherConfig,
+		shouldPad:            shouldPad,
+		userCipherConfig:     userCipherConfig,
 	}
+}
+
+// Info implements the zerocopy.UDPSessionServer Info method.
+func (s *UDPServer) Info() zerocopy.UDPSessionServerInfo {
+	return s.info
 }
 
 // SessionInfo implements the zerocopy.UDPSessionServer SessionInfo method.
@@ -118,9 +127,9 @@ func (s *UDPServer) SessionInfo(b []byte) (csid uint64, err error) {
 
 // NewUnpacker implements the zerocopy.UDPSessionServer NewUnpacker method.
 func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.SessionServerUnpacker, string, error) {
-	identityHeaderLen := s.ShadowPacketClientMessageHeadroom.identityHeadersLen
+	nonAEADHeaderLen := UDPSeparateHeaderLength + s.identityHeaderLen
 
-	if len(b) < UDPSeparateHeaderLength+identityHeaderLen {
+	if len(b) < nonAEADHeaderLen {
 		return nil, "", fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, len(b))
 	}
 
@@ -128,9 +137,9 @@ func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.SessionServerUn
 	var username string
 
 	// Process identity header.
-	if identityHeaderLen != 0 {
+	if s.identityHeaderLen != 0 {
 		separateHeader := b[:UDPSeparateHeaderLength]
-		identityHeader := b[UDPSeparateHeaderLength : UDPSeparateHeaderLength+identityHeaderLen]
+		identityHeader := b[UDPSeparateHeaderLength:nonAEADHeaderLen]
 		s.block.Decrypt(identityHeader, identityHeader)
 		subtle.XORBytes(identityHeader, identityHeader, separateHeader)
 		uPSKHash := *(*[IdentityHeaderLength]byte)(identityHeader)
@@ -148,10 +157,13 @@ func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.SessionServerUn
 	}
 
 	return &ShadowPacketServerUnpacker{
-		ShadowPacketClientMessageHeadroom: s.ShadowPacketClientMessageHeadroom,
-		csid:                              csid,
-		aead:                              aead,
-		userCipherConfig:                  userCipherConfig,
-		packerShouldPad:                   s.shouldPad,
+		csid:             csid,
+		aead:             aead,
+		nonAEADHeaderLen: nonAEADHeaderLen,
+		info: zerocopy.ServerUnpackerInfo{
+			Headroom: s.info.UnpackerHeadroom,
+		},
+		userCipherConfig: userCipherConfig,
+		packerShouldPad:  s.shouldPad,
 	}, username, nil
 }

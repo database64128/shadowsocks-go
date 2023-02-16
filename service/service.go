@@ -62,7 +62,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 
 	tcpClientMap := make(map[string]zerocopy.TCPClient, len(sc.Clients))
 	udpClientMap := make(map[string]zerocopy.UDPClient, len(sc.Clients))
-	var maxClientFrontHeadroom, maxClientRearHeadroom int
+	var maxClientPackerHeadroom zerocopy.Headroom
 
 	for i := range sc.Clients {
 		clientConfig := &sc.Clients[i]
@@ -85,14 +85,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		case errNetworkDisabled:
 		case nil:
 			udpClientMap[clientName] = udpClient
-			frontHeadroom := udpClient.FrontHeadroom()
-			if frontHeadroom > maxClientFrontHeadroom {
-				maxClientFrontHeadroom = frontHeadroom
-			}
-			rearHeadroom := udpClient.RearHeadroom()
-			if rearHeadroom > maxClientRearHeadroom {
-				maxClientRearHeadroom = rearHeadroom
-			}
+			maxClientPackerHeadroom = zerocopy.MaxHeadroom(maxClientPackerHeadroom, udpClient.Info().PackerHeadroom)
 		default:
 			return nil, fmt.Errorf("failed to create UDP client for %s: %w", clientName, err)
 		}
@@ -144,7 +137,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 			return nil, fmt.Errorf("failed to create TCP relay service for %s: %w", serverConfig.Name, err)
 		}
 
-		udpRelay, err := serverConfig.UDPRelay(maxClientFrontHeadroom, maxClientRearHeadroom)
+		udpRelay, err := serverConfig.UDPRelay(maxClientPackerHeadroom)
 		switch err {
 		case errNetworkDisabled:
 		case nil:

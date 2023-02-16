@@ -13,6 +13,27 @@ import (
 
 const MaxPayloadSize = 0xFFFF
 
+// ShadowStreamHeadroom is the headroom required by an encrypted Shadowsocks stream.
+//
+// Front is the size of an encrypted length chunk.
+// Rear is the size of an AEAD tag.
+var ShadowStreamHeadroom = zerocopy.Headroom{
+	Front: 2 + 16,
+	Rear:  16,
+}
+
+// ShadowStreamReaderInfo contains information about a [ShadowStreamReader].
+var ShadowStreamReaderInfo = zerocopy.ReaderInfo{
+	Headroom:                    ShadowStreamHeadroom,
+	MinPayloadBufferSizePerRead: MaxPayloadSize,
+}
+
+// ShadowStreamWriterInfo contains information about a [ShadowStreamWriter].
+var ShadowStreamWriterInfo = zerocopy.WriterInfo{
+	Headroom:               ShadowStreamHeadroom,
+	MaxPayloadSizePerWrite: MaxPayloadSize,
+}
+
 var (
 	ErrZeroLengthChunk = errors.New("length in length chunk is zero")
 	ErrFirstRead       = errors.New("failed to read fixed-length header in one read call")
@@ -23,37 +44,17 @@ var ErrUnsafeStreamPrefixMismatch = errors.New("unsafe stream prefix mismatch")
 
 // ShadowStreamServerReadWriter implements Shadowsocks stream server.
 type ShadowStreamServerReadWriter struct {
-	r                          *ShadowStreamReader
-	w                          *ShadowStreamWriter
+	*ShadowStreamReader
+	*ShadowStreamWriter
 	rawRW                      zerocopy.DirectReadWriteCloser
 	cipherConfig               UserCipherConfig
 	requestSalt                []byte
 	unsafeResponseStreamPrefix []byte
 }
 
-// FrontHeadroom implements the Writer FrontHeadroom method.
-func (rw *ShadowStreamServerReadWriter) FrontHeadroom() int {
-	return rw.r.FrontHeadroom()
-}
-
-// RearHeadroom implements the Writer RearHeadroom method.
-func (rw *ShadowStreamServerReadWriter) RearHeadroom() int {
-	return rw.r.RearHeadroom()
-}
-
-// MaxPayloadSizePerWrite implements the Writer MaxPayloadSizePerWrite method.
-func (rw *ShadowStreamServerReadWriter) MaxPayloadSizePerWrite() int {
-	return rw.r.MinPayloadBufferSizePerRead()
-}
-
-// MinPayloadBufferSizePerRead implements the Reader MinPayloadBufferSizePerRead method.
-func (rw *ShadowStreamServerReadWriter) MinPayloadBufferSizePerRead() int {
-	return rw.r.MinPayloadBufferSizePerRead()
-}
-
 // WriteZeroCopy implements the Writer WriteZeroCopy method.
 func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (int, error) {
-	if rw.w == nil { // first write
+	if rw.ShadowStreamWriter == nil { // first write
 		urspLen := len(rw.unsafeResponseStreamPrefix)
 		saltLen := len(rw.cipherConfig.PSK)
 		responseHeaderStart := urspLen + saltLen
@@ -84,7 +85,7 @@ func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, pa
 		}
 
 		// Create writer.
-		rw.w = &ShadowStreamWriter{
+		rw.ShadowStreamWriter = &ShadowStreamWriter{
 			writer: rw.rawRW,
 			ssc:    shadowStreamCipher,
 		}
@@ -106,12 +107,7 @@ func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, pa
 		return payloadLen, nil
 	}
 
-	return rw.w.WriteZeroCopy(b, payloadStart, payloadLen)
-}
-
-// ReadZeroCopy implements the Reader ReadZeroCopy method.
-func (rw *ShadowStreamServerReadWriter) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (int, error) {
-	return rw.r.ReadZeroCopy(b, payloadBufStart, payloadBufLen)
+	return rw.ShadowStreamWriter.WriteZeroCopy(b, payloadStart, payloadLen)
 }
 
 // CloseRead implements the ReadWriter CloseRead method.
@@ -131,42 +127,17 @@ func (rw *ShadowStreamServerReadWriter) Close() error {
 
 // ShadowStreamClientReadWriter implements Shadowsocks stream client.
 type ShadowStreamClientReadWriter struct {
-	r                          *ShadowStreamReader
-	w                          *ShadowStreamWriter
+	*ShadowStreamReader
+	*ShadowStreamWriter
 	rawRW                      zerocopy.DirectReadWriteCloser
 	cipherConfig               *ClientCipherConfig
 	requestSalt                []byte
 	unsafeResponseStreamPrefix []byte
 }
 
-// FrontHeadroom implements the Writer FrontHeadroom method.
-func (rw *ShadowStreamClientReadWriter) FrontHeadroom() int {
-	return rw.w.FrontHeadroom()
-}
-
-// RearHeadroom implements the Writer RearHeadroom method.
-func (rw *ShadowStreamClientReadWriter) RearHeadroom() int {
-	return rw.w.RearHeadroom()
-}
-
-// MaxPayloadSizePerWrite implements the Writer MaxPayloadSizePerWrite method.
-func (rw *ShadowStreamClientReadWriter) MaxPayloadSizePerWrite() int {
-	return rw.w.MaxPayloadSizePerWrite()
-}
-
-// MinPayloadBufferSizePerRead implements the Reader MinPayloadBufferSizePerRead method.
-func (rw *ShadowStreamClientReadWriter) MinPayloadBufferSizePerRead() int {
-	return rw.w.MaxPayloadSizePerWrite()
-}
-
-// WriteZeroCopy implements the Writer WriteZeroCopy method.
-func (rw *ShadowStreamClientReadWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (int, error) {
-	return rw.w.WriteZeroCopy(b, payloadStart, payloadLen)
-}
-
 // ReadZeroCopy implements the Reader ReadZeroCopy method.
 func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (int, error) {
-	if rw.r == nil { // first read
+	if rw.ShadowStreamReader == nil { // first read
 		urspLen := len(rw.unsafeResponseStreamPrefix)
 		saltLen := len(rw.cipherConfig.PSK)
 		fixedLengthHeaderStart := urspLen + saltLen
@@ -197,7 +168,7 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 		}
 
 		// Create reader.
-		rw.r = &ShadowStreamReader{
+		rw.ShadowStreamReader = &ShadowStreamReader{
 			reader: rw.rawRW,
 			ssc:    shadowStreamCipher,
 		}
@@ -231,7 +202,7 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 		return n, nil
 	}
 
-	return rw.r.ReadZeroCopy(b, payloadBufStart, payloadBufLen)
+	return rw.ShadowStreamReader.ReadZeroCopy(b, payloadBufStart, payloadBufLen)
 }
 
 // CloseRead implements the ReadWriter CloseRead method.
@@ -263,19 +234,9 @@ type ShadowStreamWriter struct {
 	ssc    *ShadowStreamCipher
 }
 
-// FrontHeadroom implements the Writer FrontHeadroom method.
-func (w *ShadowStreamWriter) FrontHeadroom() int {
-	return 2 + w.ssc.Overhead()
-}
-
-// RearHeadroom implements the Writer RearHeadroom method.
-func (w *ShadowStreamWriter) RearHeadroom() int {
-	return w.ssc.Overhead()
-}
-
-// MaxPayloadSizePerWrite implements the Writer MaxPayloadSizePerWrite method.
-func (w *ShadowStreamWriter) MaxPayloadSizePerWrite() int {
-	return MaxPayloadSize
+// WriterInfo implements the Writer WriterInfo method.
+func (w *ShadowStreamWriter) WriterInfo() zerocopy.WriterInfo {
+	return ShadowStreamWriterInfo
 }
 
 // WriteZeroCopy implements the Writer WriteZeroCopy method.
@@ -311,19 +272,9 @@ type ShadowStreamReader struct {
 	ssc    *ShadowStreamCipher
 }
 
-// FrontHeadroom implements the Reader FrontHeadroom method.
-func (r *ShadowStreamReader) FrontHeadroom() int {
-	return 2 + r.ssc.Overhead()
-}
-
-// RearHeadroom implements the Reader RearHeadroom method.
-func (r *ShadowStreamReader) RearHeadroom() int {
-	return r.ssc.Overhead()
-}
-
-// MinPayloadBufferSizePerRead implements the Reader MinPayloadBufferSizePerRead method.
-func (r *ShadowStreamReader) MinPayloadBufferSizePerRead() int {
-	return MaxPayloadSize
+// ReaderInfo implements the Reader ReaderInfo method.
+func (r *ShadowStreamReader) ReaderInfo() zerocopy.ReaderInfo {
+	return ShadowStreamReaderInfo
 }
 
 // ReadZeroCopy implements the Reader ReadZeroCopy method.

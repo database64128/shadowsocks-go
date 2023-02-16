@@ -12,7 +12,6 @@ import (
 var errExpectDirect = errors.New("buffered relay method is used")
 
 type testReader struct {
-	ZeroHeadroom
 	r *bytes.Reader
 }
 
@@ -25,8 +24,8 @@ func newTestReader(t *testing.T) (*testReader, []byte) {
 	return &testReader{r: bytes.NewReader(b)}, append([]byte{}, b...)
 }
 
-func (r *testReader) MinPayloadBufferSizePerRead() int {
-	return 0
+func (r *testReader) ReaderInfo() ReaderInfo {
+	return ReaderInfo{}
 }
 
 func (r *testReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
@@ -42,8 +41,8 @@ func newTestBigReader(t *testing.T) (*testBigReader, []byte) {
 	return &testBigReader{r}, b
 }
 
-func (r *testBigReader) MinPayloadBufferSizePerRead() int {
-	return 64
+func (r *testBigReader) ReaderInfo() ReaderInfo {
+	return ReaderInfo{MinPayloadBufferSizePerRead: 64}
 }
 
 func (r *testBigReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
@@ -71,12 +70,11 @@ func (r *testDirectReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen
 }
 
 type testWriter struct {
-	ZeroHeadroom
 	w bytes.Buffer
 }
 
-func (w *testWriter) MaxPayloadSizePerWrite() int {
-	return 0
+func (w *testWriter) WriterInfo() WriterInfo {
+	return WriterInfo{}
 }
 
 func (w *testWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
@@ -91,8 +89,8 @@ type testSmallWriter struct {
 	testWriter
 }
 
-func (w *testSmallWriter) MaxPayloadSizePerWrite() int {
-	return 32
+func (w *testSmallWriter) WriterInfo() WriterInfo {
+	return WriterInfo{MaxPayloadSizePerWrite: 32}
 }
 
 func (w *testSmallWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {

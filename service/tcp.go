@@ -164,28 +164,27 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 		return
 	}
 
-	// Get client name.
-	clientName := c.String()
+	// Get client info.
+	clientInfo := c.Info()
 
 	// Wait for initial payload if all of the following are true:
 	// 1. not disabled
 	// 2. server does not have native support
 	// 3. client has native support
-	if s.waitForInitialPayload && c.NativeInitialPayload() {
-		frontHeadroom := clientRW.FrontHeadroom()
-		rearHeadroom := clientRW.RearHeadroom()
-		payloadBufSize := clientRW.MinPayloadBufferSizePerRead()
+	if s.waitForInitialPayload && clientInfo.NativeInitialPayload {
+		clientReaderInfo := clientRW.ReaderInfo()
+		payloadBufSize := clientReaderInfo.MinPayloadBufferSizePerRead
 		if payloadBufSize == 0 {
 			payloadBufSize = initialPayloadWaitBufferSize
 		}
 
-		payload = make([]byte, frontHeadroom+payloadBufSize+rearHeadroom)
+		payload = make([]byte, clientReaderInfo.Headroom.Front+payloadBufSize+clientReaderInfo.Headroom.Rear)
 
 		err = clientConn.SetReadDeadline(time.Now().Add(initialPayloadWaitTimeout))
 		if err != nil {
 			s.logger.Warn("Failed to set read deadline to initial payload wait timeout",
 				zap.String("server", s.serverName),
-				zap.String("client", clientName),
+				zap.String("client", clientInfo.Name),
 				zap.String("listenAddress", s.listenAddress),
 				zap.String("clientAddress", clientAddress),
 				zap.String("targetAddress", targetAddress),
@@ -195,13 +194,13 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 			return
 		}
 
-		payloadLength, err := clientRW.ReadZeroCopy(payload, frontHeadroom, payloadBufSize)
+		payloadLength, err := clientRW.ReadZeroCopy(payload, clientReaderInfo.Headroom.Front, payloadBufSize)
 		switch {
 		case err == nil:
-			payload = payload[frontHeadroom : frontHeadroom+payloadLength]
+			payload = payload[clientReaderInfo.Headroom.Front : clientReaderInfo.Headroom.Front+payloadLength]
 			s.logger.Debug("Got initial payload",
 				zap.String("server", s.serverName),
-				zap.String("client", clientName),
+				zap.String("client", clientInfo.Name),
 				zap.String("listenAddress", s.listenAddress),
 				zap.String("clientAddress", clientAddress),
 				zap.String("targetAddress", targetAddress),
@@ -212,7 +211,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 		case errors.Is(err, os.ErrDeadlineExceeded):
 			s.logger.Debug("Initial payload wait timed out",
 				zap.String("server", s.serverName),
-				zap.String("client", clientName),
+				zap.String("client", clientInfo.Name),
 				zap.String("listenAddress", s.listenAddress),
 				zap.String("clientAddress", clientAddress),
 				zap.String("targetAddress", targetAddress),
@@ -222,7 +221,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 		default:
 			s.logger.Warn("Failed to read initial payload",
 				zap.String("server", s.serverName),
-				zap.String("client", clientName),
+				zap.String("client", clientInfo.Name),
 				zap.String("listenAddress", s.listenAddress),
 				zap.String("clientAddress", clientAddress),
 				zap.String("targetAddress", targetAddress),
@@ -236,7 +235,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 		if err != nil {
 			s.logger.Warn("Failed to reset read deadline",
 				zap.String("server", s.serverName),
-				zap.String("client", clientName),
+				zap.String("client", clientInfo.Name),
 				zap.String("listenAddress", s.listenAddress),
 				zap.String("clientAddress", clientAddress),
 				zap.String("targetAddress", targetAddress),
@@ -252,7 +251,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 	if err != nil {
 		s.logger.Warn("Failed to create remote connection",
 			zap.String("server", s.serverName),
-			zap.String("client", clientName),
+			zap.String("client", clientInfo.Name),
 			zap.String("listenAddress", s.listenAddress),
 			zap.String("clientAddress", clientAddress),
 			zap.String("targetAddress", targetAddress),
@@ -266,7 +265,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 
 	s.logger.Info("Two-way relay started",
 		zap.String("server", s.serverName),
-		zap.String("client", clientName),
+		zap.String("client", clientInfo.Name),
 		zap.String("listenAddress", s.listenAddress),
 		zap.String("clientAddress", clientAddress),
 		zap.String("targetAddress", targetAddress),
@@ -281,7 +280,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 	if err != nil {
 		s.logger.Warn("Two-way relay failed",
 			zap.String("server", s.serverName),
-			zap.String("client", clientName),
+			zap.String("client", clientInfo.Name),
 			zap.String("listenAddress", s.listenAddress),
 			zap.String("clientAddress", clientAddress),
 			zap.String("targetAddress", targetAddress),
@@ -295,7 +294,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 
 	s.logger.Info("Two-way relay completed",
 		zap.String("server", s.serverName),
-		zap.String("client", clientName),
+		zap.String("client", clientInfo.Name),
 		zap.String("listenAddress", s.listenAddress),
 		zap.String("clientAddress", clientAddress),
 		zap.String("targetAddress", targetAddress),

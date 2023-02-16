@@ -22,9 +22,12 @@ func NewProxyClient(name, address string, dialerTFO bool, dialerFwmark int) *Pro
 	}
 }
 
-// String implements the zerocopy.TCPClient String method.
-func (c *ProxyClient) String() string {
-	return c.name
+// Info implements the zerocopy.TCPClient Info method.
+func (c *ProxyClient) Info() zerocopy.TCPClientInfo {
+	return zerocopy.TCPClientInfo{
+		Name:                 c.name,
+		NativeInitialPayload: false,
+	}
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
@@ -49,11 +52,6 @@ func (c *ProxyClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy
 	return
 }
 
-// NativeInitialPayload implements the zerocopy.TCPClient NativeInitialPayload method.
-func (c *ProxyClient) NativeInitialPayload() bool {
-	return false
-}
-
 // ProxyServer implements the zerocopy TCPServer interface.
 type ProxyServer struct {
 	logger *zap.Logger
@@ -63,18 +61,16 @@ func NewProxyServer(logger *zap.Logger) *ProxyServer {
 	return &ProxyServer{logger}
 }
 
+// Info implements the zerocopy.TCPServer Info method.
+func (s *ProxyServer) Info() zerocopy.TCPServerInfo {
+	return zerocopy.TCPServerInfo{
+		NativeInitialPayload: false,
+		DefaultTCPConnCloser: zerocopy.JustClose,
+	}
+}
+
 // Accept implements the zerocopy.TCPServer Accept method.
 func (s *ProxyServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
 	rw, targetAddr, err = NewHttpStreamServerReadWriter(rawRW, s.logger)
 	return
-}
-
-// NativeInitialPayload implements the zerocopy.TCPServer NativeInitialPayload method.
-func (s *ProxyServer) NativeInitialPayload() bool {
-	return false
-}
-
-// DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
-func (s *ProxyServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
-	return zerocopy.JustClose
 }

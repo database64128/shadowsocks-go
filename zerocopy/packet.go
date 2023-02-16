@@ -36,35 +36,59 @@ func MaxPacketSizeForAddr(mtu int, addr netip.Addr) int {
 	return mtu - IPv6HeaderLength - UDPHeaderLength
 }
 
+// ClientPackerInfo contains information about a client packer.
+type ClientPackerInfo struct {
+	Headroom Headroom
+}
+
 // ClientPacker processes raw payload into packets ready to be sent to servers.
 type ClientPacker interface {
-	Headroom
+	// ClientPackerInfo returns information about the client packer.
+	ClientPackerInfo() ClientPackerInfo
 
 	// PackInPlace packs the payload in-place into a packet ready for sending and returns
 	// the destination address, packet start offset, packet length, or an error if packing fails.
 	PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error)
 }
 
+// ServerPackerInfo contains information about a server packer.
+type ServerPackerInfo struct {
+	Headroom Headroom
+}
+
 // ServerPacker processes raw payload into packets ready to be sent to clients.
 type ServerPacker interface {
-	Headroom
+	// ServerPackerInfo returns information about the server packer.
+	ServerPackerInfo() ServerPackerInfo
 
 	// PackInPlace packs the payload in-place into a packet ready for sending and returns
 	// packet start offset, packet length, or an error if packing fails.
 	PackInPlace(b []byte, sourceAddrPort netip.AddrPort, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error)
 }
 
+// ClientUnpackerInfo contains information about a client unpacker.
+type ClientUnpackerInfo struct {
+	Headroom Headroom
+}
+
 // ClientUnpacker processes packets received from the server into raw payload.
 type ClientUnpacker interface {
-	Headroom
+	// ClientUnpackerInfo returns information about the client unpacker.
+	ClientUnpackerInfo() ClientUnpackerInfo
 
 	// UnpackInPlace unpacks the packet in-place and returns packet source address, payload start offset, payload length, or an error if unpacking fails.
 	UnpackInPlace(b []byte, packetSourceAddrPort netip.AddrPort, packetStart, packetLen int) (payloadSourceAddrPort netip.AddrPort, payloadStart, payloadLen int, err error)
 }
 
+// ServerUnpackerInfo contains information about a server unpacker.
+type ServerUnpackerInfo struct {
+	Headroom Headroom
+}
+
 // ServerUnpacker processes packets received from the client into raw payload.
 type ServerUnpacker interface {
-	Headroom
+	// ServerUnpackerInfo returns information about the server unpacker.
+	ServerUnpackerInfo() ServerUnpackerInfo
 
 	// UnpackInPlace unpacks the packet in-place and returns target address, payload start offset, payload length, or an error if unpacking fails.
 	UnpackInPlace(b []byte, sourceAddrPort netip.AddrPort, packetStart, packetLen int) (targetAddr conn.Addr, payloadStart, payloadLen int, err error)
@@ -101,17 +125,10 @@ func ClientServerPackerUnpackerTestFunc(t tester, clientPacker ClientPacker, cli
 		payloadLen = 1280
 	)
 
-	frontHeadroom := clientPacker.FrontHeadroom()
-	if serverPacker.FrontHeadroom() > frontHeadroom {
-		frontHeadroom = serverPacker.FrontHeadroom()
-	}
-	rearHeadroom := clientPacker.RearHeadroom()
-	if serverPacker.RearHeadroom() > rearHeadroom {
-		rearHeadroom = serverPacker.RearHeadroom()
-	}
+	headroom := MaxHeadroom(clientPacker.ClientPackerInfo().Headroom, serverPacker.ServerPackerInfo().Headroom)
 
-	b := make([]byte, frontHeadroom+payloadLen+rearHeadroom)
-	payload := b[frontHeadroom : frontHeadroom+payloadLen]
+	b := make([]byte, headroom.Front+payloadLen+headroom.Rear)
+	payload := b[headroom.Front : headroom.Front+payloadLen]
 	targetAddrPort := netip.AddrPortFrom(netip.IPv6Unspecified(), 53)
 	targetAddr := conn.AddrFromIPPort(targetAddrPort)
 
@@ -126,7 +143,7 @@ func ClientServerPackerUnpackerTestFunc(t tester, clientPacker ClientPacker, cli
 	copy(payloadBackup, payload)
 
 	// Client packs.
-	destAddr, pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, frontHeadroom, payloadLen)
+	destAddr, pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, headroom.Front, payloadLen)
 	if err != nil {
 		t.Fatal(err)
 	}

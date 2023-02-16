@@ -58,20 +58,21 @@ type UDPTransparentRelay struct {
 
 func NewUDPTransparentRelay(
 	serverName, listenAddress string,
-	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, listenerFwmark, mtu, maxClientFrontHeadroom, maxClientRearHeadroom int,
+	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, listenerFwmark, mtu int,
+	maxClientPackerHeadroom zerocopy.Headroom,
 	natTimeout time.Duration,
 	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
 ) (Relay, error) {
 	packetBufRecvSize := mtu - zerocopy.IPv4HeaderLength - zerocopy.UDPHeaderLength
-	packetBufSize := maxClientFrontHeadroom + packetBufRecvSize + maxClientRearHeadroom
+	packetBufSize := maxClientPackerHeadroom.Front + packetBufRecvSize + maxClientPackerHeadroom.Rear
 	return &UDPTransparentRelay{
 		serverName:             serverName,
 		listenAddress:          listenAddress,
 		listenerFwmark:         listenerFwmark,
 		mtu:                    mtu,
-		packetBufFrontHeadroom: maxClientFrontHeadroom,
+		packetBufFrontHeadroom: maxClientPackerHeadroom.Front,
 		packetBufRecvSize:      packetBufRecvSize,
 		relayBatchSize:         relayBatchSize,
 		serverRecvBatchSize:    serverRecvBatchSize,
@@ -263,18 +264,15 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 						return
 					}
 
-					clientName := c.String()
-
 					// Only add for the current goroutine here, since we don't want the router to block exiting.
 					s.wg.Add(1)
 					defer s.wg.Done()
 
-					natConnMaxPacketSize, natConnFwmark := c.LinkInfo()
-					natConnPacker, natConnUnpacker, err := c.NewSession()
+					clientInfo, natConnPacker, natConnUnpacker, err := c.NewSession()
 					if err != nil {
 						s.logger.Warn("Failed to create new UDP client session",
 							zap.String("server", s.serverName),
-							zap.String("client", clientName),
+							zap.String("client", clientInfo.Name),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
@@ -283,15 +281,15 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 						return
 					}
 
-					natConn, err := conn.ListenUDP("udp", "", false, natConnFwmark)
+					natConn, err := conn.ListenUDP("udp", "", false, clientInfo.Fwmark)
 					if err != nil {
 						s.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.String("server", s.serverName),
-							zap.String("client", clientName),
+							zap.String("client", clientInfo.Name),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
-							zap.Int("natConnFwmark", natConnFwmark),
+							zap.Int("natConnFwmark", clientInfo.Fwmark),
 							zap.Error(err),
 						)
 						return
@@ -300,7 +298,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 					if err = natConn.SetReadDeadline(time.Now().Add(s.natTimeout)); err != nil {
 						s.logger.Warn("Failed to set read deadline on natConn",
 							zap.String("server", s.serverName),
-							zap.String("client", clientName),
+							zap.String("client", clientInfo.Name),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
@@ -315,13 +313,13 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 					sendChClean = true
 
 					entry.natConn = natConn
-					entry.natConnRecvBufSize = natConnMaxPacketSize
+					entry.natConnRecvBufSize = clientInfo.MaxPacketSize
 					entry.natConnPacker = natConnPacker
 					entry.natConnUnpacker = natConnUnpacker
 
 					s.logger.Info("UDP transparent relay started",
 						zap.String("server", s.serverName),
-						zap.String("client", clientName),
+						zap.String("client", clientInfo.Name),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),

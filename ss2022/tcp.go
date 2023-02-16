@@ -31,9 +31,12 @@ func NewTCPClient(name, address string, dialerTFO bool, dialerFwmark int, cipher
 	}
 }
 
-// String implements the zerocopy.TCPClient String method.
-func (c *TCPClient) String() string {
-	return c.name
+// Info implements the zerocopy.TCPClient Info method.
+func (c *TCPClient) Info() zerocopy.TCPClientInfo {
+	return zerocopy.TCPClientInfo{
+		Name:                 c.name,
+		NativeInitialPayload: true,
+	}
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
@@ -138,7 +141,7 @@ func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.D
 	}
 
 	rw = &ShadowStreamClientReadWriter{
-		w:                          &w,
+		ShadowStreamWriter:         &w,
 		rawRW:                      rawRW,
 		cipherConfig:               c.cipherConfig,
 		requestSalt:                salt,
@@ -146,11 +149,6 @@ func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.D
 	}
 
 	return
-}
-
-// NativeInitialPayload implements the zerocopy.TCPClient NativeInitialPayload method.
-func (c *TCPClient) NativeInitialPayload() bool {
-	return true
 }
 
 // TCPServer implements the zerocopy TCPServer interface.
@@ -170,6 +168,14 @@ func NewTCPServer(userCipherConfig UserCipherConfig, identityCipherConfig Server
 		identityCipherConfig:       identityCipherConfig,
 		unsafeRequestStreamPrefix:  unsafeRequestStreamPrefix,
 		unsafeResponseStreamPrefix: unsafeResponseStreamPrefix,
+	}
+}
+
+// Info implements the zerocopy.TCPServer Info method.
+func (s *TCPServer) Info() zerocopy.TCPServerInfo {
+	return zerocopy.TCPServerInfo{
+		NativeInitialPayload: true,
+		DefaultTCPConnCloser: zerocopy.ForceReset,
 	}
 }
 
@@ -298,21 +304,11 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 		ssc:    shadowStreamCipher,
 	}
 	rw = &ShadowStreamServerReadWriter{
-		r:                          &r,
+		ShadowStreamReader:         &r,
 		rawRW:                      rawRW,
 		cipherConfig:               userCipherConfig,
 		requestSalt:                salt,
 		unsafeResponseStreamPrefix: s.unsafeResponseStreamPrefix,
 	}
 	return
-}
-
-// NativeInitialPayload implements the zerocopy.TCPServer NativeInitialPayload method.
-func (s *TCPServer) NativeInitialPayload() bool {
-	return true
-}
-
-// DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
-func (s *TCPServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
-	return zerocopy.ForceReset
 }

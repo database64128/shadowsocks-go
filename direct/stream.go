@@ -16,13 +16,12 @@ var (
 // DirectStreamReadWriter implements the zerocopy ReadWriter interface and reads/writes everything
 // directly from/to the wrapped io.ReadWriter.
 type DirectStreamReadWriter struct {
-	zerocopy.ZeroHeadroom
 	rw zerocopy.DirectReadWriteCloser
 }
 
-// MaxPayloadSizePerWrite implements the Writer MaxPayloadSizePerWrite method.
-func (rw *DirectStreamReadWriter) MaxPayloadSizePerWrite() int {
-	return 0
+// WriterInfo implements the Writer WriterInfo method.
+func (rw *DirectStreamReadWriter) WriterInfo() zerocopy.WriterInfo {
+	return zerocopy.WriterInfo{}
 }
 
 // WriteZeroCopy implements the Writer WriteZeroCopy method.
@@ -36,9 +35,9 @@ func (rw *DirectStreamReadWriter) DirectWriter() io.Writer {
 	return rw.rw
 }
 
-// MinPayloadBufferSizePerRead implements the Reader MinPayloadBufferSizePerRead method.
-func (rw *DirectStreamReadWriter) MinPayloadBufferSizePerRead() int {
-	return 0
+// ReaderInfo implements the Reader ReaderInfo method.
+func (rw *DirectStreamReadWriter) ReaderInfo() zerocopy.ReaderInfo {
+	return zerocopy.ReaderInfo{}
 }
 
 // ReadZeroCopy implements the Reader ReadZeroCopy method.

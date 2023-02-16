@@ -40,26 +40,28 @@ func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, u
 	s := NewUDPServer(userCipherConfig, identityCipherConfig, serverShouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 
-	fixedName := c.String()
-	if fixedName != name {
-		t.Errorf("Fixed name mismatch: in: %s, out: %s", name, fixedName)
+	clientInfo := c.Info()
+	if clientInfo.Name != name {
+		t.Errorf("Fixed name mismatch: in: %s, out: %s", name, clientInfo.Name)
+	}
+	if clientInfo.Fwmark != fwmark {
+		t.Errorf("Fixed fwmark mismatch: in: %d, out: %d", fwmark, clientInfo.Fwmark)
+	}
+	if clientInfo.MaxPacketSize != packetSize {
+		t.Errorf("Fixed MTU mismatch: in: %d, out: %d", mtu, clientInfo.MaxPacketSize)
 	}
 
-	fixedMaxPacketSize, fixedFwmark := c.LinkInfo()
-	if fixedFwmark != fwmark {
-		t.Errorf("Fixed fwmark mismatch: in: %d, out: %d", fwmark, fixedFwmark)
-	}
-	if fixedMaxPacketSize != packetSize {
-		t.Errorf("Fixed MTU mismatch: in: %d, out: %d", mtu, fixedFwmark)
-	}
-
-	clientPacker, clientUnpacker, err := c.NewSession()
+	sameClientInfo, clientPacker, clientUnpacker, err := c.NewSession()
 	if err != nil {
 		t.Fatal(err)
 	}
+	if clientInfo != sameClientInfo {
+		t.Errorf("NewSession returned client info: %+v, expected: %+v", sameClientInfo, clientInfo)
+	}
 
-	frontHeadroom := clientPacker.FrontHeadroom() + 8 // Compensate for server message overhead.
-	rearHeadroom := clientPacker.RearHeadroom()
+	clientPackerInfo := clientPacker.ClientPackerInfo()
+	frontHeadroom := clientPackerInfo.Headroom.Front + 8 // Compensate for server message overhead.
+	rearHeadroom := clientPackerInfo.Headroom.Rear
 	b := make([]byte, frontHeadroom+payloadLen+rearHeadroom)
 	payload := b[frontHeadroom : frontHeadroom+payloadLen]
 
@@ -153,13 +155,14 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 	s := NewUDPServer(userCipherConfig, identityCipherConfig, shouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 
-	clientPacker, clientUnpacker, err := c.NewSession()
+	_, clientPacker, clientUnpacker, err := c.NewSession()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	frontHeadroom := clientPacker.FrontHeadroom() + 8 // Compensate for server message overhead.
-	rearHeadroom := clientPacker.RearHeadroom()
+	clientPackerInfo := clientPacker.ClientPackerInfo()
+	frontHeadroom := clientPackerInfo.Headroom.Front + 8 // Compensate for server message overhead.
+	rearHeadroom := clientPackerInfo.Headroom.Rear
 	b := make([]byte, frontHeadroom+payloadLen+rearHeadroom)
 
 	// Client packs.

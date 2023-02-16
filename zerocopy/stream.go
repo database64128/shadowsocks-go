@@ -10,23 +10,29 @@ import (
 // It's the same default as io.Copy.
 const defaultBufferSize = 32768
 
-// Reader provides a stream interface for reading.
-type Reader interface {
-	Headroom
+// ReaderInfo contains information about a reader.
+type ReaderInfo struct {
+	Headroom Headroom
 
-	// MinPayloadBufferSizePerRead returns the minimum size of payload buffer
+	// MinPayloadBufferSizePerRead is the minimum size of payload buffer
 	// the ReadZeroCopy method requires for an unbuffered read.
 	//
 	// This is usually required by chunk-based protocols to be able to read
 	// whole chunks without needing internal caching.
-	MinPayloadBufferSizePerRead() int
+	MinPayloadBufferSizePerRead int
+}
+
+// Reader provides a stream interface for reading.
+type Reader interface {
+	// ReaderInfo returns information about the reader.
+	ReaderInfo() ReaderInfo
 
 	// ReadZeroCopy uses b as buffer space to initiate a read operation.
 	//
-	// b must have at least FrontOverhead() bytes before payloadBufStart
-	// and RearOverhead() bytes after payloadBufStart + payloadBufLen.
+	// b must have at least [ReaderInfo.Headroom.Front] bytes before payloadBufStart
+	// and [ReaderInfo.Headroom.Rear] bytes after payloadBufStart + payloadBufLen.
 	//
-	// payloadBufLen must be at least MinPayloadBufferSizePerRead().
+	// payloadBufLen must be at least [ReaderInfo.MinPayloadBufferSizePerRead].
 	//
 	// The read operation may use the whole space of b.
 	// The actual payload will be confined in [payloadBufStart, payloadBufLen).
@@ -35,25 +41,31 @@ type Reader interface {
 	ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error)
 }
 
-// Writer provides a stream interface for writing.
-type Writer interface {
-	Headroom
+// WriterInfo contains information about a writer.
+type WriterInfo struct {
+	Headroom Headroom
 
-	// MaxPayloadSizePerWrite returns the maximum size of payload
+	// MaxPayloadSizePerWrite is the maximum size of payload
 	// the WriteZeroCopy method can write at a time.
 	//
 	// This is usually required by chunk-based protocols to be able to write
 	// one chunk at a time without needing to break up the payload.
 	//
-	// If there isn't a maximum limit, return 0.
-	MaxPayloadSizePerWrite() int
+	// 0 means no size limit.
+	MaxPayloadSizePerWrite int
+}
+
+// Writer provides a stream interface for writing.
+type Writer interface {
+	// WriterInfo returns information about the writer.
+	WriterInfo() WriterInfo
 
 	// WriteZeroCopy uses b as buffer space to initiate a write operation.
 	//
-	// b must have at least FrontOverhead() bytes before payloadBufStart
-	// and RearOverhead() bytes after payloadBufStart + payloadBufLen.
+	// b must have at least [WriterInfo.Headroom.Front] bytes before payloadBufStart
+	// and [WriterInfo.Headroom.Rear] bytes after payloadBufStart + payloadBufLen.
 	//
-	// payloadLen must not be greater than MaxPayloadSizePerWrite().
+	// payloadLen must not exceed [WriterInfo.MaxPayloadSizePerWrite].
 	//
 	// The write operation may use the whole space of b.
 	WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error)
@@ -83,40 +95,31 @@ func Relay(w Writer, r Reader) (n int64, err error) {
 		}
 	}
 
-	// Determine front headroom.
-	frontHeadroom := r.FrontHeadroom()
-	wfh := w.FrontHeadroom()
-	if wfh > frontHeadroom {
-		frontHeadroom = wfh
-	}
-
-	// Determine rear headroom.
-	rearHeadroom := r.RearHeadroom()
-	wrh := w.RearHeadroom()
-	if wrh > rearHeadroom {
-		rearHeadroom = wrh
-	}
+	// Process reader and writer info.
+	ri := r.ReaderInfo()
+	wi := w.WriterInfo()
+	headroom := MaxHeadroom(ri.Headroom, wi.Headroom)
 
 	// Check payload buffer size requirement compatibility.
-	readMaxPayloadSize := r.MinPayloadBufferSizePerRead()
-	writeMaxPayloadSize := w.MaxPayloadSizePerWrite()
-	if writeMaxPayloadSize == 0 {
-		writeMaxPayloadSize = readMaxPayloadSize
-		if writeMaxPayloadSize == 0 {
-			writeMaxPayloadSize = defaultBufferSize
-		}
+	if wi.MaxPayloadSizePerWrite > 0 && ri.MinPayloadBufferSizePerRead > wi.MaxPayloadSizePerWrite {
+		return relayFallback(w, r, headroom.Front, headroom.Rear, ri.MinPayloadBufferSizePerRead, wi.MaxPayloadSizePerWrite)
 	}
-	if readMaxPayloadSize > writeMaxPayloadSize {
-		return relayFallback(w, r, frontHeadroom, rearHeadroom, readMaxPayloadSize, writeMaxPayloadSize)
+
+	payloadBufSize := ri.MinPayloadBufferSizePerRead
+	if payloadBufSize == 0 {
+		payloadBufSize = wi.MaxPayloadSizePerWrite
+		if payloadBufSize == 0 {
+			payloadBufSize = defaultBufferSize
+		}
 	}
 
 	// Make buffer.
-	b := make([]byte, frontHeadroom+writeMaxPayloadSize+rearHeadroom)
+	b := make([]byte, headroom.Front+payloadBufSize+headroom.Rear)
 
 	// Main relay loop.
 	for {
 		var payloadLen int
-		payloadLen, err = r.ReadZeroCopy(b, frontHeadroom, writeMaxPayloadSize)
+		payloadLen, err = r.ReadZeroCopy(b, headroom.Front, payloadBufSize)
 		if payloadLen == 0 {
 			if err == io.EOF {
 				err = nil
@@ -124,10 +127,11 @@ func Relay(w Writer, r Reader) (n int64, err error) {
 			return
 		}
 
-		payloadWritten, werr := w.WriteZeroCopy(b, frontHeadroom, payloadLen)
+		payloadWritten, werr := w.WriteZeroCopy(b, headroom.Front, payloadLen)
 		n += int64(payloadWritten)
 		if werr != nil {
 			err = werr
+			return
 		}
 
 		if err != nil {
@@ -174,7 +178,7 @@ func relayFallback(w Writer, r Reader, frontHeadroom, rearHeadroom, readMaxPaylo
 			n += int64(payloadWritten)
 			if werr != nil {
 				err = werr
-				break
+				return
 			}
 		}
 
@@ -291,61 +295,61 @@ func ReadWriterTestFunc(t tester, l, r ReadWriter) {
 		world = []byte{'w', 'o', 'r', 'l', 'd'}
 	)
 
-	lfh := l.FrontHeadroom()
-	lrh := l.RearHeadroom()
-	lmax := l.MaxPayloadSizePerWrite()
-	if lmax == 0 {
-		lmax = 5
+	lri := l.ReaderInfo()
+	lwi := l.WriterInfo()
+	lwmax := lwi.MaxPayloadSizePerWrite
+	if lwmax == 0 {
+		lwmax = 5
 	}
-	lmin := l.MinPayloadBufferSizePerRead()
-	if lmin == 0 {
-		lmin = 5
+	lrmin := lri.MinPayloadBufferSizePerRead
+	if lrmin == 0 {
+		lrmin = 5
 	}
-	lwbuf := make([]byte, lfh+lmax+lrh)
-	lrbuf := make([]byte, lfh+lmin+lrh)
+	lwbuf := make([]byte, lwi.Headroom.Front+lwmax+lwi.Headroom.Rear)
+	lrbuf := make([]byte, lri.Headroom.Front+lrmin+lri.Headroom.Rear)
 
-	rfh := r.FrontHeadroom()
-	rrh := r.RearHeadroom()
-	rmax := r.MaxPayloadSizePerWrite()
-	if rmax == 0 {
-		rmax = 5
+	rri := r.ReaderInfo()
+	rwi := r.WriterInfo()
+	rwmax := rwi.MaxPayloadSizePerWrite
+	if rwmax == 0 {
+		rwmax = 5
 	}
-	rmin := r.MinPayloadBufferSizePerRead()
-	if rmin == 0 {
-		rmin = 5
+	rrmin := rri.MinPayloadBufferSizePerRead
+	if rrmin == 0 {
+		rrmin = 5
 	}
-	rwbuf := make([]byte, rfh+rmax+rrh)
-	rrbuf := make([]byte, rfh+rmin+rrh)
+	rwbuf := make([]byte, rwi.Headroom.Front+rwmax+rwi.Headroom.Rear)
+	rrbuf := make([]byte, rri.Headroom.Front+rrmin+rri.Headroom.Rear)
 
 	ctrlCh := make(chan struct{})
 
 	// Start read goroutines.
 	go func() {
-		pl, err := l.ReadZeroCopy(lrbuf, lfh, lmax)
+		pl, err := l.ReadZeroCopy(lrbuf, lri.Headroom.Front, lrmin)
 		if err != nil {
 			t.Error(err)
 		}
 		if pl != 5 {
 			t.Errorf("Expected payloadLen 5, got %d", pl)
 		}
-		p := lrbuf[lfh : lfh+pl]
+		p := lrbuf[lri.Headroom.Front : lri.Headroom.Front+pl]
 		if !bytes.Equal(p, world) {
 			t.Errorf("Expected payload %v, got %v", world, p)
 		}
 
-		pl, err = l.ReadZeroCopy(lrbuf, lfh, lmax)
+		pl, err = l.ReadZeroCopy(lrbuf, lri.Headroom.Front, lrmin)
 		if err != nil {
 			t.Error(err)
 		}
 		if pl != 5 {
 			t.Errorf("Expected payloadLen 5, got %d", pl)
 		}
-		p = lrbuf[lfh : lfh+pl]
+		p = lrbuf[lri.Headroom.Front : lri.Headroom.Front+pl]
 		if !bytes.Equal(p, hello) {
 			t.Errorf("Expected payload %v, got %v", hello, p)
 		}
 
-		pl, err = l.ReadZeroCopy(lrbuf, lfh, lmax)
+		pl, err = l.ReadZeroCopy(lrbuf, lri.Headroom.Front, lrmin)
 		if err != io.EOF {
 			t.Errorf("Expected io.EOF, got %v", err)
 		}
@@ -357,31 +361,31 @@ func ReadWriterTestFunc(t tester, l, r ReadWriter) {
 	}()
 
 	go func() {
-		pl, err := r.ReadZeroCopy(rrbuf, rfh, rmin)
+		pl, err := r.ReadZeroCopy(rrbuf, rri.Headroom.Front, rrmin)
 		if err != nil {
 			t.Error(err)
 		}
 		if pl != 5 {
 			t.Errorf("Expected payloadLen 5, got %d", pl)
 		}
-		p := rrbuf[rfh : rfh+pl]
+		p := rrbuf[rri.Headroom.Front : rri.Headroom.Front+pl]
 		if !bytes.Equal(p, hello) {
 			t.Errorf("Expected payload %v, got %v", hello, p)
 		}
 
-		pl, err = r.ReadZeroCopy(rrbuf, rfh, rmin)
+		pl, err = r.ReadZeroCopy(rrbuf, rri.Headroom.Front, rrmin)
 		if err != nil {
 			t.Error(err)
 		}
 		if pl != 5 {
 			t.Errorf("Expected payloadLen 5, got %d", pl)
 		}
-		p = rrbuf[rfh : rfh+pl]
+		p = rrbuf[rri.Headroom.Front : rri.Headroom.Front+pl]
 		if !bytes.Equal(p, world) {
 			t.Errorf("Expected payload %v, got %v", world, p)
 		}
 
-		pl, err = r.ReadZeroCopy(rrbuf, rfh, rmin)
+		pl, err = r.ReadZeroCopy(rrbuf, rri.Headroom.Front, rrmin)
 		if err != io.EOF {
 			t.Errorf("Expected io.EOF, got %v", err)
 		}
@@ -393,8 +397,8 @@ func ReadWriterTestFunc(t tester, l, r ReadWriter) {
 	}()
 
 	// Write from left to right.
-	n := copy(lwbuf[lfh:], hello)
-	written, err := l.WriteZeroCopy(lwbuf, lfh, n)
+	n := copy(lwbuf[lwi.Headroom.Front:], hello)
+	written, err := l.WriteZeroCopy(lwbuf, lwi.Headroom.Front, n)
 	if err != nil {
 		t.Error(err)
 	}
@@ -402,8 +406,8 @@ func ReadWriterTestFunc(t tester, l, r ReadWriter) {
 		t.Errorf("Expected bytes written: %d, got %d", n, written)
 	}
 
-	n = copy(lwbuf[lfh:], world)
-	written, err = l.WriteZeroCopy(lwbuf, lfh, n)
+	n = copy(lwbuf[lwi.Headroom.Front:], world)
+	written, err = l.WriteZeroCopy(lwbuf, lwi.Headroom.Front, n)
 	if err != nil {
 		t.Error(err)
 	}
@@ -417,8 +421,8 @@ func ReadWriterTestFunc(t tester, l, r ReadWriter) {
 	}
 
 	// Write from right to left.
-	n = copy(rwbuf[rfh:], world)
-	written, err = r.WriteZeroCopy(rwbuf, rfh, n)
+	n = copy(rwbuf[rwi.Headroom.Front:], world)
+	written, err = r.WriteZeroCopy(rwbuf, rwi.Headroom.Front, n)
 	if err != nil {
 		t.Error(err)
 	}
@@ -426,8 +430,8 @@ func ReadWriterTestFunc(t tester, l, r ReadWriter) {
 		t.Errorf("Expected bytes written: %d, got %d", n, written)
 	}
 
-	n = copy(rwbuf[rfh:], hello)
-	written, err = r.WriteZeroCopy(rwbuf, rfh, n)
+	n = copy(rwbuf[rwi.Headroom.Front:], hello)
+	written, err = r.WriteZeroCopy(rwbuf, rwi.Headroom.Front, n)
 	if err != nil {
 		t.Error(err)
 	}
@@ -451,8 +455,8 @@ func ReadWriterTestFunc(t tester, l, r ReadWriter) {
 type CopyReadWriter struct {
 	ReadWriter
 
-	frontHeadroom int
-	rearHeadroom  int
+	readHeadroom  Headroom
+	writeHeadroom Headroom
 
 	readBuf       []byte
 	readBufStart  int
@@ -462,33 +466,33 @@ type CopyReadWriter struct {
 }
 
 func NewCopyReadWriter(rw ReadWriter) *CopyReadWriter {
-	frontHeadroom := rw.FrontHeadroom()
-	rearHeadroom := rw.RearHeadroom()
+	ri := rw.ReaderInfo()
+	wi := rw.WriterInfo()
 
-	readBufSize := rw.MinPayloadBufferSizePerRead()
+	readBufSize := ri.MinPayloadBufferSizePerRead
 	if readBufSize == 0 {
 		readBufSize = defaultBufferSize
 	}
 
-	writeBufSize := rw.MaxPayloadSizePerWrite()
+	writeBufSize := wi.MaxPayloadSizePerWrite
 	if writeBufSize == 0 {
 		writeBufSize = defaultBufferSize
 	}
 
 	return &CopyReadWriter{
 		ReadWriter:    rw,
-		frontHeadroom: frontHeadroom,
-		rearHeadroom:  rearHeadroom,
-		readBuf:       make([]byte, frontHeadroom+readBufSize+rearHeadroom),
-		writeBuf:      make([]byte, frontHeadroom+writeBufSize+rearHeadroom),
+		readHeadroom:  ri.Headroom,
+		writeHeadroom: wi.Headroom,
+		readBuf:       make([]byte, ri.Headroom.Front+readBufSize+ri.Headroom.Front),
+		writeBuf:      make([]byte, wi.Headroom.Front+writeBufSize+wi.Headroom.Rear),
 	}
 }
 
 // Read implements the io.Reader Read method.
 func (rw *CopyReadWriter) Read(b []byte) (n int, err error) {
 	if rw.readBufLength == 0 {
-		rw.readBufStart = rw.frontHeadroom
-		rw.readBufLength = len(rw.readBuf) - rw.frontHeadroom - rw.rearHeadroom
+		rw.readBufStart = rw.readHeadroom.Front
+		rw.readBufLength = len(rw.readBuf) - rw.readHeadroom.Front - rw.readHeadroom.Rear
 		rw.readBufLength, err = rw.ReadWriter.ReadZeroCopy(rw.readBuf, rw.readBufStart, rw.readBufLength)
 		if err != nil {
 			return
@@ -503,12 +507,12 @@ func (rw *CopyReadWriter) Read(b []byte) (n int, err error) {
 
 // Write implements the io.Writer Write method.
 func (rw *CopyReadWriter) Write(b []byte) (n int, err error) {
-	payloadBuf := rw.writeBuf[rw.frontHeadroom : len(rw.writeBuf)-rw.rearHeadroom]
+	payloadBuf := rw.writeBuf[rw.writeHeadroom.Front : len(rw.writeBuf)-rw.writeHeadroom.Rear]
 
 	for n < len(b) {
 		payloadLength := copy(payloadBuf, b[n:])
 		var payloadWritten int
-		payloadWritten, err = rw.ReadWriter.WriteZeroCopy(rw.writeBuf, rw.frontHeadroom, payloadLength)
+		payloadWritten, err = rw.ReadWriter.WriteZeroCopy(rw.writeBuf, rw.writeHeadroom.Front, payloadLength)
 		n += payloadWritten
 		if err != nil {
 			return
@@ -521,7 +525,7 @@ func (rw *CopyReadWriter) Write(b []byte) (n int, err error) {
 // ReadFrom implements the io.ReaderFrom ReadFrom method.
 func (rw *CopyReadWriter) ReadFrom(r io.Reader) (n int64, err error) {
 	for {
-		nr, err := r.Read(rw.writeBuf[rw.frontHeadroom : len(rw.writeBuf)-rw.rearHeadroom])
+		nr, err := r.Read(rw.writeBuf[rw.writeHeadroom.Front : len(rw.writeBuf)-rw.writeHeadroom.Rear])
 		n += int64(nr)
 		switch err {
 		case nil:
@@ -531,18 +535,16 @@ func (rw *CopyReadWriter) ReadFrom(r io.Reader) (n int64, err error) {
 			return n, err
 		}
 
-		_, err = rw.ReadWriter.WriteZeroCopy(rw.writeBuf, rw.frontHeadroom, nr)
+		_, err = rw.ReadWriter.WriteZeroCopy(rw.writeBuf, rw.writeHeadroom.Front, nr)
 		if err != nil {
 			return n, err
 		}
 	}
 }
 
-func CopyWriteOnce(rw ReadWriter, b []byte) (n int, err error) {
-	frontHeadroom := rw.FrontHeadroom()
-	rearHeadroom := rw.RearHeadroom()
-
-	writeBufSize := rw.MaxPayloadSizePerWrite()
+func CopyWriteOnce(w Writer, b []byte) (n int, err error) {
+	wi := w.WriterInfo()
+	writeBufSize := wi.MaxPayloadSizePerWrite
 	if writeBufSize == 0 {
 		writeBufSize = defaultBufferSize
 	}
@@ -550,13 +552,13 @@ func CopyWriteOnce(rw ReadWriter, b []byte) (n int, err error) {
 		writeBufSize = len(b)
 	}
 
-	writeBuf := make([]byte, frontHeadroom+writeBufSize+rearHeadroom)
-	payloadBuf := writeBuf[frontHeadroom : frontHeadroom+writeBufSize]
+	writeBuf := make([]byte, wi.Headroom.Front+writeBufSize+wi.Headroom.Rear)
+	payloadBuf := writeBuf[wi.Headroom.Front : wi.Headroom.Front+writeBufSize]
 
 	for n < len(b) {
 		payloadLength := copy(payloadBuf, b[n:])
 		var payloadWritten int
-		payloadWritten, err = rw.WriteZeroCopy(writeBuf, frontHeadroom, payloadLength)
+		payloadWritten, err = w.WriteZeroCopy(writeBuf, wi.Headroom.Front, payloadLength)
 		n += payloadWritten
 		if err != nil {
 			return

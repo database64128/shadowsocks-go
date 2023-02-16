@@ -1,41 +1,62 @@
 package zerocopy
 
 import (
-	"fmt"
 	"sync"
 )
 
+// UDPClientInfo contains information about a UDP client.
+type UDPClientInfo struct {
+	// Name is the name of the UDP client.
+	Name string
+
+	// PackerHeadroom is the headroom required by the packet packer.
+	PackerHeadroom Headroom
+
+	// MaxPacketSize is the maximum size of outgoing packets.
+	MaxPacketSize int
+
+	// Fwmark is the fwmark to set on client sockets.
+	Fwmark int
+}
+
 // UDPClient stores information for creating new client sessions.
 type UDPClient interface {
-	fmt.Stringer
+	// Info returns information about the client.
+	Info() UDPClientInfo
 
-	// Headroom reports client packer headroom requirements.
-	Headroom
+	// NewSession creates a new session and returns the client info,
+	// the packet packer and unpacker for the session, or an error.
+	NewSession() (UDPClientInfo, ClientPacker, ClientUnpacker, error)
+}
 
-	// LinkInfo returns the maximum size of outgoing packets and fwmark.
-	LinkInfo() (maxPacketSize, fwmark int)
-
-	// NewSession creates a new session and returns the packet packer
-	// and unpacker for the session, or an error.
-	NewSession() (ClientPacker, ClientUnpacker, error)
+// UDPNATServerInfo contains information about a UDP NAT server.
+type UDPNATServerInfo struct {
+	// UnpackerHeadroom is the headroom required by the packet unpacker.
+	UnpackerHeadroom Headroom
 }
 
 // UDPNATServer stores information for creating new server sessions.
 type UDPNATServer interface {
-	// Headroom reports server unpacker headroom requirements.
-	Headroom
+	// Info returns information about the server.
+	Info() UDPNATServerInfo
 
 	// NewSession creates a new session and returns the packet packer
 	// and unpacker for the session, or an error.
 	NewSession() (ServerPacker, ServerUnpacker, error)
 }
 
+// UDPSessionServerInfo contains information about a UDP session server.
+type UDPSessionServerInfo struct {
+	// UnpackerHeadroom is the headroom required by the packet unpacker.
+	UnpackerHeadroom Headroom
+}
+
 // UDPSessionServer deals with incoming sessions.
 type UDPSessionServer interface {
 	sync.Locker
 
-	// Headroom reports server unpacker headroom requirements.
-	Headroom
+	// Info returns information about the server.
+	Info() UDPSessionServerInfo
 
 	// SessionInfo extracts session ID from a received packet b.
 	//
@@ -56,30 +77,31 @@ type UDPSessionServer interface {
 //
 // SimpleUDPClient implements the UDPClient interface.
 type SimpleUDPClient struct {
-	Headroom
-	packer        ClientPacker
-	unpacker      ClientUnpacker
-	name          string
-	maxPacketSize int
-	fwmark        int
+	info     UDPClientInfo
+	packer   ClientPacker
+	unpacker ClientUnpacker
 }
 
 // NewSimpleUDPClient wraps a PackUnpacker into a UDPClient and uses it for all sessions.
-func NewSimpleUDPClient(h Headroom, packer ClientPacker, unpacker ClientUnpacker, name string, maxPacketSize, fwmark int) *SimpleUDPClient {
-	return &SimpleUDPClient{h, packer, unpacker, name, maxPacketSize, fwmark}
+func NewSimpleUDPClient(name string, maxPacketSize, fwmark int, packer ClientPacker, unpacker ClientUnpacker) *SimpleUDPClient {
+	return &SimpleUDPClient{
+		info: UDPClientInfo{
+			Name:           name,
+			PackerHeadroom: packer.ClientPackerInfo().Headroom,
+			MaxPacketSize:  maxPacketSize,
+			Fwmark:         fwmark,
+		},
+		packer:   packer,
+		unpacker: unpacker,
+	}
 }
 
-// String implements the UDPClient String method.
-func (c *SimpleUDPClient) String() string {
-	return c.name
-}
-
-// LinkInfo implements the UDPClient LinkInfo method.
-func (c *SimpleUDPClient) LinkInfo() (int, int) {
-	return c.maxPacketSize, c.fwmark
+// Info implements the UDPClient Info method.
+func (c *SimpleUDPClient) Info() UDPClientInfo {
+	return c.info
 }
 
 // NewSession implements the UDPClient NewSession method.
-func (c *SimpleUDPClient) NewSession() (ClientPacker, ClientUnpacker, error) {
-	return c.packer, c.unpacker, nil
+func (c *SimpleUDPClient) NewSession() (UDPClientInfo, ClientPacker, ClientUnpacker, error) {
+	return c.info, c.packer, c.unpacker, nil
 }

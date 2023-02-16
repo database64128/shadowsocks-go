@@ -19,31 +19,40 @@ var (
 	ErrAcceptRequiresTCPConn = errors.New("rawRW is required to be a *net.TCPConn")
 )
 
-// InitialPayloader is implemented by a protocol's TCP client or server
-// when the protocol's initial handshake message can carry payload.
-type InitialPayloader interface {
+// TCPClientInfo contains information about a TCP client.
+type TCPClientInfo struct {
+	// Name is the name of the TCP client.
+	Name string
+
 	// NativeInitialPayload reports whether the protocol natively supports
 	// sending the initial payload within or along with the request header.
-	//
-	// No matter true or false, the Dial method must process the initial payload.
-	//
-	// When false, the Accept method will not return non-empty initial payload.
-	NativeInitialPayload() bool
+	NativeInitialPayload bool
 }
 
 // TCPClient is a protocol's TCP client.
 type TCPClient interface {
-	fmt.Stringer
-	InitialPayloader
+	// ClientInfo returns information about the TCP client.
+	Info() TCPClientInfo
 
 	// Dial creates a connection to the target address under the protocol's
 	// encapsulation and returns the established connection and a ReadWriter for read-write access.
 	Dial(targetAddr conn.Addr, payload []byte) (rawRW DirectReadWriteCloser, rw ReadWriter, err error)
 }
 
+// TCPServerInfo contains information about a TCP server.
+type TCPServerInfo struct {
+	// NativeInitialPayload reports whether the protocol natively supports
+	// sending the initial payload within or along with the request header.
+	NativeInitialPayload bool
+
+	// DefaultTCPConnCloser is the server's default function for handling a potentially malicious TCP connection.
+	DefaultTCPConnCloser TCPConnCloser
+}
+
 // TCPServer provides a protocol's TCP service.
 type TCPServer interface {
-	InitialPayloader
+	// ServerInfo returns information about the TCP server.
+	Info() TCPServerInfo
 
 	// Accept takes a newly-accepted TCP connection and wraps it into a protocol stream server.
 	//
@@ -57,12 +66,6 @@ type TCPServer interface {
 	// If accept fails, the returned payload must be either nil/empty or the data that has been read
 	// from the connection.
 	Accept(rawRW DirectReadWriteCloser) (rw ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error)
-
-	// DefaultTCPConnCloser returns the default function to handle the closing
-	// of a potentially malicious TCP connection.
-	//
-	// If no special handling is required, return nil.
-	DefaultTCPConnCloser() TCPConnCloser
 }
 
 // TCPConnOpener stores information for opening TCP connections.
@@ -210,10 +213,10 @@ func ReplyWithGibberish(conn *net.TCPConn, serverName, listenAddress, clientAddr
 }
 
 // ParseRejectPolicy parses a string representation of a reject policy.
-func ParseRejectPolicy(rejectPolicy string, server TCPServer) (TCPConnCloser, error) {
+func ParseRejectPolicy(rejectPolicy string, serverDefault TCPConnCloser) (TCPConnCloser, error) {
 	switch rejectPolicy {
 	case "":
-		return server.DefaultTCPConnCloser(), nil
+		return serverDefault, nil
 	case "JustClose":
 		return JustClose, nil
 	case "ForceReset":

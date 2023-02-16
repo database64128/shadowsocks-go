@@ -263,18 +263,15 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 						return
 					}
 
-					clientName := c.String()
-
 					// Only add for the current goroutine here, since we don't want the router to block exiting.
 					s.wg.Add(1)
 					defer s.wg.Done()
 
-					natConnMaxPacketSize, natConnFwmark := c.LinkInfo()
-					natConnPacker, natConnUnpacker, err := c.NewSession()
+					clientInfo, natConnPacker, natConnUnpacker, err := c.NewSession()
 					if err != nil {
 						s.logger.Warn("Failed to create new UDP client session",
 							zap.String("server", s.serverName),
-							zap.String("client", clientName),
+							zap.String("client", clientInfo.Name),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
@@ -289,7 +286,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 					if err != nil {
 						s.logger.Warn("Failed to create packer for client session",
 							zap.String("server", s.serverName),
-							zap.String("client", clientName),
+							zap.String("client", clientInfo.Name),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
@@ -300,17 +297,17 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 						return
 					}
 
-					natConn, err := conn.ListenUDP("udp", "", false, natConnFwmark)
+					natConn, err := conn.ListenUDP("udp", "", false, clientInfo.Fwmark)
 					if err != nil {
 						s.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.String("server", s.serverName),
-							zap.String("client", clientName),
+							zap.String("client", clientInfo.Name),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 							zap.String("username", entry.username),
 							zap.Uint64("clientSessionID", csid),
-							zap.Int("natConnFwmark", natConnFwmark),
+							zap.Int("natConnFwmark", clientInfo.Fwmark),
 							zap.Error(err),
 						)
 						return
@@ -320,7 +317,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 					if err != nil {
 						s.logger.Warn("Failed to set read deadline on natConn",
 							zap.String("server", s.serverName),
-							zap.String("client", clientName),
+							zap.String("client", clientInfo.Name),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
@@ -343,14 +340,14 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 					sendChClean = true
 
 					entry.natConn = natConn
-					entry.natConnRecvBufSize = natConnMaxPacketSize
+					entry.natConnRecvBufSize = clientInfo.MaxPacketSize
 					entry.natConnPacker = natConnPacker
 					entry.natConnUnpacker = natConnUnpacker
 					entry.serverConnPacker = serverConnPacker
 
 					s.logger.Info("UDP session relay started",
 						zap.String("server", s.serverName),
-						zap.String("client", clientName),
+						zap.String("client", clientInfo.Name),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
@@ -557,14 +554,9 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 	clientPktinfo := clientAddrInfop.pktinfo
 	maxClientPacketSize := zerocopy.MaxPacketSizeForAddr(s.mtu, clientAddrPort.Addr())
 
-	frontHeadroom := entry.serverConnPacker.FrontHeadroom() - entry.natConnUnpacker.FrontHeadroom()
-	if frontHeadroom < 0 {
-		frontHeadroom = 0
-	}
-	rearHeadroom := entry.serverConnPacker.RearHeadroom() - entry.natConnUnpacker.RearHeadroom()
-	if rearHeadroom < 0 {
-		rearHeadroom = 0
-	}
+	serverConnPackerInfo := entry.serverConnPacker.ServerPackerInfo()
+	natConnUnpackerInfo := entry.natConnUnpacker.ClientUnpackerInfo()
+	headroom := zerocopy.UDPRelayHeadroom(serverConnPackerInfo.Headroom, natConnUnpackerInfo.Headroom)
 
 	var (
 		sendmmsgCount    uint64
@@ -582,10 +574,10 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 	smsgvec := make([]conn.Mmsghdr, s.relayBatchSize)
 
 	for i := 0; i < s.relayBatchSize; i++ {
-		packetBuf := make([]byte, frontHeadroom+entry.natConnRecvBufSize+rearHeadroom)
+		packetBuf := make([]byte, headroom.Front+entry.natConnRecvBufSize+headroom.Rear)
 		bufvec[i] = packetBuf
 
-		riovec[i].Base = &packetBuf[frontHeadroom]
+		riovec[i].Base = &packetBuf[headroom.Front]
 		riovec[i].SetLen(entry.natConnRecvBufSize)
 
 		rmsgvec[i].Msghdr.Name = (*byte)(unsafe.Pointer(&savec[i]))
@@ -668,7 +660,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(csid uint64, entry *s
 
 			packetBuf := bufvec[i]
 
-			payloadSourceAddrPort, payloadStart, payloadLength, err := entry.natConnUnpacker.UnpackInPlace(packetBuf, packetSourceAddrPort, frontHeadroom, int(msg.Msglen))
+			payloadSourceAddrPort, payloadStart, payloadLength, err := entry.natConnUnpacker.UnpackInPlace(packetBuf, packetSourceAddrPort, headroom.Front, int(msg.Msglen))
 			if err != nil {
 				s.logger.Warn("Failed to unpack packet from natConn",
 					zap.String("server", s.serverName),

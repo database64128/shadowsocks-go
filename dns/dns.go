@@ -275,11 +275,8 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 //
 // It's the caller's responsibility to examine the minTTL and decide whether to cache the result.
 func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (result Result, minTTL uint32, handled bool) {
-	// Get client link info.
-	maxPacketSize, fwmark := r.udpClient.LinkInfo()
-
 	// Create client session.
-	packer, unpacker, err := r.udpClient.NewSession()
+	clientInfo, packer, unpacker, err := r.udpClient.NewSession()
 	if err != nil {
 		r.logger.Warn("Failed to create new UDP client session",
 			zap.String("resolver", r.name),
@@ -288,15 +285,14 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 		return
 	}
 
-	packerFrontHeadroom := packer.FrontHeadroom()
-	packerRearHeadroom := packer.RearHeadroom()
+	packerInfo := packer.ClientPackerInfo()
 
 	// Prepare UDP socket.
-	udpConn, err := conn.ListenUDP("udp", "", false, fwmark)
+	udpConn, err := conn.ListenUDP("udp", "", false, clientInfo.Fwmark)
 	if err != nil {
 		r.logger.Warn("Failed to create UDP socket for DNS lookup",
 			zap.String("resolver", r.name),
-			zap.Int("fwmark", fwmark),
+			zap.Int("fwmark", clientInfo.Fwmark),
 			zap.Error(err),
 		)
 		return
@@ -317,12 +313,12 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	// Each sender will keep sending at 2s intervals until the stop signal
 	// is received or after 10 iterations.
 	sendFunc := func(pkt []byte, ctrlCh <-chan struct{}) {
-		b := make([]byte, packerFrontHeadroom+len(pkt)+packerRearHeadroom)
+		b := make([]byte, packerInfo.Headroom.Front+len(pkt)+packerInfo.Headroom.Rear)
 
 	write:
 		for i := 0; i < 10; i++ {
-			copy(b[packerFrontHeadroom:], pkt)
-			destAddrPort, packetStart, packetLength, err := packer.PackInPlace(b, r.serverAddr, packerFrontHeadroom, len(pkt))
+			copy(b[packerInfo.Headroom.Front:], pkt)
+			destAddrPort, packetStart, packetLength, err := packer.PackInPlace(b, r.serverAddr, packerInfo.Headroom.Front, len(pkt))
 			if err != nil {
 				r.logger.Warn("Failed to pack packet",
 					zap.String("resolver", r.name),
@@ -376,7 +372,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 
 	// Receive replies.
 	minTTL = math.MaxUint32
-	recvBuf := make([]byte, maxPacketSize)
+	recvBuf := make([]byte, clientInfo.MaxPacketSize)
 
 	var (
 		v4done, v6done bool

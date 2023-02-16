@@ -20,9 +20,12 @@ func NewTCPClient(name string, dialerTFO bool, dialerFwmark int) *TCPClient {
 	}
 }
 
-// String implements the zerocopy.TCPClient String method.
-func (c *TCPClient) String() string {
-	return c.name
+// Info implements the zerocopy.TCPClient Info method.
+func (c *TCPClient) Info() zerocopy.TCPClientInfo {
+	return zerocopy.TCPClientInfo{
+		Name:                 c.name,
+		NativeInitialPayload: !c.dialer.DisableTFO,
+	}
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
@@ -34,11 +37,6 @@ func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.D
 	rawRW = nc.(zerocopy.DirectReadWriteCloser)
 	rw = &DirectStreamReadWriter{rw: rawRW}
 	return
-}
-
-// NativeInitialPayload implements the zerocopy.TCPClient NativeInitialPayload method.
-func (c *TCPClient) NativeInitialPayload() bool {
-	return !c.dialer.DisableTFO
 }
 
 // TCPServer is the client-side tunnel server.
@@ -54,19 +52,17 @@ func NewTCPServer(targetAddr conn.Addr) *TCPServer {
 	}
 }
 
+// Info implements the zerocopy.TCPServer Info method.
+func (s *TCPServer) Info() zerocopy.TCPServerInfo {
+	return zerocopy.TCPServerInfo{
+		NativeInitialPayload: false,
+		DefaultTCPConnCloser: zerocopy.JustClose,
+	}
+}
+
 // Accept implements the zerocopy.TCPServer Accept method.
 func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
 	return &DirectStreamReadWriter{rw: rawRW}, s.targetAddr, nil, "", nil
-}
-
-// NativeInitialPayload implements the zerocopy.TCPServer NativeInitialPayload method.
-func (s *TCPServer) NativeInitialPayload() bool {
-	return false
-}
-
-// DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
-func (s *TCPServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
-	return zerocopy.JustClose
 }
 
 // ShadowsocksNoneTCPClient implements the zerocopy TCPClient interface.
@@ -82,9 +78,12 @@ func NewShadowsocksNoneTCPClient(name, address string, dialerTFO bool, dialerFwm
 	}
 }
 
-// String implements the zerocopy.TCPClient String method.
-func (c *ShadowsocksNoneTCPClient) String() string {
-	return c.name
+// Info implements the zerocopy.TCPClient Info method.
+func (c *ShadowsocksNoneTCPClient) Info() zerocopy.TCPClientInfo {
+	return zerocopy.TCPClientInfo{
+		Name:                 c.name,
+		NativeInitialPayload: true,
+	}
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
@@ -93,32 +92,25 @@ func (c *ShadowsocksNoneTCPClient) Dial(targetAddr conn.Addr, payload []byte) (r
 	return
 }
 
-// NativeInitialPayload implements the zerocopy.TCPClient NativeInitialPayload method.
-func (c *ShadowsocksNoneTCPClient) NativeInitialPayload() bool {
-	return true
-}
-
 // ShadowsocksNoneTCPServer implements the zerocopy TCPServer interface.
 type ShadowsocksNoneTCPServer struct{}
 
-func NewShadowsocksNoneTCPServer() *ShadowsocksNoneTCPServer {
-	return &ShadowsocksNoneTCPServer{}
+func NewShadowsocksNoneTCPServer() ShadowsocksNoneTCPServer {
+	return ShadowsocksNoneTCPServer{}
+}
+
+// Info implements the zerocopy.TCPServer Info method.
+func (ShadowsocksNoneTCPServer) Info() zerocopy.TCPServerInfo {
+	return zerocopy.TCPServerInfo{
+		NativeInitialPayload: false,
+		DefaultTCPConnCloser: zerocopy.JustClose,
+	}
 }
 
 // Accept implements the zerocopy.TCPServer Accept method.
-func (s *ShadowsocksNoneTCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
+func (ShadowsocksNoneTCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
 	rw, targetAddr, err = NewShadowsocksNoneStreamServerReadWriter(rawRW)
 	return
-}
-
-// NativeInitialPayload implements the zerocopy.TCPServer NativeInitialPayload method.
-func (s *ShadowsocksNoneTCPServer) NativeInitialPayload() bool {
-	return false
-}
-
-// DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
-func (s *ShadowsocksNoneTCPServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
-	return zerocopy.JustClose
 }
 
 // Socks5TCPClient implements the zerocopy TCPClient interface.
@@ -136,9 +128,12 @@ func NewSocks5TCPClient(name, address string, dialerTFO bool, dialerFwmark int) 
 	}
 }
 
-// String implements the zerocopy.TCPClient String method.
-func (c *Socks5TCPClient) String() string {
-	return c.name
+// Info implements the zerocopy.TCPClient Info method.
+func (c *Socks5TCPClient) Info() zerocopy.TCPClientInfo {
+	return zerocopy.TCPClientInfo{
+		Name:                 c.name,
+		NativeInitialPayload: false,
+	}
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
@@ -163,11 +158,6 @@ func (c *Socks5TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zero
 	return
 }
 
-// NativeInitialPayload implements the zerocopy.TCPClient NativeInitialPayload method.
-func (c *Socks5TCPClient) NativeInitialPayload() bool {
-	return false
-}
-
 // Socks5TCPServer implements the zerocopy TCPServer interface.
 type Socks5TCPServer struct {
 	enableTCP bool
@@ -181,6 +171,14 @@ func NewSocks5TCPServer(enableTCP, enableUDP bool) *Socks5TCPServer {
 	}
 }
 
+// Info implements the zerocopy.TCPServer Info method.
+func (s *Socks5TCPServer) Info() zerocopy.TCPServerInfo {
+	return zerocopy.TCPServerInfo{
+		NativeInitialPayload: false,
+		DefaultTCPConnCloser: zerocopy.JustClose,
+	}
+}
+
 // Accept implements the zerocopy.TCPServer Accept method.
 func (s *Socks5TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
 	rw, targetAddr, err = NewSocks5StreamServerReadWriter(rawRW, s.enableTCP, s.enableUDP)
@@ -188,14 +186,4 @@ func (s *Socks5TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zeroc
 		err = zerocopy.ErrAcceptDoneNoRelay
 	}
 	return
-}
-
-// NativeInitialPayload implements the zerocopy.TCPServer NativeInitialPayload method.
-func (s *Socks5TCPServer) NativeInitialPayload() bool {
-	return false
-}
-
-// DefaultTCPConnCloser implements the zerocopy.TCPServer DefaultTCPConnCloser method.
-func (s *Socks5TCPServer) DefaultTCPConnCloser() zerocopy.TCPConnCloser {
-	return zerocopy.JustClose
 }

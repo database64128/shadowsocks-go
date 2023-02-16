@@ -138,7 +138,9 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}
 
-	connCloser, err = zerocopy.ParseRejectPolicy(sc.RejectPolicy, server)
+	serverInfo := server.Info()
+
+	connCloser, err = zerocopy.ParseRejectPolicy(sc.RejectPolicy, serverInfo.DefaultTCPConnCloser)
 	if err != nil {
 		return nil, err
 	}
@@ -150,13 +152,13 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		)
 	}
 
-	waitForInitialPayload := !server.NativeInitialPayload() && !sc.DisableInitialPayloadWait
+	waitForInitialPayload := !serverInfo.NativeInitialPayload && !sc.DisableInitialPayloadWait
 
 	return NewTCPRelay(sc.Name, sc.Listen, sc.ListenerFwmark, sc.ListenerTFO, listenerTransparent, waitForInitialPayload, server, connCloser, sc.UnsafeFallbackAddress, sc.collector, sc.router, sc.logger), nil
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
-func (sc *ServerConfig) UDPRelay(maxClientFrontHeadroom, maxClientRearHeadroom int) (Relay, error) {
+func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Relay, error) {
 	if !sc.EnableUDP {
 		return nil, errNetworkDisabled
 	}
@@ -238,11 +240,11 @@ func (sc *ServerConfig) UDPRelay(maxClientFrontHeadroom, maxClientRearHeadroom i
 
 	switch sc.Protocol {
 	case "direct", "none", "plain", "socks5":
-		return NewUDPNATRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, natServer, sc.collector, sc.router, sc.logger), nil
+		return NewUDPNATRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientPackerHeadroom, natTimeout, natServer, sc.collector, sc.router, sc.logger), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		return NewUDPSessionRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, server, sc.collector, sc.router, sc.logger), nil
+		return NewUDPSessionRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientPackerHeadroom, natTimeout, server, sc.collector, sc.router, sc.logger), nil
 	case "tproxy":
-		return NewUDPTransparentRelay(sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientFrontHeadroom, maxClientRearHeadroom, natTimeout, sc.collector, sc.router, sc.logger)
+		return NewUDPTransparentRelay(sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientPackerHeadroom, natTimeout, sc.collector, sc.router, sc.logger)
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}
