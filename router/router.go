@@ -2,9 +2,7 @@ package router
 
 import (
 	"fmt"
-	"net/netip"
 
-	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/domainset"
 	"github.com/database64128/shadowsocks-go/prefixset"
@@ -126,17 +124,17 @@ func (r *Router) Close() error {
 
 // GetTCPClient returns the zerocopy.TCPClient for a TCP request received by server
 // from sourceAddrPort to targetAddr.
-func (r *Router) GetTCPClient(server string, sourceAddrPort netip.AddrPort, targetAddr conn.Addr) (zerocopy.TCPClient, error) {
-	route, err := r.match(protocolTCP, server, sourceAddrPort, targetAddr)
+func (r *Router) GetTCPClient(requestInfo RequestInfo) (zerocopy.TCPClient, error) {
+	route, err := r.match(protocolTCP, requestInfo)
 	if err != nil {
 		return nil, err
 	}
 
 	if ce := r.logger.Check(zap.DebugLevel, "Matched route for TCP connection"); ce != nil {
 		ce.Write(
-			zap.String("server", server),
-			zap.Stringer("sourceAddrPort", sourceAddrPort),
-			zap.Stringer("targetAddress", targetAddr),
+			zap.String("server", requestInfo.Server),
+			zap.Stringer("sourceAddrPort", requestInfo.SourceAddrPort),
+			zap.Stringer("targetAddress", requestInfo.TargetAddr),
 			zap.Stringer("route", route),
 		)
 	}
@@ -146,17 +144,17 @@ func (r *Router) GetTCPClient(server string, sourceAddrPort netip.AddrPort, targ
 
 // GetUDPClient returns the zerocopy.UDPClient for a UDP session received by server.
 // The first received packet of the session is from sourceAddrPort to targetAddr.
-func (r *Router) GetUDPClient(server string, sourceAddrPort netip.AddrPort, targetAddr conn.Addr) (zerocopy.UDPClient, error) {
-	route, err := r.match(protocolUDP, server, sourceAddrPort, targetAddr)
+func (r *Router) GetUDPClient(requestInfo RequestInfo) (zerocopy.UDPClient, error) {
+	route, err := r.match(protocolUDP, requestInfo)
 	if err != nil {
 		return nil, err
 	}
 
 	if ce := r.logger.Check(zap.DebugLevel, "Matched route for UDP session"); ce != nil {
 		ce.Write(
-			zap.String("server", server),
-			zap.Stringer("sourceAddrPort", sourceAddrPort),
-			zap.Stringer("targetAddress", targetAddr),
+			zap.String("server", requestInfo.Server),
+			zap.Stringer("sourceAddrPort", requestInfo.SourceAddrPort),
+			zap.Stringer("targetAddress", requestInfo.TargetAddr),
 			zap.Stringer("route", route),
 		)
 	}
@@ -165,9 +163,9 @@ func (r *Router) GetUDPClient(server string, sourceAddrPort netip.AddrPort, targ
 }
 
 // match returns the matched route for the new TCP request or UDP session.
-func (r *Router) match(network protocol, server string, sourceAddrPort netip.AddrPort, targetAddr conn.Addr) (*Route, error) {
+func (r *Router) match(network protocol, requestInfo RequestInfo) (*Route, error) {
 	for i := range r.routes {
-		matched, err := r.routes[i].Match(network, server, sourceAddrPort, targetAddr)
+		matched, err := r.routes[i].Match(network, requestInfo)
 		if err != nil {
 			return nil, err
 		}

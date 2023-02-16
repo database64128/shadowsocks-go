@@ -151,7 +151,11 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 	targetAddress := targetAddr.String()
 
 	// Route.
-	c, err := s.router.GetTCPClient(s.serverName, clientAddrPort, targetAddr)
+	c, err := s.router.GetTCPClient(router.RequestInfo{
+		Server:         s.serverName,
+		SourceAddrPort: clientAddrPort,
+		TargetAddr:     targetAddr,
+	})
 	if err != nil {
 		s.logger.Warn("Failed to get TCP client for client connection",
 			zap.String("server", s.serverName),

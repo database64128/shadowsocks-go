@@ -252,7 +252,11 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 						}
 					}()
 
-					c, err := s.router.GetUDPClient(s.serverName, clientAddrPort, conn.AddrFromIPPort(queuedPacket.targetAddrPort))
+					c, err := s.router.GetUDPClient(router.RequestInfo{
+						Server:         s.serverName,
+						SourceAddrPort: clientAddrPort,
+						TargetAddr:     conn.AddrFromIPPort(queuedPacket.targetAddrPort),
+					})
 					if err != nil {
 						s.logger.Warn("Failed to get UDP client for new NAT session",
 							zap.String("server", s.serverName),

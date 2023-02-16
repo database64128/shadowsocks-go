@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 	"golang.org/x/sys/unix"
@@ -216,7 +217,11 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg() {
 						}
 					}()
 
-					c, err := s.router.GetUDPClient(s.serverName, clientAddrPort, queuedPacket.targetAddr)
+					c, err := s.router.GetUDPClient(router.RequestInfo{
+						Server:         s.serverName,
+						SourceAddrPort: clientAddrPort,
+						TargetAddr:     queuedPacket.targetAddr,
+					})
 					if err != nil {
 						s.logger.Warn("Failed to get UDP client for new NAT session",
 							zap.String("server", s.serverName),
