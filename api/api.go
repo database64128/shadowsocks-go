@@ -1,6 +1,9 @@
 package api
 
 import (
+	"context"
+	"errors"
+
 	v1 "github.com/database64128/shadowsocks-go/api/v1"
 	"github.com/database64128/shadowsocks-go/jsonhelper"
 	"github.com/gofiber/contrib/fiberzap"
@@ -111,5 +114,11 @@ func (s *Server) Start() error {
 
 // Stop stops the API server.
 func (s *Server) Stop() error {
-	return s.app.ShutdownWithTimeout(0)
+	if err := s.app.ShutdownWithTimeout(0); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
