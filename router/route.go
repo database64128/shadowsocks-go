@@ -36,6 +36,9 @@ type RouteConfig struct {
 	// Match requests from these servers. If empty, match all requests.
 	FromServers []string `json:"fromServers"`
 
+	// Match requests from these users. If empty, match all requests.
+	FromUsers []string `json:"fromUsers"`
+
 	// Match requests from IP addresses in these prefixes. If empty, match all requests.
 	FromPrefixes []netip.Prefix `json:"fromPrefixes"`
 
@@ -80,6 +83,9 @@ type RouteConfig struct {
 
 	// Invert source server matching logic. Match requests from all servers except those in FromServers.
 	InvertFromServers bool `json:"invertFromServers"`
+
+	// Invert source user matching logic. Match requests from all users except those in FromUsers.
+	InvertFromUsers bool `json:"invertFromUsers"`
 
 	// Invert source IP prefix matching logic. Match requests from all IP prefixes except those in FromPrefixes or FromPrefixSets.
 	InvertFromPrefixes bool `json:"invertFromPrefixes"`
@@ -180,6 +186,10 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 
 	if len(rc.FromServers) > 0 {
 		route.AddCriterion((*SourceServerCriterion)(&rc.FromServers), rc.InvertFromServers)
+	}
+
+	if len(rc.FromUsers) > 0 {
+		route.AddCriterion((*SourceUserCriterion)(&rc.FromUsers), rc.InvertFromUsers)
 	}
 
 	if len(rc.FromPrefixes) > 0 || len(rc.FromPrefixSets) > 0 || len(rc.FromGeoIPCountries) > 0 {
@@ -479,6 +489,7 @@ const (
 // RequestInfo contains information about a request that can be met by one or more criteria.
 type RequestInfo struct {
 	Server         string
+	Username       string
 	SourceAddrPort netip.AddrPort
 	TargetAddr     conn.Addr
 }
@@ -505,6 +516,14 @@ type SourceServerCriterion []string
 // Meet implements the Criterion Meet method.
 func (c SourceServerCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
 	return slices.Contains(c, requestInfo.Server), nil
+}
+
+// SourceUserCriterion restricts the source user.
+type SourceUserCriterion []string
+
+// Meet implements the Criterion Meet method.
+func (c SourceUserCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+	return slices.Contains(c, requestInfo.Username), nil
 }
 
 // SourceIPCriterion restricts the source IP address.

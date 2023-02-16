@@ -153,6 +153,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 	// Route.
 	c, err := s.router.GetTCPClient(router.RequestInfo{
 		Server:         s.serverName,
+		Username:       username,
 		SourceAddrPort: clientAddrPort,
 		TargetAddr:     targetAddr,
 	})

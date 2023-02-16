@@ -133,6 +133,7 @@ func (r *Router) GetTCPClient(requestInfo RequestInfo) (zerocopy.TCPClient, erro
 	if ce := r.logger.Check(zap.DebugLevel, "Matched route for TCP connection"); ce != nil {
 		ce.Write(
 			zap.String("server", requestInfo.Server),
+			zap.String("username", requestInfo.Username),
 			zap.Stringer("sourceAddrPort", requestInfo.SourceAddrPort),
 			zap.Stringer("targetAddress", requestInfo.TargetAddr),
 			zap.Stringer("route", route),
@@ -153,6 +154,7 @@ func (r *Router) GetUDPClient(requestInfo RequestInfo) (zerocopy.UDPClient, erro
 	if ce := r.logger.Check(zap.DebugLevel, "Matched route for UDP session"); ce != nil {
 		ce.Write(
 			zap.String("server", requestInfo.Server),
+			zap.String("username", requestInfo.Username),
 			zap.Stringer("sourceAddrPort", requestInfo.SourceAddrPort),
 			zap.Stringer("targetAddress", requestInfo.TargetAddr),
 			zap.Stringer("route", route),

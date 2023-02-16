@@ -156,6 +156,10 @@
                     "socks5",
                     "tunnel"
                 ],
+                "fromUsers": [
+                    "Steve",
+                    "Alex"
+                ],
                 "fromPrefixes": [
                     "127.0.0.1/32",
                     "::1/128"
@@ -199,6 +203,7 @@
                 ],
                 "disableNameResolutionForIPRules": false,
                 "invertFromServers": false,
+                "invertFromUsers": false,
                 "invertFromPrefixes": false,
                 "invertFromGeoIPCountries": false,
                 "invertFromPorts": false,
