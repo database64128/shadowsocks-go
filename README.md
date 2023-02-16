@@ -16,6 +16,7 @@ A versatile and efficient proxy platform for secure communications.
 - Client and server implementation of SOCKS5, HTTP proxy, and Shadowsocks "none" method.
 - Transparent proxy support for Linux.
 - Built-in router and DNS resolver with support for extensible routing rules.
+- RESTful API for server user management and traffic statistics.
 - TCP relay fast path on Linux with `splice(2)`.
 - UDP relay fast path on Linux with `recvmmsg(2)` and `sendmmsg(2)`.
 
@@ -32,6 +33,8 @@ On production servers, you may want to set `udpRelayBatchSize` to a lower value 
 UDP packets may be padded to up to the maximum packet size calculated from `mtu`. If the server may be used from a PPPoE connection, `mtu` should be reduced to 1492. If the client-to-server PMTU is unknown, padding can be completely disabled by setting `paddingPolicy` to `NoPadding`.
 
 For servers without any user PSKs (single-user mode), the `psk` field specifies the PSK, and the `uPSKStorePath` field can be omitted or left empty. When one or more user PSKs are specified in the uPSK store file, the `psk` field specifies the identity PSK.
+
+To add/update/remove users without restarting the server, modify the uPSK store file and send a `SIGUSR1` signal to the server process, or use the RESTful API. Updates from the RESTful API will be saved to the uPSK store file automatically.
 
 ```json
 {
