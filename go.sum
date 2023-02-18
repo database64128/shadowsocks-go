@@ -4,8 +4,8 @@ github.com/benbjohnson/clock v1.3.0 h1:ip6w0uFQkncKQ979AypyG0ER7mqUSBdKLOgAle/AT
 github.com/database64128/tfo-go/v2 v2.0.3 h1:nlnItc4RgZvlPhSCuq8OZdhayo93vzV2KTR6t7v5axQ=
 github.com/database64128/tfo-go/v2 v2.0.3/go.mod h1:Jws8V8Go1OD8nxmAFORjBxa0Vg2C6MeWv17eDEWDEGM=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
-github.com/gofiber/contrib/fiberzap v0.0.0-20230216221436-a3f7fda107cb h1:oW9KXejQroDd5UI4PHXdleR39HQmbj+MCY/fs1RASME=
-github.com/gofiber/contrib/fiberzap v0.0.0-20230216221436-a3f7fda107cb/go.mod h1:jGO8BHU4gRI9U0JtM6zj2CIhYfgVmW5JxziN8NTgVwE=
+github.com/gofiber/contrib/fiberzap v0.0.0-20230218051443-849959c67670 h1:BLsyYTj4I4VvvECY/ajx3jpAph2qTIS8qePS2ynM2pw=
+github.com/gofiber/contrib/fiberzap v0.0.0-20230218051443-849959c67670/go.mod h1:jGO8BHU4gRI9U0JtM6zj2CIhYfgVmW5JxziN8NTgVwE=
 github.com/gofiber/fiber/v2 v2.42.0 h1:Fnp7ybWvS+sjNQsFvkhf4G8OhXswvB6Vee8hM/LyS+8=
 github.com/gofiber/fiber/v2 v2.42.0/go.mod h1:3+SGNjqMh5VQH5Vz2Wdi43zTIV16ktlFd3x3R6O1Zlc=
 github.com/google/uuid v1.3.0 h1:t6JiXgmwXMjEs8VusXIJk2BXHsn+wx8BZdTaoZ5fu7I=
