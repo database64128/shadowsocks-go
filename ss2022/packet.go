@@ -2,16 +2,16 @@ package ss2022
 
 import (
 	"crypto/cipher"
+	"crypto/rand"
 	"crypto/subtle"
 	"encoding/binary"
 	"fmt"
 	"math"
-	"math/rand"
-	mrand "math/rand"
 	"net/netip"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/magic"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
@@ -74,9 +74,6 @@ type ShadowPacketClientPacker struct {
 	// Block cipher for the separate header.
 	block cipher.Block
 
-	// Padding length RNG.
-	rng *rand.Rand
-
 	// Padding policy.
 	shouldPad PaddingPolicy
 
@@ -128,7 +125,7 @@ func (p *ShadowPacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, p
 		err = zerocopy.ErrPayloadTooBig
 		return
 	case maxPaddingLen > 0 && p.shouldPad(targetAddr):
-		paddingLen = 1 + p.rng.Intn(maxPaddingLen)
+		paddingLen = 1 + int(magic.Fastrandn(uint32(maxPaddingLen)))
 	}
 
 	messageHeaderStart := payloadStart - UDPClientMessageHeaderFixedLength - targetAddrLen - paddingLen
@@ -185,9 +182,6 @@ type ShadowPacketServerPacker struct {
 	// Block cipher for the separate header.
 	block cipher.Block
 
-	// Padding length RNG.
-	rng *rand.Rand
-
 	// Padding policy.
 	shouldPad PaddingPolicy
 }
@@ -218,7 +212,7 @@ func (p *ShadowPacketServerPacker) PackInPlace(b []byte, sourceAddrPort netip.Ad
 		err = zerocopy.ErrPayloadTooBig
 		return
 	case maxPaddingLen > 0 && p.shouldPad(conn.AddrFromIPPort(sourceAddrPort)):
-		paddingLen = 1 + p.rng.Intn(maxPaddingLen)
+		paddingLen = 1 + int(magic.Fastrandn(uint32(maxPaddingLen)))
 	}
 
 	messageHeaderStart := payloadStart - UDPServerMessageHeaderFixedLength - paddingLen - sourceAddrLen
@@ -494,7 +488,6 @@ func (p *ShadowPacketServerUnpacker) NewPacker() (zerocopy.ServerPacker, error) 
 		csid:      p.csid,
 		aead:      aead,
 		block:     p.userCipherConfig.Block(),
-		rng:       mrand.New(mrand.NewSource(int64(ssid))),
 		shouldPad: p.packerShouldPad,
 	}, nil
 }

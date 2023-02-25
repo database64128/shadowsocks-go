@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"encoding/binary"
 	"fmt"
-	mrand "math/rand"
 	"net/netip"
 
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -60,7 +59,6 @@ func (c *UDPClient) NewSession() (zerocopy.UDPClientInfo, zerocopy.ClientPacker,
 			csid:             csid,
 			aead:             aead,
 			block:            c.cipherConfig.UDPSeparateHeaderPackerCipher(),
-			rng:              mrand.New(mrand.NewSource(int64(csid))),
 			shouldPad:        c.shouldPad,
 			eihCiphers:       c.cipherConfig.UDPIdentityHeaderCiphers(),
 			eihPSKHashes:     c.cipherConfig.EIHPSKHashes(),
