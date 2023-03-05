@@ -13,10 +13,10 @@ type TCPClient struct {
 	dialer tfo.Dialer
 }
 
-func NewTCPClient(name string, dialerTFO bool, dialerFwmark int) *TCPClient {
+func NewTCPClient(name string, dialer tfo.Dialer) *TCPClient {
 	return &TCPClient{
 		name:   name,
-		dialer: conn.NewDialer(dialerTFO, dialerFwmark),
+		dialer: dialer,
 	}
 }
 
@@ -71,10 +71,10 @@ type ShadowsocksNoneTCPClient struct {
 	tco  *zerocopy.TCPConnOpener
 }
 
-func NewShadowsocksNoneTCPClient(name, address string, dialerTFO bool, dialerFwmark int) *ShadowsocksNoneTCPClient {
+func NewShadowsocksNoneTCPClient(name, address string, dialer tfo.Dialer) *ShadowsocksNoneTCPClient {
 	return &ShadowsocksNoneTCPClient{
 		name: name,
-		tco:  zerocopy.NewTCPConnOpener(conn.NewDialer(dialerTFO, dialerFwmark), "tcp", address),
+		tco:  zerocopy.NewTCPConnOpener(dialer, "tcp", address),
 	}
 }
 
@@ -120,11 +120,11 @@ type Socks5TCPClient struct {
 	dialer  tfo.Dialer
 }
 
-func NewSocks5TCPClient(name, address string, dialerTFO bool, dialerFwmark int) *Socks5TCPClient {
+func NewSocks5TCPClient(name, address string, dialer tfo.Dialer) *Socks5TCPClient {
 	return &Socks5TCPClient{
 		name:    name,
 		address: address,
-		dialer:  conn.NewDialer(dialerTFO, dialerFwmark),
+		dialer:  dialer,
 	}
 }
 

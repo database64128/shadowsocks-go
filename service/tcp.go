@@ -45,7 +45,8 @@ type TCPRelay struct {
 }
 
 func NewTCPRelay(
-	serverName, listenAddress string, listenerFwmark int, listenerTFO, listenerTransparent, waitForInitialPayload bool,
+	serverName, listenAddress string, waitForInitialPayload bool,
+	listenConfig tfo.ListenConfig,
 	server zerocopy.TCPServer,
 	connCloser zerocopy.TCPConnCloser,
 	fallbackAddress *conn.Addr,
@@ -56,7 +57,7 @@ func NewTCPRelay(
 	return &TCPRelay{
 		serverName:            serverName,
 		listenAddress:         listenAddress,
-		listenConfig:          conn.NewListenConfig(listenerTFO, listenerTransparent, listenerFwmark),
+		listenConfig:          listenConfig,
 		waitForInitialPayload: waitForInitialPayload,
 		server:                server,
 		connCloser:            connCloser,

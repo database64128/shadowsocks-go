@@ -13,6 +13,7 @@ import (
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/zerocopy"
+	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
 )
 
@@ -59,13 +60,14 @@ type ServerConfig struct {
 	UnsafeRequestStreamPrefix  []byte     `json:"unsafeRequestStreamPrefix"`
 	UnsafeResponseStreamPrefix []byte     `json:"unsafeResponseStreamPrefix"`
 
-	collector stats.Collector
-	router    *router.Router
-	logger    *zap.Logger
+	listenConfigCache conn.ListenConfigCache
+	collector         stats.Collector
+	router            *router.Router
+	logger            *zap.Logger
 }
 
 // Initialize initializes the server configuration.
-func (sc *ServerConfig) Initialize(collector stats.Collector, router *router.Router, logger *zap.Logger) error {
+func (sc *ServerConfig) Initialize(listenConfigCache conn.ListenConfigCache, collector stats.Collector, router *router.Router, logger *zap.Logger) error {
 	switch sc.Protocol {
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		err := ss2022.CheckPSKLength(sc.Protocol, sc.PSK, nil)
@@ -86,6 +88,7 @@ func (sc *ServerConfig) Initialize(collector stats.Collector, router *router.Rou
 		}
 	}
 
+	sc.listenConfigCache = listenConfigCache
 	sc.collector = collector
 	sc.router = router
 	sc.logger = logger
@@ -154,7 +157,13 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 
 	waitForInitialPayload := !serverInfo.NativeInitialPayload && !sc.DisableInitialPayloadWait
 
-	return NewTCPRelay(sc.Name, sc.Listen, sc.ListenerFwmark, sc.ListenerTFO, listenerTransparent, waitForInitialPayload, server, connCloser, sc.UnsafeFallbackAddress, sc.collector, sc.router, sc.logger), nil
+	listenConfig := sc.listenConfigCache.Get(conn.ListenerSocketOptions{
+		Fwmark:      sc.ListenerFwmark,
+		Transparent: listenerTransparent,
+		TCPFastOpen: sc.ListenerTFO,
+	})
+
+	return NewTCPRelay(sc.Name, sc.Listen, waitForInitialPayload, listenConfig, server, connCloser, sc.UnsafeFallbackAddress, sc.collector, sc.router, sc.logger), nil
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
@@ -198,9 +207,11 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Rel
 	}
 
 	var (
-		natTimeout time.Duration
-		natServer  zerocopy.UDPNATServer
-		server     zerocopy.UDPSessionServer
+		natTimeout                  time.Duration
+		natServer                   zerocopy.UDPNATServer
+		server                      zerocopy.UDPSessionServer
+		serverConnListenConfig      tfo.ListenConfig
+		transparentConnListenConfig tfo.ListenConfig
 	)
 
 	switch {
@@ -239,12 +250,34 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Rel
 	}
 
 	switch sc.Protocol {
-	case "direct", "none", "plain", "socks5":
-		return NewUDPNATRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientPackerHeadroom, natTimeout, natServer, sc.collector, sc.router, sc.logger), nil
-	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		return NewUDPSessionRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientPackerHeadroom, natTimeout, server, sc.collector, sc.router, sc.logger), nil
 	case "tproxy":
-		return NewUDPTransparentRelay(sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.ListenerFwmark, sc.MTU, maxClientPackerHeadroom, natTimeout, sc.collector, sc.router, sc.logger)
+		serverConnListenConfig = sc.listenConfigCache.Get(conn.ListenerSocketOptions{
+			Fwmark:                  sc.ListenerFwmark,
+			Transparent:             true,
+			PathMTUDiscovery:        true,
+			ReceiveOriginalDestAddr: true,
+		})
+		transparentConnListenConfig = sc.listenConfigCache.Get(conn.ListenerSocketOptions{
+			Fwmark:           sc.ListenerFwmark,
+			Transparent:      true,
+			ReusePort:        true,
+			PathMTUDiscovery: true,
+		})
+	default:
+		serverConnListenConfig = sc.listenConfigCache.Get(conn.ListenerSocketOptions{
+			Fwmark:            sc.ListenerFwmark,
+			PathMTUDiscovery:  true,
+			ReceivePacketInfo: true,
+		})
+	}
+
+	switch sc.Protocol {
+	case "direct", "none", "plain", "socks5":
+		return NewUDPNATRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.MTU, maxClientPackerHeadroom, natTimeout, natServer, serverConnListenConfig, sc.collector, sc.router, sc.logger), nil
+	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
+		return NewUDPSessionRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.MTU, maxClientPackerHeadroom, natTimeout, server, serverConnListenConfig, sc.collector, sc.router, sc.logger), nil
+	case "tproxy":
+		return NewUDPTransparentRelay(sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.MTU, maxClientPackerHeadroom, natTimeout, serverConnListenConfig, transparentConnListenConfig, sc.collector, sc.router, sc.logger)
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}

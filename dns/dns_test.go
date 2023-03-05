@@ -4,6 +4,7 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
@@ -43,8 +44,8 @@ func TestResolver(t *testing.T) {
 	defer logger.Sync()
 
 	serverAddrPort := netip.AddrPortFrom(netip.AddrFrom4([4]byte{1, 1, 1, 1}), 53)
-	tcpClient := direct.NewTCPClient("direct", true, 0)
-	udpClient := direct.NewUDPClient("direct", 1500, 0)
+	tcpClient := direct.NewTCPClient("direct", conn.DefaultTCPDialer)
+	udpClient := direct.NewUDPClient("direct", 1500, conn.DefaultUDPClientListenConfig)
 
 	t.Run("UDP", func(t *testing.T) {
 		testResolver(t, "UDP", serverAddrPort, nil, udpClient, logger)

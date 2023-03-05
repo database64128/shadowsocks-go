@@ -1,25 +1,17 @@
 package conn
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/netip"
 	"os"
-	"syscall"
 	"unsafe"
 
-	"github.com/database64128/tfo-go/v2"
 	"golang.org/x/sys/unix"
 )
 
-const (
-	// SocketControlMessageBufferSize specifies the buffer size for receiving socket control messages.
-	SocketControlMessageBufferSize = unix.SizeofCmsghdr + (unix.SizeofInet6Pktinfo+unix.SizeofPtr-1) & ^(unix.SizeofPtr-1)
-
-	// TransparentSocketControlMessageBufferSize specifies the buffer size for receiving IPV6_RECVORIGDSTADDR socket control messages.
-	TransparentSocketControlMessageBufferSize = unix.SizeofCmsghdr + (unix.SizeofSockaddrInet6+unix.SizeofPtr-1) & ^(unix.SizeofPtr-1)
-)
+// TransparentSocketControlMessageBufferSize specifies the buffer size for receiving IPV6_RECVORIGDSTADDR socket control messages.
+const TransparentSocketControlMessageBufferSize = unix.SizeofCmsghdr + (unix.SizeofSockaddrInet6+unix.SizeofPtr-1) & ^(unix.SizeofPtr-1)
 
 func setFwmark(fd, fwmark int) error {
 	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_MARK, fwmark); err != nil {
@@ -44,7 +36,7 @@ func setTransparent(fd int, network string) error {
 	return nil
 }
 
-func setDF(fd int, network string) error {
+func setPMTUD(fd int, network string) error {
 	// Set IP_MTU_DISCOVER for both v4 and v6.
 	if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_MTU_DISCOVER, unix.IP_PMTUDISC_DO); err != nil {
 		return fmt.Errorf("failed to set socket option IP_MTU_DISCOVER: %w", err)
@@ -59,7 +51,7 @@ func setDF(fd int, network string) error {
 	return nil
 }
 
-func setPktinfo(fd int, network string) error {
+func setRecvPktinfo(fd int, network string) error {
 	switch network {
 	case "udp4":
 		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_PKTINFO, 1); err != nil {
@@ -71,13 +63,6 @@ func setPktinfo(fd int, network string) error {
 		}
 	default:
 		return fmt.Errorf("unsupported network: %s", network)
-	}
-	return nil
-}
-
-func setReusePort(fd int) error {
-	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
-		return fmt.Errorf("failed to set socket option SO_REUSEPORT: %w", err)
 	}
 	return nil
 }
@@ -97,149 +82,41 @@ func setRecvOrigDstAddr(fd int, network string) error {
 	return nil
 }
 
-// NewDialer returns a tfo.Dialer with the specified options applied.
-func NewDialer(dialerTFO bool, dialerFwmark int) (dialer tfo.Dialer) {
-	dialer.DisableTFO = !dialerTFO
-	if dialerFwmark != 0 {
-		dialer.Control = func(network, address string, c syscall.RawConn) (err error) {
-			if cerr := c.Control(func(fd uintptr) {
-				err = setFwmark(int(fd), dialerFwmark)
-			}); cerr != nil {
-				return cerr
-			}
-			return
-		}
+func (fns setFuncSlice) appendSetFwmarkFunc(fwmark int) setFuncSlice {
+	if fwmark != 0 {
+		return append(fns, func(fd int, network string) error {
+			return setFwmark(fd, fwmark)
+		})
 	}
-	return
+	return fns
 }
 
-// NewListenConfig returns a tfo.ListenConfig with the specified options applied.
-func NewListenConfig(listenerTFO, listenerTransparent bool, listenerFwmark int) (lc tfo.ListenConfig) {
-	lc.DisableTFO = !listenerTFO
-	if listenerTransparent || listenerFwmark != 0 {
-		lc.Control = func(network, address string, c syscall.RawConn) (err error) {
-			if cerr := c.Control(func(fd uintptr) {
-				if listenerTransparent {
-					if err = setTransparent(int(fd), network); err != nil {
-						return
-					}
-				}
-				if listenerFwmark != 0 {
-					err = setFwmark(int(fd), listenerFwmark)
-				}
-			}); cerr != nil {
-				return cerr
-			}
-			return
-		}
+func (fns setFuncSlice) appendSetTransparentFunc(transparent bool) setFuncSlice {
+	if transparent {
+		return append(fns, setTransparent)
 	}
-	return
+	return fns
 }
 
-// ListenUDP wraps [net.ListenConfig.ListenPacket] and sets socket options on supported platforms.
-//
-// On Linux and Windows, IP_MTU_DISCOVER and IPV6_MTU_DISCOVER are set to IP_PMTUDISC_DO to disable IP fragmentation
-// and encourage correct MTU settings. If pktinfo is true, IP_PKTINFO and IPV6_RECVPKTINFO are set to 1.
-//
-// On Linux, SO_MARK is set to user-specified value.
-//
-// On macOS and FreeBSD, IP_DONTFRAG, IPV6_DONTFRAG are set to 1 (Don't Fragment).
-func ListenUDP(network string, laddr string, pktinfo bool, fwmark int) (*net.UDPConn, error) {
-	lc := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) (err error) {
-			if cerr := c.Control(func(fd uintptr) {
-				if err = setDF(int(fd), network); err != nil {
-					return
-				}
-
-				if pktinfo {
-					if err = setPktinfo(int(fd), network); err != nil {
-						return
-					}
-				}
-
-				if fwmark != 0 {
-					err = setFwmark(int(fd), fwmark)
-				}
-			}); cerr != nil {
-				return cerr
-			}
-			return
-		},
+func (fns setFuncSlice) appendSetRecvOrigDstAddrFunc(recvOrigDstAddr bool) setFuncSlice {
+	if recvOrigDstAddr {
+		return append(fns, setRecvOrigDstAddr)
 	}
-
-	pc, err := lc.ListenPacket(context.Background(), network, laddr)
-	if err != nil {
-		return nil, err
-	}
-	return pc.(*net.UDPConn), nil
+	return fns
 }
 
-func ListenUDPTransparent(network string, laddr string, recvOrigDstAddr, reusePort bool, fwmark int) (*net.UDPConn, error) {
-	lc := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) (err error) {
-			if cerr := c.Control(func(fd uintptr) {
-				if err = setDF(int(fd), network); err != nil {
-					return
-				}
-
-				if err = setTransparent(int(fd), network); err != nil {
-					return
-				}
-
-				if recvOrigDstAddr {
-					if err = setRecvOrigDstAddr(int(fd), network); err != nil {
-						return
-					}
-				}
-
-				if reusePort {
-					if err = setReusePort(int(fd)); err != nil {
-						return
-					}
-				}
-
-				if fwmark != 0 {
-					err = setFwmark(int(fd), fwmark)
-				}
-			}); cerr != nil {
-				return cerr
-			}
-			return
-		},
-	}
-
-	pc, err := lc.ListenPacket(context.Background(), network, laddr)
-	if err != nil {
-		return nil, err
-	}
-	return pc.(*net.UDPConn), nil
+func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}.
+		appendSetFwmarkFunc(lso.Fwmark).
+		appendSetReusePortFunc(lso.ReusePort).
+		appendSetTransparentFunc(lso.Transparent).
+		appendSetPMTUDFunc(lso.PathMTUDiscovery).
+		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo).
+		appendSetRecvOrigDstAddrFunc(lso.ReceiveOriginalDestAddr)
 }
 
-// ParsePktinfoCmsg parses a single socket control message of type IP_PKTINFO or IPV6_PKTINFO,
-// and returns the IP address and index of the network interface the packet was received from,
-// or an error.
-//
-// This function is only implemented for Linux and Windows. On other platforms, this is a no-op.
-func ParsePktinfoCmsg(cmsg []byte) (netip.Addr, uint32, error) {
-	if len(cmsg) < unix.SizeofCmsghdr {
-		return netip.Addr{}, 0, fmt.Errorf("control message length %d is shorter than cmsghdr length", len(cmsg))
-	}
-
-	cmsghdr := (*unix.Cmsghdr)(unsafe.Pointer(&cmsg[0]))
-
-	switch {
-	case cmsghdr.Level == unix.IPPROTO_IP && cmsghdr.Type == unix.IP_PKTINFO && len(cmsg) >= unix.SizeofCmsghdr+unix.SizeofInet4Pktinfo:
-		pktinfo := (*unix.Inet4Pktinfo)(unsafe.Pointer(&cmsg[unix.SizeofCmsghdr]))
-		return netip.AddrFrom4(pktinfo.Spec_dst), uint32(pktinfo.Ifindex), nil
-
-	case cmsghdr.Level == unix.IPPROTO_IPV6 && cmsghdr.Type == unix.IPV6_PKTINFO && len(cmsg) >= unix.SizeofCmsghdr+unix.SizeofInet6Pktinfo:
-		pktinfo := (*unix.Inet6Pktinfo)(unsafe.Pointer(&cmsg[unix.SizeofCmsghdr]))
-		return netip.AddrFrom16(pktinfo.Addr), pktinfo.Ifindex, nil
-
-	default:
-		return netip.Addr{}, 0, fmt.Errorf("unknown control message level %d type %d", cmsghdr.Level, cmsghdr.Type)
-	}
+func (dso DialerSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}.appendSetFwmarkFunc(dso.Fwmark)
 }
 
 func ParseOrigDstAddrCmsg(cmsg []byte) (netip.AddrPort, error) {

@@ -303,7 +303,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 						return
 					}
 
-					natConn, err := conn.ListenUDP("udp", "", false, clientInfo.Fwmark)
+					natConn, err := conn.ListenUDP(clientInfo.ListenConfig, "udp", "")
 					if err != nil {
 						s.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.String("server", s.serverName),
@@ -313,7 +313,6 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg() {
 							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 							zap.String("username", entry.username),
 							zap.Uint64("clientSessionID", csid),
-							zap.Int("natConnFwmark", clientInfo.Fwmark),
 							zap.Error(err),
 						)
 						return

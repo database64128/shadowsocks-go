@@ -2,6 +2,8 @@ package zerocopy
 
 import (
 	"sync"
+
+	"github.com/database64128/tfo-go/v2"
 )
 
 // UDPClientInfo contains information about a UDP client.
@@ -15,8 +17,8 @@ type UDPClientInfo struct {
 	// MaxPacketSize is the maximum size of outgoing packets.
 	MaxPacketSize int
 
-	// Fwmark is the fwmark to set on client sockets.
-	Fwmark int
+	// ListenConfig is the [tfo.ListenConfig] for opening client sockets.
+	ListenConfig tfo.ListenConfig
 }
 
 // UDPClient stores information for creating new client sessions.
@@ -83,13 +85,13 @@ type SimpleUDPClient struct {
 }
 
 // NewSimpleUDPClient wraps a PackUnpacker into a UDPClient and uses it for all sessions.
-func NewSimpleUDPClient(name string, maxPacketSize, fwmark int, packer ClientPacker, unpacker ClientUnpacker) *SimpleUDPClient {
+func NewSimpleUDPClient(name string, maxPacketSize int, listenConfig tfo.ListenConfig, packer ClientPacker, unpacker ClientUnpacker) *SimpleUDPClient {
 	return &SimpleUDPClient{
 		info: UDPClientInfo{
 			Name:           name,
 			PackerHeadroom: packer.ClientPackerInfo().Headroom,
 			MaxPacketSize:  maxPacketSize,
-			Fwmark:         fwmark,
+			ListenConfig:   listenConfig,
 		},
 		packer:   packer,
 		unpacker: unpacker,

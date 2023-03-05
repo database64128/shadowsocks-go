@@ -14,11 +14,11 @@ type ProxyClient struct {
 	dialer  tfo.Dialer
 }
 
-func NewProxyClient(name, address string, dialerTFO bool, dialerFwmark int) *ProxyClient {
+func NewProxyClient(name, address string, dialer tfo.Dialer) *ProxyClient {
 	return &ProxyClient{
 		name:    name,
 		address: address,
-		dialer:  conn.NewDialer(dialerTFO, dialerFwmark),
+		dialer:  dialer,
 	}
 }
 

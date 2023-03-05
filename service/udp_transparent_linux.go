@@ -13,6 +13,7 @@ import (
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/zerocopy"
+	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
 	"golang.org/x/sys/unix"
 )
@@ -35,32 +36,34 @@ type transparentNATEntry struct {
 
 // UDPTransparentRelay is like [UDPNATRelay], but for transparent proxy.
 type UDPTransparentRelay struct {
-	serverName             string
-	listenAddress          string
-	listenerFwmark         int
-	mtu                    int
-	packetBufFrontHeadroom int
-	packetBufRecvSize      int
-	relayBatchSize         int
-	serverRecvBatchSize    int
-	sendChannelCapacity    int
-	natTimeout             time.Duration
-	serverConn             *net.UDPConn
-	collector              stats.Collector
-	router                 *router.Router
-	logger                 *zap.Logger
-	queuedPacketPool       sync.Pool
-	mu                     sync.Mutex
-	wg                     sync.WaitGroup
-	mwg                    sync.WaitGroup
-	table                  map[netip.AddrPort]*transparentNATEntry
+	serverName                  string
+	listenAddress               string
+	mtu                         int
+	packetBufFrontHeadroom      int
+	packetBufRecvSize           int
+	relayBatchSize              int
+	serverRecvBatchSize         int
+	sendChannelCapacity         int
+	natTimeout                  time.Duration
+	serverConn                  *net.UDPConn
+	serverConnlistenConfig      tfo.ListenConfig
+	transparentConnListenConfig tfo.ListenConfig
+	collector                   stats.Collector
+	router                      *router.Router
+	logger                      *zap.Logger
+	queuedPacketPool            sync.Pool
+	mu                          sync.Mutex
+	wg                          sync.WaitGroup
+	mwg                         sync.WaitGroup
+	table                       map[netip.AddrPort]*transparentNATEntry
 }
 
 func NewUDPTransparentRelay(
 	serverName, listenAddress string,
-	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, listenerFwmark, mtu int,
+	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, mtu int,
 	maxClientPackerHeadroom zerocopy.Headroom,
 	natTimeout time.Duration,
+	serverConnlistenConfig, transparentConnListenConfig tfo.ListenConfig,
 	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
@@ -68,19 +71,20 @@ func NewUDPTransparentRelay(
 	packetBufRecvSize := mtu - zerocopy.IPv4HeaderLength - zerocopy.UDPHeaderLength
 	packetBufSize := maxClientPackerHeadroom.Front + packetBufRecvSize + maxClientPackerHeadroom.Rear
 	return &UDPTransparentRelay{
-		serverName:             serverName,
-		listenAddress:          listenAddress,
-		listenerFwmark:         listenerFwmark,
-		mtu:                    mtu,
-		packetBufFrontHeadroom: maxClientPackerHeadroom.Front,
-		packetBufRecvSize:      packetBufRecvSize,
-		relayBatchSize:         relayBatchSize,
-		serverRecvBatchSize:    serverRecvBatchSize,
-		sendChannelCapacity:    sendChannelCapacity,
-		natTimeout:             natTimeout,
-		collector:              collector,
-		router:                 router,
-		logger:                 logger,
+		serverName:                  serverName,
+		listenAddress:               listenAddress,
+		mtu:                         mtu,
+		packetBufFrontHeadroom:      maxClientPackerHeadroom.Front,
+		packetBufRecvSize:           packetBufRecvSize,
+		relayBatchSize:              relayBatchSize,
+		serverRecvBatchSize:         serverRecvBatchSize,
+		sendChannelCapacity:         sendChannelCapacity,
+		natTimeout:                  natTimeout,
+		serverConnlistenConfig:      serverConnlistenConfig,
+		transparentConnListenConfig: transparentConnListenConfig,
+		collector:                   collector,
+		router:                      router,
+		logger:                      logger,
 		queuedPacketPool: sync.Pool{
 			New: func() any {
 				return &transparentQueuedPacket{
@@ -99,7 +103,7 @@ func (s *UDPTransparentRelay) String() string {
 
 // Start implements the Relay Start method.
 func (s *UDPTransparentRelay) Start() error {
-	serverConn, err := conn.ListenUDPTransparent("udp", s.listenAddress, true, false, s.listenerFwmark)
+	serverConn, err := conn.ListenUDP(s.serverConnlistenConfig, "udp", s.listenAddress)
 	if err != nil {
 		return err
 	}
@@ -285,7 +289,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 						return
 					}
 
-					natConn, err := conn.ListenUDP("udp", "", false, clientInfo.Fwmark)
+					natConn, err := conn.ListenUDP(clientInfo.ListenConfig, "udp", "")
 					if err != nil {
 						s.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.String("server", s.serverName),
@@ -293,7 +297,6 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg() {
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
-							zap.Int("natConnFwmark", clientInfo.Fwmark),
 							zap.Error(err),
 						)
 						return
@@ -529,14 +532,14 @@ type transparentConn struct {
 	n      int
 }
 
-func newTransparentConn(address string, fwmark, batchSize int, name *byte, namelen uint32) (*transparentConn, error) {
-	uc, err := conn.ListenUDPTransparent("udp", address, false, true, fwmark)
+func (s *UDPTransparentRelay) newTransparentConn(address string, name *byte, namelen uint32) (*transparentConn, error) {
+	uc, err := conn.ListenUDP(s.transparentConnListenConfig, "udp", address)
 	if err != nil {
 		return nil, err
 	}
 
-	iovec := make([]unix.Iovec, batchSize)
-	msgvec := make([]conn.Mmsghdr, batchSize)
+	iovec := make([]unix.Iovec, s.relayBatchSize)
+	msgvec := make([]conn.Mmsghdr, s.relayBatchSize)
 
 	for i := range msgvec {
 		msgvec[i].Msghdr.Name = name
@@ -675,7 +678,7 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(clientAddrPo
 
 			tc := tcMap[payloadSourceAddrPort]
 			if tc == nil {
-				tc, err = newTransparentConn(payloadSourceAddrPort.String(), s.listenerFwmark, s.relayBatchSize, name, namelen)
+				tc, err = s.newTransparentConn(payloadSourceAddrPort.String(), name, namelen)
 				if err != nil {
 					s.logger.Warn("Failed to create transparentConn",
 						zap.String("server", s.serverName),

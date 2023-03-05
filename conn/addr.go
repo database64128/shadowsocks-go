@@ -1,6 +1,7 @@
 package conn
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -124,6 +125,21 @@ func (a Addr) IPPort() netip.AddrPort {
 	return a.ipPort()
 }
 
+// ResolveIP resolves a domain name string into an IP address.
+//
+// This function always returns the first IP address returned by the resolver,
+// because the resolver takes care of sorting the IP addresses by address family
+// availability and preference.
+//
+// String representations of IP addresses are not supported.
+func ResolveIP(host string) (netip.Addr, error) {
+	ips, err := net.DefaultResolver.LookupNetIP(context.Background(), "ip", host)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	return ips[0], nil
+}
+
 // ResolveIP returns the IP address itself or the resolved IP address of the domain name.
 //
 // If the address is zero value, this method panics.
@@ -132,7 +148,7 @@ func (a Addr) ResolveIP() (netip.Addr, error) {
 	case addressFamilyNetip:
 		return a.ip(), nil
 	case addressFamilyDomain:
-		return ResolveAddr(a.domain())
+		return ResolveIP(a.domain())
 	default:
 		panic("ResolveIP() called on zero value")
 	}
@@ -147,7 +163,7 @@ func (a Addr) ResolveIPPort() (netip.AddrPort, error) {
 	case addressFamilyNetip:
 		return a.ipPort(), nil
 	case addressFamilyDomain:
-		ip, err := ResolveAddr(a.domain())
+		ip, err := ResolveIP(a.domain())
 		if err != nil {
 			return netip.AddrPort{}, err
 		}

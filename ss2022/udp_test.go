@@ -36,7 +36,7 @@ var (
 )
 
 func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, clientShouldPad, serverShouldPad PaddingPolicy, mtu, packetSize, payloadLen int) {
-	c := NewUDPClient(serverAddrPort, name, mtu, fwmark, clientCipherConfig, clientShouldPad)
+	c := NewUDPClient(serverAddrPort, name, mtu, conn.DefaultUDPClientListenConfig, clientCipherConfig, clientShouldPad)
 	s := NewUDPServer(userCipherConfig, identityCipherConfig, serverShouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 
@@ -44,21 +44,11 @@ func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, u
 	if clientInfo.Name != name {
 		t.Errorf("Fixed name mismatch: in: %s, out: %s", name, clientInfo.Name)
 	}
-	if clientInfo.Fwmark != fwmark {
-		t.Errorf("Fixed fwmark mismatch: in: %d, out: %d", fwmark, clientInfo.Fwmark)
-	}
 	if clientInfo.MaxPacketSize != packetSize {
 		t.Errorf("Fixed MTU mismatch: in: %d, out: %d", mtu, clientInfo.MaxPacketSize)
 	}
 
-	sameClientInfo, clientPacker, clientUnpacker, err := c.NewSession()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if clientInfo != sameClientInfo {
-		t.Errorf("NewSession returned client info: %+v, expected: %+v", sameClientInfo, clientInfo)
-	}
-
+	_, clientPacker, clientUnpacker, err := c.NewSession()
 	clientPackerInfo := clientPacker.ClientPackerInfo()
 	frontHeadroom := clientPackerInfo.Headroom.Front + 8 // Compensate for server message overhead.
 	rearHeadroom := clientPackerInfo.Headroom.Rear
@@ -151,7 +141,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 		t.Fatal(err)
 	}
 
-	c := NewUDPClient(serverAddrPort, name, mtu, fwmark, clientCipherConfig, shouldPad)
+	c := NewUDPClient(serverAddrPort, name, mtu, conn.DefaultUDPClientListenConfig, clientCipherConfig, shouldPad)
 	s := NewUDPServer(userCipherConfig, identityCipherConfig, shouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 

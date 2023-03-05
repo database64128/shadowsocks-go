@@ -15,6 +15,7 @@ import (
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/zerocopy"
+	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
 )
 
@@ -56,7 +57,6 @@ type natEntry struct {
 type UDPNATRelay struct {
 	serverName             string
 	listenAddress          string
-	listenerFwmark         int
 	mtu                    int
 	packetBufFrontHeadroom int
 	packetBufRecvSize      int
@@ -66,6 +66,7 @@ type UDPNATRelay struct {
 	natTimeout             time.Duration
 	server                 zerocopy.UDPNATServer
 	serverConn             *net.UDPConn
+	serverConnListenConfig tfo.ListenConfig
 	collector              stats.Collector
 	router                 *router.Router
 	logger                 *zap.Logger
@@ -79,10 +80,11 @@ type UDPNATRelay struct {
 
 func NewUDPNATRelay(
 	batchMode, serverName, listenAddress string,
-	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, listenerFwmark, mtu int,
+	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, mtu int,
 	maxClientPackerHeadroom zerocopy.Headroom,
 	natTimeout time.Duration,
 	server zerocopy.UDPNATServer,
+	serverConnListenConfig tfo.ListenConfig,
 	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
@@ -94,7 +96,6 @@ func NewUDPNATRelay(
 	s := UDPNATRelay{
 		serverName:             serverName,
 		listenAddress:          listenAddress,
-		listenerFwmark:         listenerFwmark,
 		mtu:                    mtu,
 		packetBufFrontHeadroom: packetBufHeadroom.Front,
 		packetBufRecvSize:      packetBufRecvSize,
@@ -103,6 +104,7 @@ func NewUDPNATRelay(
 		sendChannelCapacity:    sendChannelCapacity,
 		natTimeout:             natTimeout,
 		server:                 server,
+		serverConnListenConfig: serverConnListenConfig,
 		collector:              collector,
 		router:                 router,
 		logger:                 logger,
@@ -126,7 +128,7 @@ func (s *UDPNATRelay) String() string {
 
 // Start implements the Service Start method.
 func (s *UDPNATRelay) Start() error {
-	serverConn, err := conn.ListenUDP("udp", s.listenAddress, true, s.listenerFwmark)
+	serverConn, err := conn.ListenUDP(s.serverConnListenConfig, "udp", s.listenAddress)
 	if err != nil {
 		return err
 	}
@@ -321,7 +323,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 					return
 				}
 
-				natConn, err := conn.ListenUDP("udp", "", false, clientInfo.Fwmark)
+				natConn, err := conn.ListenUDP(clientInfo.ListenConfig, "udp", "")
 				if err != nil {
 					s.logger.Warn("Failed to create UDP socket for new NAT session",
 						zap.String("server", s.serverName),
@@ -329,7 +331,6 @@ func (s *UDPNATRelay) recvFromServerConnGeneric() {
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-						zap.Int("natConnFwmark", clientInfo.Fwmark),
 						zap.Error(err),
 					)
 					return

@@ -37,10 +37,14 @@ type ClientConfig struct {
 	// Taint
 	UnsafeRequestStreamPrefix  []byte `json:"unsafeRequestStreamPrefix"`
 	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix"`
+
+	listenConfigCache conn.ListenConfigCache
+	dialerCache       conn.DialerCache
+	logger            *zap.Logger
 }
 
 // Initialize initializes the client configuration.
-func (cc *ClientConfig) Initialize() error {
+func (cc *ClientConfig) Initialize(listenConfigCache conn.ListenConfigCache, dialerCache conn.DialerCache, logger *zap.Logger) error {
 	switch cc.Protocol {
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		err := ss2022.CheckPSKLength(cc.Protocol, cc.PSK, cc.IPSKs)
@@ -52,35 +56,43 @@ func (cc *ClientConfig) Initialize() error {
 			return err
 		}
 	}
+	cc.listenConfigCache = listenConfigCache
+	cc.dialerCache = dialerCache
+	cc.logger = logger
 	return nil
 }
 
 // TCPClient creates a zerocopy.TCPClient from the ClientConfig.
-func (cc *ClientConfig) TCPClient(logger *zap.Logger) (zerocopy.TCPClient, error) {
+func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
 	if !cc.EnableTCP {
 		return nil, errNetworkDisabled
 	}
 
+	dialer := cc.dialerCache.Get(conn.DialerSocketOptions{
+		Fwmark:      cc.DialerFwmark,
+		TCPFastOpen: cc.DialerTFO,
+	})
+
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewTCPClient(cc.Name, cc.DialerTFO, cc.DialerFwmark), nil
+		return direct.NewTCPClient(cc.Name, dialer), nil
 	case "none", "plain":
-		return direct.NewShadowsocksNoneTCPClient(cc.Name, cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark), nil
+		return direct.NewShadowsocksNoneTCPClient(cc.Name, cc.Endpoint.String(), dialer), nil
 	case "socks5":
-		return direct.NewSocks5TCPClient(cc.Name, cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark), nil
+		return direct.NewSocks5TCPClient(cc.Name, cc.Endpoint.String(), dialer), nil
 	case "http":
-		return http.NewProxyClient(cc.Name, cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark), nil
+		return http.NewProxyClient(cc.Name, cc.Endpoint.String(), dialer), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		if len(cc.UnsafeRequestStreamPrefix) != 0 || len(cc.UnsafeResponseStreamPrefix) != 0 {
-			logger.Warn("Unsafe stream prefix taints the client", zap.String("client", cc.Name))
+			cc.logger.Warn("Unsafe stream prefix taints the client", zap.String("client", cc.Name))
 		}
-		return ss2022.NewTCPClient(cc.Name, cc.Endpoint.String(), cc.DialerTFO, cc.DialerFwmark, cc.cipherConfig, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
+		return ss2022.NewTCPClient(cc.Name, cc.Endpoint.String(), dialer, cc.cipherConfig, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}
 }
 
-func (cc *ClientConfig) UDPClient(logger *zap.Logger) (zerocopy.UDPClient, error) {
+func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 	if !cc.EnableUDP {
 		return nil, errNetworkDisabled
 	}
@@ -103,19 +115,24 @@ func (cc *ClientConfig) UDPClient(logger *zap.Logger) (zerocopy.UDPClient, error
 		}
 	}
 
+	listenConfig := cc.listenConfigCache.Get(conn.ListenerSocketOptions{
+		Fwmark:           cc.DialerFwmark,
+		PathMTUDiscovery: true,
+	})
+
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewUDPClient(cc.Name, cc.MTU, cc.DialerFwmark), nil
+		return direct.NewUDPClient(cc.Name, cc.MTU, listenConfig), nil
 	case "none", "plain":
-		return direct.NewShadowsocksNoneUDPClient(endpointAddrPort, cc.Name, cc.MTU, cc.DialerFwmark), nil
+		return direct.NewShadowsocksNoneUDPClient(endpointAddrPort, cc.Name, cc.MTU, listenConfig), nil
 	case "socks5":
-		return direct.NewSocks5UDPClient(endpointAddrPort, cc.Name, cc.MTU, cc.DialerFwmark), nil
+		return direct.NewSocks5UDPClient(endpointAddrPort, cc.Name, cc.MTU, listenConfig), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		shouldPad, err := ss2022.ParsePaddingPolicy(cc.PaddingPolicy)
 		if err != nil {
 			return nil, err
 		}
-		return ss2022.NewUDPClient(endpointAddrPort, cc.Name, cc.MTU, cc.DialerFwmark, cc.cipherConfig, shouldPad), nil
+		return ss2022.NewUDPClient(endpointAddrPort, cc.Name, cc.MTU, listenConfig, cc.cipherConfig, shouldPad), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}

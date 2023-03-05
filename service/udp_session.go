@@ -15,6 +15,7 @@ import (
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/zerocopy"
+	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
 )
 
@@ -75,6 +76,7 @@ type UDPSessionRelay struct {
 	natTimeout             time.Duration
 	server                 zerocopy.UDPSessionServer
 	serverConn             *net.UDPConn
+	serverConnListenConfig tfo.ListenConfig
 	collector              stats.Collector
 	router                 *router.Router
 	logger                 *zap.Logger
@@ -87,10 +89,11 @@ type UDPSessionRelay struct {
 
 func NewUDPSessionRelay(
 	batchMode, serverName, listenAddress string,
-	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, listenerFwmark, mtu int,
+	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, mtu int,
 	maxClientPackerHeadroom zerocopy.Headroom,
 	natTimeout time.Duration,
 	server zerocopy.UDPSessionServer,
+	serverConnListenConfig tfo.ListenConfig,
 	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
@@ -102,7 +105,6 @@ func NewUDPSessionRelay(
 	s := UDPSessionRelay{
 		serverName:             serverName,
 		listenAddress:          listenAddress,
-		listenerFwmark:         listenerFwmark,
 		mtu:                    mtu,
 		packetBufFrontHeadroom: packetBufHeadroom.Front,
 		packetBufRecvSize:      packetBufRecvSize,
@@ -111,6 +113,7 @@ func NewUDPSessionRelay(
 		sendChannelCapacity:    sendChannelCapacity,
 		natTimeout:             natTimeout,
 		server:                 server,
+		serverConnListenConfig: serverConnListenConfig,
 		collector:              collector,
 		router:                 router,
 		logger:                 logger,
@@ -134,7 +137,7 @@ func (s *UDPSessionRelay) String() string {
 
 // Start implements the Service Start method.
 func (s *UDPSessionRelay) Start() error {
-	serverConn, err := conn.ListenUDP("udp", s.listenAddress, true, s.listenerFwmark)
+	serverConn, err := conn.ListenUDP(s.serverConnListenConfig, "udp", s.listenAddress)
 	if err != nil {
 		return err
 	}
@@ -385,7 +388,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 					return
 				}
 
-				natConn, err := conn.ListenUDP("udp", "", false, clientInfo.Fwmark)
+				natConn, err := conn.ListenUDP(clientInfo.ListenConfig, "udp", "")
 				if err != nil {
 					s.logger.Warn("Failed to create UDP socket for new NAT session",
 						zap.String("server", s.serverName),
@@ -395,7 +398,6 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric() {
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 						zap.String("username", entry.username),
 						zap.Uint64("clientSessionID", csid),
-						zap.Int("natConnFwmark", clientInfo.Fwmark),
 						zap.Error(err),
 					)
 					return

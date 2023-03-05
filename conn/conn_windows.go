@@ -1,11 +1,8 @@
 package conn
 
 import (
-	"context"
 	"fmt"
-	"net"
 	"net/netip"
-	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -25,14 +22,14 @@ const (
 	IP_PMTUDISC_MAX
 )
 
-func setDF(fd windows.Handle, network string) error {
+func setPMTUD(fd int, network string) error {
 	// Set IP_MTU_DISCOVER for both v4 and v6.
-	if err := windows.SetsockoptInt(fd, windows.IPPROTO_IP, IP_MTU_DISCOVER, IP_PMTUDISC_DO); err != nil {
+	if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, IP_MTU_DISCOVER, IP_PMTUDISC_DO); err != nil {
 		return fmt.Errorf("failed to set socket option IP_MTU_DISCOVER: %w", err)
 	}
 
 	if network == "udp6" {
-		if err := windows.SetsockoptInt(fd, windows.IPPROTO_IPV6, IPV6_MTU_DISCOVER, IP_PMTUDISC_DO); err != nil {
+		if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IPV6, IPV6_MTU_DISCOVER, IP_PMTUDISC_DO); err != nil {
 			return fmt.Errorf("failed to set socket option IPV6_MTU_DISCOVER: %w", err)
 		}
 	}
@@ -40,14 +37,14 @@ func setDF(fd windows.Handle, network string) error {
 	return nil
 }
 
-func setPktinfo(fd windows.Handle, network string) error {
+func setRecvPktinfo(fd int, network string) error {
 	// Set IP_PKTINFO for both v4 and v6.
-	if err := windows.SetsockoptInt(fd, windows.IPPROTO_IP, windows.IP_PKTINFO, 1); err != nil {
+	if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, windows.IP_PKTINFO, 1); err != nil {
 		return fmt.Errorf("failed to set socket option IP_PKTINFO: %w", err)
 	}
 
 	if network == "udp6" {
-		if err := windows.SetsockoptInt(fd, windows.IPPROTO_IPV6, windows.IPV6_PKTINFO, 1); err != nil {
+		if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IPV6, windows.IPV6_PKTINFO, 1); err != nil {
 			return fmt.Errorf("failed to set socket option IPV6_PKTINFO: %w", err)
 		}
 	}
@@ -55,37 +52,10 @@ func setPktinfo(fd windows.Handle, network string) error {
 	return nil
 }
 
-// ListenUDP wraps [net.ListenConfig.ListenPacket] and sets socket options on supported platforms.
-//
-// On Linux and Windows, IP_MTU_DISCOVER and IPV6_MTU_DISCOVER are set to IP_PMTUDISC_DO to disable IP fragmentation
-// and encourage correct MTU settings. If pktinfo is true, IP_PKTINFO and IPV6_RECVPKTINFO are set to 1.
-//
-// On Linux, SO_MARK is set to user-specified value.
-//
-// On macOS and FreeBSD, IP_DONTFRAG, IPV6_DONTFRAG are set to 1 (Don't Fragment).
-func ListenUDP(network string, laddr string, pktinfo bool, fwmark int) (*net.UDPConn, error) {
-	lc := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) (err error) {
-			if cerr := c.Control(func(fd uintptr) {
-				if err = setDF(windows.Handle(fd), network); err != nil {
-					return
-				}
-
-				if pktinfo {
-					err = setPktinfo(windows.Handle(fd), network)
-				}
-			}); cerr != nil {
-				return cerr
-			}
-			return
-		},
-	}
-
-	pc, err := lc.ListenPacket(context.Background(), network, laddr)
-	if err != nil {
-		return nil, err
-	}
-	return pc.(*net.UDPConn), nil
+func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}.
+		appendSetPMTUDFunc(lso.PathMTUDiscovery).
+		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo)
 }
 
 // Structure CMSGHDR from ws2def.h
@@ -122,7 +92,7 @@ const SocketControlMessageBufferSize = SizeofCmsghdr + (SizeofInet6Pktinfo+Sizeo
 // and returns the IP address and index of the network interface the packet was received from,
 // or an error.
 //
-// This function is only implemented for Linux and Windows. On other platforms, this is a no-op.
+// This function is only implemented for Linux, macOS and Windows. On other platforms, this is a no-op.
 func ParsePktinfoCmsg(cmsg []byte) (netip.Addr, uint32, error) {
 	if len(cmsg) < int(SizeofCmsghdr) {
 		return netip.Addr{}, 0, fmt.Errorf("control message length %d is shorter than cmsghdr length", len(cmsg))

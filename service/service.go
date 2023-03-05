@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/database64128/shadowsocks-go/api"
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/router"
@@ -60,6 +61,8 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		}
 	}
 
+	listenConfigCache := conn.NewListenConfigCache()
+	dialerCache := conn.NewDialerCache()
 	tcpClientMap := make(map[string]zerocopy.TCPClient, len(sc.Clients))
 	udpClientMap := make(map[string]zerocopy.UDPClient, len(sc.Clients))
 	var maxClientPackerHeadroom zerocopy.Headroom
@@ -67,11 +70,11 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	for i := range sc.Clients {
 		clientConfig := &sc.Clients[i]
 		clientName := clientConfig.Name
-		if err := clientConfig.Initialize(); err != nil {
+		if err := clientConfig.Initialize(listenConfigCache, dialerCache, logger); err != nil {
 			return nil, fmt.Errorf("failed to initialize client %s: %w", clientName, err)
 		}
 
-		tcpClient, err := clientConfig.TCPClient(logger)
+		tcpClient, err := clientConfig.TCPClient()
 		switch err {
 		case errNetworkDisabled:
 		case nil:
@@ -80,7 +83,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 			return nil, fmt.Errorf("failed to create TCP client for %s: %w", clientName, err)
 		}
 
-		udpClient, err := clientConfig.UDPClient(logger)
+		udpClient, err := clientConfig.UDPClient()
 		switch err {
 		case errNetworkDisabled:
 		case nil:
@@ -124,7 +127,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	for i := range sc.Servers {
 		serverConfig := &sc.Servers[i]
 		collector := sc.Stats.Collector()
-		if err := serverConfig.Initialize(collector, router, logger); err != nil {
+		if err := serverConfig.Initialize(listenConfigCache, collector, router, logger); err != nil {
 			return nil, fmt.Errorf("failed to initialize server %s: %w", serverConfig.Name, err)
 		}
 
