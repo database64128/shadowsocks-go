@@ -24,6 +24,7 @@ func setRecvPktinfo(fd int, network string) error {
 
 func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
+		appendSetTrafficClassFunc(lso.TrafficClass).
 		appendSetReusePortFunc(lso.ReusePort).
 		appendSetPMTUDFunc(lso.PathMTUDiscovery).
 		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo)

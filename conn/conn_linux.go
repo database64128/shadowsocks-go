@@ -116,6 +116,7 @@ func (fns setFuncSlice) appendSetRecvOrigDstAddrFunc(recvOrigDstAddr bool) setFu
 func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
 		appendSetFwmarkFunc(lso.Fwmark).
+		appendSetTrafficClassFunc(lso.TrafficClass).
 		appendSetReusePortFunc(lso.ReusePort).
 		appendSetTransparentFunc(lso.Transparent).
 		appendSetPMTUDFunc(lso.PathMTUDiscovery).
@@ -124,7 +125,9 @@ func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
 }
 
 func (dso DialerSocketOptions) buildSetFns() setFuncSlice {
-	return setFuncSlice{}.appendSetFwmarkFunc(dso.Fwmark)
+	return setFuncSlice{}.
+		appendSetFwmarkFunc(dso.Fwmark).
+		appendSetTrafficClassFunc(dso.TrafficClass)
 }
 
 func ParseOrigDstAddrCmsg(cmsg []byte) (netip.AddrPort, error) {

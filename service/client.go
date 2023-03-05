@@ -15,10 +15,11 @@ import (
 // ClientConfig stores a client configuration.
 // It may be marshaled as or unmarshaled from JSON.
 type ClientConfig struct {
-	Name         string    `json:"name"`
-	Endpoint     conn.Addr `json:"endpoint"`
-	Protocol     string    `json:"protocol"`
-	DialerFwmark int       `json:"dialerFwmark"`
+	Name               string    `json:"name"`
+	Endpoint           conn.Addr `json:"endpoint"`
+	Protocol           string    `json:"protocol"`
+	DialerFwmark       int       `json:"dialerFwmark"`
+	DialerTrafficClass int       `json:"dialerTrafficClass"`
 
 	// TCP
 	EnableTCP bool `json:"enableTCP"`
@@ -69,8 +70,9 @@ func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
 	}
 
 	dialer := cc.dialerCache.Get(conn.DialerSocketOptions{
-		Fwmark:      cc.DialerFwmark,
-		TCPFastOpen: cc.DialerTFO,
+		Fwmark:       cc.DialerFwmark,
+		TrafficClass: cc.DialerTrafficClass,
+		TCPFastOpen:  cc.DialerTFO,
 	})
 
 	switch cc.Protocol {
@@ -117,6 +119,7 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 
 	listenConfig := cc.listenConfigCache.Get(conn.ListenerSocketOptions{
 		Fwmark:           cc.DialerFwmark,
+		TrafficClass:     cc.DialerTrafficClass,
 		PathMTUDiscovery: true,
 	})
 

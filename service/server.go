@@ -20,10 +20,11 @@ import (
 // ServerConfig stores a server configuration.
 // It may be marshaled as or unmarshaled from JSON.
 type ServerConfig struct {
-	Name           string `json:"name"`
-	Listen         string `json:"listen"`
-	Protocol       string `json:"protocol"`
-	ListenerFwmark int    `json:"listenerFwmark"`
+	Name                 string `json:"name"`
+	Listen               string `json:"listen"`
+	Protocol             string `json:"protocol"`
+	ListenerFwmark       int    `json:"listenerFwmark"`
+	ListenerTrafficClass int    `json:"listenerTrafficClass"`
 
 	// TCP
 	EnableTCP                 bool `json:"enableTCP"`
@@ -158,9 +159,10 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 	waitForInitialPayload := !serverInfo.NativeInitialPayload && !sc.DisableInitialPayloadWait
 
 	listenConfig := sc.listenConfigCache.Get(conn.ListenerSocketOptions{
-		Fwmark:      sc.ListenerFwmark,
-		Transparent: listenerTransparent,
-		TCPFastOpen: sc.ListenerTFO,
+		Fwmark:       sc.ListenerFwmark,
+		TrafficClass: sc.ListenerTrafficClass,
+		Transparent:  listenerTransparent,
+		TCPFastOpen:  sc.ListenerTFO,
 	})
 
 	return NewTCPRelay(sc.Name, sc.Listen, waitForInitialPayload, listenConfig, server, connCloser, sc.UnsafeFallbackAddress, sc.collector, sc.router, sc.logger), nil
@@ -253,12 +255,14 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Rel
 	case "tproxy":
 		serverConnListenConfig = sc.listenConfigCache.Get(conn.ListenerSocketOptions{
 			Fwmark:                  sc.ListenerFwmark,
+			TrafficClass:            sc.ListenerTrafficClass,
 			Transparent:             true,
 			PathMTUDiscovery:        true,
 			ReceiveOriginalDestAddr: true,
 		})
 		transparentConnListenConfig = sc.listenConfigCache.Get(conn.ListenerSocketOptions{
 			Fwmark:           sc.ListenerFwmark,
+			TrafficClass:     sc.ListenerTrafficClass,
 			Transparent:      true,
 			ReusePort:        true,
 			PathMTUDiscovery: true,
@@ -266,6 +270,7 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Rel
 	default:
 		serverConnListenConfig = sc.listenConfigCache.Get(conn.ListenerSocketOptions{
 			Fwmark:            sc.ListenerFwmark,
+			TrafficClass:      sc.ListenerTrafficClass,
 			PathMTUDiscovery:  true,
 			ReceivePacketInfo: true,
 		})

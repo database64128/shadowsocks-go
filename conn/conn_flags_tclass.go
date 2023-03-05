@@ -30,3 +30,12 @@ func ParseFlagsForError(flags int) error {
 
 	return nil
 }
+
+func (fns setFuncSlice) appendSetTrafficClassFunc(trafficClass int) setFuncSlice {
+	if trafficClass != 0 {
+		return append(fns, func(fd int, network string) error {
+			return setTrafficClass(fd, network, trafficClass)
+		})
+	}
+	return fns
+}

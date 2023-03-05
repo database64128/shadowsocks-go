@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !aix && !darwin && !dragonfly && !freebsd && !linux && !netbsd && !openbsd && !solaris && !zos
 
 package conn
 

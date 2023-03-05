@@ -55,6 +55,11 @@ type ListenerSocketOptions struct {
 	// Only available on Linux.
 	Fwmark int
 
+	// TrafficClass sets the traffic class of the listener.
+	//
+	// Available on most platforms except Windows.
+	TrafficClass int
+
 	// ReusePort enables SO_REUSEPORT on the listener.
 	//
 	// Available on Linux and the BSDs.
@@ -129,6 +134,11 @@ type DialerSocketOptions struct {
 	//
 	// Only available on Linux.
 	Fwmark int
+
+	// TrafficClass sets the traffic class of the dialer.
+	//
+	// Available on most platforms except Windows.
+	TrafficClass int
 
 	// TCPFastOpen enables TCP Fast Open on the dialer.
 	//
