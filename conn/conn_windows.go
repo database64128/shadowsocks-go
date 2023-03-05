@@ -28,10 +28,14 @@ func setPMTUD(fd int, network string) error {
 		return fmt.Errorf("failed to set socket option IP_MTU_DISCOVER: %w", err)
 	}
 
-	if network == "udp6" {
+	switch network {
+	case "tcp4", "udp4":
+	case "tcp6", "udp6":
 		if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IPV6, IPV6_MTU_DISCOVER, IP_PMTUDISC_DO); err != nil {
 			return fmt.Errorf("failed to set socket option IPV6_MTU_DISCOVER: %w", err)
 		}
+	default:
+		return fmt.Errorf("unsupported network: %s", network)
 	}
 
 	return nil
@@ -43,10 +47,14 @@ func setRecvPktinfo(fd int, network string) error {
 		return fmt.Errorf("failed to set socket option IP_PKTINFO: %w", err)
 	}
 
-	if network == "udp6" {
+	switch network {
+	case "udp4":
+	case "udp6":
 		if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IPV6, windows.IPV6_PKTINFO, 1); err != nil {
 			return fmt.Errorf("failed to set socket option IPV6_PKTINFO: %w", err)
 		}
+	default:
+		return fmt.Errorf("unsupported network: %s", network)
 	}
 
 	return nil

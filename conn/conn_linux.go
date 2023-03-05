@@ -42,10 +42,14 @@ func setPMTUD(fd int, network string) error {
 		return fmt.Errorf("failed to set socket option IP_MTU_DISCOVER: %w", err)
 	}
 
-	if network == "udp6" {
+	switch network {
+	case "tcp4", "udp4":
+	case "tcp6", "udp6":
 		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_MTU_DISCOVER, unix.IP_PMTUDISC_DO); err != nil {
 			return fmt.Errorf("failed to set socket option IPV6_MTU_DISCOVER: %w", err)
 		}
+	default:
+		return fmt.Errorf("unsupported network: %s", network)
 	}
 
 	return nil
@@ -73,10 +77,14 @@ func setRecvOrigDstAddr(fd int, network string) error {
 		return fmt.Errorf("failed to set socket option IP_RECVORIGDSTADDR: %w", err)
 	}
 
-	if network == "udp6" {
+	switch network {
+	case "udp4":
+	case "udp6":
 		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_RECVORIGDSTADDR, 1); err != nil {
 			return fmt.Errorf("failed to set socket option IPV6_RECVORIGDSTADDR: %w", err)
 		}
+	default:
+		return fmt.Errorf("unsupported network: %s", network)
 	}
 
 	return nil
