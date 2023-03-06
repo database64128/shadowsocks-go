@@ -154,11 +154,6 @@ func ParseOrigDstAddrCmsg(cmsg []byte) (netip.AddrPort, error) {
 // Source: include/uapi/linux/uio.h
 const UIO_MAXIOV = 1024
 
-type Mmsghdr struct {
-	Msghdr unix.Msghdr
-	Msglen uint32
-}
-
 func AddrPortToSockaddrValue(addrPort netip.AddrPort) (rsa6 unix.RawSockaddrInet6, namelen uint32) {
 	addr, port := addrPort.Addr(), addrPort.Port()
 	p := (*[2]byte)(unsafe.Pointer(&rsa6.Port))
