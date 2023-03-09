@@ -2,6 +2,6 @@
 
 package service
 
-func (s *UDPSessionRelay) setRelayFunc(batchMode string) {
-	s.recvFromServerConn = s.recvFromServerConnGeneric
+func (s *UDPSessionRelay) setStartFunc(batchMode string) {
+	s.startFunc = s.startGeneric
 }

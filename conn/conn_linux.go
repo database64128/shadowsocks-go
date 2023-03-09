@@ -2,9 +2,7 @@ package conn
 
 import (
 	"fmt"
-	"net"
 	"net/netip"
-	"os"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -268,88 +266,4 @@ func SockaddrInet6ToAddrPort(sa *unix.RawSockaddrInet6) netip.AddrPort {
 	port := uint16(portp[0])<<8 + uint16(portp[1])
 	ip := netip.AddrFrom16(sa.Addr)
 	return netip.AddrPortFrom(ip, port)
-}
-
-func Recvmmsg(conn *net.UDPConn, msgvec []Mmsghdr) (n int, err error) {
-	rawConn, err := conn.SyscallConn()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get syscall.RawConn: %w", err)
-	}
-
-	perr := rawConn.Read(func(fd uintptr) (done bool) {
-		r0, _, e1 := unix.Syscall6(unix.SYS_RECVMMSG, fd, uintptr(unsafe.Pointer(&msgvec[0])), uintptr(len(msgvec)), 0, 0, 0)
-		if e1 == unix.EAGAIN || e1 == unix.EWOULDBLOCK {
-			return false
-		}
-		if e1 != 0 {
-			err = os.NewSyscallError("recvmmsg", e1)
-			return true
-		}
-		n = int(r0)
-		return true
-	})
-
-	if err == nil {
-		err = perr
-	}
-
-	return
-}
-
-func Sendmmsg(conn *net.UDPConn, msgvec []Mmsghdr) (n int, err error) {
-	rawConn, err := conn.SyscallConn()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get syscall.RawConn: %w", err)
-	}
-
-	perr := rawConn.Write(func(fd uintptr) (done bool) {
-		r0, _, e1 := unix.Syscall6(unix.SYS_SENDMMSG, fd, uintptr(unsafe.Pointer(&msgvec[0])), uintptr(len(msgvec)), 0, 0, 0)
-		if e1 == unix.EAGAIN || e1 == unix.EWOULDBLOCK {
-			return false
-		}
-		if e1 != 0 {
-			err = os.NewSyscallError("sendmmsg", e1)
-			return true
-		}
-		n = int(r0)
-		return true
-	})
-
-	if err == nil {
-		err = perr
-	}
-
-	return
-}
-
-// WriteMsgvec repeatedly calls sendmmsg(2) until all messages in msgvec are written to the socket.
-//
-// If the syscall returns an error, this function drops the message that caused the error,
-// and continues sending. Only the last encountered error is returned.
-func WriteMsgvec(conn *net.UDPConn, msgvec []Mmsghdr) error {
-	rawConn, err := conn.SyscallConn()
-	if err != nil {
-		return fmt.Errorf("failed to get syscall.RawConn: %w", err)
-	}
-
-	var processed int
-
-	perr := rawConn.Write(func(fd uintptr) (done bool) {
-		r0, _, e1 := unix.Syscall6(unix.SYS_SENDMMSG, fd, uintptr(unsafe.Pointer(&msgvec[processed])), uintptr(len(msgvec)-processed), 0, 0, 0)
-		if e1 == unix.EAGAIN || e1 == unix.EWOULDBLOCK {
-			return false
-		}
-		if e1 != 0 {
-			err = os.NewSyscallError("sendmmsg", e1)
-			r0 = 1
-		}
-		processed += int(r0)
-		return processed >= len(msgvec)
-	})
-
-	if err == nil {
-		err = perr
-	}
-
-	return err
 }
