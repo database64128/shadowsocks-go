@@ -2,8 +2,8 @@ github.com/andybalholm/brotli v1.0.4/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHG
 github.com/andybalholm/brotli v1.0.5 h1:8uQZIdzKmjc/iuPu7O2ioW48L81FgatrcpfFmiq/cCs=
 github.com/andybalholm/brotli v1.0.5/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHGRSepvi9Eig=
 github.com/benbjohnson/clock v1.3.0 h1:ip6w0uFQkncKQ979AypyG0ER7mqUSBdKLOgAle/AT8A=
-github.com/database64128/tfo-go/v2 v2.0.3 h1:nlnItc4RgZvlPhSCuq8OZdhayo93vzV2KTR6t7v5axQ=
-github.com/database64128/tfo-go/v2 v2.0.3/go.mod h1:Jws8V8Go1OD8nxmAFORjBxa0Vg2C6MeWv17eDEWDEGM=
+github.com/database64128/tfo-go/v2 v2.0.4 h1:926W0oFXeWkoylhfKXiI4X0gkxJGCFOo5Q6wKVjHiCY=
+github.com/database64128/tfo-go/v2 v2.0.4/go.mod h1:IxEVHON2XCQrAJcJHlff7SFtusf4LFCy/TCqs8IyFbs=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/gofiber/contrib/fiberzap v1.0.2 h1:EQwhggtszVfIdBeXxN9Xrmld71es34Ufs+ef8VMqZxc=
 github.com/gofiber/contrib/fiberzap v1.0.2/go.mod h1:jGO8BHU4gRI9U0JtM6zj2CIhYfgVmW5JxziN8NTgVwE=
