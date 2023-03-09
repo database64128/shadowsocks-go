@@ -41,9 +41,9 @@ type sessionDownlinkMmsg struct {
 func (s *UDPSessionRelay) setStartFunc(batchMode string) {
 	switch batchMode {
 	case "sendmmsg", "":
-		s.startFunc = s.startGeneric
-	default:
 		s.startFunc = s.startMmsg
+	default:
+		s.startFunc = s.startGeneric
 	}
 }
 
