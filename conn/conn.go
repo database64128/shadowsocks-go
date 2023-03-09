@@ -50,9 +50,9 @@ func (fns setFuncSlice) controlFunc() func(network, address string, c syscall.Ra
 
 // ListenerSocketOptions contains listener-specific socket options.
 type ListenerSocketOptions struct {
-	// Fwmark sets the fwmark of the listener.
+	// Fwmark sets the listener's fwmark on Linux, or user cookie on FreeBSD.
 	//
-	// Only available on Linux.
+	// Available on Linux and FreeBSD.
 	Fwmark int
 
 	// TrafficClass sets the traffic class of the listener.
@@ -130,9 +130,9 @@ var (
 
 // DialerSocketOptions contains dialer-specific socket options.
 type DialerSocketOptions struct {
-	// Fwmark sets the fwmark of the dialer.
+	// Fwmark sets the dialer's fwmark on Linux, or user cookie on FreeBSD.
 	//
-	// Only available on Linux.
+	// Available on Linux and FreeBSD.
 	Fwmark int
 
 	// TrafficClass sets the traffic class of the dialer.

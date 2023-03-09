@@ -88,15 +88,6 @@ func setRecvOrigDstAddr(fd int, network string) error {
 	return nil
 }
 
-func (fns setFuncSlice) appendSetFwmarkFunc(fwmark int) setFuncSlice {
-	if fwmark != 0 {
-		return append(fns, func(fd int, network string) error {
-			return setFwmark(fd, fwmark)
-		})
-	}
-	return fns
-}
-
 func (fns setFuncSlice) appendSetTransparentFunc(transparent bool) setFuncSlice {
 	if transparent {
 		return append(fns, setTransparent)
@@ -120,12 +111,6 @@ func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
 		appendSetPMTUDFunc(lso.PathMTUDiscovery).
 		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo).
 		appendSetRecvOrigDstAddrFunc(lso.ReceiveOriginalDestAddr)
-}
-
-func (dso DialerSocketOptions) buildSetFns() setFuncSlice {
-	return setFuncSlice{}.
-		appendSetFwmarkFunc(dso.Fwmark).
-		appendSetTrafficClassFunc(dso.TrafficClass)
 }
 
 func ParseOrigDstAddrCmsg(cmsg []byte) (netip.AddrPort, error) {
