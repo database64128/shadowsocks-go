@@ -6,8 +6,6 @@ import (
 	"net"
 	"os"
 	"syscall"
-
-	"golang.org/x/sys/unix"
 )
 
 type rawUDPConn struct {
@@ -26,11 +24,6 @@ func NewRawUDPConn(udpConn *net.UDPConn) (rawUDPConn, error) {
 		UDPConn: udpConn,
 		rawConn: rawConn,
 	}, nil
-}
-
-type Mmsghdr struct {
-	Msghdr unix.Msghdr
-	Msglen uint32
 }
 
 // MmsgRConn wraps a [net.UDPConn] and provides the [ReadMsgs] method
