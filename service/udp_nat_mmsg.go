@@ -265,7 +265,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRConn) {
 					}()
 
 					c, err := s.router.GetUDPClient(router.RequestInfo{
-						Server:         s.serverName,
+						ServerIndex:    s.serverIndex,
 						SourceAddrPort: clientAddrPort,
 						TargetAddr:     queuedPacket.targetAddr,
 					})

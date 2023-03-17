@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 
+	"github.com/database64128/shadowsocks-go/bitset"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/domainset"
@@ -116,7 +117,7 @@ type RouteConfig struct {
 }
 
 // Route creates a route from the RouteConfig.
-func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers []*dns.Resolver, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*netipx.IPSet) (Route, error) {
+func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers []*dns.Resolver, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*netipx.IPSet) (Route, error) {
 	// Bad name.
 	switch rc.Name {
 	case "", "default":
@@ -185,7 +186,17 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 	}
 
 	if len(rc.FromServers) > 0 {
-		route.AddCriterion(SourceServerCriterion(rc.FromServers), rc.InvertFromServers)
+		sourceServerSet := bitset.NewBitSet(uint(len(serverIndexByName)))
+
+		for _, server := range rc.FromServers {
+			index, ok := serverIndexByName[server]
+			if !ok {
+				return Route{}, fmt.Errorf("server not found: %s", server)
+			}
+			sourceServerSet.Set(uint(index))
+		}
+
+		route.AddCriterion(SourceServerCriterion(sourceServerSet), rc.InvertFromServers)
 	}
 
 	if len(rc.FromUsers) > 0 {
@@ -488,7 +499,7 @@ const (
 
 // RequestInfo contains information about a request that can be met by one or more criteria.
 type RequestInfo struct {
-	Server         string
+	ServerIndex    int
 	Username       string
 	SourceAddrPort netip.AddrPort
 	TargetAddr     conn.Addr
@@ -511,11 +522,11 @@ func (NetworkUDPCriterion) Meet(network protocol, requestInfo RequestInfo) (bool
 }
 
 // SourceServerCriterion restricts the source server.
-type SourceServerCriterion []string
+type SourceServerCriterion bitset.BitSet
 
 // Meet implements the Criterion Meet method.
 func (c SourceServerCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
-	return slices.Contains(c, requestInfo.Server), nil
+	return bitset.BitSet(c).IsSet(uint(requestInfo.ServerIndex)), nil
 }
 
 // SourceUserCriterion restricts the source user.

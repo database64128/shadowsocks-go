@@ -23,7 +23,7 @@ type Config struct {
 }
 
 // Router creates a router from the RouterConfig.
-func (rc *Config) Router(logger *zap.Logger, resolvers []*dns.Resolver, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient) (*Router, error) {
+func (rc *Config) Router(logger *zap.Logger, resolvers []*dns.Resolver, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int) (*Router, error) {
 	defaultRoute := Route{name: "default"}
 
 	switch rc.DefaultTCPClientName {
@@ -91,7 +91,7 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []*dns.Resolver, resolver
 	routes := make([]Route, len(rc.Routes)+1)
 
 	for i := range rc.Routes {
-		route, err := rc.Routes[i].Route(geoip, logger, resolvers, resolverMap, tcpClientMap, udpClientMap, domainSetMap, prefixSetMap)
+		route, err := rc.Routes[i].Route(geoip, logger, resolvers, resolverMap, tcpClientMap, udpClientMap, serverIndexByName, domainSetMap, prefixSetMap)
 		if err != nil {
 			return nil, err
 		}
@@ -132,7 +132,7 @@ func (r *Router) GetTCPClient(requestInfo RequestInfo) (zerocopy.TCPClient, erro
 
 	if ce := r.logger.Check(zap.DebugLevel, "Matched route for TCP connection"); ce != nil {
 		ce.Write(
-			zap.String("server", requestInfo.Server),
+			zap.Int("serverIndex", requestInfo.ServerIndex),
 			zap.String("username", requestInfo.Username),
 			zap.Stringer("sourceAddrPort", requestInfo.SourceAddrPort),
 			zap.Stringer("targetAddress", requestInfo.TargetAddr),
@@ -153,7 +153,7 @@ func (r *Router) GetUDPClient(requestInfo RequestInfo) (zerocopy.UDPClient, erro
 
 	if ce := r.logger.Check(zap.DebugLevel, "Matched route for UDP session"); ce != nil {
 		ce.Write(
-			zap.String("server", requestInfo.Server),
+			zap.Int("serverIndex", requestInfo.ServerIndex),
 			zap.String("username", requestInfo.Username),
 			zap.Stringer("sourceAddrPort", requestInfo.SourceAddrPort),
 			zap.Stringer("targetAddress", requestInfo.TargetAddr),

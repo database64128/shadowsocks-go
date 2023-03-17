@@ -107,7 +107,13 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		resolverMap[sc.DNS[i].Name] = resolver
 	}
 
-	router, err := sc.Router.Router(logger, resolvers, resolverMap, tcpClientMap, udpClientMap)
+	serverIndexByName := make(map[string]int, len(sc.Servers))
+
+	for i := range sc.Servers {
+		serverIndexByName[sc.Servers[i].Name] = i
+	}
+
+	router, err := sc.Router.Router(logger, resolvers, resolverMap, tcpClientMap, udpClientMap, serverIndexByName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create router: %w", err)
 	}
@@ -127,7 +133,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	for i := range sc.Servers {
 		serverConfig := &sc.Servers[i]
 		collector := sc.Stats.Collector()
-		if err := serverConfig.Initialize(listenConfigCache, collector, router, logger); err != nil {
+		if err := serverConfig.Initialize(listenConfigCache, collector, router, logger, i); err != nil {
 			return nil, fmt.Errorf("failed to initialize server %s: %w", serverConfig.Name, err)
 		}
 

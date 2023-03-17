@@ -62,6 +62,7 @@ type transparentDownlink struct {
 type UDPTransparentRelay struct {
 	serverName                  string
 	listenAddress               string
+	serverIndex                 int
 	mtu                         int
 	packetBufFrontHeadroom      int
 	packetBufRecvSize           int
@@ -84,7 +85,7 @@ type UDPTransparentRelay struct {
 
 func NewUDPTransparentRelay(
 	serverName, listenAddress string,
-	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, mtu int,
+	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, serverIndex, mtu int,
 	maxClientPackerHeadroom zerocopy.Headroom,
 	natTimeout time.Duration,
 	serverConnlistenConfig, transparentConnListenConfig tfo.ListenConfig,
@@ -97,6 +98,7 @@ func NewUDPTransparentRelay(
 	return &UDPTransparentRelay{
 		serverName:                  serverName,
 		listenAddress:               listenAddress,
+		serverIndex:                 serverIndex,
 		mtu:                         mtu,
 		packetBufFrontHeadroom:      maxClientPackerHeadroom.Front,
 		packetBufRecvSize:           packetBufRecvSize,
@@ -278,7 +280,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 					}()
 
 					c, err := s.router.GetUDPClient(router.RequestInfo{
-						Server:         s.serverName,
+						ServerIndex:    s.serverIndex,
 						SourceAddrPort: clientAddrPort,
 						TargetAddr:     conn.AddrFromIPPort(queuedPacket.targetAddrPort),
 					})

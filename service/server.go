@@ -65,10 +65,11 @@ type ServerConfig struct {
 	collector         stats.Collector
 	router            *router.Router
 	logger            *zap.Logger
+	index             int
 }
 
 // Initialize initializes the server configuration.
-func (sc *ServerConfig) Initialize(listenConfigCache conn.ListenConfigCache, collector stats.Collector, router *router.Router, logger *zap.Logger) error {
+func (sc *ServerConfig) Initialize(listenConfigCache conn.ListenConfigCache, collector stats.Collector, router *router.Router, logger *zap.Logger, index int) error {
 	switch sc.Protocol {
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		err := ss2022.CheckPSKLength(sc.Protocol, sc.PSK, nil)
@@ -93,6 +94,7 @@ func (sc *ServerConfig) Initialize(listenConfigCache conn.ListenConfigCache, col
 	sc.collector = collector
 	sc.router = router
 	sc.logger = logger
+	sc.index = index
 	return nil
 }
 
@@ -165,7 +167,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		TCPFastOpen:  sc.ListenerTFO,
 	})
 
-	return NewTCPRelay(sc.Name, sc.Listen, waitForInitialPayload, listenConfig, server, connCloser, sc.UnsafeFallbackAddress, sc.collector, sc.router, sc.logger), nil
+	return NewTCPRelay(sc.index, sc.Name, sc.Listen, waitForInitialPayload, listenConfig, server, connCloser, sc.UnsafeFallbackAddress, sc.collector, sc.router, sc.logger), nil
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
@@ -278,11 +280,11 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Rel
 
 	switch sc.Protocol {
 	case "direct", "none", "plain", "socks5":
-		return NewUDPNATRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.MTU, maxClientPackerHeadroom, natTimeout, natServer, serverConnListenConfig, sc.collector, sc.router, sc.logger), nil
+		return NewUDPNATRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.index, sc.MTU, maxClientPackerHeadroom, natTimeout, natServer, serverConnListenConfig, sc.collector, sc.router, sc.logger), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		return NewUDPSessionRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.MTU, maxClientPackerHeadroom, natTimeout, server, serverConnListenConfig, sc.collector, sc.router, sc.logger), nil
+		return NewUDPSessionRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.index, sc.MTU, maxClientPackerHeadroom, natTimeout, server, serverConnListenConfig, sc.collector, sc.router, sc.logger), nil
 	case "tproxy":
-		return NewUDPTransparentRelay(sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.MTU, maxClientPackerHeadroom, natTimeout, serverConnListenConfig, transparentConnListenConfig, sc.collector, sc.router, sc.logger)
+		return NewUDPTransparentRelay(sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.index, sc.MTU, maxClientPackerHeadroom, natTimeout, serverConnListenConfig, transparentConnListenConfig, sc.collector, sc.router, sc.logger)
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}

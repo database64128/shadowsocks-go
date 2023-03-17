@@ -70,6 +70,7 @@ type natDownlinkGeneric struct {
 type UDPNATRelay struct {
 	serverName             string
 	listenAddress          string
+	serverIndex            int
 	mtu                    int
 	packetBufFrontHeadroom int
 	packetBufRecvSize      int
@@ -93,7 +94,7 @@ type UDPNATRelay struct {
 
 func NewUDPNATRelay(
 	batchMode, serverName, listenAddress string,
-	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, mtu int,
+	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, serverIndex, mtu int,
 	maxClientPackerHeadroom zerocopy.Headroom,
 	natTimeout time.Duration,
 	server zerocopy.UDPNATServer,
@@ -109,6 +110,7 @@ func NewUDPNATRelay(
 	s := UDPNATRelay{
 		serverName:             serverName,
 		listenAddress:          listenAddress,
+		serverIndex:            serverIndex,
 		mtu:                    mtu,
 		packetBufFrontHeadroom: packetBufHeadroom.Front,
 		packetBufRecvSize:      packetBufRecvSize,
@@ -309,7 +311,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 				}()
 
 				c, err := s.router.GetUDPClient(router.RequestInfo{
-					Server:         s.serverName,
+					ServerIndex:    s.serverIndex,
 					SourceAddrPort: clientAddrPort,
 					TargetAddr:     queuedPacket.targetAddr,
 				})

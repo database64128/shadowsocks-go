@@ -30,6 +30,7 @@ const (
 //
 // TCPRelay implements the Service interface.
 type TCPRelay struct {
+	serverIndex           int
 	serverName            string
 	listenAddress         string
 	wg                    sync.WaitGroup
@@ -45,6 +46,7 @@ type TCPRelay struct {
 }
 
 func NewTCPRelay(
+	serverIndex int,
 	serverName, listenAddress string, waitForInitialPayload bool,
 	listenConfig tfo.ListenConfig,
 	server zerocopy.TCPServer,
@@ -55,6 +57,7 @@ func NewTCPRelay(
 	logger *zap.Logger,
 ) *TCPRelay {
 	return &TCPRelay{
+		serverIndex:           serverIndex,
 		serverName:            serverName,
 		listenAddress:         listenAddress,
 		listenConfig:          listenConfig,
@@ -153,7 +156,7 @@ func (s *TCPRelay) handleConn(clientConn *net.TCPConn) {
 
 	// Route.
 	c, err := s.router.GetTCPClient(router.RequestInfo{
-		Server:         s.serverName,
+		ServerIndex:    s.serverIndex,
 		Username:       username,
 		SourceAddrPort: clientAddrPort,
 		TargetAddr:     targetAddr,

@@ -82,7 +82,7 @@ type sessionDownlinkGeneric struct {
 type UDPSessionRelay struct {
 	serverName             string
 	listenAddress          string
-	listenerFwmark         int
+	serverIndex            int
 	mtu                    int
 	packetBufFrontHeadroom int
 	packetBufRecvSize      int
@@ -105,7 +105,7 @@ type UDPSessionRelay struct {
 
 func NewUDPSessionRelay(
 	batchMode, serverName, listenAddress string,
-	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, mtu int,
+	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, serverIndex, mtu int,
 	maxClientPackerHeadroom zerocopy.Headroom,
 	natTimeout time.Duration,
 	server zerocopy.UDPSessionServer,
@@ -121,6 +121,7 @@ func NewUDPSessionRelay(
 	s := UDPSessionRelay{
 		serverName:             serverName,
 		listenAddress:          listenAddress,
+		serverIndex:            serverIndex,
 		mtu:                    mtu,
 		packetBufFrontHeadroom: packetBufHeadroom.Front,
 		packetBufRecvSize:      packetBufRecvSize,
@@ -357,7 +358,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 				}()
 
 				c, err := s.router.GetUDPClient(router.RequestInfo{
-					Server:         s.serverName,
+					ServerIndex:    s.serverIndex,
 					Username:       entry.username,
 					SourceAddrPort: queuedPacket.clientAddrPort,
 					TargetAddr:     queuedPacket.targetAddr,

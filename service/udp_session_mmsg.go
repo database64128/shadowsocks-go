@@ -298,7 +298,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRConn)
 					}()
 
 					c, err := s.router.GetUDPClient(router.RequestInfo{
-						Server:         s.serverName,
+						ServerIndex:    s.serverIndex,
 						Username:       entry.username,
 						SourceAddrPort: queuedPacket.clientAddrPort,
 						TargetAddr:     queuedPacket.targetAddr,

@@ -15,7 +15,7 @@ import (
 
 func NewUDPTransparentRelay(
 	serverName, listenAddress string,
-	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, mtu int,
+	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, serverIndex, mtu int,
 	maxClientPackerHeadroom zerocopy.Headroom,
 	natTimeout time.Duration,
 	serverConnlistenConfig, transparentConnListenConfig tfo.ListenConfig,
