@@ -230,7 +230,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 		}
 
 		if len(rc.FromGeoIPCountries) > 0 {
-			group.AddCriterion(&SourceGeoIPCountryCriterion{
+			group.AddCriterion(SourceGeoIPCountryCriterion{
 				countries: rc.FromGeoIPCountries,
 				geoip:     geoip,
 				logger:    logger,
@@ -296,11 +296,11 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 						return Route{}, fmt.Errorf("failed to build expectedIPSet: %w", err)
 					}
 
-					expectedIPCriterionGroup.AddCriterion(&DestResolvedIPCriterion{expectedIPSet, resolvers}, rc.InvertToMatchedDomainExpectedPrefixes)
+					expectedIPCriterionGroup.AddCriterion(DestResolvedIPCriterion{expectedIPSet, resolvers}, rc.InvertToMatchedDomainExpectedPrefixes)
 				}
 
 				if len(rc.ToMatchedDomainExpectedGeoIPCountries) > 0 {
-					expectedIPCriterionGroup.AddCriterion(&DestResolvedGeoIPCountryCriterion{
+					expectedIPCriterionGroup.AddCriterion(DestResolvedGeoIPCountryCriterion{
 						countries: rc.ToMatchedDomainExpectedGeoIPCountries,
 						geoip:     geoip,
 						logger:    logger,
@@ -308,9 +308,9 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 					}, rc.InvertToMatchedDomainExpectedGeoIPCountries)
 				}
 
-				group.AddCriterion(&DestDomainExpectedIPCriterion{domainSets, expectedIPCriterionGroup.Criterion()}, rc.InvertToDomains)
+				group.AddCriterion(DestDomainExpectedIPCriterion{domainSets, expectedIPCriterionGroup.Criterion()}, rc.InvertToDomains)
 			} else {
-				group.AddCriterion((*DestDomainCriterion)(&domainSets), rc.InvertToDomains)
+				group.AddCriterion(DestDomainCriterion(domainSets), rc.InvertToDomains)
 			}
 		}
 
@@ -337,19 +337,19 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 			if rc.DisableNameResolutionForIPRules {
 				group.AddCriterion((*DestIPCriterion)(destIPSet), rc.InvertToPrefixes)
 			} else {
-				group.AddCriterion(&DestResolvedIPCriterion{destIPSet, resolvers}, rc.InvertToPrefixes)
+				group.AddCriterion(DestResolvedIPCriterion{destIPSet, resolvers}, rc.InvertToPrefixes)
 			}
 		}
 
 		if len(rc.ToGeoIPCountries) > 0 {
 			if rc.DisableNameResolutionForIPRules {
-				group.AddCriterion(&DestGeoIPCountryCriterion{
+				group.AddCriterion(DestGeoIPCountryCriterion{
 					countries: rc.ToGeoIPCountries,
 					geoip:     geoip,
 					logger:    logger,
 				}, rc.InvertToGeoIPCountries)
 			} else {
-				group.AddCriterion(&DestResolvedGeoIPCountryCriterion{
+				group.AddCriterion(DestResolvedGeoIPCountryCriterion{
 					countries: rc.ToGeoIPCountries,
 					geoip:     geoip,
 					logger:    logger,
@@ -384,7 +384,7 @@ func (r *Route) String() string {
 // AddCriterion adds a criterion to the route.
 func (r *Route) AddCriterion(criterion Criterion, invert bool) {
 	if invert {
-		criterion = &InvertedCriterion{Inner: criterion}
+		criterion = InvertedCriterion{Inner: criterion}
 	}
 	r.criteria = append(r.criteria, criterion)
 }
@@ -444,13 +444,13 @@ type CriterionGroupOR struct {
 // AddCriterion adds a criterion to the group.
 func (g *CriterionGroupOR) AddCriterion(criterion Criterion, invert bool) {
 	if invert {
-		criterion = &InvertedCriterion{Inner: criterion}
+		criterion = InvertedCriterion{Inner: criterion}
 	}
 	g.Criteria = append(g.Criteria, criterion)
 }
 
 // Meet returns whether the request meets any of the criteria.
-func (g *CriterionGroupOR) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (g CriterionGroupOR) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
 	for _, criterion := range g.Criteria {
 		met, err := criterion.Meet(network, requestInfo)
 		if err != nil {
@@ -464,7 +464,7 @@ func (g *CriterionGroupOR) Meet(network protocol, requestInfo RequestInfo) (bool
 }
 
 // Criterion returns a single criterion that represents the group, or nil if the group is empty.
-func (g *CriterionGroupOR) Criterion() Criterion {
+func (g CriterionGroupOR) Criterion() Criterion {
 	switch len(g.Criteria) {
 	case 0:
 		return nil
@@ -479,7 +479,7 @@ func (g *CriterionGroupOR) Criterion() Criterion {
 // When there are more than one criterion in the group, the group itself is appended.
 // When there is only one criterion in the group, the criterion is appended directly.
 // When there are no criteria in the group, the criterion slice is returned unchanged.
-func (g *CriterionGroupOR) AppendTo(criteria []Criterion) []Criterion {
+func (g CriterionGroupOR) AppendTo(criteria []Criterion) []Criterion {
 	switch len(g.Criteria) {
 	case 0:
 		return criteria
@@ -583,7 +583,7 @@ type DestDomainExpectedIPCriterion struct {
 }
 
 // Meet implements the Criterion Meet method.
-func (c *DestDomainExpectedIPCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c DestDomainExpectedIPCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
 	met, err := c.destDomainCriterion.Meet(network, requestInfo)
 	if !met {
 		return false, err
@@ -609,7 +609,7 @@ type DestResolvedIPCriterion struct {
 }
 
 // Meet implements the Criterion Meet method.
-func (c *DestResolvedIPCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c DestResolvedIPCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
 	if requestInfo.TargetAddr.IsIP() {
 		return c.ipSet.Contains(requestInfo.TargetAddr.IP().Unmap()), nil
 	}
@@ -624,7 +624,7 @@ type DestGeoIPCountryCriterion struct {
 }
 
 // Meet implements the Criterion Meet method.
-func (c *DestGeoIPCountryCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c DestGeoIPCountryCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
 	if !requestInfo.TargetAddr.IsIP() {
 		return false, nil
 	}
@@ -640,7 +640,7 @@ type DestResolvedGeoIPCountryCriterion struct {
 }
 
 // Meet implements the Criterion Meet method.
-func (c *DestResolvedGeoIPCountryCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c DestResolvedGeoIPCountryCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
 	if requestInfo.TargetAddr.IsIP() {
 		return matchAddrToGeoIPCountries(c.countries, requestInfo.TargetAddr.IP(), c.geoip, c.logger)
 	}
