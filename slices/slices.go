@@ -1,5 +1,22 @@
 package slices
 
+// Equal reports whether two slices are equal: the same length and all
+// elements equal. If the lengths are different, Equal returns false.
+// Otherwise, the elements are compared in increasing index order, and the
+// comparison stops at the first unequal pair.
+// Floating point NaNs are not considered equal.
+func Equal[E comparable](s1, s2 []E) bool {
+	if len(s1) != len(s2) {
+		return false
+	}
+	for i := range s1 {
+		if s1[i] != s2[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // Contains reports whether v is present in s.
 func Contains[E comparable](s []E, v E) bool {
 	for i := range s {
