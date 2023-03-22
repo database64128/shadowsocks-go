@@ -9,6 +9,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/domainset"
+	"github.com/database64128/shadowsocks-go/portset"
 	"github.com/database64128/shadowsocks-go/slices"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/oschwald/geoip2-golang"
@@ -18,6 +19,8 @@ import (
 
 // ErrRejected is a special error that indicates the request is rejected.
 var ErrRejected = errors.New("rejected")
+
+var errPointlessPortCriteria = errors.New("matching all ports is equivalent to not having any port filtering rules")
 
 // RouteConfig is a routing rule.
 type RouteConfig struct {
@@ -40,6 +43,12 @@ type RouteConfig struct {
 	// Match requests from these users. If empty, match all requests.
 	FromUsers []string `json:"fromUsers"`
 
+	// Match requests from these ports. If empty, match all requests.
+	FromPorts []uint16 `json:"fromPorts"`
+
+	// Match requests from these ports and port ranges. If empty, match all requests.
+	FromPortRanges string `json:"fromPortRanges"`
+
 	// Match requests from IP addresses in these prefixes. If empty, match all requests.
 	FromPrefixes []netip.Prefix `json:"fromPrefixes"`
 
@@ -49,8 +58,11 @@ type RouteConfig struct {
 	// Match requests from IP addresses in these countries. If empty, match all requests.
 	FromGeoIPCountries []string `json:"fromGeoIPCountries"`
 
-	// Match requests from these ports. If empty, match all requests.
-	FromPorts []uint16 `json:"fromPorts"`
+	// Match requests to these ports. If empty, match all requests.
+	ToPorts []uint16 `json:"toPorts"`
+
+	// Match requests to these ports and port ranges. If empty, match all requests.
+	ToPortRanges string `json:"toPortRanges"`
 
 	// Match requests to these domain targets. If empty, match all requests.
 	ToDomains []string `json:"toDomains"`
@@ -75,9 +87,6 @@ type RouteConfig struct {
 
 	// Match requests to IP addresses in these countries. If empty, match all requests.
 	ToGeoIPCountries []string `json:"toGeoIPCountries"`
-
-	// Match requests to these ports. If empty, match all requests.
-	ToPorts []uint16 `json:"toPorts"`
 
 	// Do not resolve destination domains to match IP rules.
 	DisableNameResolutionForIPRules bool `json:"disableNameResolutionForIPRules"`
@@ -203,6 +212,39 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 		route.AddCriterion(SourceUserCriterion(rc.FromUsers), rc.InvertFromUsers)
 	}
 
+	if len(rc.FromPorts) > 0 || rc.FromPortRanges != "" {
+		var portSet portset.PortSet
+
+		for _, port := range rc.FromPorts {
+			if port == 0 {
+				return Route{}, fmt.Errorf("bad fromPorts: %w", portset.ErrZeroPort)
+			}
+			portSet.Add(port)
+		}
+
+		if err := portSet.Parse(rc.FromPortRanges); err != nil {
+			return Route{}, fmt.Errorf("failed to parse source port ranges: %w", err)
+		}
+
+		portCount := portSet.Count()
+		switch portCount {
+		case 0:
+			panic("unreachable")
+		case 1:
+			route.AddCriterion(SourcePortCriterion(portSet.First()), rc.InvertFromPorts)
+		case 65535:
+			return Route{}, fmt.Errorf("bad source port criteria: %w", errPointlessPortCriteria)
+		default:
+			portRangeCount := portSet.RangeCount()
+			if portRangeCount <= 16 {
+				route.AddCriterion(SourcePortRangeSetCriterion(portSet.RangeSet()), rc.InvertFromPorts)
+			} else {
+				sourcePortSetCriterion := SourcePortSetCriterion(portSet)
+				route.AddCriterion(&sourcePortSetCriterion, rc.InvertFromPorts)
+			}
+		}
+	}
+
 	if len(rc.FromPrefixes) > 0 || len(rc.FromPrefixSets) > 0 || len(rc.FromGeoIPCountries) > 0 {
 		var group CriterionGroupOR
 
@@ -240,8 +282,37 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 		route.criteria = group.AppendTo(route.criteria)
 	}
 
-	if len(rc.FromPorts) > 0 {
-		route.AddCriterion(SourcePortCriterion(rc.FromPorts), rc.InvertFromPorts)
+	if len(rc.ToPorts) > 0 || rc.ToPortRanges != "" {
+		var portSet portset.PortSet
+
+		for _, port := range rc.ToPorts {
+			if port == 0 {
+				return Route{}, fmt.Errorf("bad toPorts: %w", portset.ErrZeroPort)
+			}
+			portSet.Add(port)
+		}
+
+		if err := portSet.Parse(rc.ToPortRanges); err != nil {
+			return Route{}, fmt.Errorf("failed to parse destination port ranges: %w", err)
+		}
+
+		portCount := portSet.Count()
+		switch portCount {
+		case 0:
+			panic("unreachable")
+		case 1:
+			route.AddCriterion(DestPortCriterion(portSet.First()), rc.InvertToPorts)
+		case 65535:
+			return Route{}, fmt.Errorf("bad destination port criteria: %w", errPointlessPortCriteria)
+		default:
+			portRangeCount := portSet.RangeCount()
+			if portRangeCount <= 16 {
+				route.AddCriterion(DestPortRangeSetCriterion(portSet.RangeSet()), rc.InvertToPorts)
+			} else {
+				destPortSetCriterion := DestPortSetCriterion(portSet)
+				route.AddCriterion(&destPortSetCriterion, rc.InvertToPorts)
+			}
+		}
 	}
 
 	if len(rc.ToDomains) > 0 || len(rc.ToDomainSets) > 0 || len(rc.ToPrefixes) > 0 || len(rc.ToPrefixSets) > 0 || len(rc.ToGeoIPCountries) > 0 {
@@ -359,10 +430,6 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 		}
 
 		route.criteria = group.AppendTo(route.criteria)
-	}
-
-	if len(rc.ToPorts) > 0 {
-		route.AddCriterion(DestPortCriterion(rc.ToPorts), rc.InvertToPorts)
 	}
 
 	return route, nil
@@ -537,6 +604,30 @@ func (c SourceUserCriterion) Meet(network protocol, requestInfo RequestInfo) (bo
 	return slices.Contains(c, requestInfo.Username), nil
 }
 
+// SourcePortCriterion restricts the source port.
+type SourcePortCriterion uint16
+
+// Meet implements the Criterion Meet method.
+func (c SourcePortCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+	return uint16(c) == requestInfo.SourceAddrPort.Port(), nil
+}
+
+// SourcePortRangeSetCriterion restricts the source port to ports in a port range set.
+type SourcePortRangeSetCriterion portset.PortRangeSet
+
+// Meet implements the Criterion Meet method.
+func (c SourcePortRangeSetCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+	return portset.PortRangeSet(c).Contains(requestInfo.SourceAddrPort.Port()), nil
+}
+
+// SourcePortSetCriterion restricts the source port to ports in a port set.
+type SourcePortSetCriterion portset.PortSet
+
+// Meet implements the Criterion Meet method.
+func (c *SourcePortSetCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+	return (*portset.PortSet)(c).Contains(requestInfo.SourceAddrPort.Port()), nil
+}
+
 // SourceIPCriterion restricts the source IP address.
 type SourceIPCriterion netipx.IPSet
 
@@ -557,12 +648,28 @@ func (c SourceGeoIPCountryCriterion) Meet(network protocol, requestInfo RequestI
 	return matchAddrToGeoIPCountries(c.countries, requestInfo.SourceAddrPort.Addr(), c.geoip, c.logger)
 }
 
-// SourcePortCriterion restricts the source port.
-type SourcePortCriterion []uint16
+// DestPortCriterion restricts the destination port.
+type DestPortCriterion uint16
 
 // Meet implements the Criterion Meet method.
-func (c SourcePortCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
-	return slices.Contains(c, requestInfo.SourceAddrPort.Port()), nil
+func (c DestPortCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+	return uint16(c) == requestInfo.TargetAddr.Port(), nil
+}
+
+// DestPortRangeSetCriterion restricts the destination port to ports in a port range set.
+type DestPortRangeSetCriterion portset.PortRangeSet
+
+// Meet implements the Criterion Meet method.
+func (c DestPortRangeSetCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+	return portset.PortRangeSet(c).Contains(requestInfo.TargetAddr.Port()), nil
+}
+
+// DestPortSetCriterion restricts the destination port to ports in a port set.
+type DestPortSetCriterion portset.PortSet
+
+// Meet implements the Criterion Meet method.
+func (c *DestPortSetCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+	return (*portset.PortSet)(c).Contains(requestInfo.TargetAddr.Port()), nil
 }
 
 // DestDomainCriterion restricts the destination domain.
@@ -645,14 +752,6 @@ func (c DestResolvedGeoIPCountryCriterion) Meet(network protocol, requestInfo Re
 		return matchAddrToGeoIPCountries(c.countries, requestInfo.TargetAddr.IP(), c.geoip, c.logger)
 	}
 	return matchDomainToGeoIPCountries(c.resolvers, requestInfo.TargetAddr.Domain(), c.countries, c.geoip, c.logger)
-}
-
-// DestPortCriterion restricts the destination port.
-type DestPortCriterion []uint16
-
-// Meet implements the Criterion Meet method.
-func (c DestPortCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
-	return slices.Contains(c, requestInfo.TargetAddr.Port()), nil
 }
 
 func matchAddrToGeoIPCountries(countries []string, addr netip.Addr, geoip *geoip2.Reader, logger *zap.Logger) (bool, error) {

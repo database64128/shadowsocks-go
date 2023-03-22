@@ -168,6 +168,11 @@
                     "Steve",
                     "Alex"
                 ],
+                "fromPorts": [
+                    12345,
+                    54321
+                ],
+                "fromPortRanges": "12345,32768-60999",
                 "fromPrefixes": [
                     "127.0.0.1/32",
                     "::1/128"
@@ -178,10 +183,10 @@
                 "fromGeoIPCountries": [
                     "US"
                 ],
-                "fromPorts": [
-                    12345,
-                    54321
+                "toPorts": [
+                    443
                 ],
+                "toPortRanges": "80,443,8443",
                 "toDomains": [
                     "example.com"
                 ],
@@ -205,9 +210,6 @@
                 ],
                 "toGeoIPCountries": [
                     "US"
-                ],
-                "toPorts": [
-                    443
                 ],
                 "disableNameResolutionForIPRules": false,
                 "invertFromServers": false,
