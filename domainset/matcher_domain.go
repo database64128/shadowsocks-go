@@ -6,7 +6,7 @@ import (
 )
 
 // MaxLinearDomains is the maximum number of domain rules under which a linear matcher can outperform a map matcher.
-const MaxLinearDomains = 8
+const MaxLinearDomains = 16
 
 // DomainLinearMatcher matches domain rules using linear search.
 // It is faster than [DomainMapMatcher] when the number of rules is
@@ -56,6 +56,59 @@ func (dlmp *DomainLinearMatcher) AppendTo(matchers []Matcher) ([]Matcher, error)
 	}
 
 	return append(matchers, dlmp), nil
+}
+
+// DomainBinarySearchMatcher matches domain rules using binary search.
+type DomainBinarySearchMatcher []string
+
+// NewDomainBinarySearchMatcher creates a [DomainBinarySearchMatcher] with the specified initial capacity.
+func NewDomainBinarySearchMatcher(capacity int) MatcherBuilder {
+	dbsm := make(DomainBinarySearchMatcher, 0, capacity)
+	return &dbsm
+}
+
+// DomainBinarySearchMatcherFromSlice creates a [DomainBinarySearchMatcher] from a slice of domain rules.
+func DomainBinarySearchMatcherFromSlice(domains []string) DomainBinarySearchMatcher {
+	slices.Sort(domains)
+	return domains
+}
+
+// Match implements the Matcher Match method.
+func (dbsm DomainBinarySearchMatcher) Match(domain string) bool {
+	_, found := slices.BinarySearch(dbsm, domain)
+	return found
+}
+
+// Insert implements the MatcherBuilder Insert method.
+func (dbsmp *DomainBinarySearchMatcher) Insert(rule string) {
+	index, found := slices.BinarySearch(*dbsmp, rule)
+	if !found {
+		*dbsmp = slices.Insert(*dbsmp, index, rule)
+	}
+}
+
+// Rules implements the MatcherBuilder Rules method.
+func (dbsm DomainBinarySearchMatcher) Rules() []string {
+	return dbsm
+}
+
+// MatcherCount implements the MatcherBuilder MatcherCount method.
+func (dbsm DomainBinarySearchMatcher) MatcherCount() int {
+	if len(dbsm) == 0 {
+		return 0
+	}
+	return 1
+}
+
+// AppendTo implements the MatcherBuilder AppendTo method.
+func (dbsmp *DomainBinarySearchMatcher) AppendTo(matchers []Matcher) ([]Matcher, error) {
+	dbsm := *dbsmp
+
+	if len(dbsm) == 0 {
+		return matchers, nil
+	}
+
+	return append(matchers, dbsmp), nil
 }
 
 // DomainMapMatcher matches domain rules using a map.

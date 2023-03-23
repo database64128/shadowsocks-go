@@ -11,7 +11,7 @@ const (
 	longDomain   = "cant.come.up.with.a.long.domain.name"
 )
 
-var testSuffixes = [8]string{
+var testSuffixes = [...]string{
 	"example.com",
 	"github.com",
 	"cube64128.xyz",

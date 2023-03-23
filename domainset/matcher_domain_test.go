@@ -7,7 +7,7 @@ import (
 
 const testMissDomain = "aur.archlinux.org"
 
-var testDomains = [12]string{
+var testDomains = [...]string{
 	"example.com",
 	"github.com",
 	"cube64128.xyz",
@@ -15,10 +15,14 @@ var testDomains = [12]string{
 	"api.ipify.org",
 	"api6.ipify.org",
 	"archlinux.org",
+	"aur.archlinux.org",
+	"wiki.archlinux.org",
 	"dash.cloudflare.com",
 	"api.cloudflare.com",
 	"google.com",
 	"www.google.com",
+	"youtube.com",
+	"www.youtube.com",
 	"localdomain",
 }
 
@@ -43,7 +47,9 @@ func testDomainMatcher(t *testing.T, m Matcher) {
 	testMatcher(t, m, "api64.ipify.org", false)
 	testMatcher(t, m, "www.ipify.org", false)
 	testMatcher(t, m, "archlinux.org", true)
-	testMatcher(t, m, "aur.archlinux.org", false)
+	testMatcher(t, m, "aur.archlinux.org", true)
+	testMatcher(t, m, "bugs.archlinux.org", false)
+	testMatcher(t, m, "wiki.archlinux.org", true)
 	testMatcher(t, m, "cloudflare", false)
 	testMatcher(t, m, "cloudflare.com", false)
 	testMatcher(t, m, "dash.cloudflare.com", true)
@@ -51,6 +57,9 @@ func testDomainMatcher(t *testing.T, m Matcher) {
 	testMatcher(t, m, "google.com", true)
 	testMatcher(t, m, "www.google.com", true)
 	testMatcher(t, m, "amervice.google.com", false)
+	testMatcher(t, m, "youtube.com", true)
+	testMatcher(t, m, "www.youtube.com", true)
+	testMatcher(t, m, "m.youtube.com", false)
 	testMatcher(t, m, "localdomain", true)
 	testMatcher(t, m, "www.localdomain", false)
 }
@@ -58,6 +67,11 @@ func testDomainMatcher(t *testing.T, m Matcher) {
 func TestDomainLinearMatcher(t *testing.T) {
 	dlm := DomainLinearMatcher(testDomains[:])
 	testDomainMatcher(t, &dlm)
+}
+
+func TestDomainBinarySearchMatcher(t *testing.T) {
+	dbsm := DomainBinarySearchMatcherFromSlice(testDomains[:])
+	testDomainMatcher(t, &dbsm)
 }
 
 func TestDomainMapMatcher(t *testing.T) {
@@ -79,10 +93,12 @@ func benchmarkDomainMatcher(b *testing.B, count int, name string, m Matcher) {
 }
 
 func BenchmarkDomainMatchers(b *testing.B) {
-	for i := len(testDomains) / 2; i <= len(testDomains); i += 2 {
+	for i := len(testDomains) / 4; i <= len(testDomains); i += 3 {
 		dlm := DomainLinearMatcher(testDomains[:i])
+		dbsm := DomainBinarySearchMatcherFromSlice(testDomains[:i])
 		dmm := DomainMapMatcherFromSlice(testDomains[:i])
 		benchmarkDomainMatcher(b, i, "DomainLinearMatcher", &dlm)
+		benchmarkDomainMatcher(b, i, "DomainBinarySearchMatcher", &dbsm)
 		benchmarkDomainMatcher(b, i, "DomainMapMatcher", &dmm)
 	}
 }
