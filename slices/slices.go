@@ -27,6 +27,26 @@ func Contains[E comparable](s []E, v E) bool {
 	return false
 }
 
+// Insert inserts the values v... into s at index i,
+// returning the modified slice.
+// In the returned slice r, r[i] == v[0].
+// Insert panics if i is out of range.
+// This function is O(len(s) + len(v)).
+func Insert[S ~[]E, E any](s S, i int, v ...E) S {
+	tot := len(s) + len(v)
+	if tot <= cap(s) {
+		s2 := s[:tot]
+		copy(s2[i+len(v):], s[i:])
+		copy(s2[i:], v)
+		return s2
+	}
+	s2 := make(S, tot)
+	copy(s2, s[:i])
+	copy(s2[i:], v)
+	copy(s2[i+len(v):], s[i:])
+	return s2
+}
+
 // Extend extends the input slice by n elements. head is the full extended
 // slice, while tail is the appended part. If the original slice has sufficient
 // capacity no allocation is performed.
