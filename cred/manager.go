@@ -13,6 +13,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/maps"
 	"github.com/database64128/shadowsocks-go/mmap"
+	"github.com/database64128/shadowsocks-go/slices"
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"go.uber.org/zap"
 )
@@ -44,6 +45,11 @@ type UserCredential struct {
 	UPSK []byte `json:"uPSK"`
 }
 
+// Less is useful for sorting user credentials by username.
+func (uc UserCredential) Less(other UserCredential) bool {
+	return uc.Name < other.Name
+}
+
 type cachedUserCredential struct {
 	uPSK     []byte
 	uPSKHash [ss2022.IdentityHeaderLength]byte
@@ -60,6 +66,7 @@ func (s *ManagedServer) Credentials() []UserCredential {
 		})
 	}
 	s.mu.RUnlock()
+	slices.SortFunc(ucs, UserCredential.Less)
 	return ucs
 }
 
