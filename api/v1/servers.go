@@ -55,7 +55,7 @@ func (sm *ServerManager) AddServer(name string, cms *cred.ManagedServer, sc stat
 func (sm *ServerManager) Routes(v1 fiber.Router) {
 	v1.Get("/servers", sm.ListServers)
 
-	server := v1.Group("/servers/:server", sm.GetManagedServer)
+	server := v1.Group("/servers/:server", sm.ContextManagedServer)
 	server.Get("", GetServerInfo)
 	server.Get("/stats", sm.GetStats)
 
@@ -72,9 +72,9 @@ func (sm *ServerManager) ListServers(c *fiber.Ctx) error {
 	return c.JSON(&sm.managedServerNames)
 }
 
-// GetManagedServer is a middleware for the servers group.
+// ContextManagedServer is a middleware for the servers group.
 // It adds the server with the given name to the request context.
-func (sm *ServerManager) GetManagedServer(c *fiber.Ctx) error {
+func (sm *ServerManager) ContextManagedServer(c *fiber.Ctx) error {
 	name := c.Params("server")
 	ms := sm.managedServers[name]
 	if ms == nil {
@@ -84,9 +84,14 @@ func (sm *ServerManager) GetManagedServer(c *fiber.Ctx) error {
 	return c.Next()
 }
 
+// managedServerFromContext returns the managed server from the request context.
+func managedServerFromContext(c *fiber.Ctx) *managedServer {
+	return c.Locals(0).(*managedServer)
+}
+
 // GetStats returns server traffic statistics.
 func (sm *ServerManager) GetStats(c *fiber.Ctx) error {
-	ms := c.Locals(0).(*managedServer)
+	ms := managedServerFromContext(c)
 	if c.QueryBool("clear", false) {
 		return c.JSON(ms.sc.SnapshotAndReset())
 	}
@@ -96,7 +101,7 @@ func (sm *ServerManager) GetStats(c *fiber.Ctx) error {
 // CheckMultiUserSupport is a middleware for the users group.
 // It checks whether the selected server supports user management.
 func (sm *ServerManager) CheckMultiUserSupport(c *fiber.Ctx) error {
-	ms := c.Locals(0).(*managedServer)
+	ms := managedServerFromContext(c)
 	if ms.cms == nil {
 		return c.Status(fiber.StatusNotFound).JSON(&StandardError{Message: "The server does not support user management."})
 	}
@@ -110,7 +115,7 @@ type UserList struct {
 
 // ListUsers lists server users.
 func (sm *ServerManager) ListUsers(c *fiber.Ctx) error {
-	ms := c.Locals(0).(*managedServer)
+	ms := managedServerFromContext(c)
 	return c.JSON(&UserList{Users: ms.cms.Credentials()})
 }
 
@@ -121,7 +126,7 @@ func (sm *ServerManager) AddUser(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(&StandardError{Message: err.Error()})
 	}
 
-	ms := c.Locals(0).(*managedServer)
+	ms := managedServerFromContext(c)
 	if err := ms.cms.AddCredential(uc.Name, uc.UPSK); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(&StandardError{Message: err.Error()})
 	}
@@ -136,7 +141,7 @@ type UserInfo struct {
 
 // GetUser returns information about a user.
 func (sm *ServerManager) GetUser(c *fiber.Ctx) error {
-	ms := c.Locals(0).(*managedServer)
+	ms := managedServerFromContext(c)
 	username := c.Params("username")
 	uc, ok := ms.cms.GetCredential(username)
 	if !ok {
@@ -154,7 +159,7 @@ func (sm *ServerManager) UpdateUser(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(&StandardError{Message: err.Error()})
 	}
 
-	ms := c.Locals(0).(*managedServer)
+	ms := managedServerFromContext(c)
 	username := c.Params("username")
 	if err := ms.cms.UpdateCredential(username, update.UPSK); err != nil {
 		if errors.Is(err, cred.ErrNonexistentUser) {
@@ -167,7 +172,7 @@ func (sm *ServerManager) UpdateUser(c *fiber.Ctx) error {
 
 // DeleteUser deletes a user's credential.
 func (sm *ServerManager) DeleteUser(c *fiber.Ctx) error {
-	ms := c.Locals(0).(*managedServer)
+	ms := managedServerFromContext(c)
 	username := c.Params("username")
 	if err := ms.cms.DeleteCredential(username); err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(&StandardError{Message: err.Error()})
