@@ -86,15 +86,8 @@ func (sm *ServerManager) GetManagedServer(c *fiber.Ctx) error {
 
 // GetStats returns server traffic statistics.
 func (sm *ServerManager) GetStats(c *fiber.Ctx) error {
-	var query struct {
-		Clear bool `query:"clear"`
-	}
-	if err := c.QueryParser(&query); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(&StandardError{Message: err.Error()})
-	}
-
 	ms := c.Locals(0).(*managedServer)
-	if query.Clear {
+	if c.QueryBool("clear", false) {
 		return c.JSON(ms.sc.SnapshotAndReset())
 	}
 	return c.JSON(ms.sc.Snapshot())
