@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"net/netip"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/database64128/tfo-go/v2"
 )
 
 // UDPClient implements the zerocopy UDPClient interface.
@@ -21,7 +21,7 @@ type UDPClient struct {
 	shouldPad        PaddingPolicy
 }
 
-func NewUDPClient(addrPort netip.AddrPort, name string, mtu int, listenConfig tfo.ListenConfig, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
+func NewUDPClient(addrPort netip.AddrPort, name string, mtu int, listenConfig conn.ListenConfig, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
 	identityHeadersLen := IdentityHeaderLength * len(cipherConfig.iPSKs)
 	return &UDPClient{
 		addrPort: addrPort,

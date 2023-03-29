@@ -288,7 +288,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	packerInfo := packer.ClientPackerInfo()
 
 	// Prepare UDP socket.
-	udpConn, err := conn.ListenUDP(clientInfo.ListenConfig, "udp", "")
+	udpConn, err := clientInfo.ListenConfig.ListenUDP("udp", "")
 	if err != nil {
 		r.logger.Warn("Failed to create UDP socket for DNS lookup",
 			zap.String("resolver", r.name),

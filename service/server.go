@@ -13,7 +13,6 @@ import (
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
 )
 
@@ -214,8 +213,8 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Rel
 		natTimeout                  time.Duration
 		natServer                   zerocopy.UDPNATServer
 		server                      zerocopy.UDPSessionServer
-		serverConnListenConfig      tfo.ListenConfig
-		transparentConnListenConfig tfo.ListenConfig
+		serverConnListenConfig      conn.ListenConfig
+		transparentConnListenConfig conn.ListenConfig
 	)
 
 	switch {

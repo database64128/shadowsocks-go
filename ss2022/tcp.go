@@ -10,7 +10,6 @@ import (
 	"github.com/database64128/shadowsocks-go/magic"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/database64128/tfo-go/v2"
 )
 
 // TCPClient implements the zerocopy TCPClient interface.
@@ -22,7 +21,7 @@ type TCPClient struct {
 	unsafeResponseStreamPrefix []byte
 }
 
-func NewTCPClient(name, address string, dialer tfo.Dialer, cipherConfig *ClientCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPClient {
+func NewTCPClient(name, address string, dialer conn.Dialer, cipherConfig *ClientCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPClient {
 	return &TCPClient{
 		name:                       name,
 		rwo:                        zerocopy.NewTCPConnOpener(dialer, "tcp", address),

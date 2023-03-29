@@ -14,7 +14,6 @@ import (
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
 )
 
@@ -92,7 +91,7 @@ type UDPSessionRelay struct {
 	natTimeout             time.Duration
 	server                 zerocopy.UDPSessionServer
 	serverConn             *net.UDPConn
-	serverConnListenConfig tfo.ListenConfig
+	serverConnListenConfig conn.ListenConfig
 	collector              stats.Collector
 	router                 *router.Router
 	logger                 *zap.Logger
@@ -109,7 +108,7 @@ func NewUDPSessionRelay(
 	maxClientPackerHeadroom zerocopy.Headroom,
 	natTimeout time.Duration,
 	server zerocopy.UDPSessionServer,
-	serverConnListenConfig tfo.ListenConfig,
+	serverConnListenConfig conn.ListenConfig,
 	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
@@ -158,7 +157,7 @@ func (s *UDPSessionRelay) Start() error {
 }
 
 func (s *UDPSessionRelay) startGeneric() error {
-	serverConn, err := conn.ListenUDP(s.serverConnListenConfig, "udp", s.listenAddress)
+	serverConn, err := s.serverConnListenConfig.ListenUDP("udp", s.listenAddress)
 	if err != nil {
 		return err
 	}
@@ -410,7 +409,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 					return
 				}
 
-				natConn, err := conn.ListenUDP(clientInfo.ListenConfig, "udp", "")
+				natConn, err := clientInfo.ListenConfig.ListenUDP("udp", "")
 				if err != nil {
 					s.logger.Warn("Failed to create UDP socket for new NAT session",
 						zap.String("server", s.serverName),

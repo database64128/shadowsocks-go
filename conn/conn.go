@@ -48,6 +48,27 @@ func (fns setFuncSlice) controlFunc() func(network, address string, c syscall.Ra
 	}
 }
 
+// ListenConfig is [tfo.ListenConfig] but provides a subjectively nicer API.
+type ListenConfig tfo.ListenConfig
+
+// ListenTCP wraps [tfo.ListenConfig.Listen] and returns a [*net.TCPListener] directly.
+func (lc *ListenConfig) ListenTCP(network, address string) (*net.TCPListener, error) {
+	l, err := (*tfo.ListenConfig)(lc).Listen(context.Background(), network, address)
+	if err != nil {
+		return nil, err
+	}
+	return l.(*net.TCPListener), nil
+}
+
+// ListenUDP wraps [net.ListenConfig.ListenPacket] and returns a [*net.UDPConn] directly.
+func (lc *ListenConfig) ListenUDP(network, address string) (*net.UDPConn, error) {
+	pc, err := lc.ListenConfig.ListenPacket(context.Background(), network, address)
+	if err != nil {
+		return nil, err
+	}
+	return pc.(*net.UDPConn), nil
+}
+
 // ListenerSocketOptions contains listener-specific socket options.
 type ListenerSocketOptions struct {
 	// Fwmark sets the listener's fwmark on Linux, or user cookie on FreeBSD.
@@ -91,9 +112,9 @@ type ListenerSocketOptions struct {
 	ReceiveOriginalDestAddr bool
 }
 
-// ListenConfig returns a [tfo.ListenConfig] with a control function that sets the socket options.
-func (lso ListenerSocketOptions) ListenConfig() tfo.ListenConfig {
-	return tfo.ListenConfig{
+// ListenConfig returns a [ListenConfig] with a control function that sets the socket options.
+func (lso ListenerSocketOptions) ListenConfig() ListenConfig {
+	return ListenConfig{
 		ListenConfig: net.ListenConfig{
 			Control: lso.buildSetFns().controlFunc(),
 		},
@@ -107,7 +128,7 @@ var (
 		TCPFastOpen: true,
 	}
 
-	// DefaultTCPListenConfig is the default [tfo.ListenConfig] for TCP listeners.
+	// DefaultTCPListenConfig is the default [ListenConfig] for TCP listeners.
 	DefaultTCPListenConfig = DefaultTCPListenerSocketOptions.ListenConfig()
 
 	// DefaultUDPServerSocketOptions is the default [ListenerSocketOptions] for UDP servers.
@@ -116,7 +137,7 @@ var (
 		ReceivePacketInfo: true,
 	}
 
-	// DefaultUDPServerListenConfig is the default [tfo.ListenConfig] for UDP servers.
+	// DefaultUDPServerListenConfig is the default [ListenConfig] for UDP servers.
 	DefaultUDPServerListenConfig = DefaultUDPServerSocketOptions.ListenConfig()
 
 	// DefaultUDPClientSocketOptions is the default [ListenerSocketOptions] for UDP clients.
@@ -124,9 +145,30 @@ var (
 		PathMTUDiscovery: true,
 	}
 
-	// DefaultUDPClientListenConfig is the default [tfo.ListenConfig] for UDP clients.
+	// DefaultUDPClientListenConfig is the default [ListenConfig] for UDP clients.
 	DefaultUDPClientListenConfig = DefaultUDPClientSocketOptions.ListenConfig()
 )
+
+// Dialer is [tfo.Dialer] but provides a subjectively nicer API.
+type Dialer tfo.Dialer
+
+// DialTCP wraps [tfo.Dialer.Dial] and returns a [*net.TCPConn] directly.
+func (d *Dialer) DialTCP(network, address string, b []byte) (*net.TCPConn, error) {
+	c, err := (*tfo.Dialer)(d).Dial(network, address, b)
+	if err != nil {
+		return nil, err
+	}
+	return c.(*net.TCPConn), nil
+}
+
+// DialUDP wraps [net.Dialer.Dial] and returns a [*net.UDPConn] directly.
+func (d *Dialer) DialUDP(network, address string) (*net.UDPConn, error) {
+	c, err := d.Dialer.Dial(network, address)
+	if err != nil {
+		return nil, err
+	}
+	return c.(*net.UDPConn), nil
+}
 
 // DialerSocketOptions contains dialer-specific socket options.
 type DialerSocketOptions struct {
@@ -146,9 +188,9 @@ type DialerSocketOptions struct {
 	TCPFastOpen bool
 }
 
-// Dialer returns a [tfo.Dialer] with a control function that sets the socket options.
-func (dso DialerSocketOptions) Dialer() tfo.Dialer {
-	return tfo.Dialer{
+// Dialer returns a [Dialer] with a control function that sets the socket options.
+func (dso DialerSocketOptions) Dialer() Dialer {
+	return Dialer{
 		Dialer: net.Dialer{
 			ControlContext: dso.buildSetFns().controlContextFunc(),
 		},
@@ -162,24 +204,24 @@ var (
 		TCPFastOpen: true,
 	}
 
-	// DefaultTCPDialer is the default [tfo.Dialer] for TCP clients.
+	// DefaultTCPDialer is the default [Dialer] for TCP clients.
 	DefaultTCPDialer = DefaultTCPDialerSocketOptions.Dialer()
 )
 
-// ListenConfigCache is a map of [ListenerSocketOptions] to [tfo.ListenConfig].
-type ListenConfigCache map[ListenerSocketOptions]tfo.ListenConfig
+// ListenConfigCache is a map of [ListenerSocketOptions] to [ListenConfig].
+type ListenConfigCache map[ListenerSocketOptions]ListenConfig
 
-// NewListenConfigCache creates a new cache for [tfo.ListenConfig] with a few default entries.
+// NewListenConfigCache creates a new cache for [ListenConfig] with a few default entries.
 func NewListenConfigCache() ListenConfigCache {
-	cache := make(ListenConfigCache)
-	cache[DefaultTCPListenerSocketOptions] = DefaultTCPListenConfig
-	cache[DefaultUDPServerSocketOptions] = DefaultUDPServerListenConfig
-	cache[DefaultUDPClientSocketOptions] = DefaultUDPClientListenConfig
-	return cache
+	return ListenConfigCache{
+		DefaultTCPListenerSocketOptions: DefaultTCPListenConfig,
+		DefaultUDPServerSocketOptions:   DefaultUDPServerListenConfig,
+		DefaultUDPClientSocketOptions:   DefaultUDPClientListenConfig,
+	}
 }
 
-// Get returns a [tfo.ListenConfig] for the given [ListenerSocketOptions].
-func (cache ListenConfigCache) Get(lso ListenerSocketOptions) (lc tfo.ListenConfig) {
+// Get returns a [ListenConfig] for the given [ListenerSocketOptions].
+func (cache ListenConfigCache) Get(lso ListenerSocketOptions) (lc ListenConfig) {
 	lc, ok := cache[lso]
 	if ok {
 		return
@@ -189,18 +231,18 @@ func (cache ListenConfigCache) Get(lso ListenerSocketOptions) (lc tfo.ListenConf
 	return
 }
 
-// DialerCache is a map of [DialerSocketOptions] to [tfo.Dialer].
-type DialerCache map[DialerSocketOptions]tfo.Dialer
+// DialerCache is a map of [DialerSocketOptions] to [Dialer].
+type DialerCache map[DialerSocketOptions]Dialer
 
-// NewDialerCache creates a new cache for [tfo.Dialer] with a few default entries.
+// NewDialerCache creates a new cache for [Dialer] with a few default entries.
 func NewDialerCache() DialerCache {
-	cache := make(DialerCache)
-	cache[DefaultTCPDialerSocketOptions] = DefaultTCPDialer
-	return cache
+	return DialerCache{
+		DefaultTCPDialerSocketOptions: DefaultTCPDialer,
+	}
 }
 
-// Get returns a [tfo.Dialer] for the given [DialerSocketOptions].
-func (cache DialerCache) Get(dso DialerSocketOptions) (d tfo.Dialer) {
+// Get returns a [Dialer] for the given [DialerSocketOptions].
+func (cache DialerCache) Get(dso DialerSocketOptions) (d Dialer) {
 	d, ok := cache[dso]
 	if ok {
 		return
@@ -208,13 +250,4 @@ func (cache DialerCache) Get(dso DialerSocketOptions) (d tfo.Dialer) {
 	d = dso.Dialer()
 	cache[dso] = d
 	return
-}
-
-// ListenUDP creates a [*net.UDPConn] from the given [tfo.ListenConfig].
-func ListenUDP(listenConfig tfo.ListenConfig, network, address string) (*net.UDPConn, error) {
-	packetConn, err := listenConfig.ListenPacket(context.Background(), network, address)
-	if err != nil {
-		return nil, err
-	}
-	return packetConn.(*net.UDPConn), nil
 }

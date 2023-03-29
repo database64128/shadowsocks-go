@@ -14,7 +14,6 @@ import (
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
 	"golang.org/x/sys/unix"
 )
@@ -71,8 +70,8 @@ type UDPTransparentRelay struct {
 	sendChannelCapacity         int
 	natTimeout                  time.Duration
 	serverConn                  *net.UDPConn
-	serverConnlistenConfig      tfo.ListenConfig
-	transparentConnListenConfig tfo.ListenConfig
+	serverConnlistenConfig      conn.ListenConfig
+	transparentConnListenConfig conn.ListenConfig
 	collector                   stats.Collector
 	router                      *router.Router
 	logger                      *zap.Logger
@@ -88,7 +87,7 @@ func NewUDPTransparentRelay(
 	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, serverIndex, mtu int,
 	maxClientPackerHeadroom zerocopy.Headroom,
 	natTimeout time.Duration,
-	serverConnlistenConfig, transparentConnListenConfig tfo.ListenConfig,
+	serverConnlistenConfig, transparentConnListenConfig conn.ListenConfig,
 	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
@@ -129,7 +128,7 @@ func (s *UDPTransparentRelay) String() string {
 
 // Start implements the Relay Start method.
 func (s *UDPTransparentRelay) Start() error {
-	serverConn, err := conn.ListenUDPRawConn(s.serverConnlistenConfig, "udp", s.listenAddress)
+	serverConn, err := s.serverConnlistenConfig.ListenUDPRawConn("udp", s.listenAddress)
 	if err != nil {
 		return err
 	}
@@ -312,7 +311,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 						return
 					}
 
-					natConn, err := conn.ListenUDPRawConn(clientInfo.ListenConfig, "udp", "")
+					natConn, err := clientInfo.ListenConfig.ListenUDPRawConn("udp", "")
 					if err != nil {
 						s.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.String("server", s.serverName),
@@ -567,7 +566,7 @@ type transparentConn struct {
 }
 
 func (s *UDPTransparentRelay) newTransparentConn(address string, name *byte, namelen uint32) (*transparentConn, error) {
-	c, err := conn.ListenUDPRawConn(s.transparentConnListenConfig, "udp", address)
+	c, err := s.transparentConnListenConfig.ListenUDPRawConn("udp", address)
 	if err != nil {
 		return nil, err
 	}

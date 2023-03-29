@@ -3,7 +3,6 @@ package http
 import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
 )
 
@@ -11,10 +10,10 @@ import (
 type ProxyClient struct {
 	name    string
 	address string
-	dialer  tfo.Dialer
+	dialer  conn.Dialer
 }
 
-func NewProxyClient(name, address string, dialer tfo.Dialer) *ProxyClient {
+func NewProxyClient(name, address string, dialer conn.Dialer) *ProxyClient {
 	return &ProxyClient{
 		name:    name,
 		address: address,
@@ -32,11 +31,10 @@ func (c *ProxyClient) Info() zerocopy.TCPClientInfo {
 
 // Dial implements the zerocopy.TCPClient Dial method.
 func (c *ProxyClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
-	nc, err := c.dialer.Dial("tcp", c.address, nil)
+	rawRW, err = c.dialer.DialTCP("tcp", c.address, nil)
 	if err != nil {
 		return
 	}
-	rawRW = nc.(zerocopy.DirectReadWriteCloser)
 
 	rw, err = NewHttpStreamClientReadWriter(rawRW, targetAddr)
 	if err != nil {

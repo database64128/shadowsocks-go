@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -14,7 +13,6 @@ import (
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
 )
 
@@ -34,7 +32,7 @@ type TCPRelay struct {
 	serverName            string
 	listenAddress         string
 	wg                    sync.WaitGroup
-	listenConfig          tfo.ListenConfig
+	listenConfig          conn.ListenConfig
 	waitForInitialPayload bool
 	server                zerocopy.TCPServer
 	connCloser            zerocopy.TCPConnCloser
@@ -48,7 +46,7 @@ type TCPRelay struct {
 func NewTCPRelay(
 	serverIndex int,
 	serverName, listenAddress string, waitForInitialPayload bool,
-	listenConfig tfo.ListenConfig,
+	listenConfig conn.ListenConfig,
 	server zerocopy.TCPServer,
 	connCloser zerocopy.TCPConnCloser,
 	fallbackAddress *conn.Addr,
@@ -78,11 +76,11 @@ func (s *TCPRelay) String() string {
 
 // Start implements the Service Start method.
 func (s *TCPRelay) Start() error {
-	l, err := s.listenConfig.Listen(context.Background(), "tcp", s.listenAddress)
+	l, err := s.listenConfig.ListenTCP("tcp", s.listenAddress)
 	if err != nil {
 		return err
 	}
-	s.listener = l.(*net.TCPListener)
+	s.listener = l
 
 	s.wg.Add(1)
 

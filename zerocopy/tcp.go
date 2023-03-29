@@ -9,7 +9,6 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/magic"
-	"github.com/database64128/tfo-go/v2"
 	"go.uber.org/zap"
 )
 
@@ -71,12 +70,12 @@ type TCPServer interface {
 //
 // TCPConnOpener implements the DirectReadWriteCloserOpener interface.
 type TCPConnOpener struct {
-	dialer           tfo.Dialer
+	dialer           conn.Dialer
 	network, address string
 }
 
 // NewTCPConnOpener returns a new TCPConnOpener using the specified dialer, network and address.
-func NewTCPConnOpener(dialer tfo.Dialer, network, address string) *TCPConnOpener {
+func NewTCPConnOpener(dialer conn.Dialer, network, address string) *TCPConnOpener {
 	return &TCPConnOpener{
 		dialer:  dialer,
 		network: network,
@@ -86,11 +85,7 @@ func NewTCPConnOpener(dialer tfo.Dialer, network, address string) *TCPConnOpener
 
 // Open implements the DirectReadWriteCloserOpener Open method.
 func (o *TCPConnOpener) Open(b []byte) (DirectReadWriteCloser, error) {
-	c, err := o.dialer.Dial(o.network, o.address, b)
-	if err != nil {
-		return nil, err
-	}
-	return c.(DirectReadWriteCloser), nil
+	return o.dialer.DialTCP(o.network, o.address, b)
 }
 
 // TCPConnCloser handles a potentially malicious TCP connection.

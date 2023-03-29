@@ -48,7 +48,7 @@ func (s *UDPNATRelay) setStartFunc(batchMode string) {
 }
 
 func (s *UDPNATRelay) startMmsg() error {
-	serverConn, err := conn.ListenUDPRawConn(s.serverConnListenConfig, "udp", s.listenAddress)
+	serverConn, err := s.serverConnListenConfig.ListenUDPRawConn("udp", s.listenAddress)
 	if err != nil {
 		return err
 	}
@@ -297,7 +297,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRConn) {
 						return
 					}
 
-					natConn, err := conn.ListenUDPRawConn(clientInfo.ListenConfig, "udp", "")
+					natConn, err := clientInfo.ListenConfig.ListenUDPRawConn("udp", "")
 					if err != nil {
 						s.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.String("server", s.serverName),

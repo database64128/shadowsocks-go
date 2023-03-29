@@ -3,7 +3,7 @@ package zerocopy
 import (
 	"sync"
 
-	"github.com/database64128/tfo-go/v2"
+	"github.com/database64128/shadowsocks-go/conn"
 )
 
 // UDPClientInfo contains information about a UDP client.
@@ -17,8 +17,8 @@ type UDPClientInfo struct {
 	// MaxPacketSize is the maximum size of outgoing packets.
 	MaxPacketSize int
 
-	// ListenConfig is the [tfo.ListenConfig] for opening client sockets.
-	ListenConfig tfo.ListenConfig
+	// ListenConfig is the [conn.ListenConfig] for opening client sockets.
+	ListenConfig conn.ListenConfig
 }
 
 // UDPClient stores information for creating new client sessions.
@@ -85,7 +85,7 @@ type SimpleUDPClient struct {
 }
 
 // NewSimpleUDPClient wraps a PackUnpacker into a UDPClient and uses it for all sessions.
-func NewSimpleUDPClient(name string, maxPacketSize int, listenConfig tfo.ListenConfig, packer ClientPacker, unpacker ClientUnpacker) *SimpleUDPClient {
+func NewSimpleUDPClient(name string, maxPacketSize int, listenConfig conn.ListenConfig, packer ClientPacker, unpacker ClientUnpacker) *SimpleUDPClient {
 	return &SimpleUDPClient{
 		info: UDPClientInfo{
 			Name:           name,

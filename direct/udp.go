@@ -5,16 +5,15 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/database64128/tfo-go/v2"
 )
 
-func NewUDPClient(name string, mtu int, listenConfig tfo.ListenConfig) *zerocopy.SimpleUDPClient {
+func NewUDPClient(name string, mtu int, listenConfig conn.ListenConfig) *zerocopy.SimpleUDPClient {
 	p := NewDirectPacketClientPackUnpacker(mtu)
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(mtu, netip.IPv4Unspecified())
 	return zerocopy.NewSimpleUDPClient(name, maxPacketSize, listenConfig, p, p)
 }
 
-func NewShadowsocksNoneUDPClient(addrPort netip.AddrPort, name string, mtu int, listenConfig tfo.ListenConfig) *zerocopy.SimpleUDPClient {
+func NewShadowsocksNoneUDPClient(addrPort netip.AddrPort, name string, mtu int, listenConfig conn.ListenConfig) *zerocopy.SimpleUDPClient {
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr())
 	packer := NewShadowsocksNonePacketClientPacker(addrPort, maxPacketSize)
 	unpacker := NewShadowsocksNonePacketClientUnpacker(addrPort)
@@ -26,7 +25,7 @@ func NewShadowsocksNoneUDPClient(addrPort netip.AddrPort, name string, mtu int, 
 // Technically, each UDP session should be preceded by a UDP ASSOCIATE request.
 // But most censorship circumvention programs do not require this.
 // So we just skip this little ritual.
-func NewSocks5UDPClient(addrPort netip.AddrPort, name string, mtu int, listenConfig tfo.ListenConfig) *zerocopy.SimpleUDPClient {
+func NewSocks5UDPClient(addrPort netip.AddrPort, name string, mtu int, listenConfig conn.ListenConfig) *zerocopy.SimpleUDPClient {
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr())
 	packer := NewSocks5PacketClientPacker(addrPort, maxPacketSize)
 	unpacker := NewSocks5PacketClientUnpacker(addrPort)
