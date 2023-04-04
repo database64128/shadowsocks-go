@@ -91,8 +91,13 @@ func LengthOfAddrFromAddrPort(addrPort netip.AddrPort) int {
 
 // AppendAddrFromConnAddr appends the address to the buffer in the SOCKS address format.
 //
-// If the address is an IPv4-mapped IPv6 address, it is converted to an IPv4 address.
+// - Zero value address is treated as 0.0.0.0:0.
+// - IPv4-mapped IPv6 address is converted to the equivalent IPv4 address.
 func AppendAddrFromConnAddr(b []byte, addr conn.Addr) []byte {
+	if !addr.IsValid() {
+		return AppendAddrFromAddrPort(b, netip.AddrPortFrom(netip.IPv4Unspecified(), 0))
+	}
+
 	if addr.IsIP() {
 		return AppendAddrFromAddrPort(b, addr.IPPort())
 	}
@@ -112,11 +117,16 @@ func AppendAddrFromConnAddr(b []byte, addr conn.Addr) []byte {
 // WriteAddrFromConnAddr writes the address to the buffer in the SOCKS address format
 // and returns the number of bytes written.
 //
-// If the address is an IPv4-mapped IPv6 address, it is converted to an IPv4 address.
+// - Zero value address is treated as 0.0.0.0:0.
+// - IPv4-mapped IPv6 address is converted to the equivalent IPv4 address.
 //
 // This function does not check whether b has sufficient space for the address.
 // The caller may call [LengthOfAddrFromConnAddr] to get the required length.
 func WriteAddrFromConnAddr(b []byte, addr conn.Addr) int {
+	if !addr.IsValid() {
+		return WriteAddrFromAddrPort(b, netip.AddrPortFrom(netip.IPv4Unspecified(), 0))
+	}
+
 	if addr.IsIP() {
 		return WriteAddrFromAddrPort(b, addr.IPPort())
 	}
@@ -133,7 +143,13 @@ func WriteAddrFromConnAddr(b []byte, addr conn.Addr) int {
 }
 
 // LengthOfAddrFromConnAddr returns the length of a SOCKS address converted from the conn.Addr.
+//
+// - Zero value address is treated as 0.0.0.0:0.
+// - IPv4-mapped IPv6 address is treated as the equivalent IPv4 address.
 func LengthOfAddrFromConnAddr(addr conn.Addr) int {
+	if !addr.IsValid() {
+		return 1 + 4 + 2
+	}
 	if addr.IsIP() {
 		return LengthOfAddrFromAddrPort(addr.IPPort())
 	}

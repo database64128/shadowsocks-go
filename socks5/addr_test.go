@@ -10,6 +10,12 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 )
 
+// Test zero value address.
+var (
+	addrZero         = []byte{AtypIPv4, 0, 0, 0, 0, 0, 0}
+	addrZeroConnAddr conn.Addr
+)
+
 // Test IPv4 address.
 var (
 	addr4                = []byte{AtypIPv4, 127, 0, 0, 1, 4, 56}
@@ -230,6 +236,7 @@ func testAppendAddrFromConnAddr(t *testing.T, addr conn.Addr, expectedSA []byte)
 }
 
 func TestAppendAddrFromConnAddr(t *testing.T) {
+	testAppendAddrFromConnAddr(t, addrZeroConnAddr, addrZero)
 	testAppendAddrFromConnAddr(t, addr4connaddr, addr4)
 	testAppendAddrFromConnAddr(t, addr4in6connaddr, addr4in6)
 	testAppendAddrFromConnAddr(t, addr6connaddr, addr6)
@@ -263,6 +270,7 @@ func testLengthOfAndWriteAddrFromConnAddr(t *testing.T, addr conn.Addr, expected
 }
 
 func TestLengthOfAndWriteAddrFromConnAddr(t *testing.T) {
+	testLengthOfAndWriteAddrFromConnAddr(t, addrZeroConnAddr, addrZero)
 	testLengthOfAndWriteAddrFromConnAddr(t, addr4connaddr, addr4)
 	testLengthOfAndWriteAddrFromConnAddr(t, addr4in6connaddr, addr4in6)
 	testLengthOfAndWriteAddrFromConnAddr(t, addr6connaddr, addr6)
