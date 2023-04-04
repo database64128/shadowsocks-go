@@ -379,11 +379,11 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 				s.wg.Add(1)
 				defer s.wg.Done()
 
-				clientInfo, natConnPacker, natConnUnpacker, err := c.NewSession()
+				clientSession, err := c.NewSession()
 				if err != nil {
 					s.logger.Warn("Failed to create new UDP client session",
 						zap.String("server", s.serverName),
-						zap.String("client", clientInfo.Name),
+						zap.String("client", clientSession.ClientInfo.Name),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
@@ -398,7 +398,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 				if err != nil {
 					s.logger.Warn("Failed to create packer for client session",
 						zap.String("server", s.serverName),
-						zap.String("client", clientInfo.Name),
+						zap.String("client", clientSession.ClientInfo.Name),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
@@ -406,14 +406,15 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 						zap.Uint64("clientSessionID", csid),
 						zap.Error(err),
 					)
+					clientSession.Close()
 					return
 				}
 
-				natConn, err := clientInfo.ListenConfig.ListenUDP("udp", "")
+				natConn, err := clientSession.ClientInfo.ListenConfig.ListenUDP("udp", "")
 				if err != nil {
 					s.logger.Warn("Failed to create UDP socket for new NAT session",
 						zap.String("server", s.serverName),
-						zap.String("client", clientInfo.Name),
+						zap.String("client", clientSession.ClientInfo.Name),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
@@ -421,6 +422,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 						zap.Uint64("clientSessionID", csid),
 						zap.Error(err),
 					)
+					clientSession.Close()
 					return
 				}
 
@@ -428,7 +430,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 				if err != nil {
 					s.logger.Warn("Failed to set read deadline on natConn",
 						zap.String("server", s.serverName),
-						zap.String("client", clientInfo.Name),
+						zap.String("client", clientSession.ClientInfo.Name),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
@@ -438,12 +440,14 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 						zap.Error(err),
 					)
 					natConn.Close()
+					clientSession.Close()
 					return
 				}
 
 				oldState := entry.state.Swap(natConn)
 				if oldState != nil {
 					natConn.Close()
+					clientSession.Close()
 					return
 				}
 
@@ -452,7 +456,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 
 				s.logger.Info("UDP session relay started",
 					zap.String("server", s.serverName),
-					zap.String("client", clientInfo.Name),
+					zap.String("client", clientSession.ClientInfo.Name),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
@@ -467,10 +471,11 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 						csid:          csid,
 						natConn:       natConn,
 						natConnSendCh: natConnSendCh,
-						natConnPacker: natConnPacker,
+						natConnPacker: clientSession.Packer,
 						username:      entry.username,
 					})
 					natConn.Close()
+					clientSession.Close()
 					s.wg.Done()
 				}()
 
@@ -479,8 +484,8 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 					clientAddrInfop:    clientAddrInfop,
 					clientAddrInfo:     &entry.clientAddrInfo,
 					natConn:            natConn,
-					natConnRecvBufSize: clientInfo.MaxPacketSize,
-					natConnUnpacker:    natConnUnpacker,
+					natConnRecvBufSize: clientSession.MaxPacketSize,
+					natConnUnpacker:    clientSession.Unpacker,
 					serverConn:         serverConn,
 					serverConnPacker:   serverConnPacker,
 					username:           entry.username,

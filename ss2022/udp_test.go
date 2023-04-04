@@ -28,6 +28,7 @@ const (
 
 var (
 	targetAddr           = conn.AddrFromIPPort(targetAddrPort)
+	serverAddr           = conn.AddrFromIPPort(serverAddrPort)
 	targetAddrPort       = netip.AddrPortFrom(netip.IPv6Unspecified(), 53)
 	serverAddrPort       = netip.AddrPortFrom(netip.IPv6Unspecified(), 1080)
 	clientAddrPort       = netip.AddrPortFrom(netip.IPv6Unspecified(), 10800)
@@ -36,7 +37,7 @@ var (
 )
 
 func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, clientShouldPad, serverShouldPad PaddingPolicy, mtu, packetSize, payloadLen int) {
-	c := NewUDPClient(serverAddrPort, name, mtu, conn.DefaultUDPClientListenConfig, clientCipherConfig, clientShouldPad)
+	c := NewUDPClient(serverAddr, name, mtu, conn.DefaultUDPClientListenConfig, clientCipherConfig, clientShouldPad)
 	s := NewUDPServer(userCipherConfig, identityCipherConfig, serverShouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 
@@ -44,14 +45,17 @@ func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, u
 	if clientInfo.Name != name {
 		t.Errorf("Fixed name mismatch: in: %s, out: %s", name, clientInfo.Name)
 	}
-	if clientInfo.MaxPacketSize != packetSize {
-		t.Errorf("Fixed MTU mismatch: in: %d, out: %d", mtu, clientInfo.MaxPacketSize)
+
+	clientSession, err := c.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clientSession.MaxPacketSize != packetSize {
+		t.Errorf("Fixed MTU mismatch: in: %d, out: %d", mtu, clientSession.MaxPacketSize)
 	}
 
-	_, clientPacker, clientUnpacker, err := c.NewSession()
-	clientPackerInfo := clientPacker.ClientPackerInfo()
-	frontHeadroom := clientPackerInfo.Headroom.Front + 8 // Compensate for server message overhead.
-	rearHeadroom := clientPackerInfo.Headroom.Rear
+	frontHeadroom := clientInfo.PackerHeadroom.Front + 8 // Compensate for server message overhead.
+	rearHeadroom := clientInfo.PackerHeadroom.Rear
 	b := make([]byte, frontHeadroom+payloadLen+rearHeadroom)
 	payload := b[frontHeadroom : frontHeadroom+payloadLen]
 
@@ -66,7 +70,7 @@ func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, u
 	copy(payloadBackup, payload)
 
 	// Client packs.
-	dap, pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, frontHeadroom, payloadLen)
+	dap, pkts, pktl, err := clientSession.Packer.PackInPlace(b, targetAddr, frontHeadroom, payloadLen)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +122,7 @@ func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, u
 	}
 
 	// Client unpacks.
-	tap, ps, pl, err := clientUnpacker.UnpackInPlace(b, serverAddrPort, pkts, pktl)
+	tap, ps, pl, err := clientSession.Unpacker.UnpackInPlace(b, serverAddrPort, pkts, pktl)
 	if err != nil {
 		t.Error(err)
 	}
@@ -141,22 +145,21 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 		t.Fatal(err)
 	}
 
-	c := NewUDPClient(serverAddrPort, name, mtu, conn.DefaultUDPClientListenConfig, clientCipherConfig, shouldPad)
+	c := NewUDPClient(serverAddr, name, mtu, conn.DefaultUDPClientListenConfig, clientCipherConfig, shouldPad)
 	s := NewUDPServer(userCipherConfig, identityCipherConfig, shouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 
-	_, clientPacker, clientUnpacker, err := c.NewSession()
+	clientSession, err := c.NewSession()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	clientPackerInfo := clientPacker.ClientPackerInfo()
-	frontHeadroom := clientPackerInfo.Headroom.Front + 8 // Compensate for server message overhead.
-	rearHeadroom := clientPackerInfo.Headroom.Rear
+	frontHeadroom := clientSession.ClientInfo.PackerHeadroom.Front + 8 // Compensate for server message overhead.
+	rearHeadroom := clientSession.ClientInfo.PackerHeadroom.Rear
 	b := make([]byte, frontHeadroom+payloadLen+rearHeadroom)
 
 	// Client packs.
-	dap, pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, frontHeadroom, payloadLen)
+	dap, pkts, pktl, err := clientSession.Packer.PackInPlace(b, targetAddr, frontHeadroom, payloadLen)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +220,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 	copy(pb0, b[pkts:pkts+pktl])
 
 	// Client unpacks.
-	_, _, _, err = clientUnpacker.UnpackInPlace(b, serverAddrPort, pkts, pktl)
+	_, _, _, err = clientSession.Unpacker.UnpackInPlace(b, serverAddrPort, pkts, pktl)
 	if err != nil {
 		t.Error(err)
 	}
@@ -238,11 +241,11 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 	copy(pb1, b[pkts:pkts+pktl])
 
 	// Trick client into accepting refreshed server session.
-	spcu := clientUnpacker.(*ShadowPacketClientUnpacker)
+	spcu := clientSession.Unpacker.(*ShadowPacketClientUnpacker)
 	spcu.oldServerSessionLastSeenTime = spcu.oldServerSessionLastSeenTime.Add(-time.Minute - time.Nanosecond)
 
 	// Client unpacks.
-	_, _, _, err = clientUnpacker.UnpackInPlace(b, serverAddrPort, pkts, pktl)
+	_, _, _, err = clientSession.Unpacker.UnpackInPlace(b, serverAddrPort, pkts, pktl)
 	if err != nil {
 		t.Error(err)
 	}
@@ -258,13 +261,13 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 	}
 
 	// Client unpacks.
-	_, _, _, err = clientUnpacker.UnpackInPlace(b, serverAddrPort, pkts, pktl)
+	_, _, _, err = clientSession.Unpacker.UnpackInPlace(b, serverAddrPort, pkts, pktl)
 	if err != ErrTooManyServerSessions {
 		t.Errorf("Expected ErrTooManyServerSessions, got %v", err)
 	}
 
 	// Client unpacks pb0.
-	_, _, _, err = clientUnpacker.UnpackInPlace(pb0, replayServerAddrPort, 0, len(pb0))
+	_, _, _, err = clientSession.Unpacker.UnpackInPlace(pb0, replayServerAddrPort, 0, len(pb0))
 	if !errors.As(err, &sprErr) {
 		t.Errorf("Expected ShadowPacketReplayError, got %T", err)
 	}
@@ -279,7 +282,7 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 	}
 
 	// Client unpacks pb1.
-	_, _, _, err = clientUnpacker.UnpackInPlace(pb1, replayServerAddrPort, 0, len(pb1))
+	_, _, _, err = clientSession.Unpacker.UnpackInPlace(pb1, replayServerAddrPort, 0, len(pb1))
 	if !errors.As(err, &sprErr) {
 		t.Errorf("Expected ShadowPacketReplayError, got %T", err)
 	}

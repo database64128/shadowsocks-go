@@ -298,11 +298,11 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 					s.wg.Add(1)
 					defer s.wg.Done()
 
-					clientInfo, natConnPacker, natConnUnpacker, err := c.NewSession()
+					clientSession, err := c.NewSession()
 					if err != nil {
 						s.logger.Warn("Failed to create new UDP client session",
 							zap.String("server", s.serverName),
-							zap.String("client", clientInfo.Name),
+							zap.String("client", clientSession.ClientInfo.Name),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
@@ -311,23 +311,24 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 						return
 					}
 
-					natConn, err := clientInfo.ListenConfig.ListenUDPRawConn("udp", "")
+					natConn, err := clientSession.ClientInfo.ListenConfig.ListenUDPRawConn("udp", "")
 					if err != nil {
 						s.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.String("server", s.serverName),
-							zap.String("client", clientInfo.Name),
+							zap.String("client", clientSession.ClientInfo.Name),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
 							zap.Error(err),
 						)
+						clientSession.Close()
 						return
 					}
 
 					if err = natConn.SetReadDeadline(time.Now().Add(s.natTimeout)); err != nil {
 						s.logger.Warn("Failed to set read deadline on natConn",
 							zap.String("server", s.serverName),
-							zap.String("client", clientInfo.Name),
+							zap.String("client", clientSession.ClientInfo.Name),
 							zap.String("listenAddress", s.listenAddress),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
@@ -335,12 +336,14 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 							zap.Error(err),
 						)
 						natConn.Close()
+						clientSession.Close()
 						return
 					}
 
 					oldState := entry.state.Swap(natConn.UDPConn)
 					if oldState != nil {
 						natConn.Close()
+						clientSession.Close()
 						return
 					}
 
@@ -349,7 +352,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 
 					s.logger.Info("UDP transparent relay started",
 						zap.String("server", s.serverName),
-						zap.String("client", clientInfo.Name),
+						zap.String("client", clientSession.ClientInfo.Name),
 						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
@@ -362,17 +365,18 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 							clientAddrPort: clientAddrPort,
 							natConn:        natConn.WConn(),
 							natConnSendCh:  natConnSendCh,
-							natConnPacker:  natConnPacker,
+							natConnPacker:  clientSession.Packer,
 						})
 						natConn.Close()
+						clientSession.Close()
 						s.wg.Done()
 					}()
 
 					s.relayNatConnToTransparentConnSendmmsg(transparentDownlink{
 						clientAddrPort:     clientAddrPort,
 						natConn:            natConn.RConn(),
-						natConnRecvBufSize: clientInfo.MaxPacketSize,
-						natConnUnpacker:    natConnUnpacker,
+						natConnRecvBufSize: clientSession.MaxPacketSize,
+						natConnUnpacker:    clientSession.Unpacker,
 					})
 				}()
 

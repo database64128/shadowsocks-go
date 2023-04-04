@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"net/netip"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
@@ -103,20 +102,6 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 		return nil, ErrMTUTooSmall
 	}
 
-	var (
-		endpointAddrPort netip.AddrPort
-		err              error
-	)
-
-	// Resolve endpoint address for some protocols.
-	switch cc.Protocol {
-	case "none", "plain", "socks5", "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		endpointAddrPort, err = cc.Endpoint.ResolveIPPort()
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	listenConfig := cc.listenConfigCache.Get(conn.ListenerSocketOptions{
 		Fwmark:           cc.DialerFwmark,
 		TrafficClass:     cc.DialerTrafficClass,
@@ -125,17 +110,22 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewUDPClient(cc.Name, cc.MTU, listenConfig), nil
+		return direct.NewDirectUDPClient(cc.Name, cc.MTU, listenConfig), nil
 	case "none", "plain":
-		return direct.NewShadowsocksNoneUDPClient(endpointAddrPort, cc.Name, cc.MTU, listenConfig), nil
+		return direct.NewShadowsocksNoneUDPClient(cc.Endpoint, cc.Name, cc.MTU, listenConfig), nil
 	case "socks5":
-		return direct.NewSocks5UDPClient(endpointAddrPort, cc.Name, cc.MTU, listenConfig), nil
+		dialer := cc.dialerCache.Get(conn.DialerSocketOptions{
+			Fwmark:       cc.DialerFwmark,
+			TrafficClass: cc.DialerTrafficClass,
+			TCPFastOpen:  cc.DialerTFO,
+		})
+		return direct.NewSocks5UDPClient(cc.logger, cc.Name, cc.Endpoint.String(), dialer, cc.MTU, listenConfig), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		shouldPad, err := ss2022.ParsePaddingPolicy(cc.PaddingPolicy)
 		if err != nil {
 			return nil, err
 		}
-		return ss2022.NewUDPClient(endpointAddrPort, cc.Name, cc.MTU, listenConfig, cc.cipherConfig, shouldPad), nil
+		return ss2022.NewUDPClient(cc.Endpoint, cc.Name, cc.MTU, listenConfig, cc.cipherConfig, shouldPad), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}

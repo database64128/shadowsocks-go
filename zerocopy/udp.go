@@ -14,11 +14,34 @@ type UDPClientInfo struct {
 	// PackerHeadroom is the headroom required by the packet packer.
 	PackerHeadroom Headroom
 
-	// MaxPacketSize is the maximum size of outgoing packets.
-	MaxPacketSize int
+	// MTU is the MTU of the client's designated network path.
+	MTU int
 
 	// ListenConfig is the [conn.ListenConfig] for opening client sockets.
 	ListenConfig conn.ListenConfig
+}
+
+// UDPClientSession contains information about a UDP client session.
+type UDPClientSession struct {
+	// ClientInfo is the client information.
+	ClientInfo UDPClientInfo
+
+	// MaxPacketSize is the maximum size of outgoing packets.
+	MaxPacketSize int
+
+	// Packer is the packet packer for the session.
+	Packer ClientPacker
+
+	// Unpacker is the packet unpacker for the session.
+	Unpacker ClientUnpacker
+
+	// Close closes the session.
+	Close func() error
+}
+
+// NoopClose is a no-op close function.
+func NoopClose() error {
+	return nil
 }
 
 // UDPClient stores information for creating new client sessions.
@@ -26,9 +49,8 @@ type UDPClient interface {
 	// Info returns information about the client.
 	Info() UDPClientInfo
 
-	// NewSession creates a new session and returns the client info,
-	// the packet packer and unpacker for the session, or an error.
-	NewSession() (UDPClientInfo, ClientPacker, ClientUnpacker, error)
+	// NewSession creates a new client session, and returns the session info or an error.
+	NewSession() (UDPClientSession, error)
 }
 
 // UDPNATServerInfo contains information about a UDP NAT server.
@@ -73,37 +95,4 @@ type UDPSessionServer interface {
 	// Upon successful unpacking, the unpacker's NewPacker method can be called to create
 	// a corresponding server session.
 	NewUnpacker(b []byte, csid uint64) (sessionServerUnpacker SessionServerUnpacker, username string, err error)
-}
-
-// SimpleUDPClient wraps a PackUnpacker and uses it for all sessions.
-//
-// SimpleUDPClient implements the UDPClient interface.
-type SimpleUDPClient struct {
-	info     UDPClientInfo
-	packer   ClientPacker
-	unpacker ClientUnpacker
-}
-
-// NewSimpleUDPClient wraps a PackUnpacker into a UDPClient and uses it for all sessions.
-func NewSimpleUDPClient(name string, maxPacketSize int, listenConfig conn.ListenConfig, packer ClientPacker, unpacker ClientUnpacker) *SimpleUDPClient {
-	return &SimpleUDPClient{
-		info: UDPClientInfo{
-			Name:           name,
-			PackerHeadroom: packer.ClientPackerInfo().Headroom,
-			MaxPacketSize:  maxPacketSize,
-			ListenConfig:   listenConfig,
-		},
-		packer:   packer,
-		unpacker: unpacker,
-	}
-}
-
-// Info implements the UDPClient Info method.
-func (c *SimpleUDPClient) Info() UDPClientInfo {
-	return c.info
-}
-
-// NewSession implements the UDPClient NewSession method.
-func (c *SimpleUDPClient) NewSession() (UDPClientInfo, ClientPacker, ClientUnpacker, error) {
-	return c.info, c.packer, c.unpacker, nil
 }

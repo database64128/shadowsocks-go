@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"encoding/binary"
 	"fmt"
-	"net/netip"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -14,21 +13,21 @@ import (
 
 // UDPClient implements the zerocopy UDPClient interface.
 type UDPClient struct {
-	addrPort         netip.AddrPort
+	addr             conn.Addr
 	info             zerocopy.UDPClientInfo
 	nonAEADHeaderLen int
 	cipherConfig     *ClientCipherConfig
 	shouldPad        PaddingPolicy
 }
 
-func NewUDPClient(addrPort netip.AddrPort, name string, mtu int, listenConfig conn.ListenConfig, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
+func NewUDPClient(addr conn.Addr, name string, mtu int, listenConfig conn.ListenConfig, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
 	identityHeadersLen := IdentityHeaderLength * len(cipherConfig.iPSKs)
 	return &UDPClient{
-		addrPort: addrPort,
+		addr: addr,
 		info: zerocopy.UDPClientInfo{
 			Name:           name,
 			PackerHeadroom: ShadowPacketClientMessageHeadroom(identityHeadersLen),
-			MaxPacketSize:  zerocopy.MaxPacketSizeForAddr(mtu, addrPort.Addr()),
+			MTU:            mtu,
 			ListenConfig:   listenConfig,
 		},
 		nonAEADHeaderLen: UDPSeparateHeaderLength + identityHeadersLen,
@@ -43,36 +42,46 @@ func (c *UDPClient) Info() zerocopy.UDPClientInfo {
 }
 
 // NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *UDPClient) NewSession() (zerocopy.UDPClientInfo, zerocopy.ClientPacker, zerocopy.ClientUnpacker, error) {
-	// Random client session ID.
-	salt := make([]byte, 8)
-	_, err := rand.Read(salt)
+func (c *UDPClient) NewSession() (zerocopy.UDPClientSession, error) {
+	addrPort, err := c.addr.ResolveIPPort()
 	if err != nil {
-		return c.info, nil, nil, err
+		return zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
+	}
+	maxPacketSize := zerocopy.MaxPacketSizeForAddr(c.info.MTU, addrPort.Addr())
+
+	salt := make([]byte, 8)
+	if _, err = rand.Read(salt); err != nil {
+		return zerocopy.UDPClientSession{}, err
 	}
 	csid := binary.BigEndian.Uint64(salt)
 	aead, err := c.cipherConfig.AEAD(salt)
 	if err != nil {
-		return c.info, nil, nil, err
+		return zerocopy.UDPClientSession{}, err
 	}
 
-	return c.info, &ShadowPacketClientPacker{
+	return zerocopy.UDPClientSession{
+		ClientInfo:    c.info,
+		MaxPacketSize: maxPacketSize,
+		Packer: &ShadowPacketClientPacker{
 			csid:             csid,
 			aead:             aead,
 			block:            c.cipherConfig.UDPSeparateHeaderPackerCipher(),
 			shouldPad:        c.shouldPad,
 			eihCiphers:       c.cipherConfig.UDPIdentityHeaderCiphers(),
 			eihPSKHashes:     c.cipherConfig.EIHPSKHashes(),
-			maxPacketSize:    c.info.MaxPacketSize,
+			maxPacketSize:    maxPacketSize,
 			nonAEADHeaderLen: c.nonAEADHeaderLen,
 			info: zerocopy.ClientPackerInfo{
 				Headroom: c.info.PackerHeadroom,
 			},
-			serverAddrPort: c.addrPort,
-		}, &ShadowPacketClientUnpacker{
+			serverAddrPort: addrPort,
+		},
+		Unpacker: &ShadowPacketClientUnpacker{
 			csid:         csid,
 			cipherConfig: c.cipherConfig,
-		}, nil
+		},
+		Close: zerocopy.NoopClose,
+	}, nil
 }
 
 // UDPServer implements the zerocopy UDPSessionServer interface.
