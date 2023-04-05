@@ -9,19 +9,22 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	_ "unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
-	"github.com/database64128/shadowsocks-go/magic"
 	"github.com/database64128/shadowsocks-go/pipe"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
 
+//go:linkname readRequest net/http.readRequest
+func readRequest(b *bufio.Reader) (req *http.Request, err error)
+
 // NewHttpStreamServerReadWriter handles a HTTP request from rw and wraps rw into a ReadWriter ready for use.
 func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *zap.Logger) (*direct.DirectStreamReadWriter, conn.Addr, error) {
 	rwbr := bufio.NewReader(rw)
-	req, err := magic.ReadRequest(rwbr)
+	req, err := readRequest(rwbr)
 	if err != nil {
 		return nil, conn.Addr{}, err
 	}
@@ -152,7 +155,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 			}
 
 			// Read request.
-			req, werr = magic.ReadRequest(rwbr)
+			req, werr = readRequest(rwbr)
 			if werr != nil {
 				if werr != io.EOF {
 					werr = fmt.Errorf("failed to read HTTP request: %w", werr)

@@ -8,7 +8,7 @@ import (
 	"net"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/magic"
+	"github.com/database64128/shadowsocks-go/fastrand"
 	"go.uber.org/zap"
 )
 
@@ -162,7 +162,7 @@ func ReplyWithGibberish(conn *net.TCPConn, serverName, listenAddress, clientAddr
 		err          error
 	)
 
-	b := make([]byte, bufBaseSize+magic.Fastrandu()&bufVarSizeMask) // [16k, 32k)
+	b := make([]byte, bufBaseSize+fastrand.Uint()&bufVarSizeMask) // [16k, 32k)
 
 	for {
 		n, err = conn.Read(b)
@@ -174,7 +174,7 @@ func ReplyWithGibberish(conn *net.TCPConn, serverName, listenAddress, clientAddr
 		// n is in [129, 256].
 		// getrandom(2) won't block if the request size is not greater than 256.
 		if remaining == 0 {
-			ri = magic.Fastrand64()
+			ri = fastrand.Uint64()
 			remaining = riMax
 		}
 		n = 129 + int(ri&riMask)

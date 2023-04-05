@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/magic"
+	"github.com/database64128/shadowsocks-go/fastrand"
 	"github.com/database64128/shadowsocks-go/socks5"
 )
 
@@ -25,7 +25,7 @@ func TestHeaderErrorString(t *testing.T) {
 
 func TestWriteAndParseTCPRequestFixedLengthHeader(t *testing.T) {
 	b := make([]byte, TCPRequestFixedLengthHeaderLength)
-	length := int(magic.Fastrand() & math.MaxUint16)
+	length := int(fastrand.Uint() & math.MaxUint16)
 
 	// 1. Good header
 	WriteTCPRequestFixedLengthHeader(b, uint16(length))
@@ -66,7 +66,7 @@ func TestWriteAndParseTCPRequestFixedLengthHeader(t *testing.T) {
 }
 
 func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
-	payloadLen := 1 + int(magic.Fastrand()&1023)
+	payloadLen := 1 + int(fastrand.Uint()&1023)
 	payload := make([]byte, payloadLen)
 	_, err := rand.Read(payload)
 	if err != nil {
@@ -74,7 +74,7 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 	}
 	targetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 443))
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
-	noPayloadLen := targetAddrLen + 2 + 1 + int(magic.Fastrandn(MaxPaddingLength))
+	noPayloadLen := targetAddrLen + 2 + 1 + int(fastrand.Uint32n(MaxPaddingLength))
 	noPaddingLen := targetAddrLen + 2 + payloadLen
 	bufLen := noPaddingLen + MaxPaddingLength
 	b := make([]byte, bufLen)
@@ -155,7 +155,7 @@ func TestWriteAndParseTCPResponseHeader(t *testing.T) {
 	)
 
 	b := make([]byte, bufLen)
-	length := int(magic.Fastrand() & math.MaxUint16)
+	length := int(fastrand.Uint() & math.MaxUint16)
 	requestSalt := make([]byte, saltLen)
 	_, err := rand.Read(requestSalt)
 	if err != nil {
@@ -212,8 +212,8 @@ func TestWriteAndParseTCPResponseHeader(t *testing.T) {
 }
 
 func TestWriteAndParseSessionIDAndPacketID(t *testing.T) {
-	sid := magic.Fastrand64()
-	pid := magic.Fastrand64()
+	sid := fastrand.Uint64()
+	pid := fastrand.Uint64()
 	b := make([]byte, 16)
 
 	WriteSessionIDAndPacketID(b, sid, pid)
@@ -231,9 +231,9 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	targetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	noPaddingLen := UDPClientMessageHeaderFixedLength + targetAddrLen
-	paddingLen := 1 + int(magic.Fastrandn(MaxPaddingLength))
+	paddingLen := 1 + int(fastrand.Uint32n(MaxPaddingLength))
 	headerLen := noPaddingLen + paddingLen
-	payloadLen := 1 + int(magic.Fastrand()&math.MaxUint16)
+	payloadLen := 1 + int(fastrand.Uint()&math.MaxUint16)
 	bufLen := headerLen + payloadLen
 	b := make([]byte, bufLen)
 	bNoPadding := b[paddingLen:]
@@ -334,13 +334,13 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 }
 
 func TestWriteAndParseUDPServerMessageHeader(t *testing.T) {
-	csid := magic.Fastrand64()
+	csid := fastrand.Uint64()
 	sourceAddrPort := netip.AddrPortFrom(netip.IPv6Unspecified(), 53)
 	sourceAddrPortLen := socks5.LengthOfAddrFromAddrPort(sourceAddrPort)
 	noPaddingLen := UDPServerMessageHeaderFixedLength + sourceAddrPortLen
-	paddingLen := 1 + int(magic.Fastrandn(MaxPaddingLength))
+	paddingLen := 1 + int(fastrand.Uint32n(MaxPaddingLength))
 	headerLen := noPaddingLen + paddingLen
-	payloadLen := 1 + int(magic.Fastrand()&math.MaxUint16)
+	payloadLen := 1 + int(fastrand.Uint()&math.MaxUint16)
 	bufLen := headerLen + payloadLen
 	b := make([]byte, bufLen)
 	bNoPadding := b[paddingLen:]
