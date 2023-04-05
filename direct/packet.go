@@ -9,10 +9,10 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-// DirectPacketClientPackUnpacker packs and unpacks packets for direct connection.
+// DirectPacketClientPacker packs packets for direct connection.
 //
-// DirectPacketClientPackUnpacker implements the zerocopy ClientPacker and Unpacker interfaces.
-type DirectPacketClientPackUnpacker struct {
+// DirectPacketClientPacker implements the zerocopy ClientPacker interface.
+type DirectPacketClientPacker struct {
 	// cachedDomain caches the last used domain target to avoid excessive DNS lookups.
 	cachedDomain string
 
@@ -23,19 +23,19 @@ type DirectPacketClientPackUnpacker struct {
 	mtu int
 }
 
-// NewDirectPacketClientPackUnpacker creates a zerocopy.ClientPackUnpacker for direct connection.
-func NewDirectPacketClientPackUnpacker(mtu int) *DirectPacketClientPackUnpacker {
-	return &DirectPacketClientPackUnpacker{
+// NewDirectPacketClientPacker creates a packet packer for direct connection.
+func NewDirectPacketClientPacker(mtu int) *DirectPacketClientPacker {
+	return &DirectPacketClientPacker{
 		mtu: mtu,
 	}
 }
 
 // ClientPackerInfo implements the zerocopy.ClientPacker ClientPackerInfo method.
-func (p *DirectPacketClientPackUnpacker) ClientPackerInfo() zerocopy.ClientPackerInfo {
+func (DirectPacketClientPacker) ClientPackerInfo() zerocopy.ClientPackerInfo {
 	return zerocopy.ClientPackerInfo{}
 }
 
-func (p *DirectPacketClientPackUnpacker) updateDomainIPCache(targetAddr conn.Addr) error {
+func (p *DirectPacketClientPacker) updateDomainIPCache(targetAddr conn.Addr) error {
 	if p.cachedDomain != targetAddr.Domain() {
 		ip, err := targetAddr.ResolveIP()
 		if err != nil {
@@ -48,7 +48,7 @@ func (p *DirectPacketClientPackUnpacker) updateDomainIPCache(targetAddr conn.Add
 }
 
 // PackInPlace implements the zerocopy.ClientPacker PackInPlace method.
-func (p *DirectPacketClientPackUnpacker) PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
+func (p *DirectPacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
 	if targetAddr.IsIP() {
 		destAddrPort = targetAddr.IPPort()
 	} else {
@@ -67,13 +67,18 @@ func (p *DirectPacketClientPackUnpacker) PackInPlace(b []byte, targetAddr conn.A
 	return
 }
 
+// DirectPacketClientUnpacker unpacks packets from direct connection.
+//
+// DirectPacketClientUnpacker implements the zerocopy ClientUnpacker interface.
+type DirectPacketClientUnpacker struct{}
+
 // ClientUnpackerInfo implements the zerocopy.ClientUnpacker ClientUnpackerInfo method.
-func (p *DirectPacketClientPackUnpacker) ClientUnpackerInfo() zerocopy.ClientUnpackerInfo {
+func (DirectPacketClientUnpacker) ClientUnpackerInfo() zerocopy.ClientUnpackerInfo {
 	return zerocopy.ClientUnpackerInfo{}
 }
 
 // UnpackInPlace implements the zerocopy.ClientUnpacker UnpackInPlace method.
-func (p *DirectPacketClientPackUnpacker) UnpackInPlace(b []byte, packetSourceAddrPort netip.AddrPort, packetStart, packetLen int) (payloadSourceAddr netip.AddrPort, payloadStart, payloadLen int, err error) {
+func (DirectPacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPort netip.AddrPort, packetStart, packetLen int) (payloadSourceAddr netip.AddrPort, payloadStart, payloadLen int, err error) {
 	payloadSourceAddr = packetSourceAddrPort
 	payloadStart = packetStart
 	payloadLen = packetLen
@@ -97,7 +102,7 @@ func NewDirectPacketServerPackUnpacker(targetAddr conn.Addr, targetAddrOnly bool
 }
 
 // ServerPackerInfo implements the zerocopy.ServerPacker ServerPackerInfo method.
-func (p *DirectPacketServerPackUnpacker) ServerPackerInfo() zerocopy.ServerPackerInfo {
+func (DirectPacketServerPackUnpacker) ServerPackerInfo() zerocopy.ServerPackerInfo {
 	return zerocopy.ServerPackerInfo{}
 }
 
@@ -115,7 +120,7 @@ func (p *DirectPacketServerPackUnpacker) PackInPlace(b []byte, sourceAddrPort ne
 }
 
 // ServerUnpackerInfo implements the zerocopy.ServerUnpacker ServerUnpackerInfo method.
-func (p *DirectPacketServerPackUnpacker) ServerUnpackerInfo() zerocopy.ServerUnpackerInfo {
+func (DirectPacketServerPackUnpacker) ServerUnpackerInfo() zerocopy.ServerUnpackerInfo {
 	return zerocopy.ServerUnpackerInfo{}
 }
 
@@ -158,7 +163,7 @@ func NewShadowsocksNonePacketClientPacker(serverAddrPort netip.AddrPort, maxPack
 }
 
 // ClientPackerInfo implements the zerocopy.ClientPacker ClientPackerInfo method.
-func (p *ShadowsocksNonePacketClientPacker) ClientPackerInfo() zerocopy.ClientPackerInfo {
+func (ShadowsocksNonePacketClientPacker) ClientPackerInfo() zerocopy.ClientPackerInfo {
 	return zerocopy.ClientPackerInfo{
 		Headroom: ShadowsocksNonePacketClientMessageHeadroom,
 	}
@@ -191,7 +196,7 @@ func NewShadowsocksNonePacketClientUnpacker(serverAddrPort netip.AddrPort) *Shad
 }
 
 // ClientUnpackerInfo implements the zerocopy.ClientUnpacker ClientUnpackerInfo method.
-func (p *ShadowsocksNonePacketClientUnpacker) ClientUnpackerInfo() zerocopy.ClientUnpackerInfo {
+func (ShadowsocksNonePacketClientUnpacker) ClientUnpackerInfo() zerocopy.ClientUnpackerInfo {
 	return zerocopy.ClientUnpackerInfo{
 		Headroom: ShadowsocksNonePacketServerMessageHeadroom,
 	}
@@ -285,7 +290,7 @@ func NewSocks5PacketClientPacker(serverAddrPort netip.AddrPort, maxPacketSize in
 }
 
 // ClientPackerInfo implements the zerocopy.ClientPacker ClientPackerInfo method.
-func (p *Socks5PacketClientPacker) ClientPackerInfo() zerocopy.ClientPackerInfo {
+func (Socks5PacketClientPacker) ClientPackerInfo() zerocopy.ClientPackerInfo {
 	return zerocopy.ClientPackerInfo{
 		Headroom: Socks5PacketClientMessageHeadroom,
 	}
@@ -319,7 +324,7 @@ func NewSocks5PacketClientUnpacker(serverAddrPort netip.AddrPort) *Socks5PacketC
 }
 
 // ClientUnpackerInfo implements the zerocopy.ClientUnpacker ClientUnpackerInfo method.
-func (p *Socks5PacketClientUnpacker) ClientUnpackerInfo() zerocopy.ClientUnpackerInfo {
+func (Socks5PacketClientUnpacker) ClientUnpackerInfo() zerocopy.ClientUnpackerInfo {
 	return zerocopy.ClientUnpackerInfo{
 		Headroom: Socks5PacketServerMessageHeadroom,
 	}

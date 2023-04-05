@@ -20,9 +20,9 @@ var (
 )
 
 func TestDirectPacketPackUnpacker(t *testing.T) {
-	c := NewDirectPacketClientPackUnpacker(mtu)
+	c := NewDirectPacketClientPacker(mtu)
 	s := NewDirectPacketServerPackUnpacker(targetAddr, false) // Cheat a little bit, because we have to. :P
-	zerocopy.ClientServerPackerUnpackerTestFunc(t, c, c, s, s)
+	zerocopy.ClientServerPackerUnpackerTestFunc(t, c, DirectPacketClientUnpacker{}, s, s)
 }
 
 func TestShadowsocksNonePacketPackUnpacker(t *testing.T) {

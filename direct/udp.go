@@ -21,7 +21,6 @@ type DirectUDPClient struct {
 
 // NewDirectUDPClient creates a new UDP client that sends packets directly.
 func NewDirectUDPClient(name string, mtu int, listenConfig conn.ListenConfig) *DirectUDPClient {
-	p := NewDirectPacketClientPackUnpacker(mtu)
 	return &DirectUDPClient{
 		session: zerocopy.UDPClientSession{
 			ClientInfo: zerocopy.UDPClientInfo{
@@ -30,8 +29,8 @@ func NewDirectUDPClient(name string, mtu int, listenConfig conn.ListenConfig) *D
 				ListenConfig: listenConfig,
 			},
 			MaxPacketSize: zerocopy.MaxPacketSizeForAddr(mtu, netip.IPv4Unspecified()),
-			Packer:        p,
-			Unpacker:      p,
+			Packer:        NewDirectPacketClientPacker(mtu),
+			Unpacker:      DirectPacketClientUnpacker{},
 			Close:         zerocopy.NoopClose,
 		},
 	}
