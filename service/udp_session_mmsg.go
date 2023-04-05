@@ -320,6 +320,20 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRConn)
 					s.wg.Add(1)
 					defer s.wg.Done()
 
+					serverConnPacker, err := entry.serverConnUnpacker.NewPacker()
+					if err != nil {
+						s.logger.Warn("Failed to create packer for client session",
+							zap.String("server", s.serverName),
+							zap.String("listenAddress", s.listenAddress),
+							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
+							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+							zap.String("username", entry.username),
+							zap.Uint64("clientSessionID", csid),
+							zap.Error(err),
+						)
+						return
+					}
+
 					clientSession, err := c.NewSession()
 					if err != nil {
 						s.logger.Warn("Failed to create new UDP client session",
@@ -332,22 +346,6 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRConn)
 							zap.Uint64("clientSessionID", csid),
 							zap.Error(err),
 						)
-						return
-					}
-
-					serverConnPacker, err := entry.serverConnUnpacker.NewPacker()
-					if err != nil {
-						s.logger.Warn("Failed to create packer for client session",
-							zap.String("server", s.serverName),
-							zap.String("client", clientSession.ClientInfo.Name),
-							zap.String("listenAddress", s.listenAddress),
-							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-							zap.String("username", entry.username),
-							zap.Uint64("clientSessionID", csid),
-							zap.Error(err),
-						)
-						clientSession.Close()
 						return
 					}
 

@@ -214,15 +214,13 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 
 		s.mu.Lock()
 
-		var serverConnPacker zerocopy.ServerPacker
-
 		entry, ok := s.table[clientAddrPort]
 		if !ok {
 			entry = &natEntry{}
 
-			serverConnPacker, entry.serverConnUnpacker, err = s.server.NewSession()
+			entry.serverConnUnpacker, err = s.server.NewUnpacker()
 			if err != nil {
-				s.logger.Warn("Failed to create new session for serverConn",
+				s.logger.Warn("Failed to create unpacker for serverConn",
 					zap.String("server", s.serverName),
 					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", clientAddrPort),
@@ -328,6 +326,18 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(serverConn *net.UDPConn) {
 				// Only add for the current goroutine here, since we don't want the router to block exiting.
 				s.wg.Add(1)
 				defer s.wg.Done()
+
+				serverConnPacker, err := entry.serverConnUnpacker.NewPacker()
+				if err != nil {
+					s.logger.Warn("Failed to create packer for serverConn",
+						zap.String("server", s.serverName),
+						zap.String("listenAddress", s.listenAddress),
+						zap.Stringer("clientAddress", clientAddrPort),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+						zap.Error(err),
+					)
+					return
+				}
 
 				clientSession, err := c.NewSession()
 				if err != nil {

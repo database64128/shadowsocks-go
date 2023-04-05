@@ -64,9 +64,12 @@ type UDPNATServer interface {
 	// Info returns information about the server.
 	Info() UDPNATServerInfo
 
-	// NewSession creates a new session and returns the packet packer
-	// and unpacker for the session, or an error.
-	NewSession() (ServerPacker, ServerUnpacker, error)
+	// NewUnpacker creates a new packet unpacker for the session.
+	//
+	// The returned unpacker is then used by the caller to unpack the incoming packet.
+	// Upon successful unpacking, the unpacker's NewPacker method can be called to create
+	// a corresponding packet packer.
+	NewUnpacker() (ServerUnpacker, error)
 }
 
 // UDPSessionServerInfo contains information about a UDP session server.
@@ -94,5 +97,5 @@ type UDPSessionServer interface {
 	// The returned unpacker is then used by the caller to unpack the incoming packet.
 	// Upon successful unpacking, the unpacker's NewPacker method can be called to create
 	// a corresponding server session.
-	NewUnpacker(b []byte, csid uint64) (sessionServerUnpacker SessionServerUnpacker, username string, err error)
+	NewUnpacker(b []byte, csid uint64) (serverUnpacker ServerUnpacker, username string, err error)
 }

@@ -388,7 +388,7 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPor
 // ShadowPacketServerUnpacker unpacks Shadowsocks client packets and returns
 // target address and plaintext payload.
 //
-// ShadowPacketServerUnpacker implements the zerocopy.SessionServerUnpacker interface.
+// ShadowPacketServerUnpacker implements the zerocopy.ServerUnpacker interface.
 type ShadowPacketServerUnpacker struct {
 	// Client session ID.
 	csid uint64
@@ -418,7 +418,7 @@ type ShadowPacketServerUnpacker struct {
 	packerShouldPad PaddingPolicy
 }
 
-// ServerUnpackerInfo implements the zerocopy.SessionServerUnpacker ServerUnpackerInfo method.
+// ServerUnpackerInfo implements the zerocopy.ServerUnpacker ServerUnpackerInfo method.
 func (p *ShadowPacketServerUnpacker) ServerUnpackerInfo() zerocopy.ServerUnpackerInfo {
 	return p.info
 }
@@ -426,7 +426,7 @@ func (p *ShadowPacketServerUnpacker) ServerUnpackerInfo() zerocopy.ServerUnpacke
 // UnpackInPlace unpacks the AEAD encrypted part of a Shadowsocks client packet
 // and returns target address, payload start offset and payload length, or an error.
 //
-// UnpackInPlace implements the zerocopy.SessionServerUnpacker UnpackInPlace method.
+// UnpackInPlace implements the zerocopy.ServerUnpacker UnpackInPlace method.
 func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, sourceAddr netip.AddrPort, packetStart, packetLen int) (targetAddr conn.Addr, payloadStart, payloadLen int, err error) {
 	// Check length.
 	if packetLen < p.nonAEADHeaderLen+p.aead.Overhead() {
@@ -468,7 +468,7 @@ func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, sourceAddr netip.Ad
 	return
 }
 
-// NewPacker implements the zerocopy.SessionServerUnpacker NewPacker method.
+// NewPacker implements the zerocopy.ServerUnpacker NewPacker method.
 func (p *ShadowPacketServerUnpacker) NewPacker() (zerocopy.ServerPacker, error) {
 	// Random server session ID.
 	salt := make([]byte, 8)

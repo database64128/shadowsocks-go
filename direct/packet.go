@@ -132,6 +132,11 @@ func (p *DirectPacketServerPackUnpacker) UnpackInPlace(b []byte, sourceAddrPort 
 	return
 }
 
+// NewPacker implements the zerocopy.ServerUnpacker NewPacker method.
+func (p *DirectPacketServerPackUnpacker) NewPacker() (zerocopy.ServerPacker, error) {
+	return p, nil
+}
+
 // ShadowsocksNonePacketClientMessageHeadroom is the headroom required by a Shadowsocks none client message.
 var ShadowsocksNonePacketClientMessageHeadroom = zerocopy.Headroom{
 	Front: socks5.MaxAddrLen,
@@ -257,6 +262,11 @@ func (p *ShadowsocksNonePacketServerUnpacker) UnpackInPlace(b []byte, sourceAddr
 	payloadStart = packetStart + targetAddrLen
 	payloadLen = packetLen - targetAddrLen
 	return
+}
+
+// NewPacker implements the zerocopy.ServerUnpacker NewPacker method.
+func (ShadowsocksNonePacketServerUnpacker) NewPacker() (zerocopy.ServerPacker, error) {
+	return ShadowsocksNonePacketServerPacker{}, nil
 }
 
 // Socks5PacketClientMessageHeadroom is the headroom required by a SOCKS5 client message.
@@ -409,4 +419,9 @@ func (p *Socks5PacketServerUnpacker) UnpackInPlace(b []byte, sourceAddrPort neti
 	payloadStart = packetStart + targetAddrLen + 3
 	payloadLen = packetLen - targetAddrLen - 3
 	return
+}
+
+// NewPacker implements the zerocopy.ServerUnpacker NewPacker method.
+func (Socks5PacketServerUnpacker) NewPacker() (zerocopy.ServerPacker, error) {
+	return Socks5PacketServerPacker{}, nil
 }

@@ -134,7 +134,7 @@ func (s *UDPServer) SessionInfo(b []byte) (csid uint64, err error) {
 }
 
 // NewUnpacker implements the zerocopy.UDPSessionServer NewUnpacker method.
-func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.SessionServerUnpacker, string, error) {
+func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker, string, error) {
 	nonAEADHeaderLen := UDPSeparateHeaderLength + s.identityHeaderLen
 
 	if len(b) < nonAEADHeaderLen {

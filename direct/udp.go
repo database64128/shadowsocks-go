@@ -178,9 +178,9 @@ func (s *DirectUDPNATServer) Info() zerocopy.UDPNATServerInfo {
 	return zerocopy.UDPNATServerInfo{}
 }
 
-// NewSession implements the zerocopy.UDPNATServer NewSession method.
-func (s *DirectUDPNATServer) NewSession() (zerocopy.ServerPacker, zerocopy.ServerUnpacker, error) {
-	return s.p, s.p, nil
+// NewUnpacker implements the zerocopy.UDPNATServer NewUnpacker method.
+func (s *DirectUDPNATServer) NewUnpacker() (zerocopy.ServerUnpacker, error) {
+	return s.p, nil
 }
 
 // ShadowsocksNoneUDPNATServer implements the zerocopy UDPNATServer interface.
@@ -193,9 +193,9 @@ func (ShadowsocksNoneUDPNATServer) Info() zerocopy.UDPNATServerInfo {
 	}
 }
 
-// NewSession implements the zerocopy.UDPNATServer NewSession method.
-func (ShadowsocksNoneUDPNATServer) NewSession() (zerocopy.ServerPacker, zerocopy.ServerUnpacker, error) {
-	return ShadowsocksNonePacketServerPacker{}, &ShadowsocksNonePacketServerUnpacker{}, nil
+// NewUnpacker implements the zerocopy.UDPNATServer NewUnpacker method.
+func (ShadowsocksNoneUDPNATServer) NewUnpacker() (zerocopy.ServerUnpacker, error) {
+	return &ShadowsocksNonePacketServerUnpacker{}, nil
 }
 
 // Socks5UDPNATServer implements the zerocopy UDPNATServer interface.
@@ -208,7 +208,7 @@ func (Socks5UDPNATServer) Info() zerocopy.UDPNATServerInfo {
 	}
 }
 
-// NewSession implements the zerocopy.UDPNATServer NewSession method.
-func (Socks5UDPNATServer) NewSession() (zerocopy.ServerPacker, zerocopy.ServerUnpacker, error) {
-	return Socks5PacketServerPacker{}, &Socks5PacketServerUnpacker{}, nil
+// NewUnpacker implements the zerocopy.UDPNATServer NewUnpacker method.
+func (Socks5UDPNATServer) NewUnpacker() (zerocopy.ServerUnpacker, error) {
+	return &Socks5PacketServerUnpacker{}, nil
 }
