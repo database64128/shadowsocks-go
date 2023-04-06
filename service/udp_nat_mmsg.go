@@ -278,10 +278,6 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRConn) {
 						return
 					}
 
-					// Only add for the current goroutine here, since we don't want the router to block exiting.
-					s.wg.Add(1)
-					defer s.wg.Done()
-
 					serverConnPacker, err := entry.serverConnUnpacker.NewPacker()
 					if err != nil {
 						s.logger.Warn("Failed to create packer for serverConn",
@@ -306,6 +302,11 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRConn) {
 						)
 						return
 					}
+
+					// Only add for the current goroutine here,
+					// since we don't want the router or the client to block exiting.
+					s.wg.Add(1)
+					defer s.wg.Done()
 
 					natConn, err := clientSession.ClientInfo.ListenConfig.ListenUDPRawConn("udp", "")
 					if err != nil {
