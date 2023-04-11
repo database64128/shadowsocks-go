@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"net/netip"
 	"time"
 
 	v1 "github.com/database64128/shadowsocks-go/api/v1"
@@ -16,36 +17,178 @@ import (
 	"go.uber.org/zap"
 )
 
+// ListenerConfig is the shared part of TCP listener and UDP server socket configurations.
+type ListenerConfig struct {
+	// Network is the network type.
+	// Valid values include "tcp", "tcp4", "tcp6", "udp", "udp4", "udp6".
+	Network string `json:"network"`
+
+	// Address is the address to listen on.
+	Address string `json:"address"`
+
+	// Fwmark sets the listener's fwmark on Linux, or user cookie on FreeBSD.
+	//
+	// Available on Linux and FreeBSD.
+	Fwmark int `json:"fwmark"`
+
+	// TrafficClass sets the traffic class of the listener.
+	//
+	// Available on most platforms except Windows.
+	TrafficClass int `json:"trafficClass"`
+
+	// ReusePort enables SO_REUSEPORT on the listener.
+	//
+	// Available on Linux and the BSDs.
+	ReusePort bool `json:"reusePort"`
+}
+
+// TCPListenerConfig is the configuration for a TCP listener.
+type TCPListenerConfig struct {
+	// ListenerConfig is the shared part of TCP listener and UDP server socket configurations.
+	ListenerConfig
+
+	// FastOpen enables TCP Fast Open on the listener.
+	//
+	// Available on Linux, macOS, FreeBSD, and Windows.
+	FastOpen bool `json:"fastOpen"`
+
+	// DisableInitialPayloadWait disables the brief wait for initial payload.
+	// Setting it to true is useful when the listener only relays server-speaks-first protocols.
+	DisableInitialPayloadWait bool `json:"disableInitialPayloadWait"`
+}
+
+// Configure returns a TCP listener configuration.
+func (lnc TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache, transparent, serverNativeInitialPayload bool) (tcpRelayListener, error) {
+	switch lnc.Network {
+	case "tcp", "tcp4", "tcp6":
+	default:
+		return tcpRelayListener{}, fmt.Errorf("invalid network: %s", lnc.Network)
+	}
+
+	return tcpRelayListener{
+		listenConfig: listenConfigCache.Get(conn.ListenerSocketOptions{
+			Fwmark:       lnc.Fwmark,
+			TrafficClass: lnc.TrafficClass,
+			ReusePort:    lnc.ReusePort,
+			Transparent:  transparent,
+			TCPFastOpen:  lnc.FastOpen,
+		}),
+		waitForInitialPayload: !serverNativeInitialPayload && !lnc.DisableInitialPayloadWait,
+		network:               lnc.Network,
+		address:               lnc.Address,
+	}, nil
+}
+
+// UDPListenerConfig is the configuration for a UDP server socket.
+type UDPListenerConfig struct {
+	// ListenerConfig is the shared part of TCP listener and UDP server socket configurations.
+	ListenerConfig
+
+	// UDPPerfConfig exposes performance tuning options.
+	UDPPerfConfig
+
+	// NATTimeoutSec is the number of seconds after which an inactive session is removed.
+	NATTimeoutSec int `json:"natTimeoutSec"`
+}
+
+// Configure returns a UDP server socket configuration.
+func (lnc UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache, transparent bool) (udpRelayServerConn, error) {
+	switch lnc.Network {
+	case "udp", "udp4", "udp6":
+	default:
+		return udpRelayServerConn{}, fmt.Errorf("invalid network: %s", lnc.Network)
+	}
+
+	if err := lnc.UDPPerfConfig.CheckAndApplyDefaults(); err != nil {
+		return udpRelayServerConn{}, err
+	}
+
+	var natTimeout time.Duration
+
+	switch {
+	case lnc.NATTimeoutSec == 0:
+		natTimeout = defaultNatTimeout
+	case lnc.NATTimeoutSec < minNatTimeoutSec:
+		return udpRelayServerConn{}, ErrNATTimeoutTooSmall
+	default:
+		natTimeout = time.Duration(lnc.NATTimeoutSec) * time.Second
+	}
+
+	return udpRelayServerConn{
+		listenConfig: listenConfigCache.Get(conn.ListenerSocketOptions{
+			Fwmark:            lnc.Fwmark,
+			TrafficClass:      lnc.TrafficClass,
+			ReusePort:         lnc.ReusePort,
+			Transparent:       transparent,
+			PathMTUDiscovery:  true,
+			ReceivePacketInfo: true,
+		}),
+		network:             lnc.Network,
+		address:             lnc.Address,
+		batchMode:           lnc.UDPPerfConfig.BatchMode,
+		relayBatchSize:      lnc.UDPPerfConfig.RelayBatchSize,
+		serverRecvBatchSize: lnc.UDPPerfConfig.ServerRecvBatchSize,
+		sendChannelCapacity: lnc.UDPPerfConfig.SendChannelCapacity,
+		natTimeout:          natTimeout,
+	}, nil
+}
+
 // ServerConfig stores a server configuration.
 // It may be marshaled as or unmarshaled from JSON.
 type ServerConfig struct {
-	Name                 string `json:"name"`
+	// Name is the name of the server.
+	Name string `json:"name"`
+
+	// Protocol is the protocol the server uses.
+	// Valid values include "direct", "tproxy" (Linux only), "socks5", "http", "none", "plain", "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm".
+	Protocol string `json:"protocol"`
+
+	// TCPListeners is the list of TCP listeners.
+	TCPListeners []TCPListenerConfig `json:"tcpListeners"`
+
+	// UDPListeners is the list of UDP listeners.
+	UDPListeners []UDPListenerConfig `json:"udpListeners"`
+
+	// MTU is the MTU of the server's designated network path.
+	// The value is used for calculating UDP receive buffer size.
+	MTU int `json:"mtu"`
+
+	// Single listener configuration.
+
 	Listen               string `json:"listen"`
-	Protocol             string `json:"protocol"`
 	ListenerFwmark       int    `json:"listenerFwmark"`
 	ListenerTrafficClass int    `json:"listenerTrafficClass"`
 
 	// TCP
+
 	EnableTCP                 bool `json:"enableTCP"`
 	ListenerTFO               bool `json:"listenerTFO"`
 	DisableInitialPayloadWait bool `json:"disableInitialPayloadWait"`
 
 	// UDP
+
 	EnableUDP     bool `json:"enableUDP"`
-	MTU           int  `json:"mtu"`
 	NatTimeoutSec int  `json:"natTimeoutSec"`
 
 	// UDP performance tuning
+
 	UDPBatchMode           string `json:"udpBatchMode"`
 	UDPRelayBatchSize      int    `json:"udpRelayBatchSize"`
 	UDPServerRecvBatchSize int    `json:"udpServerRecvBatchSize"`
 	UDPSendChannelCapacity int    `json:"udpSendChannelCapacity"`
 
 	// Simple tunnel
+
 	TunnelRemoteAddress conn.Addr `json:"tunnelRemoteAddress"`
 	TunnelUDPTargetOnly bool      `json:"tunnelUDPTargetOnly"`
 
+	// SOCKS5
+
+	socks5EnableTCP bool
+	socks5EnableUDP bool
+
 	// Shadowsocks
+
 	PSK                  []byte `json:"psk"`
 	UPSKStorePath        string `json:"uPSKStorePath"`
 	PaddingPolicy        string `json:"paddingPolicy"`
@@ -56,6 +199,7 @@ type ServerConfig struct {
 	udpCredStore         *ss2022.CredStore
 
 	// Taint
+
 	UnsafeFallbackAddress      *conn.Addr `json:"unsafeFallbackAddress"`
 	UnsafeRequestStreamPrefix  []byte     `json:"unsafeRequestStreamPrefix"`
 	UnsafeResponseStreamPrefix []byte     `json:"unsafeResponseStreamPrefix"`
@@ -89,6 +233,40 @@ func (sc *ServerConfig) Initialize(listenConfigCache conn.ListenConfigCache, col
 		}
 	}
 
+	sc.socks5EnableTCP = sc.EnableTCP || len(sc.TCPListeners) > 0
+	sc.socks5EnableUDP = sc.EnableUDP || len(sc.UDPListeners) > 0
+
+	if sc.EnableTCP {
+		sc.TCPListeners = append(sc.TCPListeners, TCPListenerConfig{
+			ListenerConfig: ListenerConfig{
+				Network:      "tcp",
+				Address:      sc.Listen,
+				Fwmark:       sc.ListenerFwmark,
+				TrafficClass: sc.ListenerTrafficClass,
+			},
+			FastOpen:                  sc.ListenerTFO,
+			DisableInitialPayloadWait: sc.DisableInitialPayloadWait,
+		})
+	}
+
+	if sc.EnableUDP {
+		sc.UDPListeners = append(sc.UDPListeners, UDPListenerConfig{
+			ListenerConfig: ListenerConfig{
+				Network:      "udp",
+				Address:      sc.Listen,
+				Fwmark:       sc.ListenerFwmark,
+				TrafficClass: sc.ListenerTrafficClass,
+			},
+			UDPPerfConfig: UDPPerfConfig{
+				BatchMode:           sc.UDPBatchMode,
+				RelayBatchSize:      sc.UDPRelayBatchSize,
+				ServerRecvBatchSize: sc.UDPServerRecvBatchSize,
+				SendChannelCapacity: sc.UDPSendChannelCapacity,
+			},
+			NATTimeoutSec: sc.NatTimeoutSec,
+		})
+	}
+
 	sc.listenConfigCache = listenConfigCache
 	sc.collector = collector
 	sc.router = router
@@ -99,7 +277,7 @@ func (sc *ServerConfig) Initialize(listenConfigCache conn.ListenConfigCache, col
 
 // TCPRelay creates a TCP relay service from the ServerConfig.
 func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
-	if !sc.EnableTCP && sc.Protocol != "socks5" {
+	if len(sc.TCPListeners) == 0 {
 		return nil, errNetworkDisabled
 	}
 
@@ -125,7 +303,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		server = direct.NewShadowsocksNoneTCPServer()
 
 	case "socks5":
-		server = direct.NewSocks5TCPServer(sc.EnableTCP, sc.EnableUDP)
+		server = direct.NewSocks5TCPServer(sc.socks5EnableTCP, sc.socks5EnableUDP)
 
 	case "http":
 		server = http.NewProxyServer(sc.logger)
@@ -157,21 +335,21 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		)
 	}
 
-	waitForInitialPayload := !serverInfo.NativeInitialPayload && !sc.DisableInitialPayloadWait
+	listeners := make([]tcpRelayListener, len(sc.TCPListeners))
 
-	listenConfig := sc.listenConfigCache.Get(conn.ListenerSocketOptions{
-		Fwmark:       sc.ListenerFwmark,
-		TrafficClass: sc.ListenerTrafficClass,
-		Transparent:  listenerTransparent,
-		TCPFastOpen:  sc.ListenerTFO,
-	})
+	for i := range listeners {
+		listeners[i], err = sc.TCPListeners[i].Configure(sc.listenConfigCache, listenerTransparent, serverInfo.NativeInitialPayload)
+		if err != nil {
+			return nil, err
+		}
+	}
 
-	return NewTCPRelay(sc.index, sc.Name, sc.Listen, waitForInitialPayload, listenConfig, server, connCloser, sc.UnsafeFallbackAddress, sc.collector, sc.router, sc.logger), nil
+	return NewTCPRelay(sc.index, sc.Name, listeners, server, connCloser, sc.UnsafeFallbackAddress, sc.collector, sc.router, sc.logger), nil
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
 func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Relay, error) {
-	if !sc.EnableUDP {
+	if len(sc.UDPListeners) == 0 {
 		return nil, errNetworkDisabled
 	}
 
@@ -179,58 +357,28 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Rel
 		return nil, ErrMTUTooSmall
 	}
 
-	switch sc.UDPBatchMode {
-	case "", "no", "sendmmsg":
-	default:
-		return nil, fmt.Errorf("unknown UDP batch mode: %s", sc.UDPBatchMode)
-	}
-
-	switch {
-	case sc.UDPRelayBatchSize > 0 && sc.UDPRelayBatchSize <= 1024:
-	case sc.UDPRelayBatchSize == 0:
-		sc.UDPRelayBatchSize = defaultRelayBatchSize
-	default:
-		return nil, fmt.Errorf("UDP relay batch size out of range [0, 1024]: %d", sc.UDPRelayBatchSize)
-	}
-
-	switch {
-	case sc.UDPServerRecvBatchSize > 0 && sc.UDPServerRecvBatchSize <= 1024:
-	case sc.UDPServerRecvBatchSize == 0:
-		sc.UDPServerRecvBatchSize = defaultServerRecvBatchSize
-	default:
-		return nil, fmt.Errorf("UDP server recv batch size out of range [0, 1024]: %d", sc.UDPServerRecvBatchSize)
-	}
-
-	switch {
-	case sc.UDPSendChannelCapacity >= 64:
-	case sc.UDPSendChannelCapacity == 0:
-		sc.UDPSendChannelCapacity = defaultSendChannelCapacity
-	default:
-		return nil, fmt.Errorf("UDP send channel capacity must be at least 64: %d", sc.UDPSendChannelCapacity)
-	}
-
 	var (
-		natTimeout                  time.Duration
 		natServer                   zerocopy.UDPNATServer
-		server                      zerocopy.UDPSessionServer
-		serverConnListenConfig      conn.ListenConfig
+		sessionServer               zerocopy.UDPSessionServer
+		serverUnpackerHeadroom      zerocopy.Headroom
 		transparentConnListenConfig conn.ListenConfig
+		err                         error
+		listenerTransparent         bool
 	)
-
-	switch {
-	case sc.NatTimeoutSec == 0:
-		natTimeout = defaultNatTimeout
-	case sc.NatTimeoutSec < minNatTimeoutSec:
-		return nil, fmt.Errorf("natTimeoutSec too short: %d, must be at least %d", sc.NatTimeoutSec, minNatTimeoutSec)
-	default:
-		natTimeout = time.Duration(sc.NatTimeoutSec) * time.Second
-	}
 
 	switch sc.Protocol {
 	case "direct":
 		natServer = direct.NewDirectUDPNATServer(sc.TunnelRemoteAddress, sc.TunnelUDPTargetOnly)
 
 	case "tproxy":
+		transparentConnListenConfig = sc.listenConfigCache.Get(conn.ListenerSocketOptions{
+			Fwmark:           sc.ListenerFwmark,
+			TrafficClass:     sc.ListenerTrafficClass,
+			Transparent:      true,
+			ReusePort:        true,
+			PathMTUDiscovery: true,
+		})
+		listenerTransparent = true
 
 	case "none", "plain":
 		natServer = direct.ShadowsocksNoneUDPNATServer{}
@@ -246,44 +394,39 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Rel
 
 		s := ss2022.NewUDPServer(sc.userCipherConfig, sc.identityCipherConfig, shouldPad)
 		sc.udpCredStore = &s.CredStore
-		server = s
+		sessionServer = s
 
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}
 
 	switch sc.Protocol {
-	case "tproxy":
-		serverConnListenConfig = sc.listenConfigCache.Get(conn.ListenerSocketOptions{
-			Fwmark:                  sc.ListenerFwmark,
-			TrafficClass:            sc.ListenerTrafficClass,
-			Transparent:             true,
-			PathMTUDiscovery:        true,
-			ReceiveOriginalDestAddr: true,
-		})
-		transparentConnListenConfig = sc.listenConfigCache.Get(conn.ListenerSocketOptions{
-			Fwmark:           sc.ListenerFwmark,
-			TrafficClass:     sc.ListenerTrafficClass,
-			Transparent:      true,
-			ReusePort:        true,
-			PathMTUDiscovery: true,
-		})
-	default:
-		serverConnListenConfig = sc.listenConfigCache.Get(conn.ListenerSocketOptions{
-			Fwmark:            sc.ListenerFwmark,
-			TrafficClass:      sc.ListenerTrafficClass,
-			PathMTUDiscovery:  true,
-			ReceivePacketInfo: true,
-		})
+	case "direct", "none", "plain", "socks5":
+		serverUnpackerHeadroom = natServer.Info().UnpackerHeadroom
+	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
+		serverUnpackerHeadroom = sessionServer.Info().UnpackerHeadroom
+	}
+
+	packetBufHeadroom := zerocopy.UDPRelayHeadroom(maxClientPackerHeadroom, serverUnpackerHeadroom)
+	packetBufRecvSize := zerocopy.MaxPacketSizeForAddr(sc.MTU, netip.IPv4Unspecified())
+	packetBufSize := packetBufHeadroom.Front + packetBufRecvSize + packetBufHeadroom.Rear
+
+	listeners := make([]udpRelayServerConn, len(sc.UDPListeners))
+
+	for i := range listeners {
+		listeners[i], err = sc.UDPListeners[i].Configure(sc.listenConfigCache, listenerTransparent)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	switch sc.Protocol {
 	case "direct", "none", "plain", "socks5":
-		return NewUDPNATRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.index, sc.MTU, maxClientPackerHeadroom, natTimeout, natServer, serverConnListenConfig, sc.collector, sc.router, sc.logger), nil
+		return NewUDPNATRelay(sc.Name, sc.index, sc.MTU, packetBufHeadroom.Front, packetBufRecvSize, packetBufSize, listeners, natServer, sc.collector, sc.router, sc.logger), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		return NewUDPSessionRelay(sc.UDPBatchMode, sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.index, sc.MTU, maxClientPackerHeadroom, natTimeout, server, serverConnListenConfig, sc.collector, sc.router, sc.logger), nil
+		return NewUDPSessionRelay(sc.Name, sc.index, sc.MTU, packetBufHeadroom.Front, packetBufRecvSize, packetBufSize, listeners, sessionServer, sc.collector, sc.router, sc.logger), nil
 	case "tproxy":
-		return NewUDPTransparentRelay(sc.Name, sc.Listen, sc.UDPRelayBatchSize, sc.UDPServerRecvBatchSize, sc.UDPSendChannelCapacity, sc.index, sc.MTU, maxClientPackerHeadroom, natTimeout, serverConnListenConfig, transparentConnListenConfig, sc.collector, sc.router, sc.logger)
+		return NewUDPTransparentRelay(sc.Name, sc.index, sc.MTU, packetBufHeadroom.Front, packetBufRecvSize, packetBufSize, listeners, transparentConnListenConfig, sc.collector, sc.router, sc.logger)
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}

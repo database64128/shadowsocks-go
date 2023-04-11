@@ -2,6 +2,6 @@
 
 package service
 
-func (s *UDPSessionRelay) setStartFunc(batchMode string) {
-	s.startFunc = s.startGeneric
+func (s *UDPSessionRelay) start(index int, lnc *udpRelayServerConn) error {
+	return s.startGeneric(index, lnc)
 }

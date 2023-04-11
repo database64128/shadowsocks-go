@@ -37,40 +37,44 @@ type transparentNATEntry struct {
 	//  - During initialization, if the swapped-out value is non-nil,
 	//    initialization must not proceed.
 	//  - During shutdown, if the swapped-out value is nil, preceed to the next entry.
-	state         atomic.Pointer[net.UDPConn]
-	natConnSendCh chan<- *transparentQueuedPacket
+	state                   atomic.Pointer[net.UDPConn]
+	natConnSendCh           chan<- *transparentQueuedPacket
+	serverConn              *net.UDPConn
+	serverConnListenAddress string
+	listenerIndex           int
 }
 
 // transparentUplink is used for passing information about relay uplink to the relay goroutine.
 type transparentUplink struct {
-	clientAddrPort netip.AddrPort
-	natConn        *conn.MmsgWConn
-	natConnSendCh  <-chan *transparentQueuedPacket
-	natConnPacker  zerocopy.ClientPacker
+	clientName              string
+	clientAddrPort          netip.AddrPort
+	natConn                 *conn.MmsgWConn
+	natConnSendCh           <-chan *transparentQueuedPacket
+	natConnPacker           zerocopy.ClientPacker
+	natTimeout              time.Duration
+	serverConnListenAddress string
+	relayBatchSize          int
+	listenerIndex           int
 }
 
 // transparentDownlink is used for passing information about relay downlink to the relay goroutine.
 type transparentDownlink struct {
+	clientName         string
 	clientAddrPort     netip.AddrPort
 	natConn            *conn.MmsgRConn
 	natConnRecvBufSize int
 	natConnUnpacker    zerocopy.ClientUnpacker
+	relayBatchSize     int
 }
 
 // UDPTransparentRelay is like [UDPNATRelay], but for transparent proxy.
 type UDPTransparentRelay struct {
 	serverName                  string
-	listenAddress               string
 	serverIndex                 int
 	mtu                         int
 	packetBufFrontHeadroom      int
 	packetBufRecvSize           int
-	relayBatchSize              int
-	serverRecvBatchSize         int
-	sendChannelCapacity         int
-	natTimeout                  time.Duration
-	serverConn                  *net.UDPConn
-	serverConnlistenConfig      conn.ListenConfig
+	listeners                   []udpRelayServerConn
 	transparentConnListenConfig conn.ListenConfig
 	collector                   stats.Collector
 	router                      *router.Router
@@ -83,29 +87,21 @@ type UDPTransparentRelay struct {
 }
 
 func NewUDPTransparentRelay(
-	serverName, listenAddress string,
-	relayBatchSize, serverRecvBatchSize, sendChannelCapacity, serverIndex, mtu int,
-	maxClientPackerHeadroom zerocopy.Headroom,
-	natTimeout time.Duration,
-	serverConnlistenConfig, transparentConnListenConfig conn.ListenConfig,
+	serverName string,
+	serverIndex, mtu, packetBufFrontHeadroom, packetBufRecvSize, packetBufSize int,
+	listeners []udpRelayServerConn,
+	transparentConnListenConfig conn.ListenConfig,
 	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
 ) (Relay, error) {
-	packetBufRecvSize := mtu - zerocopy.IPv4HeaderLength - zerocopy.UDPHeaderLength
-	packetBufSize := maxClientPackerHeadroom.Front + packetBufRecvSize + maxClientPackerHeadroom.Rear
 	return &UDPTransparentRelay{
 		serverName:                  serverName,
-		listenAddress:               listenAddress,
 		serverIndex:                 serverIndex,
 		mtu:                         mtu,
-		packetBufFrontHeadroom:      maxClientPackerHeadroom.Front,
+		packetBufFrontHeadroom:      packetBufFrontHeadroom,
 		packetBufRecvSize:           packetBufRecvSize,
-		relayBatchSize:              relayBatchSize,
-		serverRecvBatchSize:         serverRecvBatchSize,
-		sendChannelCapacity:         sendChannelCapacity,
-		natTimeout:                  natTimeout,
-		serverConnlistenConfig:      serverConnlistenConfig,
+		listeners:                   listeners,
 		transparentConnListenConfig: transparentConnListenConfig,
 		collector:                   collector,
 		router:                      router,
@@ -128,29 +124,34 @@ func (s *UDPTransparentRelay) String() string {
 
 // Start implements the Relay Start method.
 func (s *UDPTransparentRelay) Start() error {
-	serverConn, err := s.serverConnlistenConfig.ListenUDPRawConn("udp", s.listenAddress)
-	if err != nil {
-		return err
+	for i := range s.listeners {
+		index := i
+		lnc := &s.listeners[index]
+
+		serverConn, err := lnc.listenConfig.ListenUDPRawConn(lnc.network, lnc.address)
+		if err != nil {
+			return err
+		}
+		lnc.serverConn = serverConn.UDPConn
+
+		s.mwg.Add(1)
+
+		go func() {
+			s.recvFromServerConnRecvmmsg(index, lnc, serverConn.RConn())
+			s.mwg.Done()
+		}()
+
+		s.logger.Info("Started UDP transparent relay service listener",
+			zap.String("server", s.serverName),
+			zap.Int("listener", index),
+			zap.String("listenAddress", lnc.address),
+		)
 	}
-	s.serverConn = serverConn.UDPConn
-
-	s.mwg.Add(1)
-
-	go func() {
-		s.recvFromServerConnRecvmmsg(serverConn.RConn())
-		s.mwg.Done()
-	}()
-
-	s.logger.Info("Started UDP transparent relay service",
-		zap.String("server", s.serverName),
-		zap.String("listenAddress", s.listenAddress),
-	)
-
 	return nil
 }
 
-func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRConn) {
-	n := s.serverRecvBatchSize
+func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelayServerConn, serverConn *conn.MmsgRConn) {
+	n := lnc.serverRecvBatchSize
 	qpvec := make([]*transparentQueuedPacket, n)
 	namevec := make([]unix.RawSockaddrInet6, n)
 	iovec := make([]unix.Iovec, n)
@@ -192,7 +193,8 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 
 			s.logger.Warn("Failed to batch read packets from serverConn",
 				zap.String("server", s.serverName),
-				zap.String("listenAddress", s.listenAddress),
+				zap.Int("listener", index),
+				zap.String("listenAddress", lnc.address),
 				zap.Error(err),
 			)
 
@@ -219,7 +221,8 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 			if err != nil {
 				s.logger.Warn("Failed to parse sockaddr of packet from serverConn",
 					zap.String("server", s.serverName),
-					zap.String("listenAddress", s.listenAddress),
+					zap.Int("listener", index),
+					zap.String("listenAddress", lnc.address),
 					zap.Error(err),
 				)
 
@@ -230,7 +233,8 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 			if err = conn.ParseFlagsForError(int(msg.Msghdr.Flags)); err != nil {
 				s.logger.Warn("Packet from serverConn discarded",
 					zap.String("server", s.serverName),
-					zap.String("listenAddress", s.listenAddress),
+					zap.Int("listener", index),
+					zap.String("listenAddress", lnc.address),
 					zap.Stringer("clientAddress", clientAddrPort),
 					zap.Uint32("packetLength", msg.Msglen),
 					zap.Error(err),
@@ -244,7 +248,8 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 			if err != nil {
 				s.logger.Warn("Failed to parse original destination address control message from serverConn",
 					zap.String("server", s.serverName),
-					zap.String("listenAddress", s.listenAddress),
+					zap.Int("listener", index),
+					zap.String("listenAddress", lnc.address),
 					zap.Stringer("clientAddress", clientAddrPort),
 					zap.Error(err),
 				)
@@ -258,8 +263,13 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 
 			entry := s.table[clientAddrPort]
 			if entry == nil {
-				natConnSendCh := make(chan *transparentQueuedPacket, s.sendChannelCapacity)
-				entry = &transparentNATEntry{natConnSendCh: natConnSendCh}
+				natConnSendCh := make(chan *transparentQueuedPacket, lnc.sendChannelCapacity)
+				entry = &transparentNATEntry{
+					natConnSendCh:           natConnSendCh,
+					serverConn:              lnc.serverConn,
+					serverConnListenAddress: lnc.address,
+					listenerIndex:           index,
+				}
 				s.table[clientAddrPort] = entry
 
 				go func() {
@@ -286,7 +296,8 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 					if err != nil {
 						s.logger.Warn("Failed to get UDP client for new NAT session",
 							zap.String("server", s.serverName),
-							zap.String("listenAddress", s.listenAddress),
+							zap.Int("listener", index),
+							zap.String("listenAddress", lnc.address),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
 							zap.Error(err),
@@ -298,10 +309,11 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 					if err != nil {
 						s.logger.Warn("Failed to create new UDP client session",
 							zap.String("server", s.serverName),
-							zap.String("client", clientSession.ClientInfo.Name),
-							zap.String("listenAddress", s.listenAddress),
+							zap.Int("listener", index),
+							zap.String("listenAddress", lnc.address),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
+							zap.String("client", clientSession.ClientInfo.Name),
 							zap.Error(err),
 						)
 						return
@@ -316,24 +328,26 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 					if err != nil {
 						s.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.String("server", s.serverName),
-							zap.String("client", clientSession.ClientInfo.Name),
-							zap.String("listenAddress", s.listenAddress),
+							zap.Int("listener", index),
+							zap.String("listenAddress", lnc.address),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
+							zap.String("client", clientSession.ClientInfo.Name),
 							zap.Error(err),
 						)
 						clientSession.Close()
 						return
 					}
 
-					if err = natConn.SetReadDeadline(time.Now().Add(s.natTimeout)); err != nil {
+					if err = natConn.SetReadDeadline(time.Now().Add(lnc.natTimeout)); err != nil {
 						s.logger.Warn("Failed to set read deadline on natConn",
 							zap.String("server", s.serverName),
-							zap.String("client", clientSession.ClientInfo.Name),
-							zap.String("listenAddress", s.listenAddress),
+							zap.Int("listener", index),
+							zap.String("listenAddress", lnc.address),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
-							zap.Duration("natTimeout", s.natTimeout),
+							zap.String("client", clientSession.ClientInfo.Name),
+							zap.Duration("natTimeout", lnc.natTimeout),
 							zap.Error(err),
 						)
 						natConn.Close()
@@ -353,20 +367,26 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 
 					s.logger.Info("UDP transparent relay started",
 						zap.String("server", s.serverName),
-						zap.String("client", clientSession.ClientInfo.Name),
-						zap.String("listenAddress", s.listenAddress),
+						zap.Int("listener", index),
+						zap.String("listenAddress", lnc.address),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
+						zap.String("client", clientSession.ClientInfo.Name),
 					)
 
 					s.wg.Add(1)
 
 					go func() {
 						s.relayServerConnToNatConnSendmmsg(transparentUplink{
-							clientAddrPort: clientAddrPort,
-							natConn:        natConn.WConn(),
-							natConnSendCh:  natConnSendCh,
-							natConnPacker:  clientSession.Packer,
+							clientName:              clientSession.ClientInfo.Name,
+							clientAddrPort:          clientAddrPort,
+							natConn:                 natConn.WConn(),
+							natConnSendCh:           natConnSendCh,
+							natConnPacker:           clientSession.Packer,
+							natTimeout:              lnc.natTimeout,
+							serverConnListenAddress: lnc.address,
+							relayBatchSize:          lnc.relayBatchSize,
+							listenerIndex:           index,
 						})
 						natConn.Close()
 						clientSession.Close()
@@ -374,17 +394,20 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 					}()
 
 					s.relayNatConnToTransparentConnSendmmsg(transparentDownlink{
+						clientName:         clientSession.ClientInfo.Name,
 						clientAddrPort:     clientAddrPort,
 						natConn:            natConn.RConn(),
 						natConnRecvBufSize: clientSession.MaxPacketSize,
 						natConnUnpacker:    clientSession.Unpacker,
+						relayBatchSize:     lnc.relayBatchSize,
 					})
 				}()
 
 				if ce := s.logger.Check(zap.DebugLevel, "New UDP transparent session"); ce != nil {
 					ce.Write(
 						zap.String("server", s.serverName),
-						zap.String("listenAddress", s.listenAddress),
+						zap.Int("listener", index),
+						zap.String("listenAddress", lnc.address),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
 					)
@@ -397,7 +420,8 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 				if ce := s.logger.Check(zap.DebugLevel, "Dropping packet due to full send channel"); ce != nil {
 					ce.Write(
 						zap.String("server", s.serverName),
-						zap.String("listenAddress", s.listenAddress),
+						zap.Int("listener", index),
+						zap.String("listenAddress", lnc.address),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
 					)
@@ -416,7 +440,8 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(serverConn *conn.MmsgRC
 
 	s.logger.Info("Finished receiving from serverConn",
 		zap.String("server", s.serverName),
-		zap.String("listenAddress", s.listenAddress),
+		zap.Int("listener", index),
+		zap.String("listenAddress", lnc.address),
 		zap.Uint64("recvmmsgCount", recvmmsgCount),
 		zap.Uint64("packetsReceived", packetsReceived),
 		zap.Uint64("payloadBytesReceived", payloadBytesReceived),
@@ -436,10 +461,10 @@ func (s *UDPTransparentRelay) relayServerConnToNatConnSendmmsg(uplink transparen
 		burstBatchSize   int
 	)
 
-	qpvec := make([]*transparentQueuedPacket, s.relayBatchSize)
-	namevec := make([]unix.RawSockaddrInet6, s.relayBatchSize)
-	iovec := make([]unix.Iovec, s.relayBatchSize)
-	msgvec := make([]conn.Mmsghdr, s.relayBatchSize)
+	qpvec := make([]*transparentQueuedPacket, uplink.relayBatchSize)
+	namevec := make([]unix.RawSockaddrInet6, uplink.relayBatchSize)
+	iovec := make([]unix.Iovec, uplink.relayBatchSize)
+	msgvec := make([]conn.Mmsghdr, uplink.relayBatchSize)
 
 	for i := range msgvec {
 		msgvec[i].Msghdr.Name = (*byte)(unsafe.Pointer(&namevec[i]))
@@ -464,9 +489,11 @@ main:
 			if err != nil {
 				s.logger.Warn("Failed to pack packet for natConn",
 					zap.String("server", s.serverName),
-					zap.String("listenAddress", s.listenAddress),
+					zap.Int("listener", uplink.listenerIndex),
+					zap.String("listenAddress", uplink.serverConnListenAddress),
 					zap.Stringer("clientAddress", uplink.clientAddrPort),
 					zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
+					zap.String("client", uplink.clientName),
 					zap.Uint32("payloadLength", queuedPacket.msglen),
 					zap.Error(err),
 				)
@@ -486,7 +513,7 @@ main:
 			count++
 			payloadBytesSent += uint64(queuedPacket.msglen)
 
-			if count == s.relayBatchSize {
+			if count == uplink.relayBatchSize {
 				break
 			}
 
@@ -504,20 +531,26 @@ main:
 		if err := uplink.natConn.WriteMsgs(msgvec[:count], 0); err != nil {
 			s.logger.Warn("Failed to batch write packets to natConn",
 				zap.String("server", s.serverName),
-				zap.String("listenAddress", s.listenAddress),
+				zap.Int("listener", uplink.listenerIndex),
+				zap.String("listenAddress", uplink.serverConnListenAddress),
 				zap.Stringer("clientAddress", uplink.clientAddrPort),
 				zap.Stringer("lastTargetAddress", &qpvec[count-1].targetAddrPort),
+				zap.String("client", uplink.clientName),
 				zap.Stringer("lastWriteDestAddress", destAddrPort),
 				zap.Error(err),
 			)
 		}
 
-		if err := uplink.natConn.SetReadDeadline(time.Now().Add(s.natTimeout)); err != nil {
+		if err := uplink.natConn.SetReadDeadline(time.Now().Add(uplink.natTimeout)); err != nil {
 			s.logger.Warn("Failed to set read deadline on natConn",
 				zap.String("server", s.serverName),
-				zap.String("listenAddress", s.listenAddress),
+				zap.Int("listener", uplink.listenerIndex),
+				zap.String("listenAddress", uplink.serverConnListenAddress),
 				zap.Stringer("clientAddress", uplink.clientAddrPort),
-				zap.Duration("natTimeout", s.natTimeout),
+				zap.Stringer("lastTargetAddress", &qpvec[count-1].targetAddrPort),
+				zap.String("client", uplink.clientName),
+				zap.Stringer("lastWriteDestAddress", destAddrPort),
+				zap.Duration("natTimeout", uplink.natTimeout),
 				zap.Error(err),
 			)
 		}
@@ -541,8 +574,10 @@ main:
 
 	s.logger.Info("Finished relay serverConn -> natConn",
 		zap.String("server", s.serverName),
-		zap.String("listenAddress", s.listenAddress),
+		zap.Int("listener", uplink.listenerIndex),
+		zap.String("listenAddress", uplink.serverConnListenAddress),
 		zap.Stringer("clientAddress", uplink.clientAddrPort),
+		zap.String("client", uplink.clientName),
 		zap.Stringer("lastWriteDestAddress", destAddrPort),
 		zap.Uint64("sendmmsgCount", sendmmsgCount),
 		zap.Uint64("packetsSent", packetsSent),
@@ -570,14 +605,14 @@ type transparentConn struct {
 	n      int
 }
 
-func (s *UDPTransparentRelay) newTransparentConn(address string, name *byte, namelen uint32) (*transparentConn, error) {
+func (s *UDPTransparentRelay) newTransparentConn(address string, relayBatchSize int, name *byte, namelen uint32) (*transparentConn, error) {
 	c, err := s.transparentConnListenConfig.ListenUDPRawConn("udp", address)
 	if err != nil {
 		return nil, err
 	}
 
-	iovec := make([]unix.Iovec, s.relayBatchSize)
-	msgvec := make([]conn.Mmsghdr, s.relayBatchSize)
+	iovec := make([]unix.Iovec, relayBatchSize)
+	msgvec := make([]conn.Mmsghdr, relayBatchSize)
 
 	for i := range msgvec {
 		msgvec[i].Msghdr.Name = name
@@ -624,12 +659,12 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(downlink tra
 	name, namelen := conn.AddrPortUnmappedToSockaddr(downlink.clientAddrPort)
 	tcMap := make(map[netip.AddrPort]*transparentConn)
 
-	savec := make([]unix.RawSockaddrInet6, s.relayBatchSize)
-	bufvec := make([][]byte, s.relayBatchSize)
-	iovec := make([]unix.Iovec, s.relayBatchSize)
-	msgvec := make([]conn.Mmsghdr, s.relayBatchSize)
+	savec := make([]unix.RawSockaddrInet6, downlink.relayBatchSize)
+	bufvec := make([][]byte, downlink.relayBatchSize)
+	iovec := make([]unix.Iovec, downlink.relayBatchSize)
+	msgvec := make([]conn.Mmsghdr, downlink.relayBatchSize)
 
-	for i := 0; i < s.relayBatchSize; i++ {
+	for i := 0; i < downlink.relayBatchSize; i++ {
 		packetBuf := make([]byte, downlink.natConnRecvBufSize)
 		bufvec[i] = packetBuf
 
@@ -651,8 +686,8 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(downlink tra
 
 			s.logger.Warn("Failed to batch read packets from natConn",
 				zap.String("server", s.serverName),
-				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", downlink.clientAddrPort),
+				zap.String("client", downlink.clientName),
 				zap.Error(err),
 			)
 			continue
@@ -668,8 +703,8 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(downlink tra
 			if err != nil {
 				s.logger.Warn("Failed to parse sockaddr of packet from natConn",
 					zap.String("server", s.serverName),
-					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", downlink.clientAddrPort),
+					zap.String("client", downlink.clientName),
 					zap.Error(err),
 				)
 				continue
@@ -678,9 +713,9 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(downlink tra
 			if err = conn.ParseFlagsForError(int(msg.Msghdr.Flags)); err != nil {
 				s.logger.Warn("Packet from natConn discarded",
 					zap.String("server", s.serverName),
-					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", downlink.clientAddrPort),
 					zap.Stringer("packetSourceAddress", packetSourceAddrPort),
+					zap.String("client", downlink.clientName),
 					zap.Uint32("packetLength", msg.Msglen),
 					zap.Error(err),
 				)
@@ -693,9 +728,9 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(downlink tra
 			if err != nil {
 				s.logger.Warn("Failed to unpack packet from natConn",
 					zap.String("server", s.serverName),
-					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", downlink.clientAddrPort),
 					zap.Stringer("packetSourceAddress", packetSourceAddrPort),
+					zap.String("client", downlink.clientName),
 					zap.Uint32("packetLength", msg.Msglen),
 					zap.Error(err),
 				)
@@ -705,8 +740,9 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(downlink tra
 			if payloadLength > maxClientPacketSize {
 				s.logger.Warn("Payload too large to send to client",
 					zap.String("server", s.serverName),
-					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", downlink.clientAddrPort),
+					zap.Stringer("packetSourceAddress", packetSourceAddrPort),
+					zap.String("client", downlink.clientName),
 					zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
 					zap.Int("payloadLength", payloadLength),
 					zap.Int("maxClientPacketSize", maxClientPacketSize),
@@ -716,12 +752,13 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(downlink tra
 
 			tc := tcMap[payloadSourceAddrPort]
 			if tc == nil {
-				tc, err = s.newTransparentConn(payloadSourceAddrPort.String(), name, namelen)
+				tc, err = s.newTransparentConn(payloadSourceAddrPort.String(), downlink.relayBatchSize, name, namelen)
 				if err != nil {
 					s.logger.Warn("Failed to create transparentConn",
 						zap.String("server", s.serverName),
-						zap.String("listenAddress", s.listenAddress),
 						zap.Stringer("clientAddress", downlink.clientAddrPort),
+						zap.Stringer("packetSourceAddress", packetSourceAddrPort),
+						zap.String("client", downlink.clientName),
 						zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
 						zap.Error(err),
 					)
@@ -743,8 +780,8 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(downlink tra
 			if err != nil {
 				s.logger.Warn("Failed to batch write packets to transparentConn",
 					zap.String("server", s.serverName),
-					zap.String("listenAddress", s.listenAddress),
 					zap.Stringer("clientAddress", downlink.clientAddrPort),
+					zap.String("client", downlink.clientName),
 					zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
 					zap.Error(err),
 				)
@@ -762,8 +799,8 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(downlink tra
 		if err := tc.close(); err != nil {
 			s.logger.Warn("Failed to close transparentConn",
 				zap.String("server", s.serverName),
-				zap.String("listenAddress", s.listenAddress),
 				zap.Stringer("clientAddress", downlink.clientAddrPort),
+				zap.String("client", downlink.clientName),
 				zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
 				zap.Error(err),
 			)
@@ -772,8 +809,8 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(downlink tra
 
 	s.logger.Info("Finished relay transparentConn <- natConn",
 		zap.String("server", s.serverName),
-		zap.String("listenAddress", s.listenAddress),
 		zap.Stringer("clientAddress", downlink.clientAddrPort),
+		zap.String("client", downlink.clientName),
 		zap.Uint64("sendmmsgCount", sendmmsgCount),
 		zap.Uint64("packetsSent", packetsSent),
 		zap.Uint64("payloadBytesSent", payloadBytesSent),
@@ -785,14 +822,18 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(downlink tra
 
 // Stop implements the Relay Stop method.
 func (s *UDPTransparentRelay) Stop() error {
-	if s.serverConn == nil {
-		return nil
-	}
-
 	now := time.Now()
 
-	if err := s.serverConn.SetReadDeadline(now); err != nil {
-		return err
+	for i := range s.listeners {
+		lnc := &s.listeners[i]
+		if err := lnc.serverConn.SetReadDeadline(now); err != nil {
+			s.logger.Warn("Failed to set read deadline on serverConn",
+				zap.String("server", s.serverName),
+				zap.Int("listener", i),
+				zap.String("listenAddress", lnc.address),
+				zap.Error(err),
+			)
+		}
 	}
 
 	// Wait for serverConn receive goroutines to exit,
@@ -801,7 +842,7 @@ func (s *UDPTransparentRelay) Stop() error {
 
 	s.mu.Lock()
 	for clientAddrPort, entry := range s.table {
-		natConn := entry.state.Swap(s.serverConn)
+		natConn := entry.state.Swap(entry.serverConn)
 		if natConn == nil {
 			continue
 		}
@@ -809,7 +850,8 @@ func (s *UDPTransparentRelay) Stop() error {
 		if err := natConn.SetReadDeadline(now); err != nil {
 			s.logger.Warn("Failed to set read deadline on natConn",
 				zap.String("server", s.serverName),
-				zap.String("listenAddress", s.listenAddress),
+				zap.Int("listener", entry.listenerIndex),
+				zap.String("listenAddress", entry.serverConnListenAddress),
 				zap.Stringer("clientAddress", clientAddrPort),
 				zap.Error(err),
 			)
@@ -821,5 +863,17 @@ func (s *UDPTransparentRelay) Stop() error {
 	// so in-flight packets can be written out.
 	s.wg.Wait()
 
-	return s.serverConn.Close()
+	for i := range s.listeners {
+		lnc := &s.listeners[i]
+		if err := lnc.serverConn.Close(); err != nil {
+			s.logger.Warn("Failed to close serverConn",
+				zap.String("server", s.serverName),
+				zap.Int("listener", i),
+				zap.String("listenAddress", lnc.address),
+				zap.Error(err),
+			)
+		}
+	}
+
+	return nil
 }
