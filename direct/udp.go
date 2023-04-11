@@ -16,18 +16,19 @@ import (
 
 // DirectUDPClient implements the zerocopy UDPClient interface.
 type DirectUDPClient struct {
+	info    zerocopy.UDPClientInfo
 	session zerocopy.UDPClientSession
 }
 
 // NewDirectUDPClient creates a new UDP client that sends packets directly.
 func NewDirectUDPClient(name string, mtu int, listenConfig conn.ListenConfig) *DirectUDPClient {
 	return &DirectUDPClient{
+		info: zerocopy.UDPClientInfo{
+			Name:         name,
+			MTU:          mtu,
+			ListenConfig: listenConfig,
+		},
 		session: zerocopy.UDPClientSession{
-			ClientInfo: zerocopy.UDPClientInfo{
-				Name:         name,
-				MTU:          mtu,
-				ListenConfig: listenConfig,
-			},
 			MaxPacketSize: zerocopy.MaxPacketSizeForAddr(mtu, netip.IPv4Unspecified()),
 			Packer:        NewDirectPacketClientPacker(mtu),
 			Unpacker:      DirectPacketClientUnpacker{},
@@ -38,12 +39,12 @@ func NewDirectUDPClient(name string, mtu int, listenConfig conn.ListenConfig) *D
 
 // Info implements the zerocopy.UDPClient Info method.
 func (c *DirectUDPClient) Info() zerocopy.UDPClientInfo {
-	return c.session.ClientInfo
+	return c.info
 }
 
 // NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *DirectUDPClient) NewSession() (zerocopy.UDPClientSession, error) {
-	return c.session, nil
+func (c *DirectUDPClient) NewSession() (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
+	return c.info, c.session, nil
 }
 
 // ShadowsocksNoneUDPClient implements the zerocopy UDPClient interface.
@@ -71,15 +72,14 @@ func (c *ShadowsocksNoneUDPClient) Info() zerocopy.UDPClientInfo {
 }
 
 // NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *ShadowsocksNoneUDPClient) NewSession() (zerocopy.UDPClientSession, error) {
+func (c *ShadowsocksNoneUDPClient) NewSession() (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
 	addrPort, err := c.addr.ResolveIPPort()
 	if err != nil {
-		return zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
+		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
 	}
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(c.info.MTU, addrPort.Addr())
 
-	return zerocopy.UDPClientSession{
-		ClientInfo:    c.info,
+	return c.info, zerocopy.UDPClientSession{
 		MaxPacketSize: maxPacketSize,
 		Packer:        NewShadowsocksNonePacketClientPacker(addrPort, maxPacketSize),
 		Unpacker:      NewShadowsocksNonePacketClientUnpacker(addrPort),
@@ -116,22 +116,22 @@ func (c *Socks5UDPClient) Info() zerocopy.UDPClientInfo {
 }
 
 // NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *Socks5UDPClient) NewSession() (zerocopy.UDPClientSession, error) {
+func (c *Socks5UDPClient) NewSession() (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
 	tc, err := c.dialer.DialTCP("tcp", c.address, nil)
 	if err != nil {
-		return zerocopy.UDPClientSession{}, err
+		return c.info, zerocopy.UDPClientSession{}, err
 	}
 
 	addr, err := socks5.ClientUDPAssociate(tc, conn.Addr{})
 	if err != nil {
 		tc.Close()
-		return zerocopy.UDPClientSession{}, fmt.Errorf("failed to request UDP association: %w", err)
+		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to request UDP association: %w", err)
 	}
 
 	addrPort, err := addr.ResolveIPPort()
 	if err != nil {
 		tc.Close()
-		return zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
+		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
 	}
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(c.info.MTU, addrPort.Addr())
 
@@ -151,8 +151,7 @@ func (c *Socks5UDPClient) NewSession() (zerocopy.UDPClientSession, error) {
 		tc.Close()
 	}()
 
-	return zerocopy.UDPClientSession{
-		ClientInfo:    c.info,
+	return c.info, zerocopy.UDPClientSession{
 		MaxPacketSize: maxPacketSize,
 		Packer:        NewSocks5PacketClientPacker(addrPort, maxPacketSize),
 		Unpacker:      NewSocks5PacketClientUnpacker(addrPort),

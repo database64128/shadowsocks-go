@@ -42,25 +42,24 @@ func (c *UDPClient) Info() zerocopy.UDPClientInfo {
 }
 
 // NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *UDPClient) NewSession() (zerocopy.UDPClientSession, error) {
+func (c *UDPClient) NewSession() (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
 	addrPort, err := c.addr.ResolveIPPort()
 	if err != nil {
-		return zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
+		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
 	}
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(c.info.MTU, addrPort.Addr())
 
 	salt := make([]byte, 8)
 	if _, err = rand.Read(salt); err != nil {
-		return zerocopy.UDPClientSession{}, err
+		return c.info, zerocopy.UDPClientSession{}, err
 	}
 	csid := binary.BigEndian.Uint64(salt)
 	aead, err := c.cipherConfig.AEAD(salt)
 	if err != nil {
-		return zerocopy.UDPClientSession{}, err
+		return c.info, zerocopy.UDPClientSession{}, err
 	}
 
-	return zerocopy.UDPClientSession{
-		ClientInfo:    c.info,
+	return c.info, zerocopy.UDPClientSession{
 		MaxPacketSize: maxPacketSize,
 		Packer: &ShadowPacketClientPacker{
 			csid:             csid,

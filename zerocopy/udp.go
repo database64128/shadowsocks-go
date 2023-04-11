@@ -23,9 +23,6 @@ type UDPClientInfo struct {
 
 // UDPClientSession contains information about a UDP client session.
 type UDPClientSession struct {
-	// ClientInfo is the client information.
-	ClientInfo UDPClientInfo
-
 	// MaxPacketSize is the maximum size of outgoing packets.
 	MaxPacketSize int
 
@@ -50,7 +47,8 @@ type UDPClient interface {
 	Info() UDPClientInfo
 
 	// NewSession creates a new client session, and returns the session info or an error.
-	NewSession() (UDPClientSession, error)
+	// The returned [UDPClientInfo] is always valid, even when session creation fails.
+	NewSession() (UDPClientInfo, UDPClientSession, error)
 }
 
 // UDPNATServerInfo contains information about a UDP NAT server.

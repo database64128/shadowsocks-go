@@ -280,7 +280,7 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 // It's the caller's responsibility to examine the minTTL and decide whether to cache the result.
 func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (result Result, minTTL uint32, handled bool) {
 	// Create client session.
-	clientSession, err := r.udpClient.NewSession()
+	clientInfo, clientSession, err := r.udpClient.NewSession()
 	if err != nil {
 		r.logger.Warn("Failed to create new UDP client session",
 			zap.String("resolver", r.name),
@@ -290,7 +290,7 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	}
 
 	// Prepare UDP socket.
-	udpConn, err := clientSession.ClientInfo.ListenConfig.ListenUDP("udp", "")
+	udpConn, err := clientInfo.ListenConfig.ListenUDP("udp", "")
 	if err != nil {
 		r.logger.Warn("Failed to create UDP socket for DNS lookup",
 			zap.String("resolver", r.name),
@@ -314,12 +314,12 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	// Each sender will keep sending at 2s intervals until the stop signal
 	// is received or after 10 iterations.
 	sendFunc := func(pkt []byte, ctrlCh <-chan struct{}) {
-		b := make([]byte, clientSession.ClientInfo.PackerHeadroom.Front+len(pkt)+clientSession.ClientInfo.PackerHeadroom.Rear)
+		b := make([]byte, clientInfo.PackerHeadroom.Front+len(pkt)+clientInfo.PackerHeadroom.Rear)
 
 	write:
 		for i := 0; i < 10; i++ {
-			copy(b[clientSession.ClientInfo.PackerHeadroom.Front:], pkt)
-			destAddrPort, packetStart, packetLength, err := clientSession.Packer.PackInPlace(b, r.serverAddr, clientSession.ClientInfo.PackerHeadroom.Front, len(pkt))
+			copy(b[clientInfo.PackerHeadroom.Front:], pkt)
+			destAddrPort, packetStart, packetLength, err := clientSession.Packer.PackInPlace(b, r.serverAddr, clientInfo.PackerHeadroom.Front, len(pkt))
 			if err != nil {
 				r.logger.Warn("Failed to pack packet",
 					zap.String("resolver", r.name),

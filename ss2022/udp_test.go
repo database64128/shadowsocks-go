@@ -46,7 +46,7 @@ func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, u
 		t.Errorf("Fixed name mismatch: in: %s, out: %s", name, clientInfo.Name)
 	}
 
-	clientSession, err := c.NewSession()
+	_, clientSession, err := c.NewSession()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,13 +149,13 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 	s := NewUDPServer(userCipherConfig, identityCipherConfig, shouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 
-	clientSession, err := c.NewSession()
+	clientInfo, clientSession, err := c.NewSession()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	frontHeadroom := clientSession.ClientInfo.PackerHeadroom.Front + 8 // Compensate for server message overhead.
-	rearHeadroom := clientSession.ClientInfo.PackerHeadroom.Rear
+	frontHeadroom := clientInfo.PackerHeadroom.Front + 8 // Compensate for server message overhead.
+	rearHeadroom := clientInfo.PackerHeadroom.Rear
 	b := make([]byte, frontHeadroom+payloadLen+rearHeadroom)
 
 	// Client packs.

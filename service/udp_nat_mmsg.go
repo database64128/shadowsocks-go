@@ -314,7 +314,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelayServerC
 						return
 					}
 
-					clientSession, err := c.NewSession()
+					clientInfo, clientSession, err := c.NewSession()
 					if err != nil {
 						s.logger.Warn("Failed to create new UDP client session",
 							zap.String("server", s.serverName),
@@ -322,7 +322,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelayServerC
 							zap.String("listenAddress", lnc.address),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-							zap.String("client", clientSession.ClientInfo.Name),
+							zap.String("client", clientInfo.Name),
 							zap.Error(err),
 						)
 						return
@@ -333,7 +333,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelayServerC
 					s.wg.Add(1)
 					defer s.wg.Done()
 
-					natConn, err := clientSession.ClientInfo.ListenConfig.ListenUDPRawConn("udp", "")
+					natConn, err := clientInfo.ListenConfig.ListenUDPRawConn("udp", "")
 					if err != nil {
 						s.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.String("server", s.serverName),
@@ -341,7 +341,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelayServerC
 							zap.String("listenAddress", lnc.address),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-							zap.String("client", clientSession.ClientInfo.Name),
+							zap.String("client", clientInfo.Name),
 							zap.Error(err),
 						)
 						clientSession.Close()
@@ -356,7 +356,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelayServerC
 							zap.String("listenAddress", lnc.address),
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-							zap.String("client", clientSession.ClientInfo.Name),
+							zap.String("client", clientInfo.Name),
 							zap.Duration("natTimeout", lnc.natTimeout),
 							zap.Error(err),
 						)
@@ -381,14 +381,14 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelayServerC
 						zap.String("listenAddress", lnc.address),
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-						zap.String("client", clientSession.ClientInfo.Name),
+						zap.String("client", clientInfo.Name),
 					)
 
 					s.wg.Add(1)
 
 					go func() {
 						s.relayServerConnToNatConnSendmmsg(natUplinkMmsg{
-							clientName:              clientSession.ClientInfo.Name,
+							clientName:              clientInfo.Name,
 							clientAddrPort:          clientAddrPort,
 							natConn:                 natConn.WConn(),
 							natConnSendCh:           natConnSendCh,
@@ -404,7 +404,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelayServerC
 					}()
 
 					s.relayNatConnToServerConnSendmmsg(natDownlinkMmsg{
-						clientName:              clientSession.ClientInfo.Name,
+						clientName:              clientInfo.Name,
 						clientAddrPort:          clientAddrPort,
 						clientPktinfop:          clientPktinfop,
 						clientPktinfo:           &entry.clientPktinfo,
