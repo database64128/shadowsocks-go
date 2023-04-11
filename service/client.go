@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -45,6 +46,10 @@ type ClientConfig struct {
 
 // Initialize initializes the client configuration.
 func (cc *ClientConfig) Initialize(listenConfigCache conn.ListenConfigCache, dialerCache conn.DialerCache, logger *zap.Logger) error {
+	if cc.Protocol != "direct" && !cc.Endpoint.IsValid() {
+		return errors.New("endpoint address is required")
+	}
+
 	switch cc.Protocol {
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		err := ss2022.CheckPSKLength(cc.Protocol, cc.PSK, cc.IPSKs)
@@ -56,6 +61,7 @@ func (cc *ClientConfig) Initialize(listenConfigCache conn.ListenConfigCache, dia
 			return err
 		}
 	}
+
 	cc.listenConfigCache = listenConfigCache
 	cc.dialerCache = dialerCache
 	cc.logger = logger

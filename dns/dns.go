@@ -47,6 +47,10 @@ type ResolverConfig struct {
 }
 
 func (rc *ResolverConfig) Resolver(tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, logger *zap.Logger) (*Resolver, error) {
+	if !rc.AddrPort.IsValid() {
+		return nil, errors.New("missing resolver address")
+	}
+
 	var (
 		tcpClient zerocopy.TCPClient
 		udpClient zerocopy.UDPClient

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"time"
@@ -198,9 +199,9 @@ type ServerConfig struct {
 
 	// Taint
 
-	UnsafeFallbackAddress      *conn.Addr `json:"unsafeFallbackAddress"`
-	UnsafeRequestStreamPrefix  []byte     `json:"unsafeRequestStreamPrefix"`
-	UnsafeResponseStreamPrefix []byte     `json:"unsafeResponseStreamPrefix"`
+	UnsafeFallbackAddress      conn.Addr `json:"unsafeFallbackAddress"`
+	UnsafeRequestStreamPrefix  []byte    `json:"unsafeRequestStreamPrefix"`
+	UnsafeResponseStreamPrefix []byte    `json:"unsafeResponseStreamPrefix"`
 
 	listenConfigCache conn.ListenConfigCache
 	collector         stats.Collector
@@ -215,6 +216,11 @@ func (sc *ServerConfig) Initialize(listenConfigCache conn.ListenConfigCache, col
 	sc.udpEnabled = sc.EnableUDP || len(sc.UDPListeners) > 0
 
 	switch sc.Protocol {
+	case "direct":
+		if !sc.TunnelRemoteAddress.IsValid() {
+			return errors.New("tunnelRemoteAddress is required for simple tunnel")
+		}
+
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		err := ss2022.CheckPSKLength(sc.Protocol, sc.PSK, nil)
 		if err != nil {
@@ -326,7 +332,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		return nil, err
 	}
 
-	if sc.UnsafeFallbackAddress != nil {
+	if sc.UnsafeFallbackAddress.IsValid() {
 		sc.logger.Warn("Unsafe fallback taints the server",
 			zap.String("server", sc.Name),
 			zap.Stringer("fallbackAddress", sc.UnsafeFallbackAddress),

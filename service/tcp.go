@@ -42,7 +42,7 @@ type TCPRelay struct {
 	wg              sync.WaitGroup
 	server          zerocopy.TCPServer
 	connCloser      zerocopy.TCPConnCloser
-	fallbackAddress *conn.Addr
+	fallbackAddress conn.Addr
 	collector       stats.Collector
 	router          *router.Router
 	logger          *zap.Logger
@@ -54,7 +54,7 @@ func NewTCPRelay(
 	listeners []tcpRelayListener,
 	server zerocopy.TCPServer,
 	connCloser zerocopy.TCPConnCloser,
-	fallbackAddress *conn.Addr,
+	fallbackAddress conn.Addr,
 	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
@@ -151,13 +151,13 @@ func (s *TCPRelay) handleConn(index int, lnc *tcpRelayListener, clientConn *net.
 			zap.Error(err),
 		)
 
-		if s.fallbackAddress == nil || len(payload) == 0 {
+		if !s.fallbackAddress.IsValid() || len(payload) == 0 {
 			s.connCloser(clientConn, s.serverName, lnc.address, clientAddress, s.logger)
 			return
 		}
 
 		clientRW = direct.NewDirectStreamReadWriter(clientConn)
-		targetAddr = *s.fallbackAddress
+		targetAddr = s.fallbackAddress
 	}
 
 	// Convert target address to string once for log messages.
