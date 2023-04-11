@@ -182,10 +182,8 @@ type ServerConfig struct {
 	TunnelRemoteAddress conn.Addr `json:"tunnelRemoteAddress"`
 	TunnelUDPTargetOnly bool      `json:"tunnelUDPTargetOnly"`
 
-	// SOCKS5
-
-	socks5EnableTCP bool
-	socks5EnableUDP bool
+	tcpEnabled bool
+	udpEnabled bool
 
 	// Shadowsocks
 
@@ -213,6 +211,9 @@ type ServerConfig struct {
 
 // Initialize initializes the server configuration.
 func (sc *ServerConfig) Initialize(listenConfigCache conn.ListenConfigCache, collector stats.Collector, router *router.Router, logger *zap.Logger, index int) error {
+	sc.tcpEnabled = sc.EnableTCP || len(sc.TCPListeners) > 0
+	sc.udpEnabled = sc.EnableUDP || len(sc.UDPListeners) > 0
+
 	switch sc.Protocol {
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		err := ss2022.CheckPSKLength(sc.Protocol, sc.PSK, nil)
@@ -221,20 +222,17 @@ func (sc *ServerConfig) Initialize(listenConfigCache conn.ListenConfigCache, col
 		}
 
 		if sc.UPSKStorePath == "" {
-			sc.userCipherConfig, err = ss2022.NewUserCipherConfig(sc.PSK, sc.EnableUDP)
+			sc.userCipherConfig, err = ss2022.NewUserCipherConfig(sc.PSK, sc.udpEnabled)
 			if err != nil {
 				return err
 			}
 		} else {
-			sc.identityCipherConfig, err = ss2022.NewServerIdentityCipherConfig(sc.PSK, sc.EnableUDP)
+			sc.identityCipherConfig, err = ss2022.NewServerIdentityCipherConfig(sc.PSK, sc.udpEnabled)
 			if err != nil {
 				return err
 			}
 		}
 	}
-
-	sc.socks5EnableTCP = sc.EnableTCP || len(sc.TCPListeners) > 0
-	sc.socks5EnableUDP = sc.EnableUDP || len(sc.UDPListeners) > 0
 
 	if sc.EnableTCP {
 		sc.TCPListeners = append(sc.TCPListeners, TCPListenerConfig{
@@ -303,7 +301,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		server = direct.NewShadowsocksNoneTCPServer()
 
 	case "socks5":
-		server = direct.NewSocks5TCPServer(sc.socks5EnableTCP, sc.socks5EnableUDP)
+		server = direct.NewSocks5TCPServer(sc.tcpEnabled, sc.udpEnabled)
 
 	case "http":
 		server = http.NewProxyServer(sc.logger)
