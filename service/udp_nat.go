@@ -691,11 +691,9 @@ func (s *UDPNATRelay) putQueuedPacket(queuedPacket *natQueuedPacket) {
 
 // Stop implements the Service Stop method.
 func (s *UDPNATRelay) Stop() error {
-	now := time.Now()
-
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
-		if err := lnc.serverConn.SetReadDeadline(now); err != nil {
+		if err := lnc.serverConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
 			s.logger.Warn("Failed to set read deadline on serverConn",
 				zap.String("server", s.serverName),
 				zap.Int("listener", i),
@@ -716,7 +714,7 @@ func (s *UDPNATRelay) Stop() error {
 			continue
 		}
 
-		if err := natConn.SetReadDeadline(now); err != nil {
+		if err := natConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
 			s.logger.Warn("Failed to set read deadline on natConn",
 				zap.String("server", s.serverName),
 				zap.Int("listener", entry.listenerIndex),

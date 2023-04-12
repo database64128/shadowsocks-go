@@ -305,7 +305,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 
 	go func() {
 		<-ctx.Done()
-		udpConn.SetReadDeadline(time.Now())
+		udpConn.SetReadDeadline(conn.ALongTimeAgo)
 	}()
 
 	// Spin up senders.
@@ -638,7 +638,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 	if tc, ok := rawRW.(*net.TCPConn); ok {
 		go func() {
 			<-ctx.Done()
-			tc.SetReadDeadline(time.Now())
+			tc.SetReadDeadline(conn.ALongTimeAgo)
 		}()
 	}
 

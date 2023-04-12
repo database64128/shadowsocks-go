@@ -821,11 +821,9 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(ctx context.
 
 // Stop implements the Relay Stop method.
 func (s *UDPTransparentRelay) Stop() error {
-	now := time.Now()
-
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
-		if err := lnc.serverConn.SetReadDeadline(now); err != nil {
+		if err := lnc.serverConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
 			s.logger.Warn("Failed to set read deadline on serverConn",
 				zap.String("server", s.serverName),
 				zap.Int("listener", i),
@@ -846,7 +844,7 @@ func (s *UDPTransparentRelay) Stop() error {
 			continue
 		}
 
-		if err := natConn.SetReadDeadline(now); err != nil {
+		if err := natConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
 			s.logger.Warn("Failed to set read deadline on natConn",
 				zap.String("server", s.serverName),
 				zap.Int("listener", entry.listenerIndex),

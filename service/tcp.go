@@ -335,11 +335,9 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 
 // Stop implements the Service Stop method.
 func (s *TCPRelay) Stop() error {
-	now := time.Now()
-
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
-		if err := lnc.listener.SetDeadline(now); err != nil {
+		if err := lnc.listener.SetDeadline(conn.ALongTimeAgo); err != nil {
 			s.logger.Warn("Failed to set deadline on listener",
 				zap.String("server", s.serverName),
 				zap.Int("listener", i),

@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/netip"
 	"os"
-	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/socks5"
@@ -157,7 +156,7 @@ func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInf
 		Packer:        NewSocks5PacketClientPacker(addrPort, maxPacketSize),
 		Unpacker:      NewSocks5PacketClientUnpacker(addrPort),
 		Close: func() error {
-			return tc.SetReadDeadline(time.Now())
+			return tc.SetReadDeadline(conn.ALongTimeAgo)
 		},
 	}, nil
 }
