@@ -218,17 +218,17 @@ type ReadWriter interface {
 // and any error occurred during transfer.
 func TwoWayRelay(left, right ReadWriter) (nl2r, nr2l int64, err error) {
 	var l2rErr error
-	ctrlCh := make(chan struct{})
+	l2rDone := make(chan struct{})
 
 	go func() {
 		nl2r, l2rErr = Relay(right, left)
 		right.CloseWrite()
-		ctrlCh <- struct{}{}
+		close(l2rDone)
 	}()
 
 	nr2l, err = Relay(left, right)
 	left.CloseWrite()
-	<-ctrlCh
+	<-l2rDone
 
 	if l2rErr != nil {
 		err = l2rErr
@@ -248,17 +248,17 @@ type DirectReadWriteCloser interface {
 // and any error occurred during transfer.
 func DirectTwoWayRelay(left, right DirectReadWriteCloser) (nl2r, nr2l int64, err error) {
 	var l2rErr error
-	ctrlCh := make(chan struct{})
+	l2rDone := make(chan struct{})
 
 	go func() {
 		nl2r, l2rErr = io.Copy(right, left)
 		right.CloseWrite()
-		ctrlCh <- struct{}{}
+		close(l2rDone)
 	}()
 
 	nr2l, err = io.Copy(left, right)
 	left.CloseWrite()
-	<-ctrlCh
+	<-l2rDone
 
 	if l2rErr != nil {
 		err = l2rErr

@@ -90,7 +90,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, ctx context.Context, clientC
 	// Start client.
 	go func() {
 		_, _, cerr = c.Dial(ctx, clientTargetAddr, nil)
-		ctrlCh <- struct{}{}
+		close(ctrlCh)
 	}()
 
 	// Hijack client request and save it in b.
