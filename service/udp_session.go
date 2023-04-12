@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net"
 	"net/netip"
@@ -142,17 +143,17 @@ func (s *UDPSessionRelay) String() string {
 }
 
 // Start implements the Service Start method.
-func (s *UDPSessionRelay) Start() error {
+func (s *UDPSessionRelay) Start(ctx context.Context) error {
 	for i := range s.listeners {
-		if err := s.start(i, &s.listeners[i]); err != nil {
+		if err := s.start(ctx, i, &s.listeners[i]); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *UDPSessionRelay) startGeneric(index int, lnc *udpRelayServerConn) (err error) {
-	lnc.serverConn, err = lnc.listenConfig.ListenUDP(lnc.network, lnc.address)
+func (s *UDPSessionRelay) startGeneric(ctx context.Context, index int, lnc *udpRelayServerConn) (err error) {
+	lnc.serverConn, err = lnc.listenConfig.ListenUDP(ctx, lnc.network, lnc.address)
 	if err != nil {
 		return
 	}
@@ -160,7 +161,7 @@ func (s *UDPSessionRelay) startGeneric(index int, lnc *udpRelayServerConn) (err 
 	s.mwg.Add(1)
 
 	go func() {
-		s.recvFromServerConnGeneric(index, lnc)
+		s.recvFromServerConnGeneric(ctx, index, lnc)
 		s.mwg.Done()
 	}()
 
@@ -173,7 +174,7 @@ func (s *UDPSessionRelay) startGeneric(index int, lnc *udpRelayServerConn) (err 
 	return
 }
 
-func (s *UDPSessionRelay) recvFromServerConnGeneric(index int, lnc *udpRelayServerConn) {
+func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, index int, lnc *udpRelayServerConn) {
 	cmsgBuf := make([]byte, conn.SocketControlMessageBufferSize)
 
 	var (
@@ -345,6 +346,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(index int, lnc *udpRelayServ
 			natConnSendCh := make(chan *sessionQueuedPacket, lnc.sendChannelCapacity)
 			entry.natConnSendCh = natConnSendCh
 			s.table[csid] = entry
+			s.wg.Add(1)
 
 			go func() {
 				var sendChClean bool
@@ -360,9 +362,11 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(index int, lnc *udpRelayServ
 							s.putQueuedPacket(queuedPacket)
 						}
 					}
+
+					s.wg.Done()
 				}()
 
-				c, err := s.router.GetUDPClient(router.RequestInfo{
+				c, err := s.router.GetUDPClient(ctx, router.RequestInfo{
 					ServerIndex:    s.serverIndex,
 					Username:       entry.username,
 					SourceAddrPort: queuedPacket.clientAddrPort,
@@ -382,22 +386,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(index int, lnc *udpRelayServ
 					return
 				}
 
-				serverConnPacker, err := entry.serverConnUnpacker.NewPacker()
-				if err != nil {
-					s.logger.Warn("Failed to create packer for client session",
-						zap.String("server", s.serverName),
-						zap.Int("listener", index),
-						zap.String("listenAddress", lnc.address),
-						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-						zap.String("username", entry.username),
-						zap.Uint64("clientSessionID", csid),
-						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-						zap.Error(err),
-					)
-					return
-				}
-
-				clientInfo, clientSession, err := c.NewSession()
+				clientInfo, clientSession, err := c.NewSession(ctx)
 				if err != nil {
 					s.logger.Warn("Failed to create new UDP client session",
 						zap.String("server", s.serverName),
@@ -413,12 +402,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(index int, lnc *udpRelayServ
 					return
 				}
 
-				// Only add for the current goroutine here,
-				// since we don't want the router or the client to block exiting.
-				s.wg.Add(1)
-				defer s.wg.Done()
-
-				natConn, err := clientInfo.ListenConfig.ListenUDP("udp", "")
+				natConn, err := clientInfo.ListenConfig.ListenUDP(ctx, "udp", "")
 				if err != nil {
 					s.logger.Warn("Failed to create UDP socket for new NAT session",
 						zap.String("server", s.serverName),
@@ -454,6 +438,23 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(index int, lnc *udpRelayServ
 					return
 				}
 
+				serverConnPacker, err := entry.serverConnUnpacker.NewPacker()
+				if err != nil {
+					s.logger.Warn("Failed to create packer for client session",
+						zap.String("server", s.serverName),
+						zap.Int("listener", index),
+						zap.String("listenAddress", lnc.address),
+						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
+						zap.String("username", entry.username),
+						zap.Uint64("clientSessionID", csid),
+						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+						zap.Error(err),
+					)
+					natConn.Close()
+					clientSession.Close()
+					return
+				}
+
 				oldState := entry.state.Swap(natConn)
 				if oldState != nil {
 					natConn.Close()
@@ -478,7 +479,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(index int, lnc *udpRelayServ
 				s.wg.Add(1)
 
 				go func() {
-					s.relayServerConnToNatConnGeneric(sessionUplinkGeneric{
+					s.relayServerConnToNatConnGeneric(ctx, sessionUplinkGeneric{
 						csid:                    csid,
 						clientName:              clientInfo.Name,
 						natConn:                 natConn,
@@ -553,7 +554,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(index int, lnc *udpRelayServ
 	)
 }
 
-func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(uplink sessionUplinkGeneric) {
+func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(ctx context.Context, uplink sessionUplinkGeneric) {
 	var (
 		destAddrPort     netip.AddrPort
 		packetStart      int
@@ -564,7 +565,7 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(uplink sessionUplinkGe
 	)
 
 	for queuedPacket := range uplink.natConnSendCh {
-		destAddrPort, packetStart, packetLength, err = uplink.natConnPacker.PackInPlace(queuedPacket.buf, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length)
+		destAddrPort, packetStart, packetLength, err = uplink.natConnPacker.PackInPlace(ctx, queuedPacket.buf, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length)
 		if err != nil {
 			s.logger.Warn("Failed to pack packet",
 				zap.String("server", s.serverName),

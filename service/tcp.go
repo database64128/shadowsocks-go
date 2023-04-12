@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
@@ -78,12 +79,12 @@ func (s *TCPRelay) String() string {
 }
 
 // Start implements the Service Start method.
-func (s *TCPRelay) Start() error {
+func (s *TCPRelay) Start(ctx context.Context) error {
 	for i := range s.listeners {
 		index := i
 		lnc := &s.listeners[index]
 
-		l, err := lnc.listenConfig.ListenTCP(lnc.network, lnc.address)
+		l, err := lnc.listenConfig.ListenTCP(ctx, lnc.network, lnc.address)
 		if err != nil {
 			return err
 		}
@@ -107,7 +108,7 @@ func (s *TCPRelay) Start() error {
 					continue
 				}
 
-				go s.handleConn(index, lnc, clientConn)
+				go s.handleConn(ctx, index, lnc, clientConn)
 			}
 
 			s.wg.Done()
@@ -123,7 +124,7 @@ func (s *TCPRelay) Start() error {
 }
 
 // handleConn handles an accepted TCP connection.
-func (s *TCPRelay) handleConn(index int, lnc *tcpRelayListener, clientConn *net.TCPConn) {
+func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListener, clientConn *net.TCPConn) {
 	defer clientConn.Close()
 
 	// Get client address.
@@ -164,7 +165,7 @@ func (s *TCPRelay) handleConn(index int, lnc *tcpRelayListener, clientConn *net.
 	targetAddress := targetAddr.String()
 
 	// Route.
-	c, err := s.router.GetTCPClient(router.RequestInfo{
+	c, err := s.router.GetTCPClient(ctx, router.RequestInfo{
 		ServerIndex:    s.serverIndex,
 		Username:       username,
 		SourceAddrPort: clientAddrPort,
@@ -271,7 +272,7 @@ func (s *TCPRelay) handleConn(index int, lnc *tcpRelayListener, clientConn *net.
 	}
 
 	// Create remote connection.
-	remoteConn, remoteRW, err := c.Dial(targetAddr, payload)
+	remoteConn, remoteRW, err := c.Dial(ctx, targetAddr, payload)
 	if err != nil {
 		s.logger.Warn("Failed to create remote connection",
 			zap.String("server", s.serverName),

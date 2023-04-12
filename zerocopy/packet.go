@@ -2,6 +2,7 @@ package zerocopy
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"errors"
 	"net/netip"
@@ -48,7 +49,7 @@ type ClientPacker interface {
 
 	// PackInPlace packs the payload in-place into a packet ready for sending and returns
 	// the destination address, packet start offset, packet length, or an error if packing fails.
-	PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error)
+	PackInPlace(ctx context.Context, b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error)
 }
 
 // ServerPackerInfo contains information about a server packer.
@@ -138,7 +139,7 @@ func ClientServerPackerUnpackerTestFunc(t tester, clientPacker ClientPacker, cli
 	copy(payloadBackup, payload)
 
 	// Client packs.
-	destAddr, pkts, pktl, err := clientPacker.PackInPlace(b, targetAddr, headroom.Front, payloadLen)
+	destAddr, pkts, pktl, err := clientPacker.PackInPlace(context.Background(), b, targetAddr, headroom.Front, payloadLen)
 	if err != nil {
 		t.Fatal(err)
 	}

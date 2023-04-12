@@ -4,6 +4,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net/netip"
 	"os"
@@ -49,17 +50,17 @@ type sessionDownlinkMmsg struct {
 	listenerIndex           int
 }
 
-func (s *UDPSessionRelay) start(index int, lnc *udpRelayServerConn) error {
+func (s *UDPSessionRelay) start(ctx context.Context, index int, lnc *udpRelayServerConn) error {
 	switch lnc.batchMode {
 	case "sendmmsg", "":
-		return s.startMmsg(index, lnc)
+		return s.startMmsg(ctx, index, lnc)
 	default:
-		return s.startGeneric(index, lnc)
+		return s.startGeneric(ctx, index, lnc)
 	}
 }
 
-func (s *UDPSessionRelay) startMmsg(index int, lnc *udpRelayServerConn) error {
-	serverConn, err := lnc.listenConfig.ListenUDPRawConn(lnc.network, lnc.address)
+func (s *UDPSessionRelay) startMmsg(ctx context.Context, index int, lnc *udpRelayServerConn) error {
+	serverConn, err := lnc.listenConfig.ListenUDPRawConn(ctx, lnc.network, lnc.address)
 	if err != nil {
 		return err
 	}
@@ -68,7 +69,7 @@ func (s *UDPSessionRelay) startMmsg(index int, lnc *udpRelayServerConn) error {
 	s.mwg.Add(1)
 
 	go func() {
-		s.recvFromServerConnRecvmmsg(index, lnc, serverConn.RConn())
+		s.recvFromServerConnRecvmmsg(ctx, index, lnc, serverConn.RConn())
 		s.mwg.Done()
 	}()
 
@@ -81,7 +82,7 @@ func (s *UDPSessionRelay) startMmsg(index int, lnc *udpRelayServerConn) error {
 	return nil
 }
 
-func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelayServerConn, serverConn *conn.MmsgRConn) {
+func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(ctx context.Context, index int, lnc *udpRelayServerConn, serverConn *conn.MmsgRConn) {
 	n := lnc.serverRecvBatchSize
 	qpvec := make([]*sessionQueuedPacket, n)
 	namevec := make([]unix.RawSockaddrInet6, n)
@@ -303,6 +304,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelaySer
 				natConnSendCh := make(chan *sessionQueuedPacket, lnc.sendChannelCapacity)
 				entry.natConnSendCh = natConnSendCh
 				s.table[csid] = entry
+				s.wg.Add(1)
 
 				go func() {
 					var sendChClean bool
@@ -318,9 +320,11 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelaySer
 								s.putQueuedPacket(queuedPacket)
 							}
 						}
+
+						s.wg.Done()
 					}()
 
-					c, err := s.router.GetUDPClient(router.RequestInfo{
+					c, err := s.router.GetUDPClient(ctx, router.RequestInfo{
 						ServerIndex:    s.serverIndex,
 						Username:       entry.username,
 						SourceAddrPort: queuedPacket.clientAddrPort,
@@ -340,22 +344,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelaySer
 						return
 					}
 
-					serverConnPacker, err := entry.serverConnUnpacker.NewPacker()
-					if err != nil {
-						s.logger.Warn("Failed to create packer for client session",
-							zap.String("server", s.serverName),
-							zap.Int("listener", index),
-							zap.String("listenAddress", lnc.address),
-							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-							zap.String("username", entry.username),
-							zap.Uint64("clientSessionID", csid),
-							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-							zap.Error(err),
-						)
-						return
-					}
-
-					clientInfo, clientSession, err := c.NewSession()
+					clientInfo, clientSession, err := c.NewSession(ctx)
 					if err != nil {
 						s.logger.Warn("Failed to create new UDP client session",
 							zap.String("server", s.serverName),
@@ -371,12 +360,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelaySer
 						return
 					}
 
-					// Only add for the current goroutine here,
-					// since we don't want the router or the client to block exiting.
-					s.wg.Add(1)
-					defer s.wg.Done()
-
-					natConn, err := clientInfo.ListenConfig.ListenUDPRawConn("udp", "")
+					natConn, err := clientInfo.ListenConfig.ListenUDPRawConn(ctx, "udp", "")
 					if err != nil {
 						s.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.String("server", s.serverName),
@@ -412,6 +396,23 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelaySer
 						return
 					}
 
+					serverConnPacker, err := entry.serverConnUnpacker.NewPacker()
+					if err != nil {
+						s.logger.Warn("Failed to create packer for client session",
+							zap.String("server", s.serverName),
+							zap.Int("listener", index),
+							zap.String("listenAddress", lnc.address),
+							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
+							zap.String("username", entry.username),
+							zap.Uint64("clientSessionID", csid),
+							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+							zap.Error(err),
+						)
+						natConn.Close()
+						clientSession.Close()
+						return
+					}
+
 					oldState := entry.state.Swap(natConn.UDPConn)
 					if oldState != nil {
 						natConn.Close()
@@ -436,7 +437,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelaySer
 					s.wg.Add(1)
 
 					go func() {
-						s.relayServerConnToNatConnSendmmsg(sessionUplinkMmsg{
+						s.relayServerConnToNatConnSendmmsg(ctx, sessionUplinkMmsg{
 							csid:                    csid,
 							clientName:              clientInfo.Name,
 							natConn:                 natConn.WConn(),
@@ -520,7 +521,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelaySer
 	)
 }
 
-func (s *UDPSessionRelay) relayServerConnToNatConnSendmmsg(uplink sessionUplinkMmsg) {
+func (s *UDPSessionRelay) relayServerConnToNatConnSendmmsg(ctx context.Context, uplink sessionUplinkMmsg) {
 	var (
 		destAddrPort     netip.AddrPort
 		packetStart      int
@@ -556,7 +557,7 @@ main:
 
 	dequeue:
 		for {
-			destAddrPort, packetStart, packetLength, err = uplink.natConnPacker.PackInPlace(queuedPacket.buf, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length)
+			destAddrPort, packetStart, packetLength, err = uplink.natConnPacker.PackInPlace(ctx, queuedPacket.buf, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length)
 			if err != nil {
 				s.logger.Warn("Failed to pack packet for natConn",
 					zap.String("server", s.serverName),

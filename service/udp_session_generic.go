@@ -2,6 +2,8 @@
 
 package service
 
-func (s *UDPSessionRelay) start(index int, lnc *udpRelayServerConn) error {
-	return s.startGeneric(index, lnc)
+import "context"
+
+func (s *UDPSessionRelay) start(ctx context.Context, index int, lnc *udpRelayServerConn) error {
+	return s.startGeneric(ctx, index, lnc)
 }

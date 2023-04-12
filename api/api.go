@@ -94,7 +94,7 @@ func (s *Server) String() string {
 }
 
 // Start starts the API server.
-func (s *Server) Start() error {
+func (s *Server) Start(ctx context.Context) error {
 	go func() {
 		var err error
 		switch {

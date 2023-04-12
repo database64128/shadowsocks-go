@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/netip"
@@ -123,12 +124,12 @@ func (s *UDPTransparentRelay) String() string {
 }
 
 // Start implements the Relay Start method.
-func (s *UDPTransparentRelay) Start() error {
+func (s *UDPTransparentRelay) Start(ctx context.Context) error {
 	for i := range s.listeners {
 		index := i
 		lnc := &s.listeners[index]
 
-		serverConn, err := lnc.listenConfig.ListenUDPRawConn(lnc.network, lnc.address)
+		serverConn, err := lnc.listenConfig.ListenUDPRawConn(ctx, lnc.network, lnc.address)
 		if err != nil {
 			return err
 		}
@@ -137,7 +138,7 @@ func (s *UDPTransparentRelay) Start() error {
 		s.mwg.Add(1)
 
 		go func() {
-			s.recvFromServerConnRecvmmsg(index, lnc, serverConn.RConn())
+			s.recvFromServerConnRecvmmsg(ctx, index, lnc, serverConn.RConn())
 			s.mwg.Done()
 		}()
 
@@ -150,7 +151,7 @@ func (s *UDPTransparentRelay) Start() error {
 	return nil
 }
 
-func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRelayServerConn, serverConn *conn.MmsgRConn) {
+func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, index int, lnc *udpRelayServerConn, serverConn *conn.MmsgRConn) {
 	n := lnc.serverRecvBatchSize
 	qpvec := make([]*transparentQueuedPacket, n)
 	namevec := make([]unix.RawSockaddrInet6, n)
@@ -271,6 +272,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRela
 					listenerIndex:           index,
 				}
 				s.table[clientAddrPort] = entry
+				s.wg.Add(1)
 
 				go func() {
 					var sendChClean bool
@@ -286,9 +288,11 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRela
 								s.putQueuedPacket(queuedPacket)
 							}
 						}
+
+						s.wg.Done()
 					}()
 
-					c, err := s.router.GetUDPClient(router.RequestInfo{
+					c, err := s.router.GetUDPClient(ctx, router.RequestInfo{
 						ServerIndex:    s.serverIndex,
 						SourceAddrPort: clientAddrPort,
 						TargetAddr:     conn.AddrFromIPPort(queuedPacket.targetAddrPort),
@@ -305,7 +309,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRela
 						return
 					}
 
-					clientInfo, clientSession, err := c.NewSession()
+					clientInfo, clientSession, err := c.NewSession(ctx)
 					if err != nil {
 						s.logger.Warn("Failed to create new UDP client session",
 							zap.String("server", s.serverName),
@@ -319,12 +323,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRela
 						return
 					}
 
-					// Only add for the current goroutine here,
-					// since we don't want the router or the client to block exiting.
-					s.wg.Add(1)
-					defer s.wg.Done()
-
-					natConn, err := clientInfo.ListenConfig.ListenUDPRawConn("udp", "")
+					natConn, err := clientInfo.ListenConfig.ListenUDPRawConn(ctx, "udp", "")
 					if err != nil {
 						s.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.String("server", s.serverName),
@@ -377,7 +376,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRela
 					s.wg.Add(1)
 
 					go func() {
-						s.relayServerConnToNatConnSendmmsg(transparentUplink{
+						s.relayServerConnToNatConnSendmmsg(ctx, transparentUplink{
 							clientName:              clientInfo.Name,
 							clientAddrPort:          clientAddrPort,
 							natConn:                 natConn.WConn(),
@@ -393,7 +392,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRela
 						s.wg.Done()
 					}()
 
-					s.relayNatConnToTransparentConnSendmmsg(transparentDownlink{
+					s.relayNatConnToTransparentConnSendmmsg(ctx, transparentDownlink{
 						clientName:         clientInfo.Name,
 						clientAddrPort:     clientAddrPort,
 						natConn:            natConn.RConn(),
@@ -449,7 +448,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(index int, lnc *udpRela
 	)
 }
 
-func (s *UDPTransparentRelay) relayServerConnToNatConnSendmmsg(uplink transparentUplink) {
+func (s *UDPTransparentRelay) relayServerConnToNatConnSendmmsg(ctx context.Context, uplink transparentUplink) {
 	var (
 		destAddrPort     netip.AddrPort
 		packetStart      int
@@ -485,7 +484,7 @@ main:
 
 	dequeue:
 		for {
-			destAddrPort, packetStart, packetLength, err = uplink.natConnPacker.PackInPlace(queuedPacket.buf, conn.AddrFromIPPort(queuedPacket.targetAddrPort), s.packetBufFrontHeadroom, int(queuedPacket.msglen))
+			destAddrPort, packetStart, packetLength, err = uplink.natConnPacker.PackInPlace(ctx, queuedPacket.buf, conn.AddrFromIPPort(queuedPacket.targetAddrPort), s.packetBufFrontHeadroom, int(queuedPacket.msglen))
 			if err != nil {
 				s.logger.Warn("Failed to pack packet for natConn",
 					zap.String("server", s.serverName),
@@ -605,8 +604,8 @@ type transparentConn struct {
 	n      int
 }
 
-func (s *UDPTransparentRelay) newTransparentConn(address string, relayBatchSize int, name *byte, namelen uint32) (*transparentConn, error) {
-	c, err := s.transparentConnListenConfig.ListenUDPRawConn("udp", address)
+func (s *UDPTransparentRelay) newTransparentConn(ctx context.Context, address string, relayBatchSize int, name *byte, namelen uint32) (*transparentConn, error) {
+	c, err := s.transparentConnListenConfig.ListenUDPRawConn(ctx, "udp", address)
 	if err != nil {
 		return nil, err
 	}
@@ -647,7 +646,7 @@ func (tc *transparentConn) close() error {
 	return tc.mwc.Close()
 }
 
-func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(downlink transparentDownlink) {
+func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(ctx context.Context, downlink transparentDownlink) {
 	var (
 		sendmmsgCount    uint64
 		packetsSent      uint64
@@ -752,7 +751,7 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(downlink tra
 
 			tc := tcMap[payloadSourceAddrPort]
 			if tc == nil {
-				tc, err = s.newTransparentConn(payloadSourceAddrPort.String(), downlink.relayBatchSize, name, namelen)
+				tc, err = s.newTransparentConn(ctx, payloadSourceAddrPort.String(), downlink.relayBatchSize, name, namelen)
 				if err != nil {
 					s.logger.Warn("Failed to create transparentConn",
 						zap.String("server", s.serverName),

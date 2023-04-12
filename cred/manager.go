@@ -2,6 +2,7 @@ package cred
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,7 +36,6 @@ type ManagedServer struct {
 	mu                  sync.RWMutex
 	wg                  sync.WaitGroup
 	saveQueue           chan struct{}
-	done                chan struct{}
 	logger              *zap.Logger
 }
 
@@ -103,19 +103,19 @@ func (s *ManagedServer) saveToFile() error {
 	return nil
 }
 
-func (s *ManagedServer) dequeueSave() {
+func (s *ManagedServer) dequeueSave(ctx context.Context) {
 	for {
 		// Wait for incoming save job.
 		select {
 		case <-s.saveQueue:
-		case <-s.done:
+		case <-ctx.Done():
 			return
 		}
 
 		// Wait for cooldown.
 		select {
 		case <-time.After(5 * time.Second):
-		case <-s.done:
+		case <-ctx.Done():
 		}
 
 		// Clear save queue after cooldown.
@@ -137,17 +137,16 @@ func (s *ManagedServer) dequeueSave() {
 }
 
 // Start starts the managed server.
-func (s *ManagedServer) Start() {
+func (s *ManagedServer) Start(ctx context.Context) {
 	s.wg.Add(1)
 	go func() {
-		s.dequeueSave()
+		s.dequeueSave(ctx)
 		s.wg.Done()
 	}()
 }
 
 // Stop stops the managed server.
 func (s *ManagedServer) Stop() {
-	close(s.done)
 	s.wg.Wait()
 }
 
@@ -357,9 +356,9 @@ func (m *Manager) String() string {
 }
 
 // Start starts all managed servers and registers to reload on SIGUSR1.
-func (m *Manager) Start() error {
+func (m *Manager) Start(ctx context.Context) error {
 	for _, s := range m.servers {
-		s.Start()
+		s.Start(ctx)
 	}
 	m.registerSIGUSR1()
 	return nil
@@ -385,7 +384,6 @@ func (m *Manager) RegisterServer(name, path string, pskLength int, tcpCredStore,
 		udp:       udpCredStore,
 		path:      path,
 		saveQueue: make(chan struct{}, 1),
-		done:      make(chan struct{}),
 		logger:    m.logger,
 	}
 	if err := s.LoadFromFile(); err != nil {

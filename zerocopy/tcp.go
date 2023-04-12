@@ -1,6 +1,7 @@
 package zerocopy
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -34,7 +35,7 @@ type TCPClient interface {
 
 	// Dial creates a connection to the target address under the protocol's
 	// encapsulation and returns the established connection and a ReadWriter for read-write access.
-	Dial(targetAddr conn.Addr, payload []byte) (rawRW DirectReadWriteCloser, rw ReadWriter, err error)
+	Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW DirectReadWriteCloser, rw ReadWriter, err error)
 }
 
 // TCPServerInfo contains information about a TCP server.
@@ -84,8 +85,8 @@ func NewTCPConnOpener(dialer conn.Dialer, network, address string) *TCPConnOpene
 }
 
 // Open implements the DirectReadWriteCloserOpener Open method.
-func (o *TCPConnOpener) Open(b []byte) (DirectReadWriteCloser, error) {
-	return o.dialer.DialTCP(o.network, o.address, b)
+func (o *TCPConnOpener) Open(ctx context.Context, b []byte) (DirectReadWriteCloser, error) {
+	return o.dialer.DialTCP(ctx, o.network, o.address, b)
 }
 
 // TCPConnCloser handles a potentially malicious TCP connection.

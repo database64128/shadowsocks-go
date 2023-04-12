@@ -1,6 +1,7 @@
 package direct
 
 import (
+	"context"
 	"io"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -74,12 +75,12 @@ func NewDirectStreamReadWriter(rw zerocopy.DirectReadWriteCloser) *DirectStreamR
 }
 
 // NewShadowsocksNoneStreamClientReadWriter creates a ReadWriter that acts as a Shadowsocks none method client.
-func NewShadowsocksNoneStreamClientReadWriter(rwo zerocopy.DirectReadWriteCloserOpener, targetAddr conn.Addr, payload []byte) (*DirectStreamReadWriter, zerocopy.DirectReadWriteCloser, error) {
+func NewShadowsocksNoneStreamClientReadWriter(ctx context.Context, rwo zerocopy.DirectReadWriteCloserOpener, targetAddr conn.Addr, payload []byte) (*DirectStreamReadWriter, zerocopy.DirectReadWriteCloser, error) {
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	writeBuf := make([]byte, targetAddrLen+len(payload))
 	socks5.WriteAddrFromConnAddr(writeBuf, targetAddr)
 	copy(writeBuf[targetAddrLen:], payload)
-	rawRW, err := rwo.Open(writeBuf)
+	rawRW, err := rwo.Open(ctx, writeBuf)
 	if err != nil {
 		return nil, nil, err
 	}

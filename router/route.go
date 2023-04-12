@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -457,9 +458,9 @@ func (r *Route) AddCriterion(criterion Criterion, invert bool) {
 }
 
 // Match returns whether the request matches the route.
-func (r *Route) Match(network protocol, requestInfo RequestInfo) (bool, error) {
+func (r *Route) Match(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	for _, criterion := range r.criteria {
-		met, err := criterion.Meet(network, requestInfo)
+		met, err := criterion.Meet(ctx, network, requestInfo)
 		if !met {
 			return false, err
 		}
@@ -486,7 +487,7 @@ func (r *Route) UDPClient() (zerocopy.UDPClient, error) {
 // Criterion is used by [Route] to determine whether a request matches the route.
 type Criterion interface {
 	// Meet returns whether the request meets the criterion.
-	Meet(network protocol, requestInfo RequestInfo) (bool, error)
+	Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error)
 }
 
 // InvertedCriterion is like the inner criterion, but inverted.
@@ -495,8 +496,8 @@ type InvertedCriterion struct {
 }
 
 // Meet implements the Criterion Meet method.
-func (c InvertedCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
-	met, err := c.Inner.Meet(network, requestInfo)
+func (c InvertedCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
+	met, err := c.Inner.Meet(ctx, network, requestInfo)
 	if err != nil {
 		return false, err
 	}
@@ -517,9 +518,9 @@ func (g *CriterionGroupOR) AddCriterion(criterion Criterion, invert bool) {
 }
 
 // Meet returns whether the request meets any of the criteria.
-func (g CriterionGroupOR) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (g CriterionGroupOR) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	for _, criterion := range g.Criteria {
-		met, err := criterion.Meet(network, requestInfo)
+		met, err := criterion.Meet(ctx, network, requestInfo)
 		if err != nil {
 			return false, err
 		}
@@ -576,7 +577,7 @@ type RequestInfo struct {
 type NetworkTCPCriterion struct{}
 
 // Meet implements the Criterion Meet method.
-func (NetworkTCPCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (NetworkTCPCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	return network == protocolTCP, nil
 }
 
@@ -584,7 +585,7 @@ func (NetworkTCPCriterion) Meet(network protocol, requestInfo RequestInfo) (bool
 type NetworkUDPCriterion struct{}
 
 // Meet implements the Criterion Meet method.
-func (NetworkUDPCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (NetworkUDPCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	return network == protocolUDP, nil
 }
 
@@ -592,7 +593,7 @@ func (NetworkUDPCriterion) Meet(network protocol, requestInfo RequestInfo) (bool
 type SourceServerCriterion bitset.BitSet
 
 // Meet implements the Criterion Meet method.
-func (c SourceServerCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c SourceServerCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	return bitset.BitSet(c).IsSet(uint(requestInfo.ServerIndex)), nil
 }
 
@@ -600,7 +601,7 @@ func (c SourceServerCriterion) Meet(network protocol, requestInfo RequestInfo) (
 type SourceUserCriterion []string
 
 // Meet implements the Criterion Meet method.
-func (c SourceUserCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c SourceUserCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	return slices.Contains(c, requestInfo.Username), nil
 }
 
@@ -608,7 +609,7 @@ func (c SourceUserCriterion) Meet(network protocol, requestInfo RequestInfo) (bo
 type SourcePortCriterion uint16
 
 // Meet implements the Criterion Meet method.
-func (c SourcePortCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c SourcePortCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	return uint16(c) == requestInfo.SourceAddrPort.Port(), nil
 }
 
@@ -616,7 +617,7 @@ func (c SourcePortCriterion) Meet(network protocol, requestInfo RequestInfo) (bo
 type SourcePortRangeSetCriterion portset.PortRangeSet
 
 // Meet implements the Criterion Meet method.
-func (c SourcePortRangeSetCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c SourcePortRangeSetCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	return portset.PortRangeSet(c).Contains(requestInfo.SourceAddrPort.Port()), nil
 }
 
@@ -624,7 +625,7 @@ func (c SourcePortRangeSetCriterion) Meet(network protocol, requestInfo RequestI
 type SourcePortSetCriterion portset.PortSet
 
 // Meet implements the Criterion Meet method.
-func (c *SourcePortSetCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c *SourcePortSetCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	return (*portset.PortSet)(c).Contains(requestInfo.SourceAddrPort.Port()), nil
 }
 
@@ -632,7 +633,7 @@ func (c *SourcePortSetCriterion) Meet(network protocol, requestInfo RequestInfo)
 type SourceIPCriterion netipx.IPSet
 
 // Meet implements the Criterion Meet method.
-func (c *SourceIPCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c *SourceIPCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	return (*netipx.IPSet)(c).Contains(requestInfo.SourceAddrPort.Addr().Unmap()), nil
 }
 
@@ -644,7 +645,7 @@ type SourceGeoIPCountryCriterion struct {
 }
 
 // Meet implements the Criterion Meet method.
-func (c SourceGeoIPCountryCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c SourceGeoIPCountryCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	return matchAddrToGeoIPCountries(c.countries, requestInfo.SourceAddrPort.Addr(), c.geoip, c.logger)
 }
 
@@ -652,7 +653,7 @@ func (c SourceGeoIPCountryCriterion) Meet(network protocol, requestInfo RequestI
 type DestPortCriterion uint16
 
 // Meet implements the Criterion Meet method.
-func (c DestPortCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c DestPortCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	return uint16(c) == requestInfo.TargetAddr.Port(), nil
 }
 
@@ -660,7 +661,7 @@ func (c DestPortCriterion) Meet(network protocol, requestInfo RequestInfo) (bool
 type DestPortRangeSetCriterion portset.PortRangeSet
 
 // Meet implements the Criterion Meet method.
-func (c DestPortRangeSetCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c DestPortRangeSetCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	return portset.PortRangeSet(c).Contains(requestInfo.TargetAddr.Port()), nil
 }
 
@@ -668,7 +669,7 @@ func (c DestPortRangeSetCriterion) Meet(network protocol, requestInfo RequestInf
 type DestPortSetCriterion portset.PortSet
 
 // Meet implements the Criterion Meet method.
-func (c *DestPortSetCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c *DestPortSetCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	return (*portset.PortSet)(c).Contains(requestInfo.TargetAddr.Port()), nil
 }
 
@@ -676,7 +677,7 @@ func (c *DestPortSetCriterion) Meet(network protocol, requestInfo RequestInfo) (
 type DestDomainCriterion []domainset.DomainSet
 
 // Meet implements the Criterion Meet method.
-func (c DestDomainCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c DestDomainCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	if requestInfo.TargetAddr.IsIP() {
 		return false, nil
 	}
@@ -690,19 +691,19 @@ type DestDomainExpectedIPCriterion struct {
 }
 
 // Meet implements the Criterion Meet method.
-func (c DestDomainExpectedIPCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
-	met, err := c.destDomainCriterion.Meet(network, requestInfo)
+func (c DestDomainExpectedIPCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
+	met, err := c.destDomainCriterion.Meet(ctx, network, requestInfo)
 	if !met {
 		return false, err
 	}
-	return c.expectedIPCriterion.Meet(network, requestInfo)
+	return c.expectedIPCriterion.Meet(ctx, network, requestInfo)
 }
 
 // DestIPCriterion restricts the destination IP address.
 type DestIPCriterion netipx.IPSet
 
 // Meet implements the Criterion Meet method.
-func (c *DestIPCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c *DestIPCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	if !requestInfo.TargetAddr.IsIP() {
 		return false, nil
 	}
@@ -716,11 +717,11 @@ type DestResolvedIPCriterion struct {
 }
 
 // Meet implements the Criterion Meet method.
-func (c DestResolvedIPCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c DestResolvedIPCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	if requestInfo.TargetAddr.IsIP() {
 		return c.ipSet.Contains(requestInfo.TargetAddr.IP().Unmap()), nil
 	}
-	return matchDomainToIPSet(c.resolvers, requestInfo.TargetAddr.Domain(), c.ipSet)
+	return matchDomainToIPSet(ctx, c.resolvers, requestInfo.TargetAddr.Domain(), c.ipSet)
 }
 
 // DestGeoIPCountryCriterion restricts the destination IP address by GeoIP country.
@@ -731,7 +732,7 @@ type DestGeoIPCountryCriterion struct {
 }
 
 // Meet implements the Criterion Meet method.
-func (c DestGeoIPCountryCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c DestGeoIPCountryCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	if !requestInfo.TargetAddr.IsIP() {
 		return false, nil
 	}
@@ -747,11 +748,11 @@ type DestResolvedGeoIPCountryCriterion struct {
 }
 
 // Meet implements the Criterion Meet method.
-func (c DestResolvedGeoIPCountryCriterion) Meet(network protocol, requestInfo RequestInfo) (bool, error) {
+func (c DestResolvedGeoIPCountryCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	if requestInfo.TargetAddr.IsIP() {
 		return matchAddrToGeoIPCountries(c.countries, requestInfo.TargetAddr.IP(), c.geoip, c.logger)
 	}
-	return matchDomainToGeoIPCountries(c.resolvers, requestInfo.TargetAddr.Domain(), c.countries, c.geoip, c.logger)
+	return matchDomainToGeoIPCountries(ctx, c.resolvers, requestInfo.TargetAddr.Domain(), c.countries, c.geoip, c.logger)
 }
 
 func matchAddrToGeoIPCountries(countries []string, addr netip.Addr, geoip *geoip2.Reader, logger *zap.Logger) (bool, error) {
@@ -788,9 +789,9 @@ func matchResultToIPSet(ipSet *netipx.IPSet, result dns.Result) bool {
 	return false
 }
 
-func lookup(resolvers []*dns.Resolver, domain string) (result dns.Result, err error) {
+func lookup(ctx context.Context, resolvers []*dns.Resolver, domain string) (result dns.Result, err error) {
 	for _, resolver := range resolvers {
-		result, err = resolver.Lookup(domain)
+		result, err = resolver.Lookup(ctx, domain)
 		if err == dns.ErrLookup {
 			continue
 		}
@@ -808,16 +809,16 @@ func matchDomainToDomainSets(domainSets []domainset.DomainSet, domain string) bo
 	return false
 }
 
-func matchDomainToGeoIPCountries(resolvers []*dns.Resolver, domain string, countries []string, geoip *geoip2.Reader, logger *zap.Logger) (bool, error) {
-	result, err := lookup(resolvers, domain)
+func matchDomainToGeoIPCountries(ctx context.Context, resolvers []*dns.Resolver, domain string, countries []string, geoip *geoip2.Reader, logger *zap.Logger) (bool, error) {
+	result, err := lookup(ctx, resolvers, domain)
 	if err != nil {
 		return false, err
 	}
 	return matchResultToGeoIPCountries(countries, result, geoip, logger)
 }
 
-func matchDomainToIPSet(resolvers []*dns.Resolver, domain string, ipSet *netipx.IPSet) (bool, error) {
-	result, err := lookup(resolvers, domain)
+func matchDomainToIPSet(ctx context.Context, resolvers []*dns.Resolver, domain string, ipSet *netipx.IPSet) (bool, error) {
+	result, err := lookup(ctx, resolvers, domain)
 	if err != nil {
 		return false, err
 	}

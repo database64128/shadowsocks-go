@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -23,7 +24,7 @@ type Relay interface {
 	String() string
 
 	// Start starts the relay service.
-	Start() error
+	Start(ctx context.Context) error
 
 	// Stop stops the relay service.
 	Stop() error
@@ -171,9 +172,9 @@ type Manager struct {
 }
 
 // Start starts all configured services.
-func (m *Manager) Start() error {
+func (m *Manager) Start(ctx context.Context) error {
 	for _, s := range m.services {
-		if err := s.Start(); err != nil {
+		if err := s.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start %s: %w", s.String(), err)
 		}
 	}

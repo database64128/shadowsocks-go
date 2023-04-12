@@ -1,6 +1,7 @@
 package ss2022
 
 import (
+	"context"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/subtle"
@@ -107,7 +108,7 @@ func (p *ShadowPacketClientPacker) ClientPackerInfo() zerocopy.ClientPackerInfo 
 }
 
 // PackInPlace implements the zerocopy.ClientPacker PackInPlace method.
-func (p *ShadowPacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
+func (p *ShadowPacketClientPacker) PackInPlace(ctx context.Context, b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	headerNoPaddingLen := p.nonAEADHeaderLen + UDPClientMessageHeaderFixedLength + targetAddrLen
 	maxPaddingLen := p.maxPacketSize - headerNoPaddingLen - payloadLen - p.aead.Overhead()

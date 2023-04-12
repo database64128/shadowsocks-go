@@ -1,6 +1,7 @@
 package zerocopy
 
 import (
+	"context"
 	"sync"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -48,7 +49,7 @@ type UDPClient interface {
 
 	// NewSession creates a new client session, and returns the session info or an error.
 	// The returned [UDPClientInfo] is always valid, even when session creation fails.
-	NewSession() (UDPClientInfo, UDPClientSession, error)
+	NewSession(ctx context.Context) (UDPClientInfo, UDPClientSession, error)
 }
 
 // UDPNATServerInfo contains information about a UDP NAT server.

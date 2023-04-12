@@ -1,6 +1,7 @@
 package ss2022
 
 import (
+	"context"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/subtle"
@@ -42,8 +43,8 @@ func (c *UDPClient) Info() zerocopy.UDPClientInfo {
 }
 
 // NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *UDPClient) NewSession() (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
-	addrPort, err := c.addr.ResolveIPPort()
+func (c *UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
+	addrPort, err := c.addr.ResolveIPPort(ctx)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
 	}

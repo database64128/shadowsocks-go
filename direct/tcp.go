@@ -1,6 +1,8 @@
 package direct
 
 import (
+	"context"
+
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -28,8 +30,8 @@ func (c *TCPClient) Info() zerocopy.TCPClientInfo {
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
-	rawRW, err = c.dialer.DialTCP("tcp", targetAddr.String(), payload)
+func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
+	rawRW, err = c.dialer.DialTCP(ctx, "tcp", targetAddr.String(), payload)
 	if err != nil {
 		return
 	}
@@ -85,8 +87,8 @@ func (c *ShadowsocksNoneTCPClient) Info() zerocopy.TCPClientInfo {
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *ShadowsocksNoneTCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
-	rw, rawRW, err = NewShadowsocksNoneStreamClientReadWriter(c.tco, targetAddr, payload)
+func (c *ShadowsocksNoneTCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
+	rw, rawRW, err = NewShadowsocksNoneStreamClientReadWriter(ctx, c.tco, targetAddr, payload)
 	return
 }
 
@@ -135,8 +137,8 @@ func (c *Socks5TCPClient) Info() zerocopy.TCPClientInfo {
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *Socks5TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
-	rawRW, err = c.dialer.DialTCP("tcp", c.address, nil)
+func (c *Socks5TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
+	rawRW, err = c.dialer.DialTCP(ctx, "tcp", c.address, nil)
 	if err != nil {
 		return
 	}

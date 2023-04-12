@@ -1,6 +1,8 @@
 package http
 
 import (
+	"context"
+
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
@@ -30,8 +32,8 @@ func (c *ProxyClient) Info() zerocopy.TCPClientInfo {
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *ProxyClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
-	rawRW, err = c.dialer.DialTCP("tcp", c.address, nil)
+func (c *ProxyClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
+	rawRW, err = c.dialer.DialTCP(ctx, "tcp", c.address, nil)
 	if err != nil {
 		return
 	}

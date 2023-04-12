@@ -1,6 +1,7 @@
 package direct
 
 import (
+	"context"
 	"fmt"
 	"net/netip"
 
@@ -35,9 +36,9 @@ func (DirectPacketClientPacker) ClientPackerInfo() zerocopy.ClientPackerInfo {
 	return zerocopy.ClientPackerInfo{}
 }
 
-func (p *DirectPacketClientPacker) updateDomainIPCache(targetAddr conn.Addr) error {
+func (p *DirectPacketClientPacker) updateDomainIPCache(ctx context.Context, targetAddr conn.Addr) error {
 	if p.cachedDomain != targetAddr.Domain() {
-		ip, err := targetAddr.ResolveIP()
+		ip, err := targetAddr.ResolveIP(ctx)
 		if err != nil {
 			return err
 		}
@@ -48,11 +49,11 @@ func (p *DirectPacketClientPacker) updateDomainIPCache(targetAddr conn.Addr) err
 }
 
 // PackInPlace implements the zerocopy.ClientPacker PackInPlace method.
-func (p *DirectPacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
+func (p *DirectPacketClientPacker) PackInPlace(ctx context.Context, b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
 	if targetAddr.IsIP() {
 		destAddrPort = targetAddr.IPPort()
 	} else {
-		err = p.updateDomainIPCache(targetAddr)
+		err = p.updateDomainIPCache(ctx, targetAddr)
 		if err != nil {
 			return
 		}
@@ -175,7 +176,7 @@ func (ShadowsocksNonePacketClientPacker) ClientPackerInfo() zerocopy.ClientPacke
 }
 
 // PackInPlace implements the zerocopy.ClientPacker PackInPlace method.
-func (p *ShadowsocksNonePacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
+func (p *ShadowsocksNonePacketClientPacker) PackInPlace(ctx context.Context, b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	destAddrPort = p.serverAddrPort
 	packetStart = payloadStart - targetAddrLen
@@ -307,7 +308,7 @@ func (Socks5PacketClientPacker) ClientPackerInfo() zerocopy.ClientPackerInfo {
 }
 
 // PackInPlace implements the zerocopy.ClientPacker PackInPlace method.
-func (p *Socks5PacketClientPacker) PackInPlace(b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
+func (p *Socks5PacketClientPacker) PackInPlace(ctx context.Context, b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	destAddrPort = p.serverAddrPort
 	packetStart = payloadStart - targetAddrLen - 3

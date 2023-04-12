@@ -52,8 +52,8 @@ func (fns setFuncSlice) controlFunc() func(network, address string, c syscall.Ra
 type ListenConfig tfo.ListenConfig
 
 // ListenTCP wraps [tfo.ListenConfig.Listen] and returns a [*net.TCPListener] directly.
-func (lc *ListenConfig) ListenTCP(network, address string) (*net.TCPListener, error) {
-	l, err := (*tfo.ListenConfig)(lc).Listen(context.Background(), network, address)
+func (lc *ListenConfig) ListenTCP(ctx context.Context, network, address string) (*net.TCPListener, error) {
+	l, err := (*tfo.ListenConfig)(lc).Listen(ctx, network, address)
 	if err != nil {
 		return nil, err
 	}
@@ -61,8 +61,8 @@ func (lc *ListenConfig) ListenTCP(network, address string) (*net.TCPListener, er
 }
 
 // ListenUDP wraps [net.ListenConfig.ListenPacket] and returns a [*net.UDPConn] directly.
-func (lc *ListenConfig) ListenUDP(network, address string) (*net.UDPConn, error) {
-	pc, err := lc.ListenConfig.ListenPacket(context.Background(), network, address)
+func (lc *ListenConfig) ListenUDP(ctx context.Context, network, address string) (*net.UDPConn, error) {
+	pc, err := lc.ListenConfig.ListenPacket(ctx, network, address)
 	if err != nil {
 		return nil, err
 	}
@@ -152,18 +152,18 @@ var (
 // Dialer is [tfo.Dialer] but provides a subjectively nicer API.
 type Dialer tfo.Dialer
 
-// DialTCP wraps [tfo.Dialer.Dial] and returns a [*net.TCPConn] directly.
-func (d *Dialer) DialTCP(network, address string, b []byte) (*net.TCPConn, error) {
-	c, err := (*tfo.Dialer)(d).Dial(network, address, b)
+// DialTCP wraps [tfo.Dialer.DialContext] and returns a [*net.TCPConn] directly.
+func (d *Dialer) DialTCP(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+	c, err := (*tfo.Dialer)(d).DialContext(ctx, network, address, b)
 	if err != nil {
 		return nil, err
 	}
 	return c.(*net.TCPConn), nil
 }
 
-// DialUDP wraps [net.Dialer.Dial] and returns a [*net.UDPConn] directly.
-func (d *Dialer) DialUDP(network, address string) (*net.UDPConn, error) {
-	c, err := d.Dialer.Dial(network, address)
+// DialUDP wraps [net.Dialer.DialContext] and returns a [*net.UDPConn] directly.
+func (d *Dialer) DialUDP(ctx context.Context, network, address string) (*net.UDPConn, error) {
+	c, err := d.Dialer.DialContext(ctx, network, address)
 	if err != nil {
 		return nil, err
 	}

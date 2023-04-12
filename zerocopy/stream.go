@@ -2,6 +2,7 @@ package zerocopy
 
 import (
 	"bytes"
+	"context"
 	"io"
 )
 
@@ -268,7 +269,7 @@ func DirectTwoWayRelay(left, right DirectReadWriteCloser) (nl2r, nr2l int64, err
 // DirectReadWriteCloserOpener provides the Open method to open a [DirectReadWriteCloser].
 type DirectReadWriteCloserOpener interface {
 	// Open opens a [DirectReadWriteCloser] with the specified initial payload.
-	Open(b []byte) (DirectReadWriteCloser, error)
+	Open(ctx context.Context, b []byte) (DirectReadWriteCloser, error)
 }
 
 // SimpleDirectReadWriteCloserOpener wraps a [DirectReadWriteCloser] for the Open method to return.
@@ -277,7 +278,7 @@ type SimpleDirectReadWriteCloserOpener struct {
 }
 
 // Open implements the DirectReadWriteCloserOpener Open method.
-func (o *SimpleDirectReadWriteCloserOpener) Open(b []byte) (DirectReadWriteCloser, error) {
+func (o *SimpleDirectReadWriteCloserOpener) Open(ctx context.Context, b []byte) (DirectReadWriteCloser, error) {
 	_, err := o.DirectReadWriteCloser.Write(b)
 	return o.DirectReadWriteCloser, err
 }

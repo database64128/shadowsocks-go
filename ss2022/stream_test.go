@@ -2,6 +2,7 @@ package ss2022
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"io"
 	"net/netip"
@@ -12,7 +13,7 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-func testShadowStreamReadWriter(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, clientInitialPayload, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) {
+func testShadowStreamReadWriter(t *testing.T, ctx context.Context, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, clientInitialPayload, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) {
 	pl, pr := pipe.NewDuplexPipe()
 	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
@@ -36,7 +37,7 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig *ClientCipherCo
 	ctrlCh := make(chan struct{})
 
 	go func() {
-		_, crw, cerr = c.Dial(clientTargetAddr, clientInitialPayload)
+		_, crw, cerr = c.Dial(ctx, clientTargetAddr, clientInitialPayload)
 		ctrlCh <- struct{}{}
 	}()
 
@@ -72,7 +73,7 @@ func testShadowStreamReadWriter(t *testing.T, clientCipherConfig *ClientCipherCo
 	zerocopy.ReadWriterTestFunc(t, crw, srw)
 }
 
-func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap) {
+func testShadowStreamReadWriterReplay(t *testing.T, ctx context.Context, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap) {
 	pl, pr := pipe.NewDuplexPipe()
 	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
@@ -88,7 +89,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig *ClientCi
 
 	// Start client.
 	go func() {
-		_, _, cerr = c.Dial(clientTargetAddr, nil)
+		_, _, cerr = c.Dial(ctx, clientTargetAddr, nil)
 		ctrlCh <- struct{}{}
 	}()
 
@@ -130,7 +131,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig *ClientCi
 	}
 }
 
-func testShadowStreamReadWriterWithCipher(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap) {
+func testShadowStreamReadWriterWithCipher(t *testing.T, ctx context.Context, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap) {
 	smallInitialPayload := make([]byte, 1024)
 	largeInitialPayload := make([]byte, 128*1024)
 	unsafeRequestStreamPrefix := make([]byte, 64)
@@ -150,24 +151,25 @@ func testShadowStreamReadWriterWithCipher(t *testing.T, clientCipherConfig *Clie
 	}
 
 	t.Run("NoInitialPayload", func(t *testing.T) {
-		testShadowStreamReadWriter(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, nil, nil, nil)
+		testShadowStreamReadWriter(t, ctx, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, nil, nil, nil)
 	})
 	t.Run("SmallInitialPayload", func(t *testing.T) {
-		testShadowStreamReadWriter(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, smallInitialPayload, nil, nil)
+		testShadowStreamReadWriter(t, ctx, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, smallInitialPayload, nil, nil)
 	})
 	t.Run("LargeInitialPayload", func(t *testing.T) {
-		testShadowStreamReadWriter(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, largeInitialPayload, nil, nil)
+		testShadowStreamReadWriter(t, ctx, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, largeInitialPayload, nil, nil)
 	})
 	t.Run("UnsafeStreamPrefix", func(t *testing.T) {
-		testShadowStreamReadWriter(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
+		testShadowStreamReadWriter(t, ctx, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
 	})
 
 	t.Run("Replay", func(t *testing.T) {
-		testShadowStreamReadWriterReplay(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap)
+		testShadowStreamReadWriterReplay(t, ctx, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap)
 	})
 }
 
 func TestShadowStreamReadWriterNoEIH(t *testing.T) {
+	ctx := context.Background()
 	clientCipherConfig128, userCipherConfig128, err := newRandomCipherConfigTupleNoEIH("2022-blake3-aes-128-gcm", false)
 	if err != nil {
 		t.Fatal(err)
@@ -178,14 +180,15 @@ func TestShadowStreamReadWriterNoEIH(t *testing.T) {
 	}
 
 	t.Run("128", func(t *testing.T) {
-		testShadowStreamReadWriterWithCipher(t, clientCipherConfig128, userCipherConfig128, ServerIdentityCipherConfig{}, nil)
+		testShadowStreamReadWriterWithCipher(t, ctx, clientCipherConfig128, userCipherConfig128, ServerIdentityCipherConfig{}, nil)
 	})
 	t.Run("256", func(t *testing.T) {
-		testShadowStreamReadWriterWithCipher(t, clientCipherConfig256, userCipherConfig256, ServerIdentityCipherConfig{}, nil)
+		testShadowStreamReadWriterWithCipher(t, ctx, clientCipherConfig256, userCipherConfig256, ServerIdentityCipherConfig{}, nil)
 	})
 }
 
 func TestShadowStreamReadWriterWithEIH(t *testing.T) {
+	ctx := context.Background()
 	clientCipherConfig128, identityCipherConfig128, userLookupMap128, err := newRandomCipherConfigTupleWithEIH("2022-blake3-aes-128-gcm", false)
 	if err != nil {
 		t.Fatal(err)
@@ -196,9 +199,9 @@ func TestShadowStreamReadWriterWithEIH(t *testing.T) {
 	}
 
 	t.Run("128", func(t *testing.T) {
-		testShadowStreamReadWriterWithCipher(t, clientCipherConfig128, UserCipherConfig{}, identityCipherConfig128, userLookupMap128)
+		testShadowStreamReadWriterWithCipher(t, ctx, clientCipherConfig128, UserCipherConfig{}, identityCipherConfig128, userLookupMap128)
 	})
 	t.Run("256", func(t *testing.T) {
-		testShadowStreamReadWriterWithCipher(t, clientCipherConfig256, UserCipherConfig{}, identityCipherConfig256, userLookupMap256)
+		testShadowStreamReadWriterWithCipher(t, ctx, clientCipherConfig256, UserCipherConfig{}, identityCipherConfig256, userLookupMap256)
 	})
 }

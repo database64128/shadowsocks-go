@@ -1,6 +1,7 @@
 package direct
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -43,7 +44,7 @@ func (c *DirectUDPClient) Info() zerocopy.UDPClientInfo {
 }
 
 // NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *DirectUDPClient) NewSession() (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
+func (c *DirectUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
 	return c.info, c.session, nil
 }
 
@@ -72,8 +73,8 @@ func (c *ShadowsocksNoneUDPClient) Info() zerocopy.UDPClientInfo {
 }
 
 // NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *ShadowsocksNoneUDPClient) NewSession() (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
-	addrPort, err := c.addr.ResolveIPPort()
+func (c *ShadowsocksNoneUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
+	addrPort, err := c.addr.ResolveIPPort(ctx)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
 	}
@@ -116,8 +117,8 @@ func (c *Socks5UDPClient) Info() zerocopy.UDPClientInfo {
 }
 
 // NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *Socks5UDPClient) NewSession() (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
-	tc, err := c.dialer.DialTCP("tcp", c.address, nil)
+func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
+	tc, err := c.dialer.DialTCP(ctx, "tcp", c.address, nil)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, err
 	}
@@ -128,7 +129,7 @@ func (c *Socks5UDPClient) NewSession() (zerocopy.UDPClientInfo, zerocopy.UDPClie
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to request UDP association: %w", err)
 	}
 
-	addrPort, err := addr.ResolveIPPort()
+	addrPort, err := addr.ResolveIPPort(ctx)
 	if err != nil {
 		tc.Close()
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)

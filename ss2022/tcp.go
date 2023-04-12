@@ -2,6 +2,7 @@ package ss2022
 
 import (
 	"bytes"
+	"context"
 	"crypto/cipher"
 	"crypto/rand"
 	"io"
@@ -40,7 +41,7 @@ func (c *TCPClient) Info() zerocopy.TCPClientInfo {
 }
 
 // Dial implements the zerocopy.TCPClient Dial method.
-func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
+func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
 	var (
 		paddingPayloadLen int
 		excessPayload     []byte
@@ -120,7 +121,7 @@ func (c *TCPClient) Dial(targetAddr conn.Addr, payload []byte) (rawRW zerocopy.D
 	shadowStreamCipher.EncryptInPlace(variableLengthHeaderPlaintext)
 
 	// Write out.
-	rawRW, err = c.rwo.Open(b)
+	rawRW, err = c.rwo.Open(ctx, b)
 	if err != nil {
 		return
 	}

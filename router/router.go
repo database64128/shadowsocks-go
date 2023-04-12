@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/database64128/shadowsocks-go/dns"
@@ -124,8 +125,8 @@ func (r *Router) Close() error {
 
 // GetTCPClient returns the zerocopy.TCPClient for a TCP request received by server
 // from sourceAddrPort to targetAddr.
-func (r *Router) GetTCPClient(requestInfo RequestInfo) (zerocopy.TCPClient, error) {
-	route, err := r.match(protocolTCP, requestInfo)
+func (r *Router) GetTCPClient(ctx context.Context, requestInfo RequestInfo) (zerocopy.TCPClient, error) {
+	route, err := r.match(ctx, protocolTCP, requestInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -145,8 +146,8 @@ func (r *Router) GetTCPClient(requestInfo RequestInfo) (zerocopy.TCPClient, erro
 
 // GetUDPClient returns the zerocopy.UDPClient for a UDP session received by server.
 // The first received packet of the session is from sourceAddrPort to targetAddr.
-func (r *Router) GetUDPClient(requestInfo RequestInfo) (zerocopy.UDPClient, error) {
-	route, err := r.match(protocolUDP, requestInfo)
+func (r *Router) GetUDPClient(ctx context.Context, requestInfo RequestInfo) (zerocopy.UDPClient, error) {
+	route, err := r.match(ctx, protocolUDP, requestInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -165,9 +166,9 @@ func (r *Router) GetUDPClient(requestInfo RequestInfo) (zerocopy.UDPClient, erro
 }
 
 // match returns the matched route for the new TCP request or UDP session.
-func (r *Router) match(network protocol, requestInfo RequestInfo) (*Route, error) {
+func (r *Router) match(ctx context.Context, network protocol, requestInfo RequestInfo) (*Route, error) {
 	for i := range r.routes {
-		matched, err := r.routes[i].Match(network, requestInfo)
+		matched, err := r.routes[i].Match(ctx, network, requestInfo)
 		if err != nil {
 			return nil, err
 		}

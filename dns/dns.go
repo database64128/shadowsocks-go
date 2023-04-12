@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -120,7 +121,7 @@ func NewResolver(name string, serverAddrPort netip.AddrPort, tcpClient zerocopy.
 	}
 }
 
-func (r *Resolver) Lookup(name string) (Result, error) {
+func (r *Resolver) Lookup(ctx context.Context, name string) (Result, error) {
 	// Lookup cache first.
 	r.mu.RLock()
 	result, ok := r.cache[name]
@@ -140,10 +141,10 @@ func (r *Resolver) Lookup(name string) (Result, error) {
 	}
 
 	// Send queries to upstream server.
-	return r.sendQueries(name)
+	return r.sendQueries(ctx, name)
 }
 
-func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
+func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result Result, err error) {
 	name, err := dnsmessage.NewName(nameString + ".")
 	if err != nil {
 		return
@@ -221,7 +222,7 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 
 	// Try UDP first if available.
 	if r.udpClient != nil {
-		result, minTTL, handled = r.sendQueriesUDP(nameString, q4Pkt, q6Pkt)
+		result, minTTL, handled = r.sendQueriesUDP(ctx, nameString, q4Pkt, q6Pkt)
 
 		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup sent queries via UDP"); ce != nil {
 			ce.Write(
@@ -243,7 +244,7 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 		binary.BigEndian.PutUint16(q4LenBuf, uint16(len(q4Pkt)))
 		binary.BigEndian.PutUint16(q6LenBuf, uint16(len(q6Pkt)))
 
-		result, minTTL, handled = r.sendQueriesTCP(nameString, qBuf[:q6PktEnd])
+		result, minTTL, handled = r.sendQueriesTCP(ctx, nameString, qBuf[:q6PktEnd])
 
 		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup sent queries via TCP"); ce != nil {
 			ce.Write(
@@ -278,9 +279,11 @@ func (r *Resolver) sendQueries(nameString string) (result Result, err error) {
 // and whether the lookup was successful.
 //
 // It's the caller's responsibility to examine the minTTL and decide whether to cache the result.
-func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (result Result, minTTL uint32, handled bool) {
-	// Create client session.
-	clientInfo, clientSession, err := r.udpClient.NewSession()
+func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt, q6Pkt []byte) (result Result, minTTL uint32, handled bool) {
+	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
+	defer cancel()
+
+	clientInfo, clientSession, err := r.udpClient.NewSession(ctx)
 	if err != nil {
 		r.logger.Warn("Failed to create new UDP client session",
 			zap.String("resolver", r.name),
@@ -288,9 +291,9 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 		)
 		return
 	}
+	defer clientSession.Close()
 
-	// Prepare UDP socket.
-	udpConn, err := clientInfo.ListenConfig.ListenUDP("udp", "")
+	udpConn, err := clientInfo.ListenConfig.ListenUDP(ctx, "udp", "")
 	if err != nil {
 		r.logger.Warn("Failed to create UDP socket for DNS lookup",
 			zap.String("resolver", r.name),
@@ -300,26 +303,20 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 	}
 	defer udpConn.Close()
 
-	// Set read deadline.
-	err = udpConn.SetReadDeadline(time.Now().Add(lookupTimeout))
-	if err != nil {
-		r.logger.Warn("Failed to set read deadline",
-			zap.String("resolver", r.name),
-			zap.Error(err),
-		)
-		return
-	}
+	go func() {
+		<-ctx.Done()
+		udpConn.SetReadDeadline(time.Now())
+	}()
 
 	// Spin up senders.
-	// Each sender will keep sending at 2s intervals until the stop signal
-	// is received or after 10 iterations.
-	sendFunc := func(pkt []byte, ctrlCh <-chan struct{}) {
+	// Each sender will keep sending at 2s intervals until
+	// done unblocks or after 10 iterations.
+	sendFunc := func(pkt []byte, done <-chan struct{}) {
 		b := make([]byte, clientInfo.PackerHeadroom.Front+len(pkt)+clientInfo.PackerHeadroom.Rear)
 
-	write:
 		for i := 0; i < 10; i++ {
 			copy(b[clientInfo.PackerHeadroom.Front:], pkt)
-			destAddrPort, packetStart, packetLength, err := clientSession.Packer.PackInPlace(b, r.serverAddr, clientInfo.PackerHeadroom.Front, len(pkt))
+			destAddrPort, packetStart, packetLength, err := clientSession.Packer.PackInPlace(ctx, b, r.serverAddr, clientInfo.PackerHeadroom.Front, len(pkt))
 			if err != nil {
 				r.logger.Warn("Failed to pack packet",
 					zap.String("resolver", r.name),
@@ -327,7 +324,8 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
 					zap.Error(err),
 				)
-				goto cleanup
+				cancel()
+				return
 			}
 
 			_, err = udpConn.WriteToUDPAddrPort(b[packetStart:packetStart+packetLength], destAddrPort)
@@ -339,37 +337,24 @@ func (r *Resolver) sendQueriesUDP(nameString string, q4Pkt, q6Pkt []byte) (resul
 					zap.Stringer("destAddrPort", destAddrPort),
 					zap.Error(err),
 				)
-				goto cleanup
+				cancel()
+				return
 			}
-
-			time.Sleep(2 * time.Second)
 
 			select {
-			case <-ctrlCh:
-				break write
-			default:
-				continue write
+			case <-done:
+				return
+			case <-time.After(2 * time.Second):
 			}
-
-		cleanup:
-			err = udpConn.SetReadDeadline(time.Now())
-			if err != nil {
-				r.logger.Warn("Failed to set read deadline",
-					zap.String("resolver", r.name),
-					zap.String("name", nameString),
-					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Stringer("destAddrPort", destAddrPort),
-					zap.Error(err),
-				)
-			}
-			break
 		}
 	}
 
-	ctrlCh4 := make(chan struct{}, 1)
-	ctrlCh6 := make(chan struct{}, 1)
-	go sendFunc(q4Pkt, ctrlCh4)
-	go sendFunc(q6Pkt, ctrlCh6)
+	ctx4, cancel4 := context.WithCancel(ctx)
+	ctx6, cancel6 := context.WithCancel(ctx)
+	defer cancel4()
+	defer cancel6()
+	go sendFunc(q4Pkt, ctx4.Done())
+	go sendFunc(q6Pkt, ctx6.Done())
 
 	// Receive replies.
 	minTTL = math.MaxUint32
@@ -611,12 +596,10 @@ read:
 		// Stop corresponding sender and mark as done.
 		switch header.ID {
 		case 4:
-			ctrlCh4 <- struct{}{}
-			close(ctrlCh4)
+			cancel4()
 			v4done = true
 		case 6:
-			ctrlCh6 <- struct{}{}
-			close(ctrlCh6)
+			cancel6()
 			v6done = true
 		}
 
@@ -624,16 +607,6 @@ read:
 		if v4done && v6done {
 			break
 		}
-	}
-
-	// Clean up in case of error.
-	if !v4done {
-		ctrlCh4 <- struct{}{}
-		close(ctrlCh4)
-	}
-	if !v6done {
-		ctrlCh6 <- struct{}{}
-		close(ctrlCh6)
 	}
 
 	handled = v4done && v6done
@@ -644,9 +617,12 @@ read:
 // and whether the lookup was successful.
 //
 // It's the caller's responsibility to examine the minTTL and decide whether to cache the result.
-func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Result, minTTL uint32, handled bool) {
+func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, queries []byte) (result Result, minTTL uint32, handled bool) {
+	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
+	defer cancel()
+
 	// Write.
-	rawRW, rw, err := r.tcpClient.Dial(r.serverAddr, queries)
+	rawRW, rw, err := r.tcpClient.Dial(ctx, r.serverAddr, queries)
 	if err != nil {
 		r.logger.Warn("Failed to dial DNS server",
 			zap.String("resolver", r.name),
@@ -660,15 +636,10 @@ func (r *Resolver) sendQueriesTCP(nameString string, queries []byte) (result Res
 
 	// Set read deadline.
 	if tc, ok := rawRW.(*net.TCPConn); ok {
-		if err = tc.SetReadDeadline(time.Now().Add(lookupTimeout)); err != nil {
-			r.logger.Warn("Failed to set read deadline",
-				zap.String("resolver", r.name),
-				zap.String("name", nameString),
-				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Error(err),
-			)
-			return
-		}
+		go func() {
+			<-ctx.Done()
+			tc.SetReadDeadline(time.Now())
+		}()
 	}
 
 	// Read.
