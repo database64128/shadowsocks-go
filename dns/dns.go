@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net"
 	"net/netip"
 	"os"
@@ -215,23 +214,20 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 	}
 	q6PktEnd := q6PktStart + len(q6Pkt)
 
-	var (
-		minTTL  uint32
-		handled bool
-	)
+	var handled bool
 
 	// Try UDP first if available.
 	if r.udpClient != nil {
-		result, minTTL, handled = r.sendQueriesUDP(ctx, nameString, q4Pkt, q6Pkt)
+		result, handled = r.sendQueriesUDP(ctx, nameString, q4Pkt, q6Pkt)
 
 		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup sent queries via UDP"); ce != nil {
 			ce.Write(
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
-				zap.Uint32("minTTL", minTTL),
 				zap.Bool("handled", handled),
 				zap.Stringers("v4", result.IPv4),
 				zap.Stringers("v6", result.IPv6),
+				zap.Time("ttl", result.TTL),
 			)
 		}
 	}
@@ -244,16 +240,16 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 		binary.BigEndian.PutUint16(q4LenBuf, uint16(len(q4Pkt)))
 		binary.BigEndian.PutUint16(q6LenBuf, uint16(len(q6Pkt)))
 
-		result, minTTL, handled = r.sendQueriesTCP(ctx, nameString, qBuf[:q6PktEnd])
+		result, handled = r.sendQueriesTCP(ctx, nameString, qBuf[:q6PktEnd])
 
 		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup sent queries via TCP"); ce != nil {
 			ce.Write(
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
-				zap.Uint32("minTTL", minTTL),
 				zap.Bool("handled", handled),
 				zap.Stringers("v4", result.IPv4),
 				zap.Stringers("v6", result.IPv6),
+				zap.Time("ttl", result.TTL),
 			)
 		}
 	}
@@ -263,10 +259,8 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 		return
 	}
 
-	// Add result to cache if minTTL != 0.
-	if minTTL != 0 {
-		result.TTL = time.Now().Add(time.Duration(minTTL) * time.Second)
-
+	// Add result to cache if TTL hasn't expired.
+	if result.TTL.After(time.Now()) {
 		r.mu.Lock()
 		r.cache[nameString] = result
 		r.mu.Unlock()
@@ -275,11 +269,8 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 	return
 }
 
-// sendQueriesUDP sends queries using the resolver's UDP client and returns the result, a detached minTTL,
-// and whether the lookup was successful.
-//
-// It's the caller's responsibility to examine the minTTL and decide whether to cache the result.
-func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt, q6Pkt []byte) (result Result, minTTL uint32, handled bool) {
+// sendQueriesUDP sends queries using the resolver's UDP client and returns the result and whether the lookup was successful.
+func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt, q6Pkt []byte) (result Result, handled bool) {
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()
 
@@ -357,15 +348,10 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 	go sendFunc(q6Pkt, ctx6.Done())
 
 	// Receive replies.
-	minTTL = math.MaxUint32
 	recvBuf := make([]byte, clientSession.MaxPacketSize)
 
-	var (
-		v4done, v6done bool
-		parser         dnsmessage.Parser
-	)
+	var v4done, v6done bool
 
-read:
 	for {
 		n, _, flags, packetSourceAddress, err := udpConn.ReadMsgUDPAddrPort(recvBuf, nil)
 		if err != nil {
@@ -420,192 +406,29 @@ read:
 			)
 			continue
 		}
-		payload := recvBuf[payloadStart : payloadStart+payloadLength]
+		msg := recvBuf[payloadStart : payloadStart+payloadLength]
 
-		// Parse header.
-		header, err := parser.Start(payload)
+		v4done, v6done, err = result.parseMsg(msg, v4done, v6done)
 		if err != nil {
-			r.logger.Warn("Failed to parse query response header",
+			r.logger.Warn("Failed to parse DNS response",
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Error(err),
 			)
 			break
-		}
-
-		// Check transaction ID.
-		switch header.ID {
-		case 4:
-			if v4done {
-				continue
-			}
-		case 6:
-			if v6done {
-				continue
-			}
-		default:
-			r.logger.Warn("Unexpected transaction ID",
-				zap.String("resolver", r.name),
-				zap.String("name", nameString),
-				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Uint16("transactionID", header.ID),
-			)
-			break read
-		}
-
-		// Check response bit.
-		if !header.Response {
-			r.logger.Warn("Received non-response reply",
-				zap.String("resolver", r.name),
-				zap.String("name", nameString),
-				zap.Stringer("serverAddrPort", r.serverAddrPort),
-			)
-			break
-		}
-
-		// Check truncated bit.
-		if header.Truncated {
-			r.logger.Warn("Received truncated reply",
-				zap.String("resolver", r.name),
-				zap.String("name", nameString),
-				zap.Stringer("serverAddrPort", r.serverAddrPort),
-			)
-			break
-		}
-
-		// Check RCode.
-		if header.RCode != dnsmessage.RCodeSuccess {
-			r.logger.Warn("DNS failure",
-				zap.String("resolver", r.name),
-				zap.String("name", nameString),
-				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Stringer("RCode", header.RCode),
-			)
-			break
-		}
-
-		// Skip questions.
-		err = parser.SkipAllQuestions()
-		if err != nil {
-			r.logger.Warn("Failed to skip questions",
-				zap.String("resolver", r.name),
-				zap.String("name", nameString),
-				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Error(err),
-			)
-			break
-		}
-
-		// Parse answers and add to result.
-		for {
-			answerHeader, err := parser.AnswerHeader()
-			if err != nil {
-				if err == dnsmessage.ErrSectionDone {
-					break
-				}
-				r.logger.Warn("Failed to parse answer header",
-					zap.String("resolver", r.name),
-					zap.String("name", nameString),
-					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Error(err),
-				)
-				break read
-			}
-
-			// Set minimum TTL.
-			if answerHeader.TTL < minTTL {
-				if ce := r.logger.Check(zap.DebugLevel, "Updating minimum TTL"); ce != nil {
-					ce.Write(
-						zap.String("resolver", r.name),
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Stringer("answerType", answerHeader.Type),
-						zap.Uint32("oldMinTTL", minTTL),
-						zap.Uint32("newMinTTL", answerHeader.TTL),
-					)
-				}
-				minTTL = answerHeader.TTL
-			}
-
-			// Skip non-A/AAAA RRs.
-			switch answerHeader.Type {
-			case dnsmessage.TypeA:
-				arr, err := parser.AResource()
-				if err != nil {
-					r.logger.Warn("Failed to parse A resource",
-						zap.String("resolver", r.name),
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Error(err),
-					)
-					break read
-				}
-
-				addr4 := netip.AddrFrom4(arr.A)
-				result.IPv4 = append(result.IPv4, addr4)
-
-				if ce := r.logger.Check(zap.DebugLevel, "Processing A RR"); ce != nil {
-					ce.Write(
-						zap.String("resolver", r.name),
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Stringer("addr", addr4),
-					)
-				}
-
-			case dnsmessage.TypeAAAA:
-				aaaarr, err := parser.AAAAResource()
-				if err != nil {
-					r.logger.Warn("Failed to parse AAAA resource",
-						zap.String("resolver", r.name),
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Error(err),
-					)
-					break read
-				}
-
-				addr6 := netip.AddrFrom16(aaaarr.AAAA)
-				result.IPv6 = append(result.IPv6, addr6)
-
-				if ce := r.logger.Check(zap.DebugLevel, "Processing AAAA RR"); ce != nil {
-					ce.Write(
-						zap.String("resolver", r.name),
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Stringer("addr", addr6),
-					)
-				}
-
-			default:
-				err = parser.SkipAnswer()
-				if err != nil {
-					r.logger.Warn("Failed to skip answer",
-						zap.String("resolver", r.name),
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Stringer("answerType", answerHeader.Type),
-						zap.Error(err),
-					)
-					break read
-				}
-			}
-		}
-
-		// Stop corresponding sender and mark as done.
-		switch header.ID {
-		case 4:
-			cancel4()
-			v4done = true
-		case 6:
-			cancel6()
-			v6done = true
 		}
 
 		// Break out of loop if both v4 and v6 are done.
 		if v4done && v6done {
 			break
+		}
+
+		if v4done {
+			cancel4()
+		}
+		if v6done {
+			cancel6()
 		}
 	}
 
@@ -613,11 +436,8 @@ read:
 	return
 }
 
-// sendQueriesTCP sends queries using the resolver's TCP client and returns the result, a detached minTTL,
-// and whether the lookup was successful.
-//
-// It's the caller's responsibility to examine the minTTL and decide whether to cache the result.
-func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, queries []byte) (result Result, minTTL uint32, handled bool) {
+// sendQueriesTCP sends queries using the resolver's TCP client and returns the result and whether the lookup was successful.
+func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, queries []byte) (result Result, handled bool) {
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()
 
@@ -645,12 +465,8 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 	// Read.
 	crw := zerocopy.NewCopyReadWriter(rw)
 	lengthBuf := make([]byte, 2)
-	minTTL = math.MaxUint32
 
-	var (
-		v4done, v6done bool
-		parser         dnsmessage.Parser
-	)
+	var v4done, v6done bool
 
 	for i := 0; i < 2; i++ {
 		// Read length field.
@@ -688,169 +504,111 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 			return
 		}
 
-		// Parse header.
-		header, err := parser.Start(msg)
+		v4done, v6done, err = result.parseMsg(msg, v4done, v6done)
 		if err != nil {
-			r.logger.Warn("Failed to parse query response header",
+			r.logger.Warn("Failed to parse DNS response",
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Error(err),
 			)
-			return
-		}
-
-		// Check transaction ID.
-		switch header.ID {
-		case 4, 6:
-		default:
-			r.logger.Warn("Unexpected transaction ID",
-				zap.String("resolver", r.name),
-				zap.String("name", nameString),
-				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Uint16("transactionID", header.ID),
-			)
-			return
-		}
-
-		// Check response bit.
-		if !header.Response {
-			r.logger.Warn("Received non-response reply",
-				zap.String("resolver", r.name),
-				zap.String("name", nameString),
-				zap.Stringer("serverAddrPort", r.serverAddrPort),
-			)
-			return
-		}
-
-		// Check RCode.
-		if header.RCode != dnsmessage.RCodeSuccess {
-			r.logger.Warn("DNS failure",
-				zap.String("resolver", r.name),
-				zap.String("name", nameString),
-				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Stringer("RCode", header.RCode),
-			)
-			return
-		}
-
-		// Skip questions.
-		err = parser.SkipAllQuestions()
-		if err != nil {
-			r.logger.Warn("Failed to skip questions",
-				zap.String("resolver", r.name),
-				zap.String("name", nameString),
-				zap.Stringer("serverAddrPort", r.serverAddrPort),
-				zap.Error(err),
-			)
-			return
-		}
-
-		// Parse answers and add to result.
-		for {
-			answerHeader, err := parser.AnswerHeader()
-			if err != nil {
-				if err == dnsmessage.ErrSectionDone {
-					break
-				}
-				r.logger.Warn("Failed to parse answer header",
-					zap.String("resolver", r.name),
-					zap.String("name", nameString),
-					zap.Stringer("serverAddrPort", r.serverAddrPort),
-					zap.Error(err),
-				)
-				return
-			}
-
-			// Set minimum TTL.
-			if answerHeader.TTL < minTTL {
-				if ce := r.logger.Check(zap.DebugLevel, "Updating minimum TTL"); ce != nil {
-					ce.Write(
-						zap.String("resolver", r.name),
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Stringer("answerType", answerHeader.Type),
-						zap.Uint32("oldMinTTL", minTTL),
-						zap.Uint32("newMinTTL", answerHeader.TTL),
-					)
-				}
-				minTTL = answerHeader.TTL
-			}
-
-			// Skip non-A/AAAA RRs.
-			switch answerHeader.Type {
-			case dnsmessage.TypeA:
-				arr, err := parser.AResource()
-				if err != nil {
-					r.logger.Warn("Failed to parse A resource",
-						zap.String("resolver", r.name),
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Error(err),
-					)
-					return
-				}
-
-				addr4 := netip.AddrFrom4(arr.A)
-				result.IPv4 = append(result.IPv4, addr4)
-
-				if ce := r.logger.Check(zap.DebugLevel, "Processing A RR"); ce != nil {
-					ce.Write(
-						zap.String("resolver", r.name),
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Stringer("addr", addr4),
-					)
-				}
-
-			case dnsmessage.TypeAAAA:
-				aaaarr, err := parser.AAAAResource()
-				if err != nil {
-					r.logger.Warn("Failed to parse AAAA resource",
-						zap.String("resolver", r.name),
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Error(err),
-					)
-					return
-				}
-
-				addr6 := netip.AddrFrom16(aaaarr.AAAA)
-				result.IPv6 = append(result.IPv6, addr6)
-
-				if ce := r.logger.Check(zap.DebugLevel, "Processing AAAA RR"); ce != nil {
-					ce.Write(
-						zap.String("resolver", r.name),
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Stringer("addr", addr6),
-					)
-				}
-
-			default:
-				err = parser.SkipAnswer()
-				if err != nil {
-					r.logger.Warn("Failed to skip answer",
-						zap.String("resolver", r.name),
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-						zap.Stringer("answerType", answerHeader.Type),
-						zap.Error(err),
-					)
-					return
-				}
-			}
-		}
-
-		// Mark v4 or v6 as done.
-		switch header.ID {
-		case 4:
-			v4done = true
-		case 6:
-			v6done = true
+			break
 		}
 	}
 
 	handled = v4done && v6done
 	return
+}
+
+func (r *Result) parseMsg(msg []byte, v4done, v6done bool) (bool, bool, error) {
+	var parser dnsmessage.Parser
+
+	// Parse header.
+	header, err := parser.Start(msg)
+	if err != nil {
+		return v4done, v6done, fmt.Errorf("failed to parse query response header: %w", err)
+	}
+
+	// Check transaction ID.
+	switch header.ID {
+	case 4:
+		if v4done {
+			return v4done, v6done, nil
+		}
+	case 6:
+		if v6done {
+			return v4done, v6done, nil
+		}
+	default:
+		return v4done, v6done, fmt.Errorf("unexpected transaction ID: %d", header.ID)
+	}
+
+	// Check response bit.
+	if !header.Response {
+		return v4done, v6done, errors.New("message is not a response")
+	}
+
+	// Check truncated bit.
+	if header.Truncated {
+		return v4done, v6done, errors.New("message is truncated")
+	}
+
+	// Check RCode.
+	if header.RCode != dnsmessage.RCodeSuccess {
+		return v4done, v6done, fmt.Errorf("DNS failure: %s", header.RCode)
+	}
+
+	// Skip questions.
+	if err = parser.SkipAllQuestions(); err != nil {
+		return v4done, v6done, fmt.Errorf("failed to skip questions: %w", err)
+	}
+
+	// Parse answers and add to result.
+	for {
+		answerHeader, err := parser.AnswerHeader()
+		if err != nil {
+			if err == dnsmessage.ErrSectionDone {
+				break
+			}
+			return v4done, v6done, fmt.Errorf("failed to parse answer header: %w", err)
+		}
+
+		// Set minimum TTL.
+		ttl := time.Now().Add(time.Duration(answerHeader.TTL) * time.Second)
+		if r.TTL.IsZero() || r.TTL.After(ttl) {
+			r.TTL = ttl
+		}
+
+		// Skip non-A/AAAA RRs.
+		switch answerHeader.Type {
+		case dnsmessage.TypeA:
+			arr, err := parser.AResource()
+			if err != nil {
+				return v4done, v6done, fmt.Errorf("failed to parse A resource: %w", err)
+			}
+			r.IPv4 = append(r.IPv4, netip.AddrFrom4(arr.A))
+
+		case dnsmessage.TypeAAAA:
+			aaaarr, err := parser.AAAAResource()
+			if err != nil {
+				return v4done, v6done, fmt.Errorf("failed to parse AAAA resource: %w", err)
+			}
+			r.IPv6 = append(r.IPv6, netip.AddrFrom16(aaaarr.AAAA))
+
+		default:
+			if err = parser.SkipAnswer(); err != nil {
+				return v4done, v6done, fmt.Errorf("failed to skip answer: %w", err)
+			}
+		}
+	}
+
+	// Mark v4 or v6 as done.
+	switch header.ID {
+	case 4:
+		v4done = true
+	case 6:
+		v6done = true
+	}
+
+	return v4done, v6done, nil
 }
