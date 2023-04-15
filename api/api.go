@@ -86,6 +86,7 @@ type Server struct {
 	certFile       string
 	keyFile        string
 	clientCertFile string
+	ctx            context.Context
 }
 
 // String implements the service.Service String method.
@@ -95,6 +96,7 @@ func (s *Server) String() string {
 
 // Start starts the API server.
 func (s *Server) Start(ctx context.Context) error {
+	s.ctx = ctx
 	go func() {
 		var err error
 		switch {
@@ -114,7 +116,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 // Stop stops the API server.
 func (s *Server) Stop() error {
-	if err := s.app.ShutdownWithTimeout(0); err != nil {
+	if err := s.app.ShutdownWithContext(s.ctx); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return nil
 		}
