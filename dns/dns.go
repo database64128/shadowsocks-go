@@ -26,7 +26,11 @@ const (
 	lookupTimeout = 20 * time.Second
 )
 
-var ErrLookup = errors.New("name lookup failed")
+var (
+	ErrLookup             = errors.New("name lookup failed")
+	ErrMessageNotResponse = errors.New("message is not a response")
+	ErrMessageTruncated   = errors.New("message is truncated")
+)
 
 // ResolverConfig configures a DNS resolver.
 type ResolverConfig struct {
@@ -512,7 +516,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Error(err),
 			)
-			break
+			return
 		}
 	}
 
@@ -545,12 +549,12 @@ func (r *Result) parseMsg(msg []byte, v4done, v6done bool) (bool, bool, error) {
 
 	// Check response bit.
 	if !header.Response {
-		return v4done, v6done, errors.New("message is not a response")
+		return v4done, v6done, ErrMessageNotResponse
 	}
 
 	// Check truncated bit.
 	if header.Truncated {
-		return v4done, v6done, errors.New("message is truncated")
+		return v4done, v6done, ErrMessageTruncated
 	}
 
 	// Check RCode.
