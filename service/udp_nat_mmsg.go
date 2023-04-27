@@ -63,6 +63,7 @@ func (s *UDPNATRelay) startMmsg(ctx context.Context, index int, lnc *udpRelaySer
 		return err
 	}
 	lnc.serverConn = serverConn.UDPConn
+	lnc.address = serverConn.LocalAddr().String()
 
 	s.mwg.Add(1)
 

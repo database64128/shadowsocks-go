@@ -65,6 +65,7 @@ func (s *UDPSessionRelay) startMmsg(ctx context.Context, index int, lnc *udpRela
 		return err
 	}
 	lnc.serverConn = serverConn.UDPConn
+	lnc.address = serverConn.LocalAddr().String()
 
 	s.mwg.Add(1)
 

@@ -146,6 +146,7 @@ func (s *UDPNATRelay) startGeneric(ctx context.Context, index int, lnc *udpRelay
 	if err != nil {
 		return
 	}
+	lnc.address = lnc.serverConn.LocalAddr().String()
 
 	s.mwg.Add(1)
 

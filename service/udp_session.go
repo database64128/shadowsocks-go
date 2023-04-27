@@ -157,6 +157,7 @@ func (s *UDPSessionRelay) startGeneric(ctx context.Context, index int, lnc *udpR
 	if err != nil {
 		return
 	}
+	lnc.address = lnc.serverConn.LocalAddr().String()
 
 	s.mwg.Add(1)
 

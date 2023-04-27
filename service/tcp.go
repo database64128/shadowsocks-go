@@ -90,6 +90,7 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 			return err
 		}
 		lnc.listener = l
+		lnc.address = l.Addr().String()
 
 		s.acceptWg.Add(1)
 

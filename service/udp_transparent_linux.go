@@ -134,6 +134,7 @@ func (s *UDPTransparentRelay) Start(ctx context.Context) error {
 			return err
 		}
 		lnc.serverConn = serverConn.UDPConn
+		lnc.address = serverConn.LocalAddr().String()
 
 		s.mwg.Add(1)
 
