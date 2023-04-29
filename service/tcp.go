@@ -41,7 +41,6 @@ type TCPRelay struct {
 	serverName      string
 	listeners       []tcpRelayListener
 	acceptWg        sync.WaitGroup
-	relayWg         sync.WaitGroup
 	server          zerocopy.TCPServer
 	connCloser      zerocopy.TCPConnCloser
 	fallbackAddress conn.Addr
@@ -110,12 +109,7 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 					continue
 				}
 
-				s.relayWg.Add(1)
-
-				go func() {
-					s.handleConn(ctx, index, lnc, clientConn)
-					s.relayWg.Done()
-				}()
+				go s.handleConn(ctx, index, lnc, clientConn)
 			}
 
 			s.acceptWg.Done()
@@ -294,8 +288,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 		)
 		return
 	}
-	remoteConn := remoteRawRW.(*net.TCPConn)
-	defer remoteConn.Close()
+	defer remoteRawRW.Close()
 
 	s.logger.Info("Two-way relay started",
 		zap.String("server", s.serverName),
@@ -308,22 +301,10 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 		zap.Int("initialPayloadLength", len(payload)),
 	)
 
-	relayDone := make(chan struct{})
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			clientConn.SetDeadline(conn.ALongTimeAgo)
-			remoteConn.SetDeadline(conn.ALongTimeAgo)
-		case <-relayDone:
-		}
-	}()
-
 	// Two-way relay.
 	nl2r, nr2l, err := zerocopy.TwoWayRelay(clientRW, remoteRW)
 	nl2r += int64(len(payload))
 	s.collector.CollectTCPSession(username, uint64(nr2l), uint64(nl2r))
-	close(relayDone)
 	if err != nil {
 		s.logger.Warn("Two-way relay failed",
 			zap.String("server", s.serverName),
@@ -380,8 +361,6 @@ func (s *TCPRelay) Stop() error {
 			)
 		}
 	}
-
-	s.relayWg.Wait()
 
 	return nil
 }
