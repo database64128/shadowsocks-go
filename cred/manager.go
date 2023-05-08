@@ -372,6 +372,13 @@ func (m *Manager) Stop() error {
 	return nil
 }
 
+// GetServer returns manager server by its name.
+func (m *Manager) GetServer(name string) (server *ManagedServer, found bool) {
+	server, found = m.servers[name]
+
+	return
+}
+
 // RegisterServer registers a server to the manager.
 func (m *Manager) RegisterServer(name, path string, pskLength int, tcpCredStore, udpCredStore *ss2022.CredStore) (*ManagedServer, error) {
 	s := m.servers[name]
@@ -379,16 +386,26 @@ func (m *Manager) RegisterServer(name, path string, pskLength int, tcpCredStore,
 		return nil, fmt.Errorf("server already registered: %s", name)
 	}
 	s = &ManagedServer{
-		pskLength: pskLength,
-		tcp:       tcpCredStore,
-		udp:       udpCredStore,
-		path:      path,
-		saveQueue: make(chan struct{}, 1),
-		logger:    m.logger,
+		pskLength:           pskLength,
+		tcp:                 tcpCredStore,
+		udp:                 udpCredStore,
+		path:                path,
+		saveQueue:           make(chan struct{}, 1),
+		logger:              m.logger,
+		cachedCredMap:       make(map[string]*cachedUserCredential),
+		cachedUserLookupMap: make(ss2022.UserLookupMap),
 	}
+	if s.tcp != nil {
+		s.tcp.ReplaceUserLookupMap(maps.Clone(s.cachedUserLookupMap))
+	}
+	if s.udp != nil {
+		s.udp.ReplaceUserLookupMap(maps.Clone(s.cachedUserLookupMap))
+	}
+
 	if err := s.LoadFromFile(); err != nil {
 		return nil, fmt.Errorf("failed to load credentials for server %s: %w", name, err)
 	}
+
 	m.servers[name] = s
 	m.logger.Debug("Registered server", zap.String("server", name))
 	return s, nil
