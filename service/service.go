@@ -161,7 +161,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		}
 	}
 
-	return &Manager{services, router, logger}, nil
+	return &Manager{services, router, logger, credman}, nil
 }
 
 // Manager manages the services.
@@ -169,6 +169,7 @@ type Manager struct {
 	services []Relay
 	router   *router.Router
 	logger   *zap.Logger
+	credman  *cred.Manager
 }
 
 // Start starts all configured services.
@@ -179,6 +180,11 @@ func (m *Manager) Start(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// GetCredentialManager returns credential manager for given server, if any.
+func (m *Manager) GetCredentialManager(name string) (*cred.ManagedServer, bool) {
+	return m.credman.GetServer(name)
 }
 
 // Stop stops all running services.
