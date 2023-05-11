@@ -3,6 +3,7 @@ package zerocopy
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
 )
@@ -75,6 +76,10 @@ type UDPNATServer interface {
 type UDPSessionServerInfo struct {
 	// UnpackerHeadroom is the headroom required by the packet unpacker.
 	UnpackerHeadroom Headroom
+
+	// MinNATTimeout is the server's minimum allowed NAT timeout.
+	// 0 means no requirement.
+	MinNATTimeout time.Duration
 }
 
 // UDPSessionServer deals with incoming sessions.

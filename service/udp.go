@@ -29,17 +29,11 @@ const (
 	// defaultSendChannelCapacity is the default capacity of a UDP relay session's uplink send channel.
 	defaultSendChannelCapacity = 1024
 
-	// minNatTimeoutSec is the minimum allowed NAT timeout in seconds.
-	minNatTimeoutSec = 60
-
 	// defaultNatTimeout is the default duration after which an inactive NAT entry is evicted.
 	defaultNatTimeout = 5 * time.Minute
 )
 
-var (
-	ErrMTUTooSmall        = errors.New("MTU must be at least 1280")
-	ErrNATTimeoutTooSmall = errors.New("NAT timeout must be at least 60 seconds")
-)
+var ErrMTUTooSmall = errors.New("MTU must be at least 1280")
 
 // UDPPerfConfig exposes performance tuning parameters for UDP relays.
 type UDPPerfConfig struct {

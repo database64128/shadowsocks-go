@@ -106,6 +106,7 @@ func NewUDPServer(userCipherConfig UserCipherConfig, identityCipherConfig Server
 	return &UDPServer{
 		info: zerocopy.UDPSessionServerInfo{
 			UnpackerHeadroom: ShadowPacketClientMessageHeadroom(identityHeaderLen),
+			MinNATTimeout:    ReplayWindowDuration,
 		},
 		identityHeaderLen:    identityHeaderLen,
 		block:                block,
