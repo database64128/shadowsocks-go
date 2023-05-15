@@ -3,7 +3,7 @@ module github.com/database64128/shadowsocks-go
 go 1.20
 
 require (
-	github.com/database64128/tfo-go/v2 v2.0.5
+	github.com/database64128/tfo-go/v2 v2.0.6
 	github.com/gofiber/contrib/fiberzap v1.0.2
 	github.com/gofiber/fiber/v2 v2.45.0
 	github.com/oschwald/geoip2-golang v1.8.0
