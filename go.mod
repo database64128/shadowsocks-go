@@ -11,7 +11,7 @@ require (
 	go4.org/netipx v0.0.0-20230303233057-f1b76eb4bb35
 	golang.org/x/net v0.10.0
 	golang.org/x/sys v0.8.0
-	lukechampine.com/blake3 v1.1.7
+	lukechampine.com/blake3 v1.2.1
 )
 
 require (
