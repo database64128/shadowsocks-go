@@ -181,8 +181,8 @@
     "clients": [
         {
             "name": "ss-2022-a",
-            "endpoint": "[2001:db8:bd63:362c:2071:a0f6:827:ab6a]:20220",
             "protocol": "2022-blake3-aes-128-gcm",
+            "endpoint": "[2001:db8:bd63:362c:2071:a0f6:827:ab6a]:20220",
             "dialerFwmark": 52140,
             "dialerTrafficClass": 0,
             "enableTCP": true,
@@ -197,8 +197,9 @@
         },
         {
             "name": "ss-2022-b",
-            "endpoint": "[2001:db8:a2bf:f3ef:903a:4fd1:f986:5934]:20220",
             "protocol": "2022-blake3-aes-128-gcm",
+            "tcpAddress": "[2001:db8:a2bf:f3ef:903a:4fd1:f986:5934]:20221",
+            "udpAddress": "[2001:db8:a2bf:f3ef:903a:4fd1:f986:5934]:20222",
             "dialerFwmark": 52140,
             "dialerTrafficClass": 0,
             "enableTCP": true,

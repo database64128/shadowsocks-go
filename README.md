@@ -88,8 +88,8 @@ By default, the router uses the configured DNS server to resolve domain names an
     "clients": [
         {
             "name": "ss-2022",
-            "endpoint": "[2001:db8:bd63:362c:2071:a0f6:827:ab6a]:20220",
             "protocol": "2022-blake3-aes-128-gcm",
+            "endpoint": "[2001:db8:bd63:362c:2071:a0f6:827:ab6a]:20220",
             "enableTCP": true,
             "dialerTFO": true,
             "enableUDP": true,
