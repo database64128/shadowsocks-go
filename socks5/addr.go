@@ -181,7 +181,7 @@ func AppendFromReader(b []byte, r io.Reader) ([]byte, error) {
 		return nil, fmt.Errorf("unknown atyp %d", out[0])
 	}
 
-	ret, out = slices.Extend(ret[:len(b)+2], addrLen-2)
+	ret, out = slices.Extend(ret, addrLen-2)
 	_, err = io.ReadFull(r, out)
 	return ret, err
 }
