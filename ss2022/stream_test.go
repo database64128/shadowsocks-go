@@ -13,17 +13,18 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-func testShadowStreamReadWriter(t *testing.T, ctx context.Context, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, clientInitialPayload, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) {
+func testShadowStreamReadWriter(t *testing.T, ctx context.Context, allowSegmentedFixedLengthHeader bool, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, clientInitialPayload, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) {
 	pl, pr := pipe.NewDuplexPipe()
 	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 	c := TCPClient{
 		rwo:                        &plo,
+		readOnceOrFull:             readOnceOrFullFunc(allowSegmentedFixedLengthHeader),
 		cipherConfig:               clientCipherConfig,
 		unsafeRequestStreamPrefix:  unsafeRequestStreamPrefix,
 		unsafeResponseStreamPrefix: unsafeResponseStreamPrefix,
 	}
-	s := NewTCPServer(userCipherConfig, identityCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
+	s := NewTCPServer(allowSegmentedFixedLengthHeader, userCipherConfig, identityCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
 	s.ReplaceUserLookupMap(userLookupMap)
 
 	var (
@@ -78,10 +79,11 @@ func testShadowStreamReadWriterReplay(t *testing.T, ctx context.Context, clientC
 	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 	c := TCPClient{
-		rwo:          &plo,
-		cipherConfig: clientCipherConfig,
+		rwo:            &plo,
+		readOnceOrFull: readOnceExpectFull,
+		cipherConfig:   clientCipherConfig,
 	}
-	s := NewTCPServer(userCipherConfig, identityCipherConfig, nil, nil)
+	s := NewTCPServer(false, userCipherConfig, identityCipherConfig, nil, nil)
 	s.ReplaceUserLookupMap(userLookupMap)
 
 	var cerr, serr error
@@ -151,16 +153,19 @@ func testShadowStreamReadWriterWithCipher(t *testing.T, ctx context.Context, cli
 	}
 
 	t.Run("NoInitialPayload", func(t *testing.T) {
-		testShadowStreamReadWriter(t, ctx, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, nil, nil, nil)
+		testShadowStreamReadWriter(t, ctx, false, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, nil, nil, nil)
 	})
 	t.Run("SmallInitialPayload", func(t *testing.T) {
-		testShadowStreamReadWriter(t, ctx, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, smallInitialPayload, nil, nil)
+		testShadowStreamReadWriter(t, ctx, false, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, smallInitialPayload, nil, nil)
 	})
 	t.Run("LargeInitialPayload", func(t *testing.T) {
-		testShadowStreamReadWriter(t, ctx, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, largeInitialPayload, nil, nil)
+		testShadowStreamReadWriter(t, ctx, false, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, largeInitialPayload, nil, nil)
 	})
 	t.Run("UnsafeStreamPrefix", func(t *testing.T) {
-		testShadowStreamReadWriter(t, ctx, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
+		testShadowStreamReadWriter(t, ctx, false, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, nil, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix)
+	})
+	t.Run("AllowSegmentedFixedLengthHeader", func(t *testing.T) {
+		testShadowStreamReadWriter(t, ctx, true, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, nil, nil, nil)
 	})
 
 	t.Run("Replay", func(t *testing.T) {

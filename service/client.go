@@ -45,6 +45,15 @@ type ClientConfig struct {
 	EnableTCP bool `json:"enableTCP"`
 	DialerTFO bool `json:"dialerTFO"`
 
+	// AllowSegmentedFixedLengthHeader disables the requirement that
+	// the fixed-length header must be read in a single read call.
+	//
+	// This option is useful when the underlying stream transport
+	// does not exhibit typical TCP behavior.
+	//
+	// Only applicable to Shadowsocks 2022 TCP.
+	AllowSegmentedFixedLengthHeader bool `json:"allowSegmentedFixedLengthHeader"`
+
 	// UDP
 
 	EnableUDP bool `json:"enableUDP"`
@@ -145,7 +154,7 @@ func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
 		if len(cc.UnsafeRequestStreamPrefix) != 0 || len(cc.UnsafeResponseStreamPrefix) != 0 {
 			cc.logger.Warn("Unsafe stream prefix taints the client", zap.String("client", cc.Name))
 		}
-		return ss2022.NewTCPClient(cc.Name, cc.TCPAddress.String(), dialer, cc.cipherConfig, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
+		return ss2022.NewTCPClient(cc.Name, cc.TCPAddress.String(), dialer, cc.AllowSegmentedFixedLengthHeader, cc.cipherConfig, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}

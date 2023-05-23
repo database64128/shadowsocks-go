@@ -130,6 +130,7 @@ type ShadowStreamClientReadWriter struct {
 	*ShadowStreamReader
 	*ShadowStreamWriter
 	rawRW                      zerocopy.DirectReadWriteCloser
+	readOnceOrFull             func(io.Reader, []byte) (int, error)
 	cipherConfig               *ClientCipherConfig
 	requestSalt                []byte
 	unsafeResponseStreamPrefix []byte
@@ -145,12 +146,9 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 		hb := make([]byte, bufferLen)
 
 		// Read response header.
-		n, err := rw.rawRW.Read(hb)
+		n, err := rw.readOnceOrFull(rw.rawRW, hb)
 		if err != nil {
 			return 0, err
-		}
-		if n < bufferLen {
-			return 0, &HeaderError[int]{ErrFirstRead, bufferLen, n}
 		}
 
 		// Check unsafe response stream prefix.
@@ -379,4 +377,26 @@ func increment(b []byte) {
 			return
 		}
 	}
+}
+
+// readOnceExpectFull reads exactly once from r into b and
+// returns an error if the read fails to fill up b.
+func readOnceExpectFull(r io.Reader, b []byte) (int, error) {
+	n, err := r.Read(b)
+	if err != nil {
+		return n, err
+	}
+	if n < len(b) {
+		return n, &HeaderError[int]{ErrFirstRead, len(b), n}
+	}
+	return n, nil
+}
+
+// readOnceOrFullFunc returns a function that either reads exactly once from r into b
+// or reads until b is full, depending on the value of allowSegmentedFixedLengthHeader.
+func readOnceOrFullFunc(allowSegmentedFixedLengthHeader bool) func(io.Reader, []byte) (int, error) {
+	if allowSegmentedFixedLengthHeader {
+		return io.ReadFull
+	}
+	return readOnceExpectFull
 }

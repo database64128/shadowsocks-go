@@ -17,15 +17,17 @@ import (
 type TCPClient struct {
 	name                       string
 	rwo                        zerocopy.DirectReadWriteCloserOpener
+	readOnceOrFull             func(io.Reader, []byte) (int, error)
 	cipherConfig               *ClientCipherConfig
 	unsafeRequestStreamPrefix  []byte
 	unsafeResponseStreamPrefix []byte
 }
 
-func NewTCPClient(name, address string, dialer conn.Dialer, cipherConfig *ClientCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPClient {
+func NewTCPClient(name, address string, dialer conn.Dialer, allowSegmentedFixedLengthHeader bool, cipherConfig *ClientCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPClient {
 	return &TCPClient{
 		name:                       name,
 		rwo:                        zerocopy.NewTCPConnOpener(dialer, "tcp", address),
+		readOnceOrFull:             readOnceOrFullFunc(allowSegmentedFixedLengthHeader),
 		cipherConfig:               cipherConfig,
 		unsafeRequestStreamPrefix:  unsafeRequestStreamPrefix,
 		unsafeResponseStreamPrefix: unsafeResponseStreamPrefix,
@@ -144,6 +146,7 @@ func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []by
 	rw = &ShadowStreamClientReadWriter{
 		ShadowStreamWriter:         &w,
 		rawRW:                      rawRW,
+		readOnceOrFull:             c.readOnceOrFull,
 		cipherConfig:               c.cipherConfig,
 		requestSalt:                salt,
 		unsafeResponseStreamPrefix: c.unsafeResponseStreamPrefix,
@@ -156,15 +159,17 @@ func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []by
 type TCPServer struct {
 	CredStore
 	saltPool                   *SaltPool[string]
+	readOnceOrFull             func(io.Reader, []byte) (int, error)
 	userCipherConfig           UserCipherConfig
 	identityCipherConfig       ServerIdentityCipherConfig
 	unsafeRequestStreamPrefix  []byte
 	unsafeResponseStreamPrefix []byte
 }
 
-func NewTCPServer(userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPServer {
+func NewTCPServer(allowSegmentedFixedLengthHeader bool, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPServer {
 	return &TCPServer{
 		saltPool:                   NewSaltPool[string](ReplayWindowDuration),
+		readOnceOrFull:             readOnceOrFullFunc(allowSegmentedFixedLengthHeader),
 		userCipherConfig:           userCipherConfig,
 		identityCipherConfig:       identityCipherConfig,
 		unsafeRequestStreamPrefix:  unsafeRequestStreamPrefix,
@@ -197,13 +202,9 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 	b := make([]byte, bufferLen)
 
 	// Read unsafe request stream prefix, salt, identity header, fixed-length header.
-	n, err := rawRW.Read(b)
+	n, err := s.readOnceOrFull(rawRW, b)
 	if err != nil {
-		return
-	}
-	if n < bufferLen {
 		payload = b[:n]
-		err = &HeaderError[int]{ErrFirstRead, bufferLen, n}
 		return
 	}
 

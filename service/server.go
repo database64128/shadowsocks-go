@@ -184,6 +184,15 @@ type ServerConfig struct {
 	tcpEnabled bool
 	udpEnabled bool
 
+	// AllowSegmentedFixedLengthHeader disables the requirement that
+	// the fixed-length header must be read in a single read call.
+	//
+	// This option is useful when the underlying stream transport
+	// does not exhibit typical TCP behavior.
+	//
+	// Only applicable to Shadowsocks 2022 TCP.
+	AllowSegmentedFixedLengthHeader bool `json:"allowSegmentedFixedLengthHeader"`
+
 	// Shadowsocks
 
 	PSK                  []byte `json:"psk"`
@@ -315,7 +324,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 			sc.logger.Warn("Unsafe stream prefix taints the server", zap.String("server", sc.Name))
 		}
 
-		s := ss2022.NewTCPServer(sc.userCipherConfig, sc.identityCipherConfig, sc.UnsafeRequestStreamPrefix, sc.UnsafeResponseStreamPrefix)
+		s := ss2022.NewTCPServer(sc.AllowSegmentedFixedLengthHeader, sc.userCipherConfig, sc.identityCipherConfig, sc.UnsafeRequestStreamPrefix, sc.UnsafeResponseStreamPrefix)
 		sc.tcpCredStore = &s.CredStore
 		server = s
 
