@@ -256,6 +256,9 @@ type ShadowPacketClientUnpacker struct {
 	// Client session ID.
 	csid uint64
 
+	// filterSize is the size of the sliding window filter.
+	filterSize uint64
+
 	// Current server session ID.
 	currentServerSessionID uint64
 
@@ -263,7 +266,7 @@ type ShadowPacketClientUnpacker struct {
 	currentServerSessionAEAD cipher.AEAD
 
 	// Current server session sliding window filter.
-	currentServerSessionFilter *Filter
+	currentServerSessionFilter *SlidingWindowFilter
 
 	// Old server session ID.
 	oldServerSessionID uint64
@@ -272,7 +275,7 @@ type ShadowPacketClientUnpacker struct {
 	oldServerSessionAEAD cipher.AEAD
 
 	// Old server session sliding window filter.
-	oldServerSessionFilter *Filter
+	oldServerSessionFilter *SlidingWindowFilter
 
 	// Old server session last seen time.
 	oldServerSessionLastSeenTime time.Time
@@ -300,7 +303,7 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPor
 		ssid          uint64
 		spid          uint64
 		saead         cipher.AEAD
-		sfilter       *Filter
+		sfilter       *SlidingWindowFilter
 		sessionStatus int
 	)
 
@@ -365,7 +368,7 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPor
 
 	// Add spid to filter.
 	if sessionStatus == newServerSession {
-		sfilter = &Filter{}
+		sfilter = NewSlidingWindowFilter(p.filterSize)
 	}
 	sfilter.MustAdd(spid)
 
@@ -397,11 +400,14 @@ type ShadowPacketServerUnpacker struct {
 	// Body AEAD cipher.
 	aead cipher.AEAD
 
+	// filterSize is the size of the sliding window filter.
+	filterSize uint64
+
 	// Client session sliding window filter.
 	//
 	// This filter instance should be created during the first successful unpack operation.
 	// We trade 2 extra nil checks during unpacking for better performance when the server is flooded by invalid packets.
-	filter *Filter
+	filter *SlidingWindowFilter
 
 	// cachedDomain caches the last used domain target to avoid allocating new strings.
 	cachedDomain string
@@ -462,7 +468,7 @@ func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, sourceAddr netip.Ad
 
 	// Add cpid to filter.
 	if p.filter == nil {
-		p.filter = &Filter{}
+		p.filter = NewSlidingWindowFilter(p.filterSize)
 	}
 	p.filter.MustAdd(cpid)
 

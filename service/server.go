@@ -195,10 +195,18 @@ type ServerConfig struct {
 
 	// Shadowsocks
 
-	PSK                  []byte `json:"psk"`
-	UPSKStorePath        string `json:"uPSKStorePath"`
-	PaddingPolicy        string `json:"paddingPolicy"`
-	RejectPolicy         string `json:"rejectPolicy"`
+	PSK           []byte `json:"psk"`
+	UPSKStorePath string `json:"uPSKStorePath"`
+	PaddingPolicy string `json:"paddingPolicy"`
+	RejectPolicy  string `json:"rejectPolicy"`
+
+	// SlidingWindowFilterSize is the size of the sliding window filter.
+	//
+	// The default value is 256.
+	//
+	// Only applicable to Shadowsocks 2022 UDP.
+	SlidingWindowFilterSize int `json:"slidingWindowFilterSize"`
+
 	userCipherConfig     ss2022.UserCipherConfig
 	identityCipherConfig ss2022.ServerIdentityCipherConfig
 	tcpCredStore         *ss2022.CredStore
@@ -404,7 +412,14 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Rel
 			return nil, err
 		}
 
-		s := ss2022.NewUDPServer(sc.userCipherConfig, sc.identityCipherConfig, shouldPad)
+		switch {
+		case sc.SlidingWindowFilterSize == 0:
+			sc.SlidingWindowFilterSize = ss2022.DefaultSlidingWindowFilterSize
+		case sc.SlidingWindowFilterSize < 0:
+			return nil, fmt.Errorf("negative sliding window filter size: %d", sc.SlidingWindowFilterSize)
+		}
+
+		s := ss2022.NewUDPServer(uint64(sc.SlidingWindowFilterSize), sc.userCipherConfig, sc.identityCipherConfig, shouldPad)
 		sc.udpCredStore = &s.CredStore
 		sessionServer = s
 

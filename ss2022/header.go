@@ -57,6 +57,9 @@ const (
 
 	// ReplayWindowDuration defines the amount of time during which a salt check is necessary.
 	ReplayWindowDuration = MaxTimeDiff * 2
+
+	// DefaultSlidingWindowFilterSize is the default size of the sliding window filter.
+	DefaultSlidingWindowFilterSize = 256
 )
 
 var (

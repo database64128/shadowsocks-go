@@ -64,7 +64,15 @@ type ClientConfig struct {
 	PSK           []byte   `json:"psk"`
 	IPSKs         [][]byte `json:"iPSKs"`
 	PaddingPolicy string   `json:"paddingPolicy"`
-	cipherConfig  *ss2022.ClientCipherConfig
+
+	// SlidingWindowFilterSize is the size of the sliding window filter.
+	//
+	// The default value is 256.
+	//
+	// Only applicable to Shadowsocks 2022 UDP.
+	SlidingWindowFilterSize int `json:"slidingWindowFilterSize"`
+
+	cipherConfig *ss2022.ClientCipherConfig
 
 	// Taint
 
@@ -192,7 +200,15 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 		if err != nil {
 			return nil, err
 		}
-		return ss2022.NewUDPClient(cc.UDPAddress, cc.Name, cc.MTU, listenConfig, cc.cipherConfig, shouldPad), nil
+
+		switch {
+		case cc.SlidingWindowFilterSize == 0:
+			cc.SlidingWindowFilterSize = ss2022.DefaultSlidingWindowFilterSize
+		case cc.SlidingWindowFilterSize < 0:
+			return nil, fmt.Errorf("negative sliding window filter size: %d", cc.SlidingWindowFilterSize)
+		}
+
+		return ss2022.NewUDPClient(cc.UDPAddress, cc.Name, cc.MTU, listenConfig, uint64(cc.SlidingWindowFilterSize), cc.cipherConfig, shouldPad), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}

@@ -38,8 +38,8 @@ var (
 )
 
 func testUDPClientServer(t *testing.T, ctx context.Context, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, clientShouldPad, serverShouldPad PaddingPolicy, mtu, packetSize, payloadLen int) {
-	c := NewUDPClient(serverAddr, name, mtu, conn.DefaultUDPClientListenConfig, clientCipherConfig, clientShouldPad)
-	s := NewUDPServer(userCipherConfig, identityCipherConfig, serverShouldPad)
+	c := NewUDPClient(serverAddr, name, mtu, conn.DefaultUDPClientListenConfig, DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
+	s := NewUDPServer(DefaultSlidingWindowFilterSize, userCipherConfig, identityCipherConfig, serverShouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 
 	clientInfo := c.Info()
@@ -148,8 +148,8 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, ctx context.Context
 		t.Fatal(err)
 	}
 
-	c := NewUDPClient(serverAddr, name, mtu, conn.DefaultUDPClientListenConfig, clientCipherConfig, shouldPad)
-	s := NewUDPServer(userCipherConfig, identityCipherConfig, shouldPad)
+	c := NewUDPClient(serverAddr, name, mtu, conn.DefaultUDPClientListenConfig, DefaultSlidingWindowFilterSize, clientCipherConfig, shouldPad)
+	s := NewUDPServer(DefaultSlidingWindowFilterSize, userCipherConfig, identityCipherConfig, shouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 
 	clientInfo, clientSession, err := c.NewSession(ctx)

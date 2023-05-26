@@ -17,11 +17,12 @@ type UDPClient struct {
 	addr             conn.Addr
 	info             zerocopy.UDPClientInfo
 	nonAEADHeaderLen int
+	filterSize       uint64
 	cipherConfig     *ClientCipherConfig
 	shouldPad        PaddingPolicy
 }
 
-func NewUDPClient(addr conn.Addr, name string, mtu int, listenConfig conn.ListenConfig, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
+func NewUDPClient(addr conn.Addr, name string, mtu int, listenConfig conn.ListenConfig, filterSize uint64, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
 	identityHeadersLen := IdentityHeaderLength * len(cipherConfig.iPSKs)
 	return &UDPClient{
 		addr: addr,
@@ -32,6 +33,7 @@ func NewUDPClient(addr conn.Addr, name string, mtu int, listenConfig conn.Listen
 			ListenConfig:   listenConfig,
 		},
 		nonAEADHeaderLen: UDPSeparateHeaderLength + identityHeadersLen,
+		filterSize:       filterSize,
 		cipherConfig:     cipherConfig,
 		shouldPad:        shouldPad,
 	}
@@ -78,6 +80,7 @@ func (c *UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zer
 		},
 		Unpacker: &ShadowPacketClientUnpacker{
 			csid:         csid,
+			filterSize:   c.filterSize,
 			cipherConfig: c.cipherConfig,
 		},
 		Close: zerocopy.NoopClose,
@@ -88,6 +91,7 @@ func (c *UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zer
 type UDPServer struct {
 	CredStore
 	info                 zerocopy.UDPSessionServerInfo
+	filterSize           uint64
 	identityHeaderLen    int
 	block                cipher.Block
 	identityCipherConfig ServerIdentityCipherConfig
@@ -95,7 +99,7 @@ type UDPServer struct {
 	userCipherConfig     UserCipherConfig
 }
 
-func NewUDPServer(userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, shouldPad PaddingPolicy) *UDPServer {
+func NewUDPServer(filterSize uint64, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, shouldPad PaddingPolicy) *UDPServer {
 	var identityHeaderLen int
 	block := userCipherConfig.Block()
 	if block == nil {
@@ -108,6 +112,7 @@ func NewUDPServer(userCipherConfig UserCipherConfig, identityCipherConfig Server
 			UnpackerHeadroom: ShadowPacketClientMessageHeadroom(identityHeaderLen),
 			MinNATTimeout:    ReplayWindowDuration,
 		},
+		filterSize:           filterSize,
 		identityHeaderLen:    identityHeaderLen,
 		block:                block,
 		identityCipherConfig: identityCipherConfig,
@@ -168,6 +173,7 @@ func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker,
 	return &ShadowPacketServerUnpacker{
 		csid:             csid,
 		aead:             aead,
+		filterSize:       s.filterSize,
 		nonAEADHeaderLen: nonAEADHeaderLen,
 		info: zerocopy.ServerUnpackerInfo{
 			Headroom: s.info.UnpackerHeadroom,
