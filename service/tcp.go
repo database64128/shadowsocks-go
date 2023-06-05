@@ -17,17 +17,19 @@ import (
 )
 
 const (
-	initialPayloadWaitBufferSize = 1280
-	initialPayloadWaitTimeout    = 250 * time.Millisecond
+	defaultInitialPayloadWaitBufferSize = 1440
+	defaultInitialPayloadWaitTimeout    = 250 * time.Millisecond
 )
 
 // tcpRelayListener configures the TCP listener for a relay service.
 type tcpRelayListener struct {
-	listener              *net.TCPListener
-	listenConfig          conn.ListenConfig
-	waitForInitialPayload bool
-	network               string
-	address               string
+	listener                     *net.TCPListener
+	listenConfig                 conn.ListenConfig
+	waitForInitialPayload        bool
+	initialPayloadWaitTimeout    time.Duration
+	initialPayloadWaitBufferSize int
+	network                      string
+	address                      string
 }
 
 // TCPRelay is a relay service for TCP traffic.
@@ -195,13 +197,13 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 	if lnc.waitForInitialPayload && clientInfo.NativeInitialPayload {
 		clientReaderInfo := clientRW.ReaderInfo()
 		payloadBufSize := clientReaderInfo.MinPayloadBufferSizePerRead
-		if payloadBufSize == 0 {
-			payloadBufSize = initialPayloadWaitBufferSize
+		if payloadBufSize < lnc.initialPayloadWaitBufferSize {
+			payloadBufSize = lnc.initialPayloadWaitBufferSize
 		}
 
 		payload = make([]byte, clientReaderInfo.Headroom.Front+payloadBufSize+clientReaderInfo.Headroom.Rear)
 
-		err = clientConn.SetReadDeadline(time.Now().Add(initialPayloadWaitTimeout))
+		err = clientConn.SetReadDeadline(time.Now().Add(lnc.initialPayloadWaitTimeout))
 		if err != nil {
 			s.logger.Warn("Failed to set read deadline to initial payload wait timeout",
 				zap.String("server", s.serverName),

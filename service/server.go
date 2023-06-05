@@ -11,6 +11,7 @@ import (
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/http"
+	"github.com/database64128/shadowsocks-go/jsonhelper"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"github.com/database64128/shadowsocks-go/stats"
@@ -56,14 +57,40 @@ type TCPListenerConfig struct {
 	// DisableInitialPayloadWait disables the brief wait for initial payload.
 	// Setting it to true is useful when the listener only relays server-speaks-first protocols.
 	DisableInitialPayloadWait bool `json:"disableInitialPayloadWait"`
+
+	// InitialPayloadWaitTimeout is the read timeout when waiting for the initial payload.
+	//
+	// The default value is 250ms.
+	InitialPayloadWaitTimeout jsonhelper.Duration `json:"initialPayloadWaitTimeout"`
+
+	// InitialPayloadWaitBufferSize is the read buffer size when waiting for the initial payload.
+	//
+	// The default value is 1440.
+	InitialPayloadWaitBufferSize int `json:"initialPayloadWaitBufferSize"`
 }
 
 // Configure returns a TCP listener configuration.
-func (lnc TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache, transparent, serverNativeInitialPayload bool) (tcpRelayListener, error) {
+func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache, transparent, serverNativeInitialPayload bool) (tcpRelayListener, error) {
 	switch lnc.Network {
 	case "tcp", "tcp4", "tcp6":
 	default:
 		return tcpRelayListener{}, fmt.Errorf("invalid network: %s", lnc.Network)
+	}
+
+	initialPayloadWaitTimeout := time.Duration(lnc.InitialPayloadWaitTimeout)
+
+	switch {
+	case initialPayloadWaitTimeout == 0:
+		initialPayloadWaitTimeout = defaultInitialPayloadWaitTimeout
+	case initialPayloadWaitTimeout < 0:
+		return tcpRelayListener{}, fmt.Errorf("negative initial payload wait timeout: %s", initialPayloadWaitTimeout)
+	}
+
+	switch {
+	case lnc.InitialPayloadWaitBufferSize == 0:
+		lnc.InitialPayloadWaitBufferSize = defaultInitialPayloadWaitBufferSize
+	case lnc.InitialPayloadWaitBufferSize < 0:
+		return tcpRelayListener{}, fmt.Errorf("negative initial payload wait buffer size: %d", lnc.InitialPayloadWaitBufferSize)
 	}
 
 	return tcpRelayListener{
@@ -74,9 +101,11 @@ func (lnc TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache,
 			Transparent:  transparent,
 			TCPFastOpen:  lnc.FastOpen,
 		}),
-		waitForInitialPayload: !serverNativeInitialPayload && !lnc.DisableInitialPayloadWait,
-		network:               lnc.Network,
-		address:               lnc.Address,
+		waitForInitialPayload:        !serverNativeInitialPayload && !lnc.DisableInitialPayloadWait,
+		initialPayloadWaitTimeout:    initialPayloadWaitTimeout,
+		initialPayloadWaitBufferSize: lnc.InitialPayloadWaitBufferSize,
+		network:                      lnc.Network,
+		address:                      lnc.Address,
 	}, nil
 }
 

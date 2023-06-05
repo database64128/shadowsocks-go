@@ -28,7 +28,9 @@
                     "trafficClass": 0,
                     "reusePort": true,
                     "fastOpen": true,
-                    "disableInitialPayloadWait": false
+                    "disableInitialPayloadWait": false,
+                    "initialPayloadWaitTimeout": "250ms",
+                    "initialPayloadWaitBufferSize": 1440
                 },
                 {
                     "network": "tcp",
@@ -37,7 +39,9 @@
                     "trafficClass": 0,
                     "reusePort": true,
                     "fastOpen": true,
-                    "disableInitialPayloadWait": false
+                    "disableInitialPayloadWait": false,
+                    "initialPayloadWaitTimeout": "250ms",
+                    "initialPayloadWaitBufferSize": 1440
                 },
                 {
                     "network": "tcp4",
@@ -46,7 +50,9 @@
                     "trafficClass": 0,
                     "reusePort": false,
                     "fastOpen": true,
-                    "disableInitialPayloadWait": false
+                    "disableInitialPayloadWait": false,
+                    "initialPayloadWaitTimeout": "250ms",
+                    "initialPayloadWaitBufferSize": 1440
                 },
                 {
                     "network": "tcp6",
@@ -55,7 +61,9 @@
                     "trafficClass": 0,
                     "reusePort": false,
                     "fastOpen": true,
-                    "disableInitialPayloadWait": false
+                    "disableInitialPayloadWait": false,
+                    "initialPayloadWaitTimeout": "250ms",
+                    "initialPayloadWaitBufferSize": 1440
                 }
             ],
             "udpListeners": [
