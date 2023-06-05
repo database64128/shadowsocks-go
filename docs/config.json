@@ -176,7 +176,8 @@
             "psk": "qQln3GlVCZi5iJUObJVNCw==",
             "uPSKStorePath": "/etc/shadowsocks-go/upsks.json",
             "paddingPolicy": "",
-            "rejectPolicy": ""
+            "rejectPolicy": "",
+            "slidingWindowFilterSize": 256
         }
     ],
     "clients": [
@@ -195,7 +196,8 @@
             "iPSKs": [
                 "qQln3GlVCZi5iJUObJVNCw=="
             ],
-            "paddingPolicy": ""
+            "paddingPolicy": "",
+            "slidingWindowFilterSize": 256
         },
         {
             "name": "ss-2022-b",
@@ -213,7 +215,8 @@
             "iPSKs": [
                 "McxLxNcqHUb01ZedJfp55g=="
             ],
-            "paddingPolicy": ""
+            "paddingPolicy": "",
+            "slidingWindowFilterSize": 256
         },
         {
             "name": "direct",
