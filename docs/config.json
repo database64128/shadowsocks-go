@@ -77,7 +77,7 @@
                     "relayBatchSize": 0,
                     "serverRecvBatchSize": 0,
                     "sendChannelCapacity": 0,
-                    "natTimeoutSec": 0
+                    "natTimeout": "180s"
                 },
                 {
                     "network": "udp",
@@ -89,7 +89,7 @@
                     "relayBatchSize": 0,
                     "serverRecvBatchSize": 0,
                     "sendChannelCapacity": 0,
-                    "natTimeoutSec": 0
+                    "natTimeout": "180s"
                 },
                 {
                     "network": "udp4",
@@ -101,7 +101,7 @@
                     "relayBatchSize": 0,
                     "serverRecvBatchSize": 0,
                     "sendChannelCapacity": 0,
-                    "natTimeoutSec": 0
+                    "natTimeout": "180s"
                 },
                 {
                     "network": "udp6",
@@ -113,7 +113,7 @@
                     "relayBatchSize": 0,
                     "serverRecvBatchSize": 0,
                     "sendChannelCapacity": 0,
-                    "natTimeoutSec": 0
+                    "natTimeout": "180s"
                 }
             ],
             "mtu": 1500

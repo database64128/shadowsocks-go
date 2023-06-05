@@ -117,12 +117,14 @@ type UDPListenerConfig struct {
 	// UDPPerfConfig exposes performance tuning options.
 	UDPPerfConfig
 
-	// NATTimeoutSec is the number of seconds after which an inactive session is removed.
-	NATTimeoutSec int `json:"natTimeoutSec"`
+	// NATTimeout is the duration after which an inactive NAT mapping expires.
+	//
+	// The default value is 5 minutes.
+	NATTimeout jsonhelper.Duration `json:"natTimeout"`
 }
 
 // Configure returns a UDP server socket configuration.
-func (lnc UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache, minNATTimeout time.Duration, transparent bool) (udpRelayServerConn, error) {
+func (lnc *UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache, minNATTimeout time.Duration, transparent bool) (udpRelayServerConn, error) {
 	switch lnc.Network {
 	case "udp", "udp4", "udp6":
 	default:
@@ -133,7 +135,7 @@ func (lnc UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache,
 		return udpRelayServerConn{}, err
 	}
 
-	natTimeout := time.Duration(lnc.NATTimeoutSec) * time.Second
+	natTimeout := time.Duration(lnc.NATTimeout)
 
 	switch {
 	case natTimeout == 0:
@@ -311,7 +313,7 @@ func (sc *ServerConfig) Initialize(listenConfigCache conn.ListenConfigCache, col
 				ServerRecvBatchSize: sc.UDPServerRecvBatchSize,
 				SendChannelCapacity: sc.UDPSendChannelCapacity,
 			},
-			NATTimeoutSec: sc.NatTimeoutSec,
+			NATTimeout: jsonhelper.Duration(time.Duration(sc.NatTimeoutSec) * time.Second),
 		})
 	}
 
