@@ -11,7 +11,7 @@ import "github.com/database64128/shadowsocks-go/cmp"
 // insertionSortOrdered sorts data[a:b] using insertion sort.
 func insertionSortOrdered[E cmp.Ordered](data []E, a, b int) {
 	for i := a + 1; i < b; i++ {
-		for j := i; j > a && (data[j] < data[j-1]); j-- {
+		for j := i; j > a && cmp.Less(data[j], data[j-1]); j-- {
 			data[j], data[j-1] = data[j-1], data[j]
 		}
 	}
@@ -26,10 +26,10 @@ func siftDownOrdered[E cmp.Ordered](data []E, lo, hi, first int) {
 		if child >= hi {
 			break
 		}
-		if child+1 < hi && (data[first+child] < data[first+child+1]) {
+		if child+1 < hi && cmp.Less(data[first+child], data[first+child+1]) {
 			child++
 		}
-		if !(data[first+root] < data[first+child]) {
+		if !cmp.Less(data[first+root], data[first+child]) {
 			return
 		}
 		data[first+root], data[first+child] = data[first+child], data[first+root]
@@ -107,7 +107,7 @@ func pdqsortOrdered[E cmp.Ordered](data []E, a, b, limit int) {
 
 		// Probably the slice contains many duplicate elements, partition the slice into
 		// elements equal to and elements greater than the pivot.
-		if a > 0 && !(data[a-1] < data[pivot]) {
+		if a > 0 && !cmp.Less(data[a-1], data[pivot]) {
 			mid := partitionEqualOrdered(data, a, b, pivot)
 			a = mid
 			continue
@@ -138,10 +138,10 @@ func partitionOrdered[E cmp.Ordered](data []E, a, b, pivot int) (newpivot int, a
 	data[a], data[pivot] = data[pivot], data[a]
 	i, j := a+1, b-1 // i and j are inclusive of the elements remaining to be partitioned
 
-	for i <= j && (data[i] < data[a]) {
+	for i <= j && cmp.Less(data[i], data[a]) {
 		i++
 	}
-	for i <= j && !(data[j] < data[a]) {
+	for i <= j && !cmp.Less(data[j], data[a]) {
 		j--
 	}
 	if i > j {
@@ -153,10 +153,10 @@ func partitionOrdered[E cmp.Ordered](data []E, a, b, pivot int) (newpivot int, a
 	j--
 
 	for {
-		for i <= j && (data[i] < data[a]) {
+		for i <= j && cmp.Less(data[i], data[a]) {
 			i++
 		}
-		for i <= j && !(data[j] < data[a]) {
+		for i <= j && !cmp.Less(data[j], data[a]) {
 			j--
 		}
 		if i > j {
@@ -177,10 +177,10 @@ func partitionEqualOrdered[E cmp.Ordered](data []E, a, b, pivot int) (newpivot i
 	i, j := a+1, b-1 // i and j are inclusive of the elements remaining to be partitioned
 
 	for {
-		for i <= j && !(data[a] < data[i]) {
+		for i <= j && !cmp.Less(data[a], data[i]) {
 			i++
 		}
-		for i <= j && (data[a] < data[j]) {
+		for i <= j && cmp.Less(data[a], data[j]) {
 			j--
 		}
 		if i > j {
@@ -201,7 +201,7 @@ func partialInsertionSortOrdered[E cmp.Ordered](data []E, a, b int) bool {
 	)
 	i := a + 1
 	for j := 0; j < maxSteps; j++ {
-		for i < b && !(data[i] < data[i-1]) {
+		for i < b && !cmp.Less(data[i], data[i-1]) {
 			i++
 		}
 
@@ -218,7 +218,7 @@ func partialInsertionSortOrdered[E cmp.Ordered](data []E, a, b int) bool {
 		// Shift the smaller one to the left.
 		if i-a >= 2 {
 			for j := i - 1; j >= 1; j-- {
-				if !(data[j] < data[j-1]) {
+				if !cmp.Less(data[j], data[j-1]) {
 					break
 				}
 				data[j], data[j-1] = data[j-1], data[j]
@@ -227,7 +227,7 @@ func partialInsertionSortOrdered[E cmp.Ordered](data []E, a, b int) bool {
 		// Shift the greater one to the right.
 		if b-i >= 2 {
 			for j := i + 1; j < b; j++ {
-				if !(data[j] < data[j-1]) {
+				if !cmp.Less(data[j], data[j-1]) {
 					break
 				}
 				data[j], data[j-1] = data[j-1], data[j]
@@ -298,7 +298,7 @@ func choosePivotOrdered[E cmp.Ordered](data []E, a, b int) (pivot int, hint sort
 
 // order2Ordered returns x,y where data[x] <= data[y], where x,y=a,b or x,y=b,a.
 func order2Ordered[E cmp.Ordered](data []E, a, b int, swaps *int) (int, int) {
-	if data[b] < data[a] {
+	if cmp.Less(data[b], data[a]) {
 		*swaps++
 		return b, a
 	}
@@ -389,7 +389,7 @@ func symMergeOrdered[E cmp.Ordered](data []E, a, m, b int) {
 		j := b
 		for i < j {
 			h := int(uint(i+j) >> 1)
-			if data[h] < data[a] {
+			if cmp.Less(data[h], data[a]) {
 				i = h + 1
 			} else {
 				j = h
@@ -413,7 +413,7 @@ func symMergeOrdered[E cmp.Ordered](data []E, a, m, b int) {
 		j := m
 		for i < j {
 			h := int(uint(i+j) >> 1)
-			if !(data[m] < data[h]) {
+			if !cmp.Less(data[m], data[h]) {
 				i = h + 1
 			} else {
 				j = h
@@ -440,7 +440,7 @@ func symMergeOrdered[E cmp.Ordered](data []E, a, m, b int) {
 
 	for start < r {
 		c := int(uint(start+r) >> 1)
-		if !(data[p-c] < data[c]) {
+		if !cmp.Less(data[p-c], data[c]) {
 			start = c + 1
 		} else {
 			r = c

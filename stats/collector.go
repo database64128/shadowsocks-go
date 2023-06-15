@@ -4,6 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/database64128/shadowsocks-go/cmp"
 	"github.com/database64128/shadowsocks-go/slices"
 )
 
@@ -84,9 +85,9 @@ type User struct {
 	Traffic
 }
 
-// Less is useful for sorting users by name.
-func (u User) Less(other User) bool {
-	return u.Name < other.Name
+// Compare is useful for sorting users by name.
+func (u User) Compare(other User) int {
+	return cmp.Compare(u.Name, other.Name)
 }
 
 func (uc *userCollector) snapshot(username string) User {
@@ -171,7 +172,7 @@ func (sc *serverCollector) Snapshot() (s Server) {
 		s.Users = append(s.Users, u)
 	}
 	sc.mu.RUnlock()
-	slices.SortFunc(s.Users, User.Less)
+	slices.SortFunc(s.Users, User.Compare)
 	return
 }
 
@@ -186,7 +187,7 @@ func (sc *serverCollector) SnapshotAndReset() (s Server) {
 		s.Users = append(s.Users, u)
 	}
 	sc.mu.RUnlock()
-	slices.SortFunc(s.Users, User.Less)
+	slices.SortFunc(s.Users, User.Compare)
 	return
 }
 

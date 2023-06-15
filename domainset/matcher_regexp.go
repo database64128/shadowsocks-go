@@ -3,7 +3,7 @@ package domainset
 import (
 	"regexp"
 
-	"github.com/database64128/shadowsocks-go/slices"
+	"github.com/database64128/shadowsocks-go/slicehelper"
 )
 
 // RegexpMatcher adapts [regexp.Regexp] to the [Matcher] interface.
@@ -44,7 +44,7 @@ func (rmb RegexpMatcherBuilder) AppendTo(matchers []Matcher) ([]Matcher, error) 
 		return matchers, nil
 	}
 
-	head, tail := slices.Extend(matchers, len(rmb))
+	head, tail := slicehelper.Extend(matchers, len(rmb))
 
 	for i, r := range rmb {
 		re, err := regexp.Compile(r)

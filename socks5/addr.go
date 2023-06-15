@@ -9,7 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/slices"
+	"github.com/database64128/shadowsocks-go/slicehelper"
 )
 
 // SOCKS address types as defined in RFC 1928 section 5.
@@ -46,11 +46,11 @@ func AppendAddrFromAddrPort(b []byte, addrPort netip.AddrPort) []byte {
 	ip := addrPort.Addr()
 	switch {
 	case ip.Is4() || ip.Is4In6():
-		ret, out = slices.Extend(b, 1+4+2)
+		ret, out = slicehelper.Extend(b, 1+4+2)
 		out[0] = AtypIPv4
 		*(*[4]byte)(out[1:]) = ip.As4()
 	default:
-		ret, out = slices.Extend(b, 1+16+2)
+		ret, out = slicehelper.Extend(b, 1+16+2)
 		out[0] = AtypIPv6
 		*(*[16]byte)(out[1:]) = ip.As16()
 	}
@@ -103,7 +103,7 @@ func AppendAddrFromConnAddr(b []byte, addr conn.Addr) []byte {
 	}
 
 	domain := addr.Domain()
-	ret, out := slices.Extend(b, 1+1+len(domain)+2)
+	ret, out := slicehelper.Extend(b, 1+1+len(domain)+2)
 	out[0] = AtypDomainName
 	out[1] = byte(len(domain))
 	copy(out[2:], domain)
@@ -160,7 +160,7 @@ func LengthOfAddrFromConnAddr(addr conn.Addr) int {
 // AppendFromReader reads just enough bytes from r to get a valid Addr
 // and appends it to the buffer.
 func AppendFromReader(b []byte, r io.Reader) ([]byte, error) {
-	ret, out := slices.Extend(b, 2)
+	ret, out := slicehelper.Extend(b, 2)
 
 	// Read ATYP and an extra byte.
 	_, err := io.ReadFull(r, out)
@@ -181,7 +181,7 @@ func AppendFromReader(b []byte, r io.Reader) ([]byte, error) {
 		return nil, fmt.Errorf("unknown atyp %d", out[0])
 	}
 
-	ret, out = slices.Extend(ret, addrLen-2)
+	ret, out = slicehelper.Extend(ret, addrLen-2)
 	_, err = io.ReadFull(r, out)
 	return ret, err
 }

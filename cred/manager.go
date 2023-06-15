@@ -12,6 +12,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/database64128/shadowsocks-go/cmp"
 	"github.com/database64128/shadowsocks-go/maps"
 	"github.com/database64128/shadowsocks-go/mmap"
 	"github.com/database64128/shadowsocks-go/slices"
@@ -45,9 +46,9 @@ type UserCredential struct {
 	UPSK []byte `json:"uPSK"`
 }
 
-// Less is useful for sorting user credentials by username.
-func (uc UserCredential) Less(other UserCredential) bool {
-	return uc.Name < other.Name
+// Compare is useful for sorting user credentials by username.
+func (uc UserCredential) Compare(other UserCredential) int {
+	return cmp.Compare(uc.Name, other.Name)
 }
 
 type cachedUserCredential struct {
@@ -66,7 +67,7 @@ func (s *ManagedServer) Credentials() []UserCredential {
 		})
 	}
 	s.mu.RUnlock()
-	slices.SortFunc(ucs, UserCredential.Less)
+	slices.SortFunc(ucs, UserCredential.Compare)
 	return ucs
 }
 
