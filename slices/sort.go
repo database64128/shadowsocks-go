@@ -7,7 +7,7 @@ package slices
 import (
 	"math/bits"
 
-	"github.com/database64128/shadowsocks-go/constraints"
+	"github.com/database64128/shadowsocks-go/cmp"
 )
 
 // Sort sorts a slice of any ordered type in ascending order.
@@ -15,7 +15,7 @@ import (
 // numbers containing Not-a-number (NaN) values.
 // Use slices.SortFunc(x, func(a, b float64) bool {return a < b || (math.IsNaN(a) && !math.IsNaN(b))})
 // instead if the input may contain NaNs.
-func Sort[E constraints.Ordered](x []E) {
+func Sort[E cmp.Ordered](x []E) {
 	n := len(x)
 	pdqsortOrdered(x, 0, n, bits.Len(uint(n)))
 }
@@ -37,7 +37,7 @@ func SortStableFunc[E any](x []E, less func(a, b E) bool) {
 }
 
 // IsSorted reports whether x is sorted in ascending order.
-func IsSorted[E constraints.Ordered](x []E) bool {
+func IsSorted[E cmp.Ordered](x []E) bool {
 	for i := len(x) - 1; i > 0; i-- {
 		if x[i] < x[i-1] {
 			return false
@@ -61,7 +61,7 @@ func IsSortedFunc[E any](x []E, less func(a, b E) bool) bool {
 // where target is found, or the position where target would appear in the
 // sort order; it also returns a bool saying whether the target is really found
 // in the slice. The slice must be sorted in increasing order.
-func BinarySearch[E constraints.Ordered](x []E, target E) (int, bool) {
+func BinarySearch[E cmp.Ordered](x []E, target E) (int, bool) {
 	// Inlining is faster than calling BinarySearchFunc with a lambda.
 	n := len(x)
 	// Define x[-1] < target and x[n] >= target.
