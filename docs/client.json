@@ -48,10 +48,8 @@
             "udpClientName": "ss-2022"
         },
         {
-            "name": "systemd-resolved",
-            "addrPort": "127.0.0.53:53",
-            "tcpClientName": "direct",
-            "udpClientName": "direct"
+            "name": "system",
+            "type": "system"
         }
     ],
     "router": {
@@ -122,7 +120,7 @@
             {
                 "name": "cn-verify-ip",
                 "client": "direct",
-                "resolver": "systemd-resolved",
+                "resolver": "system",
                 "toDomainSets": [
                     "geolocation-!cn@cn"
                 ],

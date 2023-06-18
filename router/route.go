@@ -127,7 +127,7 @@ type RouteConfig struct {
 }
 
 // Route creates a route from the RouteConfig.
-func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers []*dns.Resolver, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*netipx.IPSet) (Route, error) {
+func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*netipx.IPSet) (Route, error) {
 	// Bad name.
 	switch rc.Name {
 	case "", "default":
@@ -162,7 +162,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 		if !ok {
 			return Route{}, fmt.Errorf("resolver not found: %s", rc.Resolver)
 		}
-		resolvers = []*dns.Resolver{resolver}
+		resolvers = []dns.SimpleResolver{resolver}
 	}
 
 	route := Route{name: rc.Name}
@@ -713,7 +713,7 @@ func (c *DestIPCriterion) Meet(ctx context.Context, network protocol, requestInf
 // DestResolvedIPCriterion restricts the destination IP address or the destination domain's resolved IP address.
 type DestResolvedIPCriterion struct {
 	ipSet     *netipx.IPSet
-	resolvers []*dns.Resolver
+	resolvers []dns.SimpleResolver
 }
 
 // Meet implements the Criterion Meet method.
@@ -744,7 +744,7 @@ type DestResolvedGeoIPCountryCriterion struct {
 	countries []string
 	geoip     *geoip2.Reader
 	logger    *zap.Logger
-	resolvers []*dns.Resolver
+	resolvers []dns.SimpleResolver
 }
 
 // Meet implements the Criterion Meet method.
@@ -769,35 +769,15 @@ func matchAddrToGeoIPCountries(countries []string, addr netip.Addr, geoip *geoip
 	return slices.Contains(countries, country.Country.IsoCode), nil
 }
 
-func matchResultToGeoIPCountries(countries []string, result dns.Result, geoip *geoip2.Reader, logger *zap.Logger) (bool, error) {
-	for _, v6 := range result.IPv6 {
-		return matchAddrToGeoIPCountries(countries, v6, geoip, logger)
-	}
-	for _, v4 := range result.IPv4 {
-		return matchAddrToGeoIPCountries(countries, v4, geoip, logger)
-	}
-	return false, nil
-}
-
-func matchResultToIPSet(ipSet *netipx.IPSet, result dns.Result) bool {
-	for _, v6 := range result.IPv6 {
-		return ipSet.Contains(v6)
-	}
-	for _, v4 := range result.IPv4 {
-		return ipSet.Contains(v4)
-	}
-	return false
-}
-
-func lookup(ctx context.Context, resolvers []*dns.Resolver, domain string) (result dns.Result, err error) {
+func lookup(ctx context.Context, resolvers []dns.SimpleResolver, domain string) (ip netip.Addr, err error) {
 	for _, resolver := range resolvers {
-		result, err = resolver.Lookup(ctx, domain)
+		ip, err = resolver.LookupIP(ctx, domain)
 		if err == dns.ErrLookup {
 			continue
 		}
 		return
 	}
-	return result, dns.ErrLookup
+	return ip, dns.ErrLookup
 }
 
 func matchDomainToDomainSets(domainSets []domainset.DomainSet, domain string) bool {
@@ -809,18 +789,18 @@ func matchDomainToDomainSets(domainSets []domainset.DomainSet, domain string) bo
 	return false
 }
 
-func matchDomainToGeoIPCountries(ctx context.Context, resolvers []*dns.Resolver, domain string, countries []string, geoip *geoip2.Reader, logger *zap.Logger) (bool, error) {
-	result, err := lookup(ctx, resolvers, domain)
+func matchDomainToGeoIPCountries(ctx context.Context, resolvers []dns.SimpleResolver, domain string, countries []string, geoip *geoip2.Reader, logger *zap.Logger) (bool, error) {
+	ip, err := lookup(ctx, resolvers, domain)
 	if err != nil {
 		return false, err
 	}
-	return matchResultToGeoIPCountries(countries, result, geoip, logger)
+	return matchAddrToGeoIPCountries(countries, ip, geoip, logger)
 }
 
-func matchDomainToIPSet(ctx context.Context, resolvers []*dns.Resolver, domain string, ipSet *netipx.IPSet) (bool, error) {
-	result, err := lookup(ctx, resolvers, domain)
+func matchDomainToIPSet(ctx context.Context, resolvers []dns.SimpleResolver, domain string, ipSet *netipx.IPSet) (bool, error) {
+	ip, err := lookup(ctx, resolvers, domain)
 	if err != nil {
 		return false, err
 	}
-	return matchResultToIPSet(ipSet, result), nil
+	return ipSet.Contains(ip.Unmap()), nil
 }

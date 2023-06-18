@@ -243,6 +243,16 @@
             "addrPort": "[2606:4700:4700::1111]:53",
             "tcpClientName": "ss-2022-a",
             "udpClientName": "ss-2022-a"
+        },
+        {
+            "name": "systemd-resolved",
+            "addrPort": "127.0.0.53:53",
+            "tcpClientName": "direct",
+            "udpClientName": "direct"
+        },
+        {
+            "name": "system",
+            "type": "system"
         }
     ],
     "router": {

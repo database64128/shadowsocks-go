@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/slices"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 	"golang.org/x/net/dns/dnsmessage"
@@ -38,6 +39,15 @@ type ResolverConfig struct {
 	// The name must be unique among all resolvers.
 	Name string `json:"name"`
 
+	// Type is the resolver type.
+	//
+	// Available values:
+	// - "plain": Resolve names by sending cleartext DNS queries to the configured upstream server.
+	// - "system": Use the system resolver. This does not support custom server addresses or clients.
+	//
+	// The default value is "plain".
+	Type string `json:"type"`
+
 	// AddrPort is the upstream server's address and port.
 	AddrPort netip.AddrPort `json:"addrPort"`
 
@@ -50,7 +60,19 @@ type ResolverConfig struct {
 	UDPClientName string `json:"udpClientName"`
 }
 
-func (rc *ResolverConfig) Resolver(tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, logger *zap.Logger) (*Resolver, error) {
+// SimpleResolver creates a new [SimpleResolver] from the config.
+func (rc *ResolverConfig) SimpleResolver(tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, logger *zap.Logger) (SimpleResolver, error) {
+	switch rc.Type {
+	case "plain", "":
+	case "system":
+		if rc.AddrPort.IsValid() || rc.TCPClientName != "" || rc.UDPClientName != "" {
+			return nil, errors.New("system resolver does not support custom server addresses or clients")
+		}
+		return NewSystemResolver(rc.Name, logger), nil
+	default:
+		return nil, fmt.Errorf("unknown resolver type: %s", rc.Type)
+	}
+
 	if !rc.AddrPort.IsValid() {
 		return nil, errors.New("missing resolver address")
 	}
@@ -124,7 +146,7 @@ func NewResolver(name string, serverAddrPort netip.AddrPort, tcpClient zerocopy.
 	}
 }
 
-func (r *Resolver) Lookup(ctx context.Context, name string) (Result, error) {
+func (r *Resolver) lookup(ctx context.Context, name string) (Result, error) {
 	// Lookup cache first.
 	r.mu.RLock()
 	result, ok := r.cache[name]
@@ -615,4 +637,105 @@ func (r *Result) parseMsg(msg []byte, v4done, v6done bool) (bool, bool, error) {
 	}
 
 	return v4done, v6done, nil
+}
+
+// Clone returns a deep copy of the result.
+// Modifying values in the address slices will not affect the original result.
+func (r *Result) Clone() Result {
+	return Result{
+		IPv4: slices.Clone(r.IPv4),
+		IPv6: slices.Clone(r.IPv6),
+		TTL:  r.TTL,
+	}
+}
+
+// Lookup looks up [name] and returns the result.
+func (r *Resolver) Lookup(ctx context.Context, name string) (Result, error) {
+	result, err := r.lookup(ctx, name)
+	if err != nil {
+		return Result{}, err
+	}
+	return result.Clone(), nil
+}
+
+// SimpleResolver defines methods that only return the resolved IP addresses.
+type SimpleResolver interface {
+	// LookupIP looks up [name] and returns one of the associated IP addresses.
+	LookupIP(ctx context.Context, name string) (netip.Addr, error)
+
+	// LookupIPs looks up [name] and returns all associated IP addresses.
+	LookupIPs(ctx context.Context, name string) ([]netip.Addr, error)
+}
+
+// LookupIP implements [SimpleResolver.LookupIP].
+func (r *Resolver) LookupIP(ctx context.Context, name string) (netip.Addr, error) {
+	result, err := r.lookup(ctx, name)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	if len(result.IPv6) > 0 {
+		return result.IPv6[0], nil
+	}
+	if len(result.IPv4) > 0 {
+		return result.IPv4[0], nil
+	}
+	return netip.Addr{}, ErrLookup
+}
+
+// LookupIPs implements [SimpleResolver.LookupIPs].
+func (r *Resolver) LookupIPs(ctx context.Context, name string) ([]netip.Addr, error) {
+	result, err := r.lookup(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	ips := make([]netip.Addr, 0, len(result.IPv6)+len(result.IPv4))
+	ips = append(ips, result.IPv6...)
+	ips = append(ips, result.IPv4...)
+	return ips, nil
+}
+
+// SystemResolver resolves names using [net.DefaultResolver].
+// It implements [SimpleResolver].
+type SystemResolver struct {
+	name   string
+	logger *zap.Logger
+}
+
+// NewSystemResolver returns a new [SystemResolver].
+func NewSystemResolver(name string, logger *zap.Logger) *SystemResolver {
+	return &SystemResolver{
+		name:   name,
+		logger: logger,
+	}
+}
+
+// LookupIP implements [SimpleResolver.LookupIP].
+func (r *SystemResolver) LookupIP(ctx context.Context, name string) (netip.Addr, error) {
+	ips, err := r.LookupIPs(ctx, name)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	if len(ips) == 0 {
+		return netip.Addr{}, ErrLookup
+	}
+	return ips[0], nil
+}
+
+// LookupIPs implements [SimpleResolver.LookupIPs].
+func (r *SystemResolver) LookupIPs(ctx context.Context, name string) ([]netip.Addr, error) {
+	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", name)
+	if err != nil {
+		return nil, err
+	}
+
+	if ce := r.logger.Check(zap.DebugLevel, "DNS lookup got result from system resolver"); ce != nil {
+		ce.Write(
+			zap.String("resolver", r.name),
+			zap.String("name", name),
+			zap.Stringers("ips", ips),
+		)
+	}
+
+	return ips, nil
 }

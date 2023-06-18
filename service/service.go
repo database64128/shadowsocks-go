@@ -95,11 +95,11 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		}
 	}
 
-	resolvers := make([]*dns.Resolver, len(sc.DNS))
-	resolverMap := make(map[string]*dns.Resolver, len(sc.DNS))
+	resolvers := make([]dns.SimpleResolver, len(sc.DNS))
+	resolverMap := make(map[string]dns.SimpleResolver, len(sc.DNS))
 
 	for i := range sc.DNS {
-		resolver, err := sc.DNS[i].Resolver(tcpClientMap, udpClientMap, logger)
+		resolver, err := sc.DNS[i].SimpleResolver(tcpClientMap, udpClientMap, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create DNS resolver %s: %w", sc.DNS[i].Name, err)
 		}

@@ -24,7 +24,7 @@ type Config struct {
 }
 
 // Router creates a router from the RouterConfig.
-func (rc *Config) Router(logger *zap.Logger, resolvers []*dns.Resolver, resolverMap map[string]*dns.Resolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int) (*Router, error) {
+func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int) (*Router, error) {
 	defaultRoute := Route{name: "default"}
 
 	switch rc.DefaultTCPClientName {
