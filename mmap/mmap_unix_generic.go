@@ -18,5 +18,10 @@ func readFile(f *os.File, size int64) (uintptr, error) {
 }
 
 func unmap(addr uintptr, length int) error {
-	return unix.Munmap(unsafe.Slice((*byte)(unsafe.Pointer(addr)), length))
+	b := sliceHeader{
+		data: addr,
+		len:  length,
+		cap:  length,
+	}
+	return unix.Munmap(*(*[]byte)(unsafe.Pointer(&b)))
 }

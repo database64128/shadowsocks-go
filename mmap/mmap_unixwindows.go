@@ -7,6 +7,12 @@ import (
 	"unsafe"
 )
 
+type sliceHeader struct {
+	data uintptr
+	len  int
+	cap  int
+}
+
 // ReadFile maps the named file into memory for reading.
 func ReadFile[T ~[]byte | ~string](name string) (data T, err error) {
 	f, err := os.Open(name)
@@ -30,7 +36,11 @@ func ReadFile[T ~[]byte | ~string](name string) (data T, err error) {
 		return
 	}
 
-	b := unsafe.Slice((*byte)(unsafe.Pointer(addr)), size)
+	b := sliceHeader{
+		data: addr,
+		len:  int(size),
+		cap:  int(size),
+	}
 	return *(*T)(unsafe.Pointer(&b)), nil
 }
 
