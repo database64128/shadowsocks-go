@@ -211,8 +211,7 @@ func ConnAddrFromReader(r io.Reader) (conn.Addr, error) {
 		if err != nil {
 			return conn.Addr{}, err
 		}
-		b2 := b1[:b[1]:b[1]]
-		domain := *(*string)(unsafe.Pointer(&b2))
+		domain := unsafe.String(unsafe.SliceData(b1), b[1])
 		port := binary.BigEndian.Uint16(b1[b[1]:])
 		return conn.AddrFromDomainPort(domain, port)
 
