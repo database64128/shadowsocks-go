@@ -116,10 +116,8 @@ By default, the router uses the configured DNS server to resolve domain names an
             "udpClientName": "ss-2022"
         },
         {
-            "name": "systemd-resolved",
-            "addrPort": "127.0.0.53:53",
-            "tcpClientName": "direct",
-            "udpClientName": "direct"
+            "name": "system",
+            "type": "system"
         }
     ],
     "router": {
@@ -181,7 +179,8 @@ By default, the router uses the configured DNS server to resolve domain names an
                     "224.0.0.0/3",
                     "::1/128",
                     "fc00::/7",
-                    "fe80::/10"
+                    "fe80::/10",
+                    "ff00::/8"
                 ],
                 "toGeoIPCountries": [
                     "CN"
@@ -190,7 +189,7 @@ By default, the router uses the configured DNS server to resolve domain names an
             {
                 "name": "cn-verify-ip",
                 "client": "direct",
-                "resolver": "systemd-resolved",
+                "resolver": "system",
                 "toDomainSets": [
                     "geolocation-!cn@cn"
                 ],

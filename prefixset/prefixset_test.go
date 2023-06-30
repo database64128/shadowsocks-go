@@ -25,6 +25,7 @@ const testPrefixSetText = `# Private prefixes.
 ::1/128
 fc00::/7
 fe80::/10
+ff00::/8
 `
 
 func testContains(t *testing.T, s *netipx.IPSet, addr netip.Addr, expectedResult bool) {
@@ -53,6 +54,7 @@ func testPrefixSet(t *testing.T, s *netipx.IPSet) {
 	testContains(t, s, netip.AddrFrom16([16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}), true)
 	testContains(t, s, netip.AddrFrom16([16]byte{0xfc, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}), true)
 	testContains(t, s, netip.AddrFrom16([16]byte{0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}), true)
+	testContains(t, s, netip.AddrFrom16([16]byte{0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}), true)
 	testContains(t, s, netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e}), false)
 	testContains(t, s, netip.IPv6Unspecified(), false)
 }
