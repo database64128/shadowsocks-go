@@ -7,7 +7,7 @@ require (
 	github.com/gofiber/contrib/fiberzap v1.0.2
 	github.com/gofiber/fiber/v2 v2.48.0
 	github.com/oschwald/geoip2-golang v1.9.0
-	go.uber.org/zap v1.24.0
+	go.uber.org/zap v1.25.0
 	go4.org/netipx v0.0.0-20230728184502-ec4c8b891b28
 	golang.org/x/net v0.13.0
 	golang.org/x/sys v0.10.0
@@ -27,6 +27,5 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.48.0 // indirect
 	github.com/valyala/tcplisten v1.0.0 // indirect
-	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 )
