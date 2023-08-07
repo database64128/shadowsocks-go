@@ -6,8 +6,9 @@ import (
 
 	v1 "github.com/database64128/shadowsocks-go/api/v1"
 	"github.com/database64128/shadowsocks-go/jsonhelper"
-	"github.com/gofiber/contrib/fiberzap"
+	"github.com/gofiber/contrib/fiberzap/v2"
 	"github.com/gofiber/fiber/v2"
+	fiberlog "github.com/gofiber/fiber/v2/log"
 	"github.com/gofiber/fiber/v2/middleware/etag"
 	"go.uber.org/zap"
 )
@@ -37,6 +38,10 @@ func (c *Config) Server(logger *zap.Logger) (*Server, *v1.ServerManager, error) 
 	if !c.Enabled {
 		return nil, nil, nil
 	}
+
+	fiberlog.SetLogger(fiberzap.NewLogger(fiberzap.LoggerConfig{
+		SetLogger: logger,
+	}))
 
 	fc := fiber.Config{
 		ProxyHeader:             c.ProxyHeader,
