@@ -1,11 +1,10 @@
 package stats
 
 import (
+	"cmp"
+	"slices"
 	"sync"
 	"sync/atomic"
-
-	"github.com/database64128/shadowsocks-go/cmp"
-	"github.com/database64128/shadowsocks-go/slices"
 )
 
 type trafficCollector struct {

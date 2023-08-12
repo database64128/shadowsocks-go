@@ -207,9 +207,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, in
 
 		recvmmsgCount++
 		packetsReceived += uint64(n)
-		if burstBatchSize < n {
-			burstBatchSize = n
-		}
+		burstBatchSize = max(burstBatchSize, n)
 
 		s.mu.Lock()
 
@@ -557,9 +555,7 @@ main:
 
 		sendmmsgCount++
 		packetsSent += uint64(count)
-		if burstBatchSize < count {
-			burstBatchSize = count
-		}
+		burstBatchSize = max(burstBatchSize, count)
 
 		qpvecn := qpvec[:count]
 
@@ -789,9 +785,7 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(ctx context.
 
 			sendmmsgCount += uint64(sc)
 			packetsSent += uint64(ps)
-			if burstBatchSize < ps {
-				burstBatchSize = ps
-			}
+			burstBatchSize = max(burstBatchSize, ps)
 		}
 	}
 

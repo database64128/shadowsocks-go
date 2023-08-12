@@ -1,10 +1,9 @@
 package portset
 
 import (
+	"slices"
 	"strconv"
 	"testing"
-
-	"github.com/database64128/shadowsocks-go/slices"
 )
 
 func assertPanic(t *testing.T, f func()) {

@@ -2,20 +2,20 @@ package cred
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 	"unsafe"
 
-	"github.com/database64128/shadowsocks-go/cmp"
-	"github.com/database64128/shadowsocks-go/maps"
 	"github.com/database64128/shadowsocks-go/mmap"
-	"github.com/database64128/shadowsocks-go/slices"
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"go.uber.org/zap"
 )

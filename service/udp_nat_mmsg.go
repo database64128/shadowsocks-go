@@ -136,9 +136,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(ctx context.Context, index int,
 
 		recvmmsgCount++
 		packetsReceived += uint64(n)
-		if burstBatchSize < n {
-			burstBatchSize = n
-		}
+		burstBatchSize = max(burstBatchSize, n)
 
 		s.mu.Lock()
 
@@ -575,9 +573,7 @@ main:
 
 		sendmmsgCount++
 		packetsSent += uint64(count)
-		if burstBatchSize < count {
-			burstBatchSize = count
-		}
+		burstBatchSize = max(burstBatchSize, count)
 
 		qpvecn := qpvec[:count]
 
@@ -770,9 +766,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(downlink natDownlinkMmsg)
 
 		sendmmsgCount++
 		packetsSent += uint64(ns)
-		if burstBatchSize < ns {
-			burstBatchSize = ns
-		}
+		burstBatchSize = max(burstBatchSize, ns)
 	}
 
 	s.logger.Info("Finished relay serverConn <- natConn",

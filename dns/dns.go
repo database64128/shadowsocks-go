@@ -9,11 +9,11 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/slices"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 	"golang.org/x/net/dns/dnsmessage"

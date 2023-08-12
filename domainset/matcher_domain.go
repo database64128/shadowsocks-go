@@ -1,8 +1,9 @@
 package domainset
 
 import (
-	"github.com/database64128/shadowsocks-go/maps"
-	"github.com/database64128/shadowsocks-go/slices"
+	"slices"
+
+	"github.com/database64128/shadowsocks-go/maphelper"
 )
 
 // MaxLinearDomains is the maximum number of domain rules under which a linear matcher can outperform a map matcher.
@@ -144,7 +145,7 @@ func (dmm DomainMapMatcher) Insert(rule string) {
 
 // Rules implements the MatcherBuilder Rules method.
 func (dmm DomainMapMatcher) Rules() []string {
-	return maps.Keys(dmm)
+	return maphelper.Keys(dmm)
 }
 
 // MatcherCount implements the MatcherBuilder MatcherCount method.
@@ -164,7 +165,7 @@ func (dmmp *DomainMapMatcher) AppendTo(matchers []Matcher) ([]Matcher, error) {
 	}
 
 	if len(dmm) <= MaxLinearDomains {
-		dlm := DomainLinearMatcher(maps.Keys(dmm))
+		dlm := DomainLinearMatcher(maphelper.Keys(dmm))
 		return dlm.AppendTo(matchers)
 	}
 

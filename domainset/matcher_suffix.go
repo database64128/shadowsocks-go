@@ -1,6 +1,6 @@
 package domainset
 
-import "github.com/database64128/shadowsocks-go/maps"
+import "github.com/database64128/shadowsocks-go/maphelper"
 
 // MaxLinearSuffixes is the maximum number of suffix rules under which a linear matcher can outperform a trie matcher.
 const MaxLinearSuffixes = 4
@@ -102,7 +102,7 @@ func (smm SuffixMapMatcher) Insert(rule string) {
 
 // Rules implements the MatcherBuilder Rules method.
 func (smm SuffixMapMatcher) Rules() []string {
-	return maps.Keys(smm)
+	return maphelper.Keys(smm)
 }
 
 // MatcherCount implements the MatcherBuilder MatcherCount method.
@@ -122,7 +122,7 @@ func (smmp *SuffixMapMatcher) AppendTo(matchers []Matcher) ([]Matcher, error) {
 	}
 
 	if len(smm) <= MaxLinearSuffixes {
-		slm := SuffixLinearMatcher(maps.Keys(smm))
+		slm := SuffixLinearMatcher(maphelper.Keys(smm))
 		return slm.AppendTo(matchers)
 	}
 

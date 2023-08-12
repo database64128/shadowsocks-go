@@ -12,26 +12,18 @@ type Headroom struct {
 
 // MaxHeadroom returns the maximum front and rear headroom of the two headroom pairs.
 func MaxHeadroom(first, second Headroom) Headroom {
-	if first.Front < second.Front {
-		first.Front = second.Front
+	return Headroom{
+		Front: max(first.Front, second.Front),
+		Rear:  max(first.Rear, second.Rear),
 	}
-	if first.Rear < second.Rear {
-		first.Rear = second.Rear
-	}
-	return first
 }
 
 // UDPRelayHeadroom returns the packer headroom subtracted by the unpacker headroom.
 func UDPRelayHeadroom(packerHeadroom, unpackerHeadroom Headroom) Headroom {
-	packerHeadroom.Front -= unpackerHeadroom.Front
-	if packerHeadroom.Front < 0 {
-		packerHeadroom.Front = 0
+	return Headroom{
+		Front: max(0, packerHeadroom.Front-unpackerHeadroom.Front),
+		Rear:  max(0, packerHeadroom.Rear-unpackerHeadroom.Rear),
 	}
-	packerHeadroom.Rear -= unpackerHeadroom.Rear
-	if packerHeadroom.Rear < 0 {
-		packerHeadroom.Rear = 0
-	}
-	return packerHeadroom
 }
 
 // tester allows us to write test functions outside _test.go files without importing the testing package.

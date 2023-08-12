@@ -111,13 +111,11 @@ func (p *ShadowPacketClientPacker) ClientPackerInfo() zerocopy.ClientPackerInfo 
 func (p *ShadowPacketClientPacker) PackInPlace(ctx context.Context, b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	headerNoPaddingLen := p.nonAEADHeaderLen + UDPClientMessageHeaderFixedLength + targetAddrLen
-	maxPaddingLen := p.maxPacketSize - headerNoPaddingLen - payloadLen - p.aead.Overhead()
-	if mpl := payloadStart - headerNoPaddingLen; mpl < maxPaddingLen {
-		maxPaddingLen = mpl
-	}
-	if maxPaddingLen > math.MaxUint16 {
-		maxPaddingLen = math.MaxUint16
-	}
+	maxPaddingLen := min(
+		p.maxPacketSize-headerNoPaddingLen-payloadLen-p.aead.Overhead(),
+		payloadStart-headerNoPaddingLen,
+		math.MaxUint16,
+	)
 
 	var paddingLen int
 
@@ -198,13 +196,11 @@ func (p *ShadowPacketServerPacker) ServerPackerInfo() zerocopy.ServerPackerInfo 
 func (p *ShadowPacketServerPacker) PackInPlace(b []byte, sourceAddrPort netip.AddrPort, payloadStart, payloadLen, maxPacketLen int) (packetStart, packetLen int, err error) {
 	sourceAddrLen := socks5.LengthOfAddrFromAddrPort(sourceAddrPort)
 	headerNoPaddingLen := UDPSeparateHeaderLength + UDPServerMessageHeaderFixedLength + sourceAddrLen
-	maxPaddingLen := maxPacketLen - headerNoPaddingLen - payloadLen - p.aead.Overhead()
-	if mpl := payloadStart - headerNoPaddingLen; mpl < maxPaddingLen {
-		maxPaddingLen = mpl
-	}
-	if maxPaddingLen > math.MaxUint16 {
-		maxPaddingLen = math.MaxUint16
-	}
+	maxPaddingLen := min(
+		maxPacketLen-headerNoPaddingLen-payloadLen-p.aead.Overhead(),
+		payloadStart-headerNoPaddingLen,
+		math.MaxUint16,
+	)
 
 	var paddingLen int
 
