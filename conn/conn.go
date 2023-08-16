@@ -101,6 +101,17 @@ type ListenerSocketOptions struct {
 	// Available on Linux, macOS, FreeBSD, and Windows.
 	TCPFastOpen bool
 
+	// MultipathTCP enables multipath TCP on the listener.
+	//
+	// Unlike Go std, we make MPTCP strictly opt-in.
+	// That is, if this field is false, MPTCP will be explicitly disabled.
+	// This ensures that if Go std suddenly decides to enable MPTCP by default,
+	// existing configurations won't encounter issues due to missing features in the kernel MPTCP stack,
+	// such as TCP keepalive (as of Linux 6.5), and failed connect attempts won't always be retried once.
+	//
+	// Available on platforms supported by Go std's MPTCP implementation.
+	MultipathTCP bool
+
 	// ReceivePacketInfo enables the reception of packet information control messages on the listener.
 	//
 	// Available on Linux, macOS, and Windows.
@@ -114,12 +125,14 @@ type ListenerSocketOptions struct {
 
 // ListenConfig returns a [ListenConfig] with a control function that sets the socket options.
 func (lso ListenerSocketOptions) ListenConfig() ListenConfig {
-	return ListenConfig{
+	lc := ListenConfig{
 		ListenConfig: net.ListenConfig{
 			Control: lso.buildSetFns().controlFunc(),
 		},
 		DisableTFO: !lso.TCPFastOpen,
 	}
+	lc.SetMultipathTCP(lso.MultipathTCP)
+	return lc
 }
 
 var (
@@ -186,16 +199,29 @@ type DialerSocketOptions struct {
 	//
 	// Available on Linux, macOS, FreeBSD, and Windows.
 	TCPFastOpen bool
+
+	// MultipathTCP enables multipath TCP on the dialer.
+	//
+	// Unlike Go std, we make MPTCP strictly opt-in.
+	// That is, if this field is false, MPTCP will be explicitly disabled.
+	// This ensures that if Go std suddenly decides to enable MPTCP by default,
+	// existing configurations won't encounter issues due to missing features in the kernel MPTCP stack,
+	// such as TCP keepalive (as of Linux 6.5), and failed connect attempts won't always be retried once.
+	//
+	// Available on platforms supported by Go std's MPTCP implementation.
+	MultipathTCP bool
 }
 
 // Dialer returns a [Dialer] with a control function that sets the socket options.
 func (dso DialerSocketOptions) Dialer() Dialer {
-	return Dialer{
+	d := Dialer{
 		Dialer: net.Dialer{
 			ControlContext: dso.buildSetFns().controlContextFunc(),
 		},
 		DisableTFO: !dso.TCPFastOpen,
 	}
+	d.SetMultipathTCP(dso.MultipathTCP)
+	return d
 }
 
 var (

@@ -45,6 +45,17 @@ type ClientConfig struct {
 	EnableTCP bool `json:"enableTCP"`
 	DialerTFO bool `json:"dialerTFO"`
 
+	// MultipathTCP enables multipath TCP on the client.
+	//
+	// Unlike Go std, we make MPTCP strictly opt-in.
+	// That is, if this field is false, MPTCP will be explicitly disabled.
+	// This ensures that if Go std suddenly decides to enable MPTCP by default,
+	// existing configurations won't encounter issues due to missing features in the kernel MPTCP stack,
+	// such as TCP keepalive (as of Linux 6.5), and failed connect attempts won't always be retried once.
+	//
+	// Available on platforms supported by Go std's MPTCP implementation.
+	MultipathTCP bool `json:"multipathTCP"`
+
 	// AllowSegmentedFixedLengthHeader disables the requirement that
 	// the fixed-length header must be read in a single read call.
 	//
@@ -147,6 +158,7 @@ func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
 		Fwmark:       cc.DialerFwmark,
 		TrafficClass: cc.DialerTrafficClass,
 		TCPFastOpen:  cc.DialerTFO,
+		MultipathTCP: cc.MultipathTCP,
 	})
 
 	switch cc.Protocol {
@@ -193,6 +205,7 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 			Fwmark:       cc.DialerFwmark,
 			TrafficClass: cc.DialerTrafficClass,
 			TCPFastOpen:  cc.DialerTFO,
+			MultipathTCP: cc.MultipathTCP,
 		})
 		return direct.NewSocks5UDPClient(cc.logger, cc.Name, cc.UDPAddress.String(), dialer, cc.MTU, listenConfig), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":

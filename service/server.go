@@ -54,6 +54,17 @@ type TCPListenerConfig struct {
 	// Available on Linux, macOS, FreeBSD, and Windows.
 	FastOpen bool `json:"fastOpen"`
 
+	// Multipath enables multipath TCP on the listener.
+	//
+	// Unlike Go std, we make MPTCP strictly opt-in.
+	// That is, if this field is false, MPTCP will be explicitly disabled.
+	// This ensures that if Go std suddenly decides to enable MPTCP by default,
+	// existing configurations won't encounter issues due to missing features in the kernel MPTCP stack,
+	// such as TCP keepalive (as of Linux 6.5), and failed connect attempts won't always be retried once.
+	//
+	// Available on platforms supported by Go std's MPTCP implementation.
+	Multipath bool `json:"multipath"`
+
 	// DisableInitialPayloadWait disables the brief wait for initial payload.
 	// Setting it to true is useful when the listener only relays server-speaks-first protocols.
 	DisableInitialPayloadWait bool `json:"disableInitialPayloadWait"`
@@ -100,6 +111,7 @@ func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 			ReusePort:    lnc.ReusePort,
 			Transparent:  transparent,
 			TCPFastOpen:  lnc.FastOpen,
+			MultipathTCP: lnc.Multipath,
 		}),
 		waitForInitialPayload:        !serverNativeInitialPayload && !lnc.DisableInitialPayloadWait,
 		initialPayloadWaitTimeout:    initialPayloadWaitTimeout,
