@@ -196,7 +196,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 	// 3. client has native support
 	if lnc.waitForInitialPayload && clientInfo.NativeInitialPayload {
 		clientReaderInfo := clientRW.ReaderInfo()
-		payloadBufSize := min(clientReaderInfo.MinPayloadBufferSizePerRead, lnc.initialPayloadWaitBufferSize)
+		payloadBufSize := max(clientReaderInfo.MinPayloadBufferSizePerRead, lnc.initialPayloadWaitBufferSize)
 		payload = make([]byte, clientReaderInfo.Headroom.Front+payloadBufSize+clientReaderInfo.Headroom.Rear)
 
 		err = clientConn.SetReadDeadline(time.Now().Add(lnc.initialPayloadWaitTimeout))
