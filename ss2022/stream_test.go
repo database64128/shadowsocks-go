@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"io"
 	"net/netip"
+	"sync"
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -35,11 +36,12 @@ func testShadowStreamReadWriter(t *testing.T, ctx context.Context, allowSegmente
 		cerr, serr           error
 	)
 
-	ctrlCh := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	go func() {
 		_, crw, cerr = c.Dial(ctx, clientTargetAddr, clientInitialPayload)
-		ctrlCh <- struct{}{}
+		wg.Done()
 	}()
 
 	go func() {
@@ -52,11 +54,10 @@ func testShadowStreamReadWriter(t *testing.T, ctx context.Context, allowSegmente
 			_, serr = io.ReadFull(scrw, b[len(serverInitialPayload):])
 			serverInitialPayload = b
 		}
-		ctrlCh <- struct{}{}
+		wg.Done()
 	}()
 
-	<-ctrlCh
-	<-ctrlCh
+	wg.Wait()
 	if cerr != nil {
 		t.Fatal(cerr)
 	}

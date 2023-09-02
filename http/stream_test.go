@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/netip"
+	"sync"
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -29,20 +30,20 @@ func TestHttpStreamReadWriter(t *testing.T) {
 		cerr, serr       error
 	)
 
-	ctrlCh := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	go func() {
 		c, cerr = NewHttpStreamClientReadWriter(pl, clientTargetAddr)
-		ctrlCh <- struct{}{}
+		wg.Done()
 	}()
 
 	go func() {
 		s, serverTargetAddr, serr = NewHttpStreamServerReadWriter(pr, logger)
-		ctrlCh <- struct{}{}
+		wg.Done()
 	}()
 
-	<-ctrlCh
-	<-ctrlCh
+	wg.Wait()
 	if cerr != nil {
 		t.Fatal(cerr)
 	}

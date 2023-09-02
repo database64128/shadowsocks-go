@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"sync"
 )
 
 // defaultBufferSize is the default buffer size to use
@@ -322,10 +323,13 @@ func ReadWriterTestFunc(t tester, l, r ReadWriter) {
 	rwbuf := make([]byte, rwi.Headroom.Front+rwmax+rwi.Headroom.Rear)
 	rrbuf := make([]byte, rri.Headroom.Front+rrmin+rri.Headroom.Rear)
 
-	ctrlCh := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	// Start read goroutines.
 	go func() {
+		defer wg.Done()
+
 		pl, err := l.ReadZeroCopy(lrbuf, lri.Headroom.Front, lrmin)
 		if err != nil {
 			t.Error(err)
@@ -357,11 +361,11 @@ func ReadWriterTestFunc(t tester, l, r ReadWriter) {
 		if pl != 0 {
 			t.Errorf("Expected payloadLen 0, got %v", pl)
 		}
-
-		ctrlCh <- struct{}{}
 	}()
 
 	go func() {
+		defer wg.Done()
+
 		pl, err := r.ReadZeroCopy(rrbuf, rri.Headroom.Front, rrmin)
 		if err != nil {
 			t.Error(err)
@@ -393,8 +397,6 @@ func ReadWriterTestFunc(t tester, l, r ReadWriter) {
 		if pl != 0 {
 			t.Errorf("Expected payloadLen 0, got %v", pl)
 		}
-
-		ctrlCh <- struct{}{}
 	}()
 
 	// Write from left to right.
@@ -445,8 +447,7 @@ func ReadWriterTestFunc(t tester, l, r ReadWriter) {
 		t.Error(err)
 	}
 
-	<-ctrlCh
-	<-ctrlCh
+	wg.Wait()
 }
 
 // CopyReadWriter wraps a ReadWriter and provides the io.ReadWriter Read and Write methods

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"net/netip"
+	"sync"
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -40,11 +41,12 @@ func testShadowsocksNoneStreamReadWriter(t *testing.T, ctx context.Context, clie
 		cerr, serr       error
 	)
 
-	ctrlCh := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	go func() {
 		c, _, cerr = NewShadowsocksNoneStreamClientReadWriter(ctx, &plo, clientTargetAddr, clientInitialPayload)
-		ctrlCh <- struct{}{}
+		wg.Done()
 	}()
 
 	go func() {
@@ -52,11 +54,10 @@ func testShadowsocksNoneStreamReadWriter(t *testing.T, ctx context.Context, clie
 		if len(serverInitialPayload) > 0 && serr == nil {
 			nr, serr = s.ReadZeroCopy(serverInitialPayload, 0, len(serverInitialPayload))
 		}
-		ctrlCh <- struct{}{}
+		wg.Done()
 	}()
 
-	<-ctrlCh
-	<-ctrlCh
+	wg.Wait()
 	if cerr != nil {
 		t.Fatal(cerr)
 	}
@@ -101,20 +102,20 @@ func TestSocks5StreamReadWriter(t *testing.T) {
 		cerr, serr       error
 	)
 
-	ctrlCh := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	go func() {
 		c, cerr = NewSocks5StreamClientReadWriter(pl, clientTargetAddr)
-		ctrlCh <- struct{}{}
+		wg.Done()
 	}()
 
 	go func() {
 		s, serverTargetAddr, serr = NewSocks5StreamServerReadWriter(pr, true, false)
-		ctrlCh <- struct{}{}
+		wg.Done()
 	}()
 
-	<-ctrlCh
-	<-ctrlCh
+	wg.Wait()
 	if cerr != nil {
 		t.Fatal(cerr)
 	}
