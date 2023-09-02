@@ -12,13 +12,13 @@ import (
 
 // Test zero value address.
 var (
-	addrZero         = []byte{AtypIPv4, 0, 0, 0, 0, 0, 0}
+	addrZero         = IPv4UnspecifiedAddr
 	addrZeroConnAddr conn.Addr
 )
 
 // Test IPv4 address.
 var (
-	addr4                = []byte{AtypIPv4, 127, 0, 0, 1, 4, 56}
+	addr4                = [IPv4AddrLen]byte{AtypIPv4, 127, 0, 0, 1, 4, 56}
 	addr4addr            = netip.AddrFrom4([4]byte{127, 0, 0, 1})
 	addr4port     uint16 = 1080
 	addr4addrport        = netip.AddrPortFrom(addr4addr, addr4port)
@@ -27,8 +27,8 @@ var (
 
 // Test IPv4-mapped IPv6 address.
 var (
-	addr4in6                = []byte{AtypIPv4, 127, 0, 0, 1, 4, 56}
-	addr4in6addr            = netip.AddrFrom16([16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1})
+	addr4in6                = [IPv4AddrLen]byte{AtypIPv4, 127, 0, 0, 1, 4, 56}
+	addr4in6addr            = netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1})
 	addr4in6port     uint16 = 1080
 	addr4in6addrport        = netip.AddrPortFrom(addr4in6addr, addr4in6port)
 	addr4in6connaddr        = conn.AddrFromIPPort(addr4in6addrport)
@@ -36,7 +36,7 @@ var (
 
 // Test IPv6 address.
 var (
-	addr6                = []byte{AtypIPv6, 0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e, 4, 56}
+	addr6                = [IPv6AddrLen]byte{AtypIPv6, 0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e, 4, 56}
 	addr6addr            = netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e})
 	addr6port     uint16 = 1080
 	addr6addrport        = netip.AddrPortFrom(addr6addr, addr6port)
@@ -45,7 +45,7 @@ var (
 
 // Test domain name.
 var (
-	addrDomain                = []byte{AtypDomainName, 11, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm', 1, 187}
+	addrDomain                = [1 + 1 + 11 + 2]byte{AtypDomainName, 11, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm', 1, 187}
 	addrDomainHost            = "example.com"
 	addrDomainPort     uint16 = 443
 	addrDomainConnAddr        = conn.MustAddrFromDomainPort(addrDomainHost, addrDomainPort)
@@ -79,10 +79,10 @@ func testAddrFromReader(t *testing.T, addr []byte) {
 }
 
 func TestAddrFromReader(t *testing.T) {
-	testAddrFromReader(t, addr4)
-	testAddrFromReader(t, addr4in6)
-	testAddrFromReader(t, addr6)
-	testAddrFromReader(t, addrDomain)
+	testAddrFromReader(t, addr4[:])
+	testAddrFromReader(t, addr4in6[:])
+	testAddrFromReader(t, addr6[:])
+	testAddrFromReader(t, addrDomain[:])
 }
 
 func testAddrPortFromSlice(t *testing.T, sa []byte, expectedAddrPort netip.AddrPort, expectedN int, expectedErr error) {
@@ -111,10 +111,10 @@ func testAddrPortFromSlice(t *testing.T, sa []byte, expectedAddrPort netip.AddrP
 }
 
 func TestAddrPortFromSlice(t *testing.T) {
-	testAddrPortFromSlice(t, addr4, addr4addrport, len(addr4), nil)
-	testAddrPortFromSlice(t, addr4in6, addr4addrport, len(addr4in6), nil)
-	testAddrPortFromSlice(t, addr6, addr6addrport, len(addr6), nil)
-	testAddrPortFromSlice(t, addrDomain, netip.AddrPort{}, 0, errDomain)
+	testAddrPortFromSlice(t, addr4[:], addr4addrport, len(addr4), nil)
+	testAddrPortFromSlice(t, addr4in6[:], addr4addrport, len(addr4in6), nil)
+	testAddrPortFromSlice(t, addr6[:], addr6addrport, len(addr6), nil)
+	testAddrPortFromSlice(t, addrDomain[:], netip.AddrPort{}, 0, errDomain)
 }
 
 func testConnAddrFromSliceAndReader(t *testing.T, sa []byte, expectedAddr conn.Addr) {
@@ -159,10 +159,10 @@ func testConnAddrFromSliceAndReader(t *testing.T, sa []byte, expectedAddr conn.A
 }
 
 func TestConnAddrFromSliceAndReader(t *testing.T) {
-	testConnAddrFromSliceAndReader(t, addr4, addr4connaddr)
-	testConnAddrFromSliceAndReader(t, addr4in6, addr4connaddr)
-	testConnAddrFromSliceAndReader(t, addr6, addr6connaddr)
-	testConnAddrFromSliceAndReader(t, addrDomain, addrDomainConnAddr)
+	testConnAddrFromSliceAndReader(t, addr4[:], addr4connaddr)
+	testConnAddrFromSliceAndReader(t, addr4in6[:], addr4connaddr)
+	testConnAddrFromSliceAndReader(t, addr6[:], addr6connaddr)
+	testConnAddrFromSliceAndReader(t, addrDomain[:], addrDomainConnAddr)
 }
 
 func testConnAddrFromSliceWithDomainCache(t *testing.T, sa []byte, cachedDomain string, expectedAddr conn.Addr) string {
@@ -195,22 +195,22 @@ func TestConnAddrFromSliceWithDomainCache(t *testing.T) {
 	const s = "🌐"
 	cachedDomain := s
 
-	cachedDomain = testConnAddrFromSliceWithDomainCache(t, addr4, cachedDomain, addr4connaddr)
+	cachedDomain = testConnAddrFromSliceWithDomainCache(t, addr4[:], cachedDomain, addr4connaddr)
 	if cachedDomain != s {
 		t.Errorf("ConnAddrFromSliceWithDomainCache(addr4) modified cachedDomain to %s.", cachedDomain)
 	}
 
-	cachedDomain = testConnAddrFromSliceWithDomainCache(t, addr4in6, cachedDomain, addr4connaddr)
+	cachedDomain = testConnAddrFromSliceWithDomainCache(t, addr4in6[:], cachedDomain, addr4connaddr)
 	if cachedDomain != s {
 		t.Errorf("ConnAddrFromSliceWithDomainCache(addr4in6) modified cachedDomain to %s.", cachedDomain)
 	}
 
-	cachedDomain = testConnAddrFromSliceWithDomainCache(t, addr6, cachedDomain, addr6connaddr)
+	cachedDomain = testConnAddrFromSliceWithDomainCache(t, addr6[:], cachedDomain, addr6connaddr)
 	if cachedDomain != s {
 		t.Errorf("ConnAddrFromSliceWithDomainCache(addr6) modified cachedDomain to %s.", cachedDomain)
 	}
 
-	cachedDomain = testConnAddrFromSliceWithDomainCache(t, addrDomain, cachedDomain, addrDomainConnAddr)
+	cachedDomain = testConnAddrFromSliceWithDomainCache(t, addrDomain[:], cachedDomain, addrDomainConnAddr)
 	if cachedDomain != addrDomainHost {
 		t.Errorf("ConnAddrFromSliceWithDomainCache(addrDomain) modified cachedDomain to %s, expected %s.", cachedDomain, addrDomainHost)
 	}
@@ -236,11 +236,11 @@ func testAppendAddrFromConnAddr(t *testing.T, addr conn.Addr, expectedSA []byte)
 }
 
 func TestAppendAddrFromConnAddr(t *testing.T) {
-	testAppendAddrFromConnAddr(t, addrZeroConnAddr, addrZero)
-	testAppendAddrFromConnAddr(t, addr4connaddr, addr4)
-	testAppendAddrFromConnAddr(t, addr4in6connaddr, addr4in6)
-	testAppendAddrFromConnAddr(t, addr6connaddr, addr6)
-	testAppendAddrFromConnAddr(t, addrDomainConnAddr, addrDomain)
+	testAppendAddrFromConnAddr(t, addrZeroConnAddr, addrZero[:])
+	testAppendAddrFromConnAddr(t, addr4connaddr, addr4[:])
+	testAppendAddrFromConnAddr(t, addr4in6connaddr, addr4in6[:])
+	testAppendAddrFromConnAddr(t, addr6connaddr, addr6[:])
+	testAppendAddrFromConnAddr(t, addrDomainConnAddr, addrDomain[:])
 }
 
 func testLengthOfAndWriteAddrFromConnAddr(t *testing.T, addr conn.Addr, expectedSA []byte) {
@@ -270,9 +270,9 @@ func testLengthOfAndWriteAddrFromConnAddr(t *testing.T, addr conn.Addr, expected
 }
 
 func TestLengthOfAndWriteAddrFromConnAddr(t *testing.T) {
-	testLengthOfAndWriteAddrFromConnAddr(t, addrZeroConnAddr, addrZero)
-	testLengthOfAndWriteAddrFromConnAddr(t, addr4connaddr, addr4)
-	testLengthOfAndWriteAddrFromConnAddr(t, addr4in6connaddr, addr4in6)
-	testLengthOfAndWriteAddrFromConnAddr(t, addr6connaddr, addr6)
-	testLengthOfAndWriteAddrFromConnAddr(t, addrDomainConnAddr, addrDomain)
+	testLengthOfAndWriteAddrFromConnAddr(t, addrZeroConnAddr, addrZero[:])
+	testLengthOfAndWriteAddrFromConnAddr(t, addr4connaddr, addr4[:])
+	testLengthOfAndWriteAddrFromConnAddr(t, addr4in6connaddr, addr4in6[:])
+	testLengthOfAndWriteAddrFromConnAddr(t, addr6connaddr, addr6[:])
+	testLengthOfAndWriteAddrFromConnAddr(t, addrDomainConnAddr, addrDomain[:])
 }
