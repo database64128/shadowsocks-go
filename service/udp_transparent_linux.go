@@ -167,7 +167,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, in
 		msgvec[i].Msghdr.Namelen = unix.SizeofSockaddrInet6
 		msgvec[i].Msghdr.Iov = &iovec[i]
 		msgvec[i].Msghdr.SetIovlen(1)
-		msgvec[i].Msghdr.Control = &cmsgBuf[0]
+		msgvec[i].Msghdr.Control = unsafe.SliceData(cmsgBuf)
 	}
 
 	var (

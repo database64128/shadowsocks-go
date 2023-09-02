@@ -100,7 +100,7 @@ func (s *ManagedServer) saveToFile() error {
 		return err
 	}
 
-	s.cachedContent = unsafe.String(&b[0], len(b))
+	s.cachedContent = unsafe.String(unsafe.SliceData(b), len(b))
 	return nil
 }
 

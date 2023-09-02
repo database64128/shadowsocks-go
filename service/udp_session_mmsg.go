@@ -98,7 +98,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(ctx context.Context, index 
 		msgvec[i].Msghdr.Namelen = unix.SizeofSockaddrInet6
 		msgvec[i].Msghdr.Iov = &iovec[i]
 		msgvec[i].Msghdr.SetIovlen(1)
-		msgvec[i].Msghdr.Control = &cmsgBuf[0]
+		msgvec[i].Msghdr.Control = unsafe.SliceData(cmsgBuf)
 	}
 
 	var (
@@ -705,7 +705,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(downlink sessionDownl
 		smsgvec[i].Msghdr.Namelen = namelen
 		smsgvec[i].Msghdr.Iov = &siovec[i]
 		smsgvec[i].Msghdr.SetIovlen(1)
-		smsgvec[i].Msghdr.Control = &clientPktinfo[0]
+		smsgvec[i].Msghdr.Control = unsafe.SliceData(clientPktinfo)
 		smsgvec[i].Msghdr.SetControllen(len(clientPktinfo))
 	}
 
@@ -737,7 +737,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(downlink sessionDownl
 			rsa6, _ = conn.AddrPortToSockaddrValue(clientAddrPort) // namelen won't change
 
 			for i := range smsgvec {
-				smsgvec[i].Msghdr.Control = &clientPktinfo[0]
+				smsgvec[i].Msghdr.Control = unsafe.SliceData(clientPktinfo)
 				smsgvec[i].Msghdr.SetControllen(len(clientPktinfo))
 			}
 		}
