@@ -10,12 +10,16 @@ import (
 	"github.com/gofiber/fiber/v2"
 	fiberlog "github.com/gofiber/fiber/v2/log"
 	"github.com/gofiber/fiber/v2/middleware/etag"
+	"github.com/gofiber/fiber/v2/middleware/pprof"
 	"go.uber.org/zap"
 )
 
 // Config stores the configuration for the RESTful API.
 type Config struct {
 	Enabled bool `json:"enabled"`
+
+	// Debug
+	DebugPprof bool `json:"debugPprof"`
 
 	// Reverse proxy
 	EnableTrustedProxyCheck bool     `json:"enableTrustedProxyCheck"`
@@ -65,6 +69,10 @@ func (c *Config) Server(logger *zap.Logger) (*Server, *v1.ServerManager, error) 
 		Logger: logger,
 		Fields: []string{"latency", "status", "method", "url", "ip"},
 	}))
+
+	if c.DebugPprof {
+		app.Use(pprof.New())
+	}
 
 	var router fiber.Router = app
 	if c.SecretPath != "" {

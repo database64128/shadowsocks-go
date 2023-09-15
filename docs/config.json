@@ -354,6 +354,7 @@
     },
     "api": {
         "enabled": true,
+        "debugPprof": false,
         "enableTrustedProxyCheck": false,
         "trustedProxies": [],
         "proxyHeader": "X-Forwarded-For",
