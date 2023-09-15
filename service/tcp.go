@@ -23,6 +23,7 @@ const (
 
 // tcpRelayListener configures the TCP listener for a relay service.
 type tcpRelayListener struct {
+	logger                       *zap.Logger
 	listener                     *net.TCPListener
 	listenConfig                 conn.ListenConfig
 	waitForInitialPayload        bool
@@ -92,6 +93,11 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 		}
 		lnc.listener = l
 		lnc.address = l.Addr().String()
+		lnc.logger = s.logger.With(
+			zap.String("server", s.serverName),
+			zap.Int("listener", index),
+			zap.String("listenAddress", lnc.address),
+		)
 
 		s.acceptWg.Add(1)
 
@@ -102,32 +108,23 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 					if errors.Is(err, os.ErrDeadlineExceeded) {
 						break
 					}
-					s.logger.Warn("Failed to accept TCP connection",
-						zap.String("server", s.serverName),
-						zap.Int("listener", index),
-						zap.String("listenAddress", lnc.address),
-						zap.Error(err),
-					)
+					lnc.logger.Warn("Failed to accept TCP connection", zap.Error(err))
 					continue
 				}
 
-				go s.handleConn(ctx, index, lnc, clientConn)
+				go s.handleConn(ctx, lnc, clientConn)
 			}
 
 			s.acceptWg.Done()
 		}()
 
-		s.logger.Info("Started TCP relay service listener",
-			zap.String("server", s.serverName),
-			zap.Int("listener", index),
-			zap.String("listenAddress", lnc.address),
-		)
+		lnc.logger.Info("Started TCP relay service listener")
 	}
 	return nil
 }
 
 // handleConn handles an accepted TCP connection.
-func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListener, clientConn *net.TCPConn) {
+func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, clientConn *net.TCPConn) {
 	defer clientConn.Close()
 
 	// Get client address.
@@ -138,25 +135,22 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 	clientRW, targetAddr, payload, username, err := s.server.Accept(clientConn)
 	if err != nil {
 		if err == zerocopy.ErrAcceptDoneNoRelay {
-			s.logger.Debug("The accepted connection has been handled without relaying",
-				zap.String("server", s.serverName),
-				zap.Int("listener", index),
-				zap.String("listenAddress", lnc.address),
-				zap.String("clientAddress", clientAddress),
-			)
+			if ce := lnc.logger.Check(zap.DebugLevel, "The accepted connection has been handled without relaying"); ce != nil {
+				ce.Write(
+					zap.String("clientAddress", clientAddress),
+				)
+			}
 			return
 		}
 
-		s.logger.Warn("Failed to complete handshake with client",
-			zap.String("server", s.serverName),
-			zap.Int("listener", index),
-			zap.String("listenAddress", lnc.address),
+		logger := lnc.logger.With(
 			zap.String("clientAddress", clientAddress),
-			zap.Error(err),
 		)
 
+		logger.Warn("Failed to complete handshake with client", zap.Error(err))
+
 		if !s.fallbackAddress.IsValid() || len(payload) == 0 {
-			s.connCloser(clientConn, s.serverName, lnc.address, clientAddress, s.logger)
+			s.connCloser(clientConn, logger)
 			return
 		}
 
@@ -175,10 +169,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 		TargetAddr:     targetAddr,
 	})
 	if err != nil {
-		s.logger.Warn("Failed to get TCP client for client connection",
-			zap.String("server", s.serverName),
-			zap.Int("listener", index),
-			zap.String("listenAddress", lnc.address),
+		lnc.logger.Warn("Failed to get TCP client for client connection",
 			zap.String("clientAddress", clientAddress),
 			zap.String("username", username),
 			zap.String("targetAddress", targetAddress),
@@ -189,6 +180,14 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 
 	// Get client info.
 	clientInfo := c.Info()
+
+	// Create logger with new fields.
+	logger := lnc.logger.With(
+		zap.String("clientAddress", clientAddress),
+		zap.String("username", username),
+		zap.String("targetAddress", targetAddress),
+		zap.String("client", clientInfo.Name),
+	)
 
 	// Wait for initial payload if all of the following are true:
 	// 1. not disabled
@@ -201,16 +200,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 
 		err = clientConn.SetReadDeadline(time.Now().Add(lnc.initialPayloadWaitTimeout))
 		if err != nil {
-			s.logger.Warn("Failed to set read deadline to initial payload wait timeout",
-				zap.String("server", s.serverName),
-				zap.Int("listener", index),
-				zap.String("listenAddress", lnc.address),
-				zap.String("clientAddress", clientAddress),
-				zap.String("username", username),
-				zap.String("targetAddress", targetAddress),
-				zap.String("client", clientInfo.Name),
-				zap.Error(err),
-			)
+			logger.Warn("Failed to set read deadline to initial payload wait timeout", zap.Error(err))
 			return
 		}
 
@@ -218,54 +208,25 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 		switch {
 		case err == nil:
 			payload = payload[clientReaderInfo.Headroom.Front : clientReaderInfo.Headroom.Front+payloadLength]
-			s.logger.Debug("Got initial payload",
-				zap.String("server", s.serverName),
-				zap.Int("listener", index),
-				zap.String("listenAddress", lnc.address),
-				zap.String("clientAddress", clientAddress),
-				zap.String("username", username),
-				zap.String("targetAddress", targetAddress),
-				zap.String("client", clientInfo.Name),
-				zap.Int("payloadLength", payloadLength),
-			)
+			if ce := logger.Check(zap.DebugLevel, "Got initial payload"); ce != nil {
+				ce.Write(
+					zap.Int("payloadLength", payloadLength),
+				)
+			}
 
 		case errors.Is(err, os.ErrDeadlineExceeded):
-			s.logger.Debug("Initial payload wait timed out",
-				zap.String("server", s.serverName),
-				zap.Int("listener", index),
-				zap.String("listenAddress", lnc.address),
-				zap.String("clientAddress", clientAddress),
-				zap.String("username", username),
-				zap.String("targetAddress", targetAddress),
-				zap.String("client", clientInfo.Name),
-			)
+			if ce := logger.Check(zap.DebugLevel, "Initial payload wait timed out"); ce != nil {
+				ce.Write()
+			}
 
 		default:
-			s.logger.Warn("Failed to read initial payload",
-				zap.String("server", s.serverName),
-				zap.Int("listener", index),
-				zap.String("listenAddress", lnc.address),
-				zap.String("clientAddress", clientAddress),
-				zap.String("username", username),
-				zap.String("targetAddress", targetAddress),
-				zap.String("client", clientInfo.Name),
-				zap.Error(err),
-			)
+			logger.Warn("Failed to read initial payload", zap.Error(err))
 			return
 		}
 
 		err = clientConn.SetReadDeadline(time.Time{})
 		if err != nil {
-			s.logger.Warn("Failed to reset read deadline",
-				zap.String("server", s.serverName),
-				zap.Int("listener", index),
-				zap.String("listenAddress", lnc.address),
-				zap.String("clientAddress", clientAddress),
-				zap.String("username", username),
-				zap.String("targetAddress", targetAddress),
-				zap.String("client", clientInfo.Name),
-				zap.Error(err),
-			)
+			logger.Warn("Failed to reset read deadline", zap.Error(err))
 			return
 		}
 	}
@@ -273,14 +234,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 	// Create remote connection.
 	remoteRawRW, remoteRW, err := c.Dial(ctx, targetAddr, payload)
 	if err != nil {
-		s.logger.Warn("Failed to create remote connection",
-			zap.String("server", s.serverName),
-			zap.Int("listener", index),
-			zap.String("listenAddress", lnc.address),
-			zap.String("clientAddress", clientAddress),
-			zap.String("username", username),
-			zap.String("targetAddress", targetAddress),
-			zap.String("client", clientInfo.Name),
+		logger.Warn("Failed to create remote connection",
 			zap.Int("initialPayloadLength", len(payload)),
 			zap.Error(err),
 		)
@@ -288,14 +242,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 	}
 	defer remoteRawRW.Close()
 
-	s.logger.Info("Two-way relay started",
-		zap.String("server", s.serverName),
-		zap.Int("listener", index),
-		zap.String("listenAddress", lnc.address),
-		zap.String("clientAddress", clientAddress),
-		zap.String("username", username),
-		zap.String("targetAddress", targetAddress),
-		zap.String("client", clientInfo.Name),
+	logger.Info("Two-way relay started",
 		zap.Int("initialPayloadLength", len(payload)),
 	)
 
@@ -304,14 +251,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 	nl2r += int64(len(payload))
 	s.collector.CollectTCPSession(username, uint64(nr2l), uint64(nl2r))
 	if err != nil {
-		s.logger.Warn("Two-way relay failed",
-			zap.String("server", s.serverName),
-			zap.Int("listener", index),
-			zap.String("listenAddress", lnc.address),
-			zap.String("clientAddress", clientAddress),
-			zap.String("username", username),
-			zap.String("targetAddress", targetAddress),
-			zap.String("client", clientInfo.Name),
+		logger.Warn("Two-way relay failed",
 			zap.Int64("nl2r", nl2r),
 			zap.Int64("nr2l", nr2l),
 			zap.Error(err),
@@ -319,14 +259,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, index int, lnc *tcpRelayListe
 		return
 	}
 
-	s.logger.Info("Two-way relay completed",
-		zap.String("server", s.serverName),
-		zap.Int("listener", index),
-		zap.String("listenAddress", lnc.address),
-		zap.String("clientAddress", clientAddress),
-		zap.String("username", username),
-		zap.String("targetAddress", targetAddress),
-		zap.String("client", clientInfo.Name),
+	logger.Info("Two-way relay completed",
 		zap.Int64("nl2r", nl2r),
 		zap.Int64("nr2l", nr2l),
 	)
@@ -337,12 +270,7 @@ func (s *TCPRelay) Stop() error {
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
 		if err := lnc.listener.SetDeadline(conn.ALongTimeAgo); err != nil {
-			s.logger.Warn("Failed to set deadline on listener",
-				zap.String("server", s.serverName),
-				zap.Int("listener", i),
-				zap.String("listenAddress", lnc.address),
-				zap.Error(err),
-			)
+			lnc.logger.Warn("Failed to set deadline on listener", zap.Error(err))
 		}
 	}
 
@@ -351,12 +279,7 @@ func (s *TCPRelay) Stop() error {
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
 		if err := lnc.listener.Close(); err != nil {
-			s.logger.Warn("Failed to close listener",
-				zap.String("server", s.serverName),
-				zap.Int("listener", i),
-				zap.String("listenAddress", lnc.address),
-				zap.Error(err),
-			)
+			lnc.logger.Warn("Failed to close listener", zap.Error(err))
 		}
 	}
 
