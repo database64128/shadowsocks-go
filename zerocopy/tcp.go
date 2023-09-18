@@ -167,7 +167,8 @@ func ReplyWithGibberish(conn *net.TCPConn, logger *zap.Logger) {
 		garbage := b[:n]
 		_, err = rand.Read(garbage)
 		if err != nil {
-			panic(err)
+			logger.Error("Failed to generate random garbage", zap.Error(err))
+			break
 		}
 
 		n, err = conn.Write(garbage)
