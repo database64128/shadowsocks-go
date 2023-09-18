@@ -125,8 +125,6 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 
 // handleConn handles an accepted TCP connection.
 func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, clientConn *net.TCPConn) {
-	defer clientConn.Close()
-
 	// Get client address.
 	clientAddrPort := clientConn.RemoteAddr().(*net.TCPAddr).AddrPort()
 	clientAddress := clientAddrPort.String()
@@ -140,6 +138,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 					zap.String("clientAddress", clientAddress),
 				)
 			}
+			clientConn.Close()
 			return
 		}
 
@@ -151,12 +150,14 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 
 		if !s.fallbackAddress.IsValid() || len(payload) == 0 {
 			s.connCloser(clientConn, logger)
+			clientConn.Close()
 			return
 		}
 
 		clientRW = direct.NewDirectStreamReadWriter(clientConn)
 		targetAddr = s.fallbackAddress
 	}
+	defer clientRW.Close()
 
 	// Convert target address to string once for log messages.
 	targetAddress := targetAddr.String()

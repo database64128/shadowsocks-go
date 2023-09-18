@@ -166,6 +166,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 
 		pl.CloseReadWithError(rerr)
 		pl.CloseWriteWithError(werr)
+		rw.Close()
 	}()
 
 	// Wrap pr into a direct stream ReadWriter.
