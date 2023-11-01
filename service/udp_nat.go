@@ -466,6 +466,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(ctx context.Context, uplin
 				zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 				zap.String("client", uplink.clientName),
 				zap.Stringer("writeDestAddress", destAddrPort),
+				zap.Int("packetLength", packetLength),
 				zap.Error(err),
 			)
 		}
@@ -581,6 +582,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnGeneric(downlink natDownlinkGeneri
 				zap.Stringer("packetSourceAddress", packetSourceAddrPort),
 				zap.String("client", downlink.clientName),
 				zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
+				zap.Int("packetLength", packetLength),
 				zap.Error(err),
 			)
 		}
