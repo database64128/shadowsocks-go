@@ -1,6 +1,6 @@
 module github.com/database64128/shadowsocks-go
 
-go 1.21.4
+go 1.21.5
 
 require (
 	github.com/database64128/tfo-go/v2 v2.1.0
