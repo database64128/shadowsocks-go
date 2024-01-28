@@ -20,14 +20,18 @@ type DirectPacketClientPacker struct {
 	// cachedDomainIP is the last used domain target's resolved IP address.
 	cachedDomainIP netip.Addr
 
+	// network controls the address family of a domain target's resolved IP address.
+	network string
+
 	// mtu is used in the PackInPlace method to determine whether the payload is too big.
 	mtu int
 }
 
 // NewDirectPacketClientPacker creates a packet packer for direct connection.
-func NewDirectPacketClientPacker(mtu int) *DirectPacketClientPacker {
+func NewDirectPacketClientPacker(network string, mtu int) *DirectPacketClientPacker {
 	return &DirectPacketClientPacker{
-		mtu: mtu,
+		network: network,
+		mtu:     mtu,
 	}
 }
 
@@ -38,7 +42,7 @@ func (DirectPacketClientPacker) ClientPackerInfo() zerocopy.ClientPackerInfo {
 
 func (p *DirectPacketClientPacker) updateDomainIPCache(ctx context.Context, targetAddr conn.Addr) error {
 	if p.cachedDomain != targetAddr.Domain() {
-		ip, err := targetAddr.ResolveIP(ctx)
+		ip, err := targetAddr.ResolveIP(ctx, p.network)
 		if err != nil {
 			return err
 		}

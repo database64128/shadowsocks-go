@@ -11,13 +11,15 @@ import (
 // ProxyClient implements the zerocopy TCPClient interface.
 type ProxyClient struct {
 	name    string
+	network string
 	address string
 	dialer  conn.Dialer
 }
 
-func NewProxyClient(name, address string, dialer conn.Dialer) *ProxyClient {
+func NewProxyClient(name, network, address string, dialer conn.Dialer) *ProxyClient {
 	return &ProxyClient{
 		name:    name,
+		network: network,
 		address: address,
 		dialer:  dialer,
 	}
@@ -33,7 +35,7 @@ func (c *ProxyClient) Info() zerocopy.TCPClientInfo {
 
 // Dial implements the zerocopy.TCPClient Dial method.
 func (c *ProxyClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
-	rawRW, err = c.dialer.DialTCP(ctx, "tcp", c.address, nil)
+	rawRW, err = c.dialer.DialTCP(ctx, c.network, c.address, nil)
 	if err != nil {
 		return
 	}

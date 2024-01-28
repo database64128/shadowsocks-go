@@ -14,6 +14,7 @@ import (
 
 // UDPClient implements the zerocopy UDPClient interface.
 type UDPClient struct {
+	network          string
 	addr             conn.Addr
 	info             zerocopy.UDPClientInfo
 	nonAEADHeaderLen int
@@ -22,10 +23,11 @@ type UDPClient struct {
 	shouldPad        PaddingPolicy
 }
 
-func NewUDPClient(addr conn.Addr, name string, mtu int, listenConfig conn.ListenConfig, filterSize uint64, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
+func NewUDPClient(name, network string, addr conn.Addr, mtu int, listenConfig conn.ListenConfig, filterSize uint64, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
 	identityHeadersLen := IdentityHeaderLength * len(cipherConfig.iPSKs)
 	return &UDPClient{
-		addr: addr,
+		network: network,
+		addr:    addr,
 		info: zerocopy.UDPClientInfo{
 			Name:           name,
 			PackerHeadroom: ShadowPacketClientMessageHeadroom(identityHeadersLen),
@@ -46,7 +48,7 @@ func (c *UDPClient) Info() zerocopy.UDPClientInfo {
 
 // NewSession implements the zerocopy.UDPClient NewSession method.
 func (c *UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
-	addrPort, err := c.addr.ResolveIPPort(ctx)
+	addrPort, err := c.addr.ResolveIPPort(ctx, c.network)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
 	}

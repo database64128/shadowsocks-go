@@ -46,8 +46,8 @@ func TestResolver(t *testing.T) {
 
 	ctx := context.Background()
 	serverAddrPort := netip.AddrPortFrom(netip.AddrFrom4([4]byte{1, 1, 1, 1}), 53)
-	tcpClient := direct.NewTCPClient("direct", conn.DefaultTCPDialer)
-	udpClient := direct.NewDirectUDPClient("direct", 1500, conn.DefaultUDPClientListenConfig)
+	tcpClient := direct.NewTCPClient("direct", "tcp", conn.DefaultTCPDialer)
+	udpClient := direct.NewDirectUDPClient("direct", "ip", 1500, conn.DefaultUDPClientListenConfig)
 
 	t.Run("UDP", func(t *testing.T) {
 		testResolver(t, ctx, "UDP", serverAddrPort, nil, udpClient, logger)

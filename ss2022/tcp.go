@@ -23,10 +23,10 @@ type TCPClient struct {
 	unsafeResponseStreamPrefix []byte
 }
 
-func NewTCPClient(name, address string, dialer conn.Dialer, allowSegmentedFixedLengthHeader bool, cipherConfig *ClientCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPClient {
+func NewTCPClient(name, network, address string, dialer conn.Dialer, allowSegmentedFixedLengthHeader bool, cipherConfig *ClientCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPClient {
 	return &TCPClient{
 		name:                       name,
-		rwo:                        zerocopy.NewTCPConnOpener(dialer, "tcp", address),
+		rwo:                        zerocopy.NewTCPConnOpener(dialer, network, address),
 		readOnceOrFull:             readOnceOrFullFunc(allowSegmentedFixedLengthHeader),
 		cipherConfig:               cipherConfig,
 		unsafeRequestStreamPrefix:  unsafeRequestStreamPrefix,

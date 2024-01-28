@@ -22,6 +22,17 @@ type ClientConfig struct {
 	// Valid values include "direct", "socks5", "http", "none", "plain", "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm".
 	Protocol string `json:"protocol"`
 
+	// Network controls the address family of the resolved IP address
+	// when the address is a domain name. It is ignored if the address
+	// is an IP address.
+	//
+	// - "ip": Follow the system default.
+	// - "ip4": Resolve to an IPv4 address.
+	// - "ip6": Resolve to an IPv6 address.
+	//
+	// If unspecified, "ip" is used.
+	Network string `json:"network"`
+
 	// Endpoint is the address of the remote proxy server, if applicable.
 	//
 	// Do not use if either TCPAddress or UDPAddress is specified.
@@ -127,6 +138,14 @@ func (cc *ClientConfig) checkAddresses() error {
 
 // Initialize initializes the client configuration.
 func (cc *ClientConfig) Initialize(listenConfigCache conn.ListenConfigCache, dialerCache conn.DialerCache, logger *zap.Logger) (err error) {
+	switch cc.Network {
+	case "":
+		cc.Network = "ip"
+	case "ip", "ip4", "ip6":
+	default:
+		return fmt.Errorf("unknown network: %q", cc.Network)
+	}
+
 	if err = cc.checkAddresses(); err != nil {
 		return
 	}
@@ -148,33 +167,51 @@ func (cc *ClientConfig) Initialize(listenConfigCache conn.ListenConfigCache, dia
 	return
 }
 
+func (cc *ClientConfig) tcpNetwork() string {
+	switch cc.Network {
+	case "ip":
+		return "tcp"
+	case "ip4":
+		return "tcp4"
+	case "ip6":
+		return "tcp6"
+	default:
+		panic("unreachable")
+	}
+}
+
+func (cc *ClientConfig) dialer() conn.Dialer {
+	return cc.dialerCache.Get(conn.DialerSocketOptions{
+		Fwmark:       cc.DialerFwmark,
+		TrafficClass: cc.DialerTrafficClass,
+		TCPFastOpen:  cc.DialerTFO,
+		MultipathTCP: cc.MultipathTCP,
+	})
+}
+
 // TCPClient creates a zerocopy.TCPClient from the ClientConfig.
 func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
 	if !cc.EnableTCP {
 		return nil, errNetworkDisabled
 	}
 
-	dialer := cc.dialerCache.Get(conn.DialerSocketOptions{
-		Fwmark:       cc.DialerFwmark,
-		TrafficClass: cc.DialerTrafficClass,
-		TCPFastOpen:  cc.DialerTFO,
-		MultipathTCP: cc.MultipathTCP,
-	})
+	network := cc.tcpNetwork()
+	dialer := cc.dialer()
 
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewTCPClient(cc.Name, dialer), nil
+		return direct.NewTCPClient(cc.Name, network, dialer), nil
 	case "none", "plain":
-		return direct.NewShadowsocksNoneTCPClient(cc.Name, cc.TCPAddress.String(), dialer), nil
+		return direct.NewShadowsocksNoneTCPClient(cc.Name, network, cc.TCPAddress.String(), dialer), nil
 	case "socks5":
-		return direct.NewSocks5TCPClient(cc.Name, cc.TCPAddress.String(), dialer), nil
+		return direct.NewSocks5TCPClient(cc.Name, network, cc.TCPAddress.String(), dialer), nil
 	case "http":
-		return http.NewProxyClient(cc.Name, cc.TCPAddress.String(), dialer), nil
+		return http.NewProxyClient(cc.Name, network, cc.TCPAddress.String(), dialer), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		if len(cc.UnsafeRequestStreamPrefix) != 0 || len(cc.UnsafeResponseStreamPrefix) != 0 {
 			cc.logger.Warn("Unsafe stream prefix taints the client", zap.String("client", cc.Name))
 		}
-		return ss2022.NewTCPClient(cc.Name, cc.TCPAddress.String(), dialer, cc.AllowSegmentedFixedLengthHeader, cc.cipherConfig, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
+		return ss2022.NewTCPClient(cc.Name, network, cc.TCPAddress.String(), dialer, cc.AllowSegmentedFixedLengthHeader, cc.cipherConfig, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}
@@ -197,17 +234,13 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewDirectUDPClient(cc.Name, cc.MTU, listenConfig), nil
+		return direct.NewDirectUDPClient(cc.Name, cc.Network, cc.MTU, listenConfig), nil
 	case "none", "plain":
-		return direct.NewShadowsocksNoneUDPClient(cc.UDPAddress, cc.Name, cc.MTU, listenConfig), nil
+		return direct.NewShadowsocksNoneUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.MTU, listenConfig), nil
 	case "socks5":
-		dialer := cc.dialerCache.Get(conn.DialerSocketOptions{
-			Fwmark:       cc.DialerFwmark,
-			TrafficClass: cc.DialerTrafficClass,
-			TCPFastOpen:  cc.DialerTFO,
-			MultipathTCP: cc.MultipathTCP,
-		})
-		return direct.NewSocks5UDPClient(cc.logger, cc.Name, cc.UDPAddress.String(), dialer, cc.MTU, listenConfig), nil
+		dialer := cc.dialer()
+		networkTCP := cc.tcpNetwork()
+		return direct.NewSocks5UDPClient(cc.logger, cc.Name, networkTCP, cc.Network, cc.UDPAddress.String(), dialer, cc.MTU, listenConfig), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		shouldPad, err := ss2022.ParsePaddingPolicy(cc.PaddingPolicy)
 		if err != nil {
@@ -221,7 +254,7 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 			return nil, fmt.Errorf("negative sliding window filter size: %d", cc.SlidingWindowFilterSize)
 		}
 
-		return ss2022.NewUDPClient(cc.UDPAddress, cc.Name, cc.MTU, listenConfig, uint64(cc.SlidingWindowFilterSize), cc.cipherConfig, shouldPad), nil
+		return ss2022.NewUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.MTU, listenConfig, uint64(cc.SlidingWindowFilterSize), cc.cipherConfig, shouldPad), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}

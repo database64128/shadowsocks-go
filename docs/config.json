@@ -235,6 +235,28 @@
             "dialerTFO": true,
             "enableUDP": true,
             "mtu": 1500
+        },
+        {
+            "name": "direct4",
+            "protocol": "direct",
+            "network": "ip4",
+            "dialerFwmark": 52140,
+            "dialerTrafficClass": 0,
+            "enableTCP": true,
+            "dialerTFO": true,
+            "enableUDP": true,
+            "mtu": 1500
+        },
+        {
+            "name": "direct6",
+            "protocol": "direct",
+            "network": "ip6",
+            "dialerFwmark": 52140,
+            "dialerTrafficClass": 0,
+            "enableTCP": true,
+            "dialerTFO": true,
+            "enableUDP": true,
+            "mtu": 1500
         }
     ],
     "dns": [
