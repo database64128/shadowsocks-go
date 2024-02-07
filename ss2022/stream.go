@@ -146,7 +146,7 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 		hb := make([]byte, bufferLen)
 
 		// Read response header.
-		n, err := rw.readOnceOrFull(rw.rawRW, hb)
+		_, err := rw.readOnceOrFull(rw.rawRW, hb)
 		if err != nil {
 			return 0, err
 		}
@@ -178,7 +178,7 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 		}
 
 		// Parse response header.
-		n, err = ParseTCPResponseHeader(plaintext, rw.requestSalt)
+		n, err := ParseTCPResponseHeader(plaintext, rw.requestSalt)
 		if err != nil {
 			return 0, err
 		}
