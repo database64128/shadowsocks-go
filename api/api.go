@@ -130,6 +130,9 @@ func (s *Server) Start(ctx context.Context) error {
 // Stop stops the API server.
 func (s *Server) Stop() error {
 	if err := s.app.ShutdownWithContext(s.ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			return nil
 		}
