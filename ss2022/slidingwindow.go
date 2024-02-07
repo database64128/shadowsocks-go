@@ -73,7 +73,7 @@ func (f *SlidingWindowFilter) MustAdd(counter uint64) {
 		clearBlockCount := min(int(blockIndex-lastBlockIndex), len(f.ring))
 
 		// Clear blocks ahead.
-		for i := 0; i < clearBlockCount; i++ {
+		for range clearBlockCount {
 			lastBlockIndex = (lastBlockIndex + 1) & f.ringBlockIndexMask
 			f.ring[lastBlockIndex] = 0
 		}
@@ -98,7 +98,7 @@ func (f *SlidingWindowFilter) Add(counter uint64) bool {
 		clearBlockCount := min(int(unmaskedBlockIndex-lastBlockIndex), len(f.ring))
 
 		// Clear blocks ahead.
-		for i := 0; i < clearBlockCount; i++ {
+		for range clearBlockCount {
 			lastBlockIndex = (lastBlockIndex + 1) & f.ringBlockIndexMask
 			f.ring[lastBlockIndex] = 0
 		}

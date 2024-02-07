@@ -28,7 +28,7 @@ func assertEmptyBitSet(t *testing.T, s BitSet) {
 	if count := s.Count(); count != 0 {
 		t.Errorf("expected count to be 0, got %d", count)
 	}
-	for i := uint(0); i < s.Capacity(); i++ {
+	for i := range s.Capacity() {
 		if s.IsSet(i) {
 			t.Errorf("bit %d is unexpectedly set", i)
 		}
@@ -40,7 +40,7 @@ func assertOddBitSet(t *testing.T, s BitSet) {
 	if count, expectedCount := s.Count(), s.Capacity()/2; count != expectedCount {
 		t.Errorf("expected count to be %d, got %d", expectedCount, count)
 	}
-	for i := uint(0); i < s.Capacity(); i++ {
+	for i := range s.Capacity() {
 		if i%2 == 0 == s.IsSet(i) {
 			t.Errorf("unexpected bit %d", i)
 		}
@@ -52,7 +52,7 @@ func assertEvenBitSet(t *testing.T, s BitSet) {
 	if count, expectedCount := s.Count(), (s.Capacity()+1)/2; count != expectedCount {
 		t.Errorf("expected count to be %d, got %d", expectedCount, count)
 	}
-	for i := uint(0); i < s.Capacity(); i++ {
+	for i := range s.Capacity() {
 		if i%2 == 1 == s.IsSet(i) {
 			t.Errorf("unexpected bit %d", i)
 		}
@@ -64,7 +64,7 @@ func assertFullBitSet(t *testing.T, s BitSet) {
 	if count := s.Count(); count != s.Capacity() {
 		t.Errorf("expected count to be %d, got %d", s.Capacity(), count)
 	}
-	for i := uint(0); i < s.Capacity(); i++ {
+	for i := range s.Capacity() {
 		if !s.IsSet(i) {
 			t.Errorf("bit %d is unexpectedly unset", i)
 		}
@@ -73,14 +73,14 @@ func assertFullBitSet(t *testing.T, s BitSet) {
 
 func clearBitSet(t *testing.T, s BitSet) {
 	t.Helper()
-	for i := uint(0); i < s.Capacity(); i++ {
+	for i := range s.Capacity() {
 		s.Unset(i)
 	}
 }
 
 func fillOddBitSet(t *testing.T, s BitSet) {
 	t.Helper()
-	for i := uint(0); i < s.Capacity(); i++ {
+	for i := range s.Capacity() {
 		switch i % 2 {
 		case 0:
 			s.Unset(i)
@@ -92,7 +92,7 @@ func fillOddBitSet(t *testing.T, s BitSet) {
 
 func fillEvenBitSet(t *testing.T, s BitSet) {
 	t.Helper()
-	for i := uint(0); i < s.Capacity(); i++ {
+	for i := range s.Capacity() {
 		switch i % 2 {
 		case 0:
 			s.Set(i)
@@ -104,7 +104,7 @@ func fillEvenBitSet(t *testing.T, s BitSet) {
 
 func fillBitSet(t *testing.T, s BitSet) {
 	t.Helper()
-	for i := uint(0); i < s.Capacity(); i++ {
+	for i := range s.Capacity() {
 		s.Set(i)
 	}
 }
@@ -165,7 +165,7 @@ func testBitSetFlipAll(t *testing.T, s BitSet) {
 
 func flipBitSet(t *testing.T, s BitSet) {
 	t.Helper()
-	for i := uint(0); i < s.Capacity(); i++ {
+	for i := range s.Capacity() {
 		s.Flip(i)
 	}
 }

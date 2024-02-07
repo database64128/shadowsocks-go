@@ -611,7 +611,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(downlink sessionDownl
 	rmsgvec := make([]conn.Mmsghdr, downlink.relayBatchSize)
 	smsgvec := make([]conn.Mmsghdr, downlink.relayBatchSize)
 
-	for i := 0; i < downlink.relayBatchSize; i++ {
+	for i := range downlink.relayBatchSize {
 		packetBuf := make([]byte, headroom.Front+downlink.natConnRecvBufSize+headroom.Rear)
 		bufvec[i] = packetBuf
 

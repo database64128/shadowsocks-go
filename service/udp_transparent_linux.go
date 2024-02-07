@@ -604,7 +604,7 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(ctx context.
 	iovec := make([]unix.Iovec, downlink.relayBatchSize)
 	msgvec := make([]conn.Mmsghdr, downlink.relayBatchSize)
 
-	for i := 0; i < downlink.relayBatchSize; i++ {
+	for i := range downlink.relayBatchSize {
 		packetBuf := make([]byte, downlink.natConnRecvBufSize)
 		bufvec[i] = packetBuf
 

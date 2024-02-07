@@ -6,9 +6,9 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"io"
+	mrand "math/rand/v2"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/fastrand"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
@@ -61,9 +61,9 @@ func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []by
 	case payloadLen >= MaxPaddingLength:
 		paddingPayloadLen = payloadLen
 	case payloadLen > 0:
-		paddingPayloadLen = payloadLen + int(fastrand.Uint32n(MaxPaddingLength-uint32(payloadLen)+1))
+		paddingPayloadLen = payloadLen + mrand.IntN(MaxPaddingLength-payloadLen+1)
 	default:
-		paddingPayloadLen = 1 + int(fastrand.Uint32n(MaxPaddingLength))
+		paddingPayloadLen = 1 + mrand.IntN(MaxPaddingLength)
 	}
 
 	urspLen := len(c.unsafeRequestStreamPrefix)

@@ -81,12 +81,12 @@ func TestDomainMapMatcher(t *testing.T) {
 
 func benchmarkDomainMatcher(b *testing.B, count int, name string, m Matcher) {
 	b.Run(fmt.Sprintf("%d/%s/Hit", count, name), func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			m.Match(testDomains[i%count])
 		}
 	})
 	b.Run(fmt.Sprintf("%d/%s/Miss", count, name), func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			m.Match(testMissDomain)
 		}
 	})

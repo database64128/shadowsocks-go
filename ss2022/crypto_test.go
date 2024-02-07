@@ -36,7 +36,7 @@ func newRandomCipherConfigTupleWithEIH(method string, enableUDP bool) (clientCip
 
 	var uPSK []byte
 	userLookupMap = make(UserLookupMap, 7)
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		uPSK = make([]byte, keySize)
 		if _, err = rand.Read(uPSK); err != nil {
 			return

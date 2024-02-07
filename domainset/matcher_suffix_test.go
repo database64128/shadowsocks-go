@@ -68,22 +68,22 @@ func TestSuffixTrieMatcher(t *testing.T) {
 
 func benchmarkSuffixMatcher(b *testing.B, count int, name string, m Matcher) {
 	b.Run(fmt.Sprintf("%d/%s/Hit", count, name), func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			m.Match(testSuffixes[i%count])
 		}
 	})
 	b.Run(fmt.Sprintf("%d/%s/Miss/Short", count, name), func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			m.Match(shortDomain)
 		}
 	})
 	b.Run(fmt.Sprintf("%d/%s/Miss/Medium", count, name), func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			m.Match(mediumDomain)
 		}
 	})
 	b.Run(fmt.Sprintf("%d/%s/Miss/Long", count, name), func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			m.Match(longDomain)
 		}
 	})

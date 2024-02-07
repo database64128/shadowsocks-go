@@ -331,7 +331,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 	sendFunc := func(pkt []byte, done <-chan struct{}) {
 		b := make([]byte, clientInfo.PackerHeadroom.Front+len(pkt)+clientInfo.PackerHeadroom.Rear)
 
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			copy(b[clientInfo.PackerHeadroom.Front:], pkt)
 			destAddrPort, packetStart, packetLength, err := clientSession.Packer.PackInPlace(ctx, b, r.serverAddr, clientInfo.PackerHeadroom.Front, len(pkt))
 			if err != nil {
@@ -494,7 +494,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 
 	var v4done, v6done bool
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		// Read length field.
 		_, err = io.ReadFull(crw, lengthBuf)
 		if err != nil {

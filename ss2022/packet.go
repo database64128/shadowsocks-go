@@ -8,11 +8,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	mrand "math/rand/v2"
 	"net/netip"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/fastrand"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
@@ -124,7 +124,7 @@ func (p *ShadowPacketClientPacker) PackInPlace(ctx context.Context, b []byte, ta
 		err = zerocopy.ErrPayloadTooBig
 		return
 	case maxPaddingLen > 0 && p.shouldPad(targetAddr):
-		paddingLen = 1 + int(fastrand.Uint32n(uint32(maxPaddingLen)))
+		paddingLen = 1 + mrand.IntN(maxPaddingLen)
 	}
 
 	messageHeaderStart := payloadStart - UDPClientMessageHeaderFixedLength - targetAddrLen - paddingLen
@@ -209,7 +209,7 @@ func (p *ShadowPacketServerPacker) PackInPlace(b []byte, sourceAddrPort netip.Ad
 		err = zerocopy.ErrPayloadTooBig
 		return
 	case maxPaddingLen > 0 && p.shouldPad(conn.AddrFromIPPort(sourceAddrPort)):
-		paddingLen = 1 + int(fastrand.Uint32n(uint32(maxPaddingLen)))
+		paddingLen = 1 + mrand.IntN(maxPaddingLen)
 	}
 
 	messageHeaderStart := payloadStart - UDPServerMessageHeaderFixedLength - paddingLen - sourceAddrLen
