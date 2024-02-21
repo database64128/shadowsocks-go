@@ -436,6 +436,16 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 
 		v4done, v6done, err = result.parseMsg(msg, v4done, v6done)
 		if err != nil {
+			if err == ErrMessageTruncated {
+				if ce := r.logger.Check(zap.DebugLevel, "Received truncated UDP DNS response"); ce != nil {
+					ce.Write(
+						zap.String("resolver", r.name),
+						zap.String("name", nameString),
+						zap.Stringer("serverAddrPort", r.serverAddrPort),
+					)
+				}
+				break
+			}
 			r.logger.Warn("Failed to parse DNS response",
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
