@@ -106,6 +106,9 @@ type Result struct {
 
 	// TTL is the minimum TTL of A and AAAA RRs.
 	TTL time.Time
+
+	v4done bool
+	v6done bool
 }
 
 type Resolver struct {
@@ -152,7 +155,7 @@ func (r *Resolver) lookup(ctx context.Context, name string) (Result, error) {
 	result, ok := r.cache[name]
 	r.mu.RUnlock()
 
-	if ok && result.TTL.After(time.Now()) {
+	if ok && !result.HasExpired() {
 		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup got result from cache"); ce != nil {
 			ce.Write(
 				zap.String("resolver", r.name),
@@ -240,17 +243,15 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 	}
 	q6PktEnd := q6PktStart + len(q6Pkt)
 
-	var handled bool
-
 	// Try UDP first if available.
 	if r.udpClient != nil {
-		result, handled = r.sendQueriesUDP(ctx, nameString, q4Pkt, q6Pkt)
+		result = r.sendQueriesUDP(ctx, nameString, q4Pkt, q6Pkt)
 
 		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup sent queries via UDP"); ce != nil {
 			ce.Write(
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
-				zap.Bool("handled", handled),
+				zap.Bool("handled", result.isDone()),
 				zap.Stringers("v4", result.IPv4),
 				zap.Stringers("v6", result.IPv6),
 				zap.Time("ttl", result.TTL),
@@ -259,20 +260,20 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 	}
 
 	// Fallback to TCP if UDP failed or is unavailable.
-	if !handled && r.tcpClient != nil {
+	if !result.isDone() && r.tcpClient != nil {
 		// Write length fields.
 		q4LenBuf := qBuf[:2]
 		q6LenBuf := qBuf[q4PktEnd:q6PktStart]
 		binary.BigEndian.PutUint16(q4LenBuf, uint16(len(q4Pkt)))
 		binary.BigEndian.PutUint16(q6LenBuf, uint16(len(q6Pkt)))
 
-		result, handled = r.sendQueriesTCP(ctx, nameString, qBuf[:q6PktEnd])
+		result = r.sendQueriesTCP(ctx, nameString, qBuf[:q6PktEnd])
 
 		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup sent queries via TCP"); ce != nil {
 			ce.Write(
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
-				zap.Bool("handled", handled),
+				zap.Bool("handled", result.isDone()),
 				zap.Stringers("v4", result.IPv4),
 				zap.Stringers("v6", result.IPv6),
 				zap.Time("ttl", result.TTL),
@@ -280,13 +281,13 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 		}
 	}
 
-	if !handled {
+	if !result.isDone() {
 		err = ErrLookup
 		return
 	}
 
 	// Add result to cache if TTL hasn't expired.
-	if result.TTL.After(time.Now()) {
+	if !result.HasExpired() {
 		r.mu.Lock()
 		r.cache[nameString] = result
 		r.mu.Unlock()
@@ -296,7 +297,7 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 }
 
 // sendQueriesUDP sends queries using the resolver's UDP client and returns the result and whether the lookup was successful.
-func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt, q6Pkt []byte) (result Result, handled bool) {
+func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt, q6Pkt []byte) (result Result) {
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()
 
@@ -335,7 +336,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 			copy(b[clientInfo.PackerHeadroom.Front:], pkt)
 			destAddrPort, packetStart, packetLength, err := clientSession.Packer.PackInPlace(ctx, b, r.serverAddr, clientInfo.PackerHeadroom.Front, len(pkt))
 			if err != nil {
-				r.logger.Warn("Failed to pack packet",
+				r.logger.Warn("Failed to pack UDP DNS query packet",
 					zap.String("resolver", r.name),
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
@@ -347,7 +348,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 
 			_, err = udpConn.WriteToUDPAddrPort(b[packetStart:packetStart+packetLength], destAddrPort)
 			if err != nil {
-				r.logger.Warn("Failed to write query",
+				r.logger.Warn("Failed to write UDP DNS query packet",
 					zap.String("resolver", r.name),
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
@@ -376,8 +377,6 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 	// Receive replies.
 	recvBuf := make([]byte, clientSession.MaxPacketSize)
 
-	var v4done, v6done bool
-
 	for {
 		n, _, flags, packetSourceAddress, err := udpConn.ReadMsgUDPAddrPort(recvBuf, nil)
 		if err != nil {
@@ -389,7 +388,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 				)
 				break
 			}
-			r.logger.Warn("Failed to read query response",
+			r.logger.Warn("Failed to read UDP DNS response",
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
@@ -400,7 +399,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 			continue
 		}
 		if err = conn.ParseFlagsForError(flags); err != nil {
-			r.logger.Warn("Failed to read query response",
+			r.logger.Warn("Failed to read UDP DNS response",
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
@@ -413,7 +412,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 
 		payloadSourceAddrPort, payloadStart, payloadLength, err := clientSession.Unpacker.UnpackInPlace(recvBuf, packetSourceAddress, 0, n)
 		if err != nil {
-			r.logger.Warn("Failed to unpack packet",
+			r.logger.Warn("Failed to unpack UDP DNS response packet",
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
@@ -424,7 +423,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 			continue
 		}
 		if !conn.AddrPortMappedEqual(payloadSourceAddrPort, r.serverAddrPort) {
-			r.logger.Warn("Ignoring packet from unknown server",
+			r.logger.Warn("Ignoring UDP DNS response packet from unknown server",
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
@@ -434,19 +433,9 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 		}
 		msg := recvBuf[payloadStart : payloadStart+payloadLength]
 
-		v4done, v6done, err = result.parseMsg(msg, v4done, v6done)
+		header, err := result.parseMsg(msg)
 		if err != nil {
-			if err == ErrMessageTruncated {
-				if ce := r.logger.Check(zap.DebugLevel, "Received truncated UDP DNS response"); ce != nil {
-					ce.Write(
-						zap.String("resolver", r.name),
-						zap.String("name", nameString),
-						zap.Stringer("serverAddrPort", r.serverAddrPort),
-					)
-				}
-				break
-			}
-			r.logger.Warn("Failed to parse DNS response",
+			r.logger.Warn("Failed to parse UDP DNS response",
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
@@ -454,33 +443,42 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 			)
 			break
 		}
-
-		// Break out of loop if both v4 and v6 are done.
-		if v4done && v6done {
+		if header.Truncated {
+			if ce := r.logger.Check(zap.DebugLevel, "Received truncated UDP DNS response"); ce != nil {
+				ce.Write(
+					zap.String("resolver", r.name),
+					zap.String("name", nameString),
+					zap.Stringer("serverAddrPort", r.serverAddrPort),
+				)
+			}
 			break
 		}
 
-		if v4done {
-			cancel4()
+		// Break out of loop if both v4 and v6 are done.
+		if result.isDone() {
+			break
 		}
-		if v6done {
+
+		switch header.ID {
+		case 4:
+			cancel4()
+		case 6:
 			cancel6()
 		}
 	}
 
-	handled = v4done && v6done
 	return
 }
 
 // sendQueriesTCP sends queries using the resolver's TCP client and returns the result and whether the lookup was successful.
-func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, queries []byte) (result Result, handled bool) {
+func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, queries []byte) (result Result) {
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()
 
 	// Write.
 	rawRW, rw, err := r.tcpClient.Dial(ctx, r.serverAddr, queries)
 	if err != nil {
-		r.logger.Warn("Failed to dial DNS server",
+		r.logger.Warn("Failed to dial TCP DNS server",
 			zap.String("resolver", r.name),
 			zap.String("name", nameString),
 			zap.Stringer("serverAddrPort", r.serverAddrPort),
@@ -502,13 +500,11 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 	crw := zerocopy.NewCopyReadWriter(rw)
 	lengthBuf := make([]byte, 2)
 
-	var v4done, v6done bool
-
 	for range 2 {
 		// Read length field.
 		_, err = io.ReadFull(crw, lengthBuf)
 		if err != nil {
-			r.logger.Warn("Failed to read DNS response length",
+			r.logger.Warn("Failed to read TCP DNS response length",
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
@@ -519,7 +515,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 
 		msgLen := binary.BigEndian.Uint16(lengthBuf)
 		if msgLen == 0 {
-			r.logger.Warn("DNS response length is zero",
+			r.logger.Warn("TCP DNS response length is zero",
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
@@ -531,7 +527,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 		msg := make([]byte, msgLen)
 		_, err = io.ReadFull(crw, msg)
 		if err != nil {
-			r.logger.Warn("Failed to read DNS response",
+			r.logger.Warn("Failed to read TCP DNS response",
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
@@ -540,63 +536,73 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 			return
 		}
 
-		v4done, v6done, err = result.parseMsg(msg, v4done, v6done)
+		header, err := result.parseMsg(msg)
 		if err != nil {
-			r.logger.Warn("Failed to parse DNS response",
+			r.logger.Warn("Failed to parse TCP DNS response",
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Error(err),
 			)
 			return
+		}
+		if header.Truncated {
+			if ce := r.logger.Check(zap.DebugLevel, "Received truncated TCP DNS response"); ce != nil {
+				ce.Write(
+					zap.String("resolver", r.name),
+					zap.String("name", nameString),
+					zap.Stringer("serverAddrPort", r.serverAddrPort),
+				)
+			}
+			// TCP DNS responses exceeding 65535 bytes are truncated.
+			// Use the truncated response like how Go std & the glibc resolver do.
 		}
 	}
 
-	handled = v4done && v6done
 	return
 }
 
-func (r *Result) parseMsg(msg []byte, v4done, v6done bool) (bool, bool, error) {
+func (r *Result) parseMsg(msg []byte) (dnsmessage.Header, error) {
 	var parser dnsmessage.Parser
 
 	// Parse header.
 	header, err := parser.Start(msg)
 	if err != nil {
-		return v4done, v6done, fmt.Errorf("failed to parse query response header: %w", err)
+		return dnsmessage.Header{}, fmt.Errorf("failed to parse query response header: %w", err)
 	}
 
 	// Check transaction ID.
 	switch header.ID {
 	case 4:
-		if v4done {
-			return v4done, v6done, nil
+		if r.v4done {
+			return header, nil
 		}
+		r.IPv4 = r.IPv4[:0]
 	case 6:
-		if v6done {
-			return v4done, v6done, nil
+		if r.v6done {
+			return header, nil
 		}
+		r.IPv6 = r.IPv6[:0]
 	default:
-		return v4done, v6done, fmt.Errorf("unexpected transaction ID: %d", header.ID)
+		return dnsmessage.Header{}, fmt.Errorf("unexpected transaction ID: %d", header.ID)
 	}
 
 	// Check response bit.
 	if !header.Response {
-		return v4done, v6done, ErrMessageNotResponse
+		return dnsmessage.Header{}, ErrMessageNotResponse
 	}
 
-	// Check truncated bit.
-	if header.Truncated {
-		return v4done, v6done, ErrMessageTruncated
-	}
+	// Continue parsing even if truncated.
+	// The caller may still want to use the result.
 
 	// Check RCode.
 	if header.RCode != dnsmessage.RCodeSuccess {
-		return v4done, v6done, fmt.Errorf("DNS failure: %s", header.RCode)
+		return dnsmessage.Header{}, fmt.Errorf("DNS failure: %s", header.RCode)
 	}
 
 	// Skip questions.
 	if err = parser.SkipAllQuestions(); err != nil {
-		return v4done, v6done, fmt.Errorf("failed to skip questions: %w", err)
+		return dnsmessage.Header{}, fmt.Errorf("failed to skip questions: %w", err)
 	}
 
 	// Parse answers and add to result.
@@ -606,7 +612,7 @@ func (r *Result) parseMsg(msg []byte, v4done, v6done bool) (bool, bool, error) {
 			if err == dnsmessage.ErrSectionDone {
 				break
 			}
-			return v4done, v6done, fmt.Errorf("failed to parse answer header: %w", err)
+			return dnsmessage.Header{}, fmt.Errorf("failed to parse answer header: %w", err)
 		}
 
 		// Set minimum TTL.
@@ -620,20 +626,20 @@ func (r *Result) parseMsg(msg []byte, v4done, v6done bool) (bool, bool, error) {
 		case dnsmessage.TypeA:
 			arr, err := parser.AResource()
 			if err != nil {
-				return v4done, v6done, fmt.Errorf("failed to parse A resource: %w", err)
+				return dnsmessage.Header{}, fmt.Errorf("failed to parse A resource: %w", err)
 			}
 			r.IPv4 = append(r.IPv4, netip.AddrFrom4(arr.A))
 
 		case dnsmessage.TypeAAAA:
 			aaaarr, err := parser.AAAAResource()
 			if err != nil {
-				return v4done, v6done, fmt.Errorf("failed to parse AAAA resource: %w", err)
+				return dnsmessage.Header{}, fmt.Errorf("failed to parse AAAA resource: %w", err)
 			}
 			r.IPv6 = append(r.IPv6, netip.AddrFrom16(aaaarr.AAAA))
 
 		default:
 			if err = parser.SkipAnswer(); err != nil {
-				return v4done, v6done, fmt.Errorf("failed to skip answer: %w", err)
+				return dnsmessage.Header{}, fmt.Errorf("failed to skip answer: %w", err)
 			}
 		}
 	}
@@ -641,21 +647,32 @@ func (r *Result) parseMsg(msg []byte, v4done, v6done bool) (bool, bool, error) {
 	// Mark v4 or v6 as done.
 	switch header.ID {
 	case 4:
-		v4done = true
+		r.v4done = true
 	case 6:
-		v6done = true
+		r.v6done = true
 	}
 
-	return v4done, v6done, nil
+	return header, nil
+}
+
+func (r *Result) isDone() bool {
+	return r.v4done && r.v6done
+}
+
+// HasExpired returns true if the result's TTL has expired.
+func (r *Result) HasExpired() bool {
+	return r.TTL.Before(time.Now())
 }
 
 // Clone returns a deep copy of the result.
 // Modifying values in the address slices will not affect the original result.
 func (r *Result) Clone() Result {
 	return Result{
-		IPv4: slices.Clone(r.IPv4),
-		IPv6: slices.Clone(r.IPv6),
-		TTL:  r.TTL,
+		IPv4:   slices.Clone(r.IPv4),
+		IPv6:   slices.Clone(r.IPv6),
+		TTL:    r.TTL,
+		v4done: r.v4done,
+		v6done: r.v6done,
 	}
 }
 
