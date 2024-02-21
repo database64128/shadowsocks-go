@@ -9,14 +9,11 @@ import (
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/pipe"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 )
 
 func TestHttpStreamReadWriter(t *testing.T) {
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		t.Fatal(err)
-	}
+	logger := zaptest.NewLogger(t)
 	defer logger.Sync()
 
 	pl, pr := pipe.NewDuplexPipe()
