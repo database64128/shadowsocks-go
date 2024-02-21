@@ -30,7 +30,6 @@ const (
 var (
 	ErrLookup             = errors.New("name lookup failed")
 	ErrMessageNotResponse = errors.New("message is not a response")
-	ErrMessageTruncated   = errors.New("message is truncated")
 )
 
 // ResolverConfig configures a DNS resolver.
