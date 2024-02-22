@@ -92,7 +92,7 @@ func managedServerFromContext(c *fiber.Ctx) *managedServer {
 // GetStats returns server traffic statistics.
 func (sm *ServerManager) GetStats(c *fiber.Ctx) error {
 	ms := managedServerFromContext(c)
-	if c.QueryBool("clear", false) {
+	if c.QueryBool("clear") {
 		return c.JSON(ms.sc.SnapshotAndReset())
 	}
 	return c.JSON(ms.sc.Snapshot())
