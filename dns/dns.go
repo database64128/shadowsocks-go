@@ -28,8 +28,9 @@ const (
 )
 
 var (
-	ErrLookup             = errors.New("name lookup failed")
-	ErrMessageNotResponse = errors.New("message is not a response")
+	ErrLookup                = errors.New("name lookup failed")
+	ErrMessageNotResponse    = errors.New("message is not a response")
+	ErrDomainNoAssociatedIPs = errors.New("domain name has no associated IP addresses")
 )
 
 // ResolverConfig configures a DNS resolver.
@@ -448,6 +449,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 					zap.String("resolver", r.name),
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
+					zap.Uint16("transactionID", header.ID),
 				)
 			}
 			// Immediately fall back to TCP.
@@ -553,6 +555,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 					zap.String("resolver", r.name),
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
+					zap.Uint16("transactionID", header.ID),
 				)
 			}
 			// TCP DNS responses exceeding 65535 bytes are truncated.
@@ -712,7 +715,7 @@ func (r *Resolver) LookupIP(ctx context.Context, name string) (netip.Addr, error
 	if len(result.IPv4) > 0 {
 		return result.IPv4[0], nil
 	}
-	return netip.Addr{}, ErrLookup
+	return netip.Addr{}, ErrDomainNoAssociatedIPs
 }
 
 // LookupIPs implements [SimpleResolver.LookupIPs].
@@ -750,7 +753,7 @@ func (r *SystemResolver) LookupIP(ctx context.Context, name string) (netip.Addr,
 		return netip.Addr{}, err
 	}
 	if len(ips) == 0 {
-		return netip.Addr{}, ErrLookup
+		return netip.Addr{}, ErrDomainNoAssociatedIPs
 	}
 	return ips[0], nil
 }

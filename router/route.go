@@ -21,7 +21,10 @@ import (
 // ErrRejected is a special error that indicates the request is rejected.
 var ErrRejected = errors.New("rejected")
 
-var errPointlessPortCriteria = errors.New("matching all ports is equivalent to not having any port filtering rules")
+var (
+	errNoAvailableResolvers  = errors.New("no available resolvers")
+	errPointlessPortCriteria = errors.New("matching all ports is equivalent to not having any port filtering rules")
+)
 
 // RouteConfig is a routing rule.
 type RouteConfig struct {
@@ -146,7 +149,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 			len(rc.ToMatchedDomainExpectedGeoIPCountries) > 0 ||
 			!rc.DisableNameResolutionForIPRules &&
 				(len(rc.ToPrefixes) > 0 || len(rc.ToPrefixSets) > 0 || len(rc.ToGeoIPCountries) > 0)) {
-		return Route{}, errors.New("missing resolvers")
+		return Route{}, errors.New("missing resolvers for one or more criteria")
 	}
 
 	// Has resolved IP expectations but no destination domain criteria.
@@ -777,7 +780,7 @@ func lookup(ctx context.Context, resolvers []dns.SimpleResolver, domain string) 
 		}
 		return
 	}
-	return ip, dns.ErrLookup
+	return ip, errNoAvailableResolvers
 }
 
 func matchDomainToDomainSets(domainSets []domainset.DomainSet, domain string) bool {
