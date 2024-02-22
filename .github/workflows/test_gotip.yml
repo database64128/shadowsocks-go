@@ -1,0 +1,41 @@
+name: Test with gotip
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install gotip
+        run: |
+          go install golang.org/dl/gotip@latest
+          gotip download
+
+      - name: Build
+        run: |
+          gotip env -w GOAMD64=v3
+          gotip build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go
+          gotip build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go-domain-set-converter
+
+      - name: Test
+        run: gotip test -v ./...
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadowsocks-go-${{ github.sha }}-${{ matrix.os }}-x86-64-v3
+          path: shadowsocks-go*
