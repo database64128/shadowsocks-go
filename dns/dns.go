@@ -450,6 +450,8 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
 				)
 			}
+			// Immediately fall back to TCP.
+			result.clearDone()
 			break
 		}
 
@@ -656,6 +658,11 @@ func (r *Result) parseMsg(msg []byte) (dnsmessage.Header, error) {
 
 func (r *Result) isDone() bool {
 	return r.v4done && r.v6done
+}
+
+func (r *Result) clearDone() {
+	r.v4done = false
+	r.v6done = false
 }
 
 // HasExpired returns true if the result's TTL has expired.
