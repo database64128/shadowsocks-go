@@ -54,6 +54,14 @@ type TCPListenerConfig struct {
 	// Available on Linux, macOS, FreeBSD, and Windows.
 	FastOpen bool `json:"fastOpen"`
 
+	// FastOpenFallback enables runtime detection of TCP Fast Open support on the listener.
+	//
+	// When enabled, the listener will start without TFO if TFO is not available on the system.
+	// When disabled, the listener will abort if TFO cannot be enabled on the socket.
+	//
+	// Available on all platforms.
+	FastOpenFallback bool `json:"fastOpenFallback"`
+
 	// Multipath enables multipath TCP on the listener.
 	//
 	// Unlike Go std, we make MPTCP strictly opt-in.
@@ -78,6 +86,14 @@ type TCPListenerConfig struct {
 	//
 	// The default value is 1440.
 	InitialPayloadWaitBufferSize int `json:"initialPayloadWaitBufferSize"`
+
+	// FastOpenBacklog specifies the maximum number of pending TFO connections on Linux.
+	// If the value is 0, Go std's listen(2) backlog is used.
+	//
+	// On other platforms, a non-negative value is ignored, as they do not have the option to set the TFO backlog.
+	//
+	// On all platforms, a negative value disables TFO.
+	FastOpenBacklog int `json:"fastOpenBacklog"`
 }
 
 // Configure returns a TCP listener configuration.
@@ -106,12 +122,14 @@ func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 
 	return tcpRelayListener{
 		listenConfig: listenConfigCache.Get(conn.ListenerSocketOptions{
-			Fwmark:       lnc.Fwmark,
-			TrafficClass: lnc.TrafficClass,
-			ReusePort:    lnc.ReusePort,
-			Transparent:  transparent,
-			TCPFastOpen:  lnc.FastOpen,
-			MultipathTCP: lnc.Multipath,
+			Fwmark:              lnc.Fwmark,
+			TrafficClass:        lnc.TrafficClass,
+			TCPFastOpenBacklog:  lnc.FastOpenBacklog,
+			ReusePort:           lnc.ReusePort,
+			Transparent:         transparent,
+			TCPFastOpen:         lnc.FastOpen,
+			TCPFastOpenFallback: lnc.FastOpenFallback,
+			MultipathTCP:        lnc.Multipath,
 		}),
 		waitForInitialPayload:        !serverNativeInitialPayload && !lnc.DisableInitialPayloadWait,
 		initialPayloadWaitTimeout:    initialPayloadWaitTimeout,

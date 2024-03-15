@@ -81,6 +81,14 @@ type ListenerSocketOptions struct {
 	// Available on most platforms except Windows.
 	TrafficClass int
 
+	// TCPFastOpenBacklog specifies the maximum number of pending TFO connections on Linux.
+	// If the value is 0, Go std's listen(2) backlog is used.
+	//
+	// On other platforms, a non-negative value is ignored, as they do not have the option to set the TFO backlog.
+	//
+	// On all platforms, a negative value disables TFO.
+	TCPFastOpenBacklog int
+
 	// ReusePort enables SO_REUSEPORT on the listener.
 	//
 	// Available on Linux and the BSDs.
@@ -100,6 +108,14 @@ type ListenerSocketOptions struct {
 	//
 	// Available on Linux, macOS, FreeBSD, and Windows.
 	TCPFastOpen bool
+
+	// TCPFastOpenFallback enables runtime detection of TCP Fast Open support on the listener.
+	//
+	// When enabled, the listener will start without TFO if TFO is not available on the system.
+	// When disabled, the listener will abort if TFO cannot be enabled on the socket.
+	//
+	// Available on all platforms.
+	TCPFastOpenFallback bool
 
 	// MultipathTCP enables multipath TCP on the listener.
 	//
@@ -129,7 +145,9 @@ func (lso ListenerSocketOptions) ListenConfig() ListenConfig {
 		ListenConfig: net.ListenConfig{
 			Control: lso.buildSetFns().controlFunc(),
 		},
+		Backlog:    lso.TCPFastOpenBacklog,
 		DisableTFO: !lso.TCPFastOpen,
+		Fallback:   lso.TCPFastOpenFallback,
 	}
 	lc.SetMultipathTCP(lso.MultipathTCP)
 	return lc
@@ -200,6 +218,14 @@ type DialerSocketOptions struct {
 	// Available on Linux, macOS, FreeBSD, and Windows.
 	TCPFastOpen bool
 
+	// TCPFastOpenFallback enables runtime detection of TCP Fast Open support on the dialer.
+	//
+	// When enabled, the dialer will connect without TFO if TFO is not available on the system.
+	// When disabled, the dialer will abort if TFO cannot be enabled on the socket.
+	//
+	// Available on all platforms.
+	TCPFastOpenFallback bool
+
 	// MultipathTCP enables multipath TCP on the dialer.
 	//
 	// Unlike Go std, we make MPTCP strictly opt-in.
@@ -219,6 +245,7 @@ func (dso DialerSocketOptions) Dialer() Dialer {
 			ControlContext: dso.buildSetFns().controlContextFunc(),
 		},
 		DisableTFO: !dso.TCPFastOpen,
+		Fallback:   dso.TCPFastOpenFallback,
 	}
 	d.SetMultipathTCP(dso.MultipathTCP)
 	return d

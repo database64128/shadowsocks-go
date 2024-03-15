@@ -56,6 +56,14 @@ type ClientConfig struct {
 	EnableTCP bool `json:"enableTCP"`
 	DialerTFO bool `json:"dialerTFO"`
 
+	// TCPFastOpenFallback enables runtime detection of TCP Fast Open support on the dialer.
+	//
+	// When enabled, the dialer will connect without TFO if TFO is not available on the system.
+	// When disabled, the dialer will abort if TFO cannot be enabled on the socket.
+	//
+	// Available on all platforms.
+	TCPFastOpenFallback bool `json:"tcpFastOpenFallback"`
+
 	// MultipathTCP enables multipath TCP on the client.
 	//
 	// Unlike Go std, we make MPTCP strictly opt-in.
@@ -182,10 +190,11 @@ func (cc *ClientConfig) tcpNetwork() string {
 
 func (cc *ClientConfig) dialer() conn.Dialer {
 	return cc.dialerCache.Get(conn.DialerSocketOptions{
-		Fwmark:       cc.DialerFwmark,
-		TrafficClass: cc.DialerTrafficClass,
-		TCPFastOpen:  cc.DialerTFO,
-		MultipathTCP: cc.MultipathTCP,
+		Fwmark:              cc.DialerFwmark,
+		TrafficClass:        cc.DialerTrafficClass,
+		TCPFastOpen:         cc.DialerTFO,
+		TCPFastOpenFallback: cc.TCPFastOpenFallback,
+		MultipathTCP:        cc.MultipathTCP,
 	})
 }
 

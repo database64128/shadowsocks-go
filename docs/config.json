@@ -28,6 +28,8 @@
                     "trafficClass": 0,
                     "reusePort": true,
                     "fastOpen": true,
+                    "fastOpenBacklog": 0,
+                    "fastOpenFallback": false,
                     "disableInitialPayloadWait": false,
                     "initialPayloadWaitTimeout": "250ms",
                     "initialPayloadWaitBufferSize": 1440
@@ -39,6 +41,8 @@
                     "trafficClass": 0,
                     "reusePort": true,
                     "fastOpen": true,
+                    "fastOpenBacklog": 0,
+                    "fastOpenFallback": false,
                     "disableInitialPayloadWait": false,
                     "initialPayloadWaitTimeout": "250ms",
                     "initialPayloadWaitBufferSize": 1440
@@ -50,6 +54,8 @@
                     "trafficClass": 0,
                     "reusePort": false,
                     "fastOpen": true,
+                    "fastOpenBacklog": 0,
+                    "fastOpenFallback": false,
                     "disableInitialPayloadWait": false,
                     "initialPayloadWaitTimeout": "250ms",
                     "initialPayloadWaitBufferSize": 1440
@@ -61,6 +67,8 @@
                     "trafficClass": 0,
                     "reusePort": false,
                     "fastOpen": true,
+                    "fastOpenBacklog": 0,
+                    "fastOpenFallback": false,
                     "disableInitialPayloadWait": false,
                     "initialPayloadWaitTimeout": "250ms",
                     "initialPayloadWaitBufferSize": 1440
@@ -197,6 +205,7 @@
             "dialerTrafficClass": 0,
             "enableTCP": true,
             "dialerTFO": true,
+            "tcpFastOpenFallback": false,
             "allowSegmentedFixedLengthHeader": false,
             "enableUDP": true,
             "mtu": 1500,
@@ -216,6 +225,7 @@
             "dialerTrafficClass": 0,
             "enableTCP": true,
             "dialerTFO": true,
+            "tcpFastOpenFallback": false,
             "allowSegmentedFixedLengthHeader": false,
             "enableUDP": true,
             "mtu": 1500,
@@ -233,6 +243,7 @@
             "dialerTrafficClass": 0,
             "enableTCP": true,
             "dialerTFO": true,
+            "tcpFastOpenFallback": false,
             "enableUDP": true,
             "mtu": 1500
         },
@@ -244,6 +255,7 @@
             "dialerTrafficClass": 0,
             "enableTCP": true,
             "dialerTFO": true,
+            "tcpFastOpenFallback": false,
             "enableUDP": true,
             "mtu": 1500
         },
@@ -255,6 +267,7 @@
             "dialerTrafficClass": 0,
             "enableTCP": true,
             "dialerTFO": true,
+            "tcpFastOpenFallback": false,
             "enableUDP": true,
             "mtu": 1500
         }
