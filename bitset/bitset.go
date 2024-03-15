@@ -85,9 +85,7 @@ func (s *BitSet) SetAll() {
 
 // UnsetAll sets all bits to 0.
 func (s *BitSet) UnsetAll() {
-	for i := range s.blocks {
-		s.blocks[i] = 0
-	}
+	clear(s.blocks)
 }
 
 // FlipAll flips all bits.
