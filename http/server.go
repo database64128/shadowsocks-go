@@ -32,7 +32,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 	// Host -> targetAddr
 	targetAddr, err := hostHeaderToAddr(req.Host)
 	if err != nil {
-		send418(rw)
+		_ = send400(rw)
 		return nil, conn.Addr{}, err
 	}
 
@@ -77,12 +77,14 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 			// Write request.
 			if werr = req.Write(plbw); werr != nil {
 				werr = fmt.Errorf("failed to write HTTP request: %w", werr)
+				_ = send502(rw)
 				break
 			}
 
 			// Flush request.
 			if werr = plbw.Flush(); werr != nil {
 				werr = fmt.Errorf("failed to flush HTTP request: %w", werr)
+				_ = send502(rw)
 				break
 			}
 
@@ -92,6 +94,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 			resp, rerr = http.ReadResponse(plbr, req)
 			if rerr != nil {
 				rerr = fmt.Errorf("failed to read HTTP response: %w", rerr)
+				_ = send502(rw)
 				break
 			}
 
@@ -197,7 +200,12 @@ func hostHeaderToAddr(host string) (conn.Addr, error) {
 	}
 }
 
-func send418(w io.Writer) error {
-	_, err := fmt.Fprint(w, "HTTP/1.1 418 I'm a teapot\r\n\r\n")
+func send400(w io.Writer) error {
+	_, err := w.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
+	return err
+}
+
+func send502(w io.Writer) error {
+	_, err := w.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 	return err
 }
