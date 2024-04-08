@@ -56,6 +56,9 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 		plbw := bufio.NewWriter(pl)
 		rwbw := bufio.NewWriter(rw)
 
+		// The current implementation only supports a fixed destination host.
+		fixedHost := req.Host
+
 		for {
 			// Delete hop-by-hop headers specified in Connection.
 			connectionHeader := req.Header["Connection"]
@@ -122,7 +125,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 				}
 
 				switch url.Host {
-				case req.Host, "":
+				case fixedHost, "":
 				default:
 					resp.Close = true
 				}
@@ -163,6 +166,12 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 				if werr != io.EOF {
 					werr = fmt.Errorf("failed to read HTTP request: %w", werr)
 				}
+				break
+			}
+
+			// Close the proxy connection if the destination host changes.
+			// The client should seamlessly open a new connection.
+			if req.Host != fixedHost {
 				break
 			}
 		}
