@@ -27,7 +27,6 @@ jobs:
 
       - name: Build
         run: |
-          gotip env -w GOAMD64=v3
           gotip build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go
           gotip build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go-domain-set-converter
 
@@ -37,5 +36,5 @@ jobs:
       - name: Upload Binaries
         uses: actions/upload-artifact@v4
         with:
-          name: shadowsocks-go-${{ github.sha }}-${{ matrix.os }}-x86-64-v3
+          name: shadowsocks-go-${{ github.sha }}-${{ matrix.os }}-x86-64
           path: shadowsocks-go*
