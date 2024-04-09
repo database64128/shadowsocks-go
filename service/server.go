@@ -94,6 +94,16 @@ type TCPListenerConfig struct {
 	//
 	// On all platforms, a negative value disables TFO.
 	FastOpenBacklog int `json:"fastOpenBacklog"`
+
+	// DeferAcceptSecs sets TCP_DEFER_ACCEPT to the given number of seconds on the listener.
+	//
+	// Available on Linux.
+	DeferAcceptSecs int `json:"deferAcceptSecs"`
+
+	// UserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the listener.
+	//
+	// Available on Linux.
+	UserTimeoutMsecs int `json:"userTimeoutMsecs"`
 }
 
 // Configure returns a TCP listener configuration.
@@ -125,6 +135,8 @@ func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 			Fwmark:              lnc.Fwmark,
 			TrafficClass:        lnc.TrafficClass,
 			TCPFastOpenBacklog:  lnc.FastOpenBacklog,
+			TCPDeferAcceptSecs:  lnc.DeferAcceptSecs,
+			TCPUserTimeoutMsecs: lnc.UserTimeoutMsecs,
 			ReusePort:           lnc.ReusePort,
 			Transparent:         transparent,
 			TCPFastOpen:         lnc.FastOpen,

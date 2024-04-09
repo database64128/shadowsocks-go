@@ -89,6 +89,16 @@ type ListenerSocketOptions struct {
 	// On all platforms, a negative value disables TFO.
 	TCPFastOpenBacklog int
 
+	// TCPDeferAcceptSecs sets TCP_DEFER_ACCEPT to the given number of seconds on the listener.
+	//
+	// Available on Linux.
+	TCPDeferAcceptSecs int
+
+	// TCPUserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the listener.
+	//
+	// Available on Linux.
+	TCPUserTimeoutMsecs int
+
 	// ReusePort enables SO_REUSEPORT on the listener.
 	//
 	// Available on Linux and the BSDs.

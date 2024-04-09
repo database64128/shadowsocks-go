@@ -37,6 +37,20 @@ func setTrafficClass(fd int, network string, trafficClass int) error {
 	return nil
 }
 
+func setTCPDeferAccept(fd, secs int) error {
+	if err := unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_DEFER_ACCEPT, secs); err != nil {
+		return fmt.Errorf("failed to set socket option TCP_DEFER_ACCEPT: %w", err)
+	}
+	return nil
+}
+
+func setTCPUserTimeout(fd, msecs int) error {
+	if err := unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_USER_TIMEOUT, msecs); err != nil {
+		return fmt.Errorf("failed to set socket option TCP_USER_TIMEOUT: %w", err)
+	}
+	return nil
+}
+
 func setTransparent(fd int, network string) error {
 	switch network {
 	case "tcp4", "udp4":
@@ -107,6 +121,24 @@ func setRecvOrigDstAddr(fd int, network string) error {
 	return nil
 }
 
+func (fns setFuncSlice) appendSetTCPDeferAcceptFunc(deferAcceptSecs int) setFuncSlice {
+	if deferAcceptSecs > 0 {
+		return append(fns, func(fd int, network string) error {
+			return setTCPDeferAccept(fd, deferAcceptSecs)
+		})
+	}
+	return fns
+}
+
+func (fns setFuncSlice) appendSetTCPUserTimeoutFunc(userTimeoutMsecs int) setFuncSlice {
+	if userTimeoutMsecs > 0 {
+		return append(fns, func(fd int, network string) error {
+			return setTCPUserTimeout(fd, userTimeoutMsecs)
+		})
+	}
+	return fns
+}
+
 func (fns setFuncSlice) appendSetTransparentFunc(transparent bool) setFuncSlice {
 	if transparent {
 		return append(fns, setTransparent)
@@ -125,6 +157,8 @@ func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
 		appendSetFwmarkFunc(lso.Fwmark).
 		appendSetTrafficClassFunc(lso.TrafficClass).
+		appendSetTCPDeferAcceptFunc(lso.TCPDeferAcceptSecs).
+		appendSetTCPUserTimeoutFunc(lso.TCPUserTimeoutMsecs).
 		appendSetReusePortFunc(lso.ReusePort).
 		appendSetTransparentFunc(lso.Transparent).
 		appendSetPMTUDFunc(lso.PathMTUDiscovery).

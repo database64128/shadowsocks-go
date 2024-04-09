@@ -30,6 +30,9 @@
                     "fastOpen": true,
                     "fastOpenBacklog": 0,
                     "fastOpenFallback": false,
+                    "multipath": false,
+                    "deferAcceptSecs": 0,
+                    "userTimeoutMsecs": 0,
                     "disableInitialPayloadWait": false,
                     "initialPayloadWaitTimeout": "250ms",
                     "initialPayloadWaitBufferSize": 1440
@@ -43,6 +46,9 @@
                     "fastOpen": true,
                     "fastOpenBacklog": 0,
                     "fastOpenFallback": false,
+                    "multipath": false,
+                    "deferAcceptSecs": 0,
+                    "userTimeoutMsecs": 0,
                     "disableInitialPayloadWait": false,
                     "initialPayloadWaitTimeout": "250ms",
                     "initialPayloadWaitBufferSize": 1440
@@ -56,6 +62,9 @@
                     "fastOpen": true,
                     "fastOpenBacklog": 0,
                     "fastOpenFallback": false,
+                    "multipath": false,
+                    "deferAcceptSecs": 0,
+                    "userTimeoutMsecs": 0,
                     "disableInitialPayloadWait": false,
                     "initialPayloadWaitTimeout": "250ms",
                     "initialPayloadWaitBufferSize": 1440
@@ -69,6 +78,9 @@
                     "fastOpen": true,
                     "fastOpenBacklog": 0,
                     "fastOpenFallback": false,
+                    "multipath": false,
+                    "deferAcceptSecs": 0,
+                    "userTimeoutMsecs": 0,
                     "disableInitialPayloadWait": false,
                     "initialPayloadWaitTimeout": "250ms",
                     "initialPayloadWaitBufferSize": 1440
