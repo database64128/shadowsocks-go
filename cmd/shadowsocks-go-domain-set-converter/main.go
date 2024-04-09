@@ -54,41 +54,41 @@ func main() {
 	}
 
 	if inCount != 1 {
-		fmt.Println("Exactly one of -inDlc, -inText, -inGob must be specified.")
+		fmt.Fprintln(os.Stderr, "Exactly one of -inDlc, -inText, -inGob must be specified.")
 		flag.Usage()
 		os.Exit(1)
 	}
 
 	if *outText == "" && *outGob == "" {
-		fmt.Println("Specify output file paths with -outText and/or -outGob.")
+		fmt.Fprintln(os.Stderr, "Specify output file paths with -outText and/or -outGob.")
 		flag.Usage()
 		os.Exit(1)
 	}
 
 	data, err := mmap.ReadFile[string](inPath)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, "Failed to read input file:", err)
 		os.Exit(1)
 	}
 	defer mmap.Unmap(data)
 
 	dsb, err := inFunc(data)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, "Failed to parse input file:", err)
 		return
 	}
 
 	if *outText != "" {
 		fout, err := os.Create(*outText)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, "Failed to create output file:", err)
 			return
 		}
 		defer fout.Close()
 
 		err = dsb.WriteText(fout)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, "Failed to write output file:", err)
 			return
 		}
 	}
@@ -96,14 +96,14 @@ func main() {
 	if *outGob != "" {
 		fout, err := os.Create(*outGob)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, "Failed to create output file:", err)
 			return
 		}
 		defer fout.Close()
 
 		err = dsb.WriteGob(fout)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, "Failed to write output file:", err)
 			return
 		}
 	}
