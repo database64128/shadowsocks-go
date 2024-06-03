@@ -6,7 +6,7 @@ require (
 	github.com/database64128/tfo-go/v2 v2.2.0
 	github.com/gofiber/contrib/fiberzap/v2 v2.1.3
 	github.com/gofiber/fiber/v2 v2.52.4
-	github.com/oschwald/geoip2-golang v1.9.0
+	github.com/oschwald/geoip2-golang v1.11.0
 	go.uber.org/zap v1.27.0
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba
 	golang.org/x/net v0.25.0
@@ -22,7 +22,7 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
-	github.com/oschwald/maxminddb-golang v1.12.0 // indirect
+	github.com/oschwald/maxminddb-golang v1.13.0 // indirect
 	github.com/rivo/uniseg v0.4.4 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.52.0 // indirect
