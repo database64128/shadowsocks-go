@@ -62,6 +62,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 		plbr := bufio.NewReader(pl)
 		plbw := bufio.NewWriter(pl)
 		rwbw := bufio.NewWriter(rw)
+		rwbwpcw := newPipeClosingWriter(rwbw, pl)
 
 		// The current implementation only supports a fixed destination host.
 		fixedHost := req.Host
@@ -144,7 +145,15 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 			}
 
 			// Write response.
-			if err = resp.Write(rwbw); err != nil {
+			//
+			// The Write method always drains the response body, even when the destination writer returns an error.
+			// This can become a problem when the response body is large or unbounded in size.
+			// A typical scenario is when the client downloads a large file but aborts the connection midway.
+			// The Write call will block until the entire file is downloaded, which is a total waste of resources.
+			// To mitigate this, we wrap the destination writer in a [*pipeClosingWriter] that stops further reads on write error.
+			//
+			// When we migrate to using [*http.Client], [*pipeClosingWriter] needs to be updated to cancel the request context instead.
+			if err = resp.Write(rwbwpcw); err != nil {
 				err = fmt.Errorf("failed to write HTTP response: %w", err)
 				break
 			}
@@ -233,4 +242,27 @@ func send400(w io.Writer) error {
 func send502(w io.Writer) error {
 	_, err := w.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 	return err
+}
+
+// pipeClosingWriter passes writes to the underlying [io.Writer] and closes the [*pipe.DuplexPipeEnd] on error.
+type pipeClosingWriter struct {
+	w io.Writer
+	p *pipe.DuplexPipeEnd
+}
+
+// newPipeClosingWriter returns a new [pipeClosingWriter].
+func newPipeClosingWriter(w io.Writer, p *pipe.DuplexPipeEnd) *pipeClosingWriter {
+	return &pipeClosingWriter{
+		w: w,
+		p: p,
+	}
+}
+
+// Write implements [io.Writer.Write].
+func (w *pipeClosingWriter) Write(b []byte) (int, error) {
+	n, err := w.w.Write(b)
+	if err != nil {
+		w.p.CloseWithError(err)
+	}
+	return n, err
 }
