@@ -52,12 +52,13 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	if len(sc.Clients) == 0 {
 		sc.Clients = []ClientConfig{
 			{
-				Name:      "direct",
-				Protocol:  "direct",
-				EnableTCP: true,
-				DialerTFO: true,
-				EnableUDP: true,
-				MTU:       1500,
+				Name:                "direct",
+				Protocol:            "direct",
+				EnableTCP:           true,
+				DialerTFO:           true,
+				TCPFastOpenFallback: true,
+				EnableUDP:           true,
+				MTU:                 1500,
 			},
 		}
 	}
