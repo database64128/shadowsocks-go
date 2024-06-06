@@ -25,6 +25,17 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 		return nil, conn.Addr{}, err
 	}
 
+	if ce := logger.Check(zap.DebugLevel, "Received initial HTTP request"); ce != nil {
+		ce.Write(
+			zap.String("proto", req.Proto),
+			zap.String("method", req.Method),
+			zap.String("url", req.RequestURI),
+			zap.String("host", req.Host),
+			zap.Int64("contentLength", req.ContentLength),
+			zap.Bool("close", req.Close),
+		)
+	}
+
 	// Host -> targetAddr
 	targetAddr, err := hostHeaderToAddr(req.Host)
 	if err != nil {
@@ -65,14 +76,6 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 
 			delete(req.Header, "Proxy-Connection")
 
-			if ce := logger.Check(zap.DebugLevel, "Writing HTTP request"); ce != nil {
-				ce.Write(
-					zap.String("proto", req.Proto),
-					zap.String("method", req.Method),
-					zap.String("url", req.RequestURI),
-				)
-			}
-
 			// Write request.
 			if werr = req.Write(plbw); werr != nil {
 				werr = fmt.Errorf("failed to write HTTP request: %w", werr)
@@ -97,6 +100,17 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 				break
 			}
 
+			if ce := logger.Check(zap.DebugLevel, "Received HTTP response"); ce != nil {
+				ce.Write(
+					zap.String("url", req.RequestURI),
+					zap.String("host", req.Host),
+					zap.String("proto", resp.Proto),
+					zap.String("status", resp.Status),
+					zap.Int64("contentLength", resp.ContentLength),
+					zap.Bool("close", resp.Close),
+				)
+			}
+
 			// Add Connection: close if response is 301, 302, or 307,
 			// and Location points to a different host.
 			switch resp.StatusCode {
@@ -105,6 +119,8 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 
 				if ce := logger.Check(zap.DebugLevel, "Checking HTTP 3xx response Location header"); ce != nil {
 					ce.Write(
+						zap.String("url", req.RequestURI),
+						zap.String("host", req.Host),
 						zap.String("proto", resp.Proto),
 						zap.String("status", resp.Status),
 						zap.Strings("location", location),
@@ -125,13 +141,6 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 				default:
 					resp.Close = true
 				}
-			}
-
-			if ce := logger.Check(zap.DebugLevel, "Writing HTTP response"); ce != nil {
-				ce.Write(
-					zap.String("proto", resp.Proto),
-					zap.String("status", resp.Status),
-				)
 			}
 
 			// Write response.
@@ -163,6 +172,18 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 					werr = fmt.Errorf("failed to read HTTP request: %w", werr)
 				}
 				break
+			}
+
+			if ce := logger.Check(zap.DebugLevel, "Received subsequent HTTP request"); ce != nil {
+				ce.Write(
+					zap.String("proto", req.Proto),
+					zap.String("method", req.Method),
+					zap.String("url", req.RequestURI),
+					zap.String("host", req.Host),
+					zap.String("fixedHost", fixedHost),
+					zap.Int64("contentLength", req.ContentLength),
+					zap.Bool("close", req.Close),
+				)
 			}
 
 			// Close the proxy connection if the destination host changes.
