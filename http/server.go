@@ -57,7 +57,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 	// Spin up a goroutine to write processed requests to pl
 	// and read responses from pl.
 	go func() {
-		var rerr, werr error
+		var err error
 
 		plbr := bufio.NewReader(pl)
 		plbw := bufio.NewWriter(pl)
@@ -77,15 +77,15 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 			delete(req.Header, "Proxy-Connection")
 
 			// Write request.
-			if werr = req.Write(plbw); werr != nil {
-				werr = fmt.Errorf("failed to write HTTP request: %w", werr)
+			if err = req.Write(plbw); err != nil {
+				err = fmt.Errorf("failed to write HTTP request: %w", err)
 				_ = send502(rw)
 				break
 			}
 
 			// Flush request.
-			if werr = plbw.Flush(); werr != nil {
-				werr = fmt.Errorf("failed to flush HTTP request: %w", werr)
+			if err = plbw.Flush(); err != nil {
+				err = fmt.Errorf("failed to flush HTTP request: %w", err)
 				_ = send502(rw)
 				break
 			}
@@ -93,9 +93,9 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 			var resp *http.Response
 
 			// Read response.
-			resp, rerr = http.ReadResponse(plbr, req)
-			if rerr != nil {
-				rerr = fmt.Errorf("failed to read HTTP response: %w", rerr)
+			resp, err = http.ReadResponse(plbr, req)
+			if err != nil {
+				err = fmt.Errorf("failed to read HTTP response: %w", err)
 				_ = send502(rw)
 				break
 			}
@@ -144,14 +144,14 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 			}
 
 			// Write response.
-			if rerr = resp.Write(rwbw); rerr != nil {
-				rerr = fmt.Errorf("failed to write HTTP response: %w", rerr)
+			if err = resp.Write(rwbw); err != nil {
+				err = fmt.Errorf("failed to write HTTP response: %w", err)
 				break
 			}
 
 			// Flush response.
-			if rerr = rwbw.Flush(); rerr != nil {
-				rerr = fmt.Errorf("failed to flush HTTP response: %w", rerr)
+			if err = rwbw.Flush(); err != nil {
+				err = fmt.Errorf("failed to flush HTTP response: %w", err)
 				break
 			}
 
@@ -166,10 +166,10 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 			}
 
 			// Read request.
-			req, werr = http.ReadRequest(rwbr)
-			if werr != nil {
-				if werr != io.EOF {
-					werr = fmt.Errorf("failed to read HTTP request: %w", werr)
+			req, err = http.ReadRequest(rwbr)
+			if err != nil {
+				if err != io.EOF {
+					err = fmt.Errorf("failed to read HTTP request: %w", err)
 				}
 				break
 			}
@@ -193,8 +193,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 			}
 		}
 
-		pl.CloseReadWithError(rerr)
-		pl.CloseWriteWithError(werr)
+		pl.CloseWithError(err)
 		rw.Close()
 	}()
 
