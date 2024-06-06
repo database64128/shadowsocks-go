@@ -22,37 +22,45 @@ func NewDuplexPipe() (*DuplexPipeEnd, *DuplexPipeEnd) {
 		}
 }
 
+// Read implements [io.Reader.Read].
 func (p *DuplexPipeEnd) Read(b []byte) (int, error) {
 	return p.r.Read(b)
 }
 
+// Write implements [io.Writer.Write].
 func (p *DuplexPipeEnd) Write(b []byte) (int, error) {
 	return p.w.Write(b)
 }
 
+// CloseRead closes the read pipe.
 func (p *DuplexPipeEnd) CloseRead() error {
 	return p.r.Close()
 }
 
+// CloseWrite closes the write pipe.
 func (p *DuplexPipeEnd) CloseWrite() error {
 	return p.w.Close()
 }
 
+// Close closes both read and write pipes.
 func (p *DuplexPipeEnd) Close() error {
-	p.r.Close()
-	p.w.Close()
+	_ = p.r.Close() // always returns nil
+	_ = p.w.Close() // always returns nil
 	return nil
 }
 
+// CloseReadWithError closes the read pipe with an error.
 func (p *DuplexPipeEnd) CloseReadWithError(err error) {
-	p.r.CloseWithError(err)
+	_ = p.r.CloseWithError(err) // always returns nil
 }
 
+// CloseWriteWithError closes the write pipe with an error.
 func (p *DuplexPipeEnd) CloseWriteWithError(err error) {
-	p.w.CloseWithError(err)
+	_ = p.w.CloseWithError(err) // always returns nil
 }
 
+// CloseWithError closes both read and write pipes with an error.
 func (p *DuplexPipeEnd) CloseWithError(err error) {
-	p.r.CloseWithError(err)
-	p.w.CloseWithError(err)
+	_ = p.r.CloseWithError(err) // always returns nil
+	_ = p.w.CloseWithError(err) // always returns nil
 }
