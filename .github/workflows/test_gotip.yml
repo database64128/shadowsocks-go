@@ -27,11 +27,14 @@ jobs:
 
       - name: Build
         run: |
-          gotip build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go
-          gotip build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go-domain-set-converter
+          gotip build -v -trimpath -ldflags '-s -w -checklinkname=0' -tags tfogo_checklinkname0 ./cmd/shadowsocks-go
+          gotip build -v -trimpath -ldflags '-s -w -checklinkname=0' -tags tfogo_checklinkname0 ./cmd/shadowsocks-go-domain-set-converter
 
       - name: Test
         run: gotip test -v ./...
+
+      - name: Test with tag tfogo_checklinkname0
+        run: gotip test -v -ldflags '-checklinkname=0' -tags tfogo_checklinkname0 ./...
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v4
