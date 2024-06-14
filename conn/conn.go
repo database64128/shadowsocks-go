@@ -264,7 +264,8 @@ func (dso DialerSocketOptions) Dialer() Dialer {
 var (
 	// DefaultTCPDialerSocketOptions is the default [DialerSocketOptions] for TCP clients.
 	DefaultTCPDialerSocketOptions = DialerSocketOptions{
-		TCPFastOpen: true,
+		TCPFastOpen:         true,
+		TCPFastOpenFallback: true,
 	}
 
 	// DefaultTCPDialer is the default [Dialer] for TCP clients.
