@@ -5,7 +5,7 @@ go 1.22.2
 require (
 	github.com/database64128/tfo-go/v2 v2.2.1
 	github.com/gofiber/contrib/fiberzap/v2 v2.1.3
-	github.com/gofiber/fiber/v2 v2.52.4
+	github.com/gofiber/fiber/v2 v2.52.5
 	github.com/oschwald/geoip2-golang v1.11.0
 	go.uber.org/zap v1.27.0
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba
