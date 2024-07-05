@@ -65,12 +65,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	data, err := mmap.ReadFile[string](inPath)
+	data, close, err := mmap.ReadFile[string](inPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Failed to read input file:", err)
 		os.Exit(1)
 	}
-	defer mmap.Unmap(data)
+	defer close()
 
 	dsb, err := inFunc(data)
 	if err != nil {

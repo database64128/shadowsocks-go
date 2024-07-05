@@ -17,11 +17,11 @@ type Config struct {
 
 // IPSet creates a prefix set from the configuration.
 func (psc Config) IPSet() (*netipx.IPSet, error) {
-	data, err := mmap.ReadFile[string](psc.Path)
+	data, close, err := mmap.ReadFile[string](psc.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load prefix set %s: %w", psc.Name, err)
 	}
-	defer mmap.Unmap(data)
+	defer close()
 
 	return IPSetFromText(data)
 }

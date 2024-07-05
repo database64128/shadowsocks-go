@@ -19,17 +19,17 @@ func TestReadFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Logf("Created temporary test file: %s", name)
+	t.Logf("Created temporary test file: %q", name)
 
-	data, err := ReadFile[string](name)
+	data, close, err := ReadFile[string](name)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if data != name {
-		t.Errorf("Expected file content %s, got %s", name, data)
+		t.Errorf("Expected file content %q, got %q", name, data)
 	}
 
-	if err = Unmap(data); err != nil {
+	if err = close(); err != nil {
 		t.Fatal(err)
 	}
 }

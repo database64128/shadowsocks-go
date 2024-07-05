@@ -41,11 +41,11 @@ type Config struct {
 
 // DomainSet creates a DomainSet from the configuration.
 func (dsc Config) DomainSet() (DomainSet, error) {
-	data, err := mmap.ReadFile[string](dsc.Path)
+	data, close, err := mmap.ReadFile[string](dsc.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load domain set %s: %w", dsc.Name, err)
 	}
-	defer mmap.Unmap(data)
+	defer close()
 
 	var dsb Builder
 

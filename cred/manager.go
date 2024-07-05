@@ -254,11 +254,11 @@ func (s *ManagedServer) DeleteCredential(username string) error {
 // LoadFromFile loads credentials from the configured credential file
 // and applies the changes to the associated credential stores.
 func (s *ManagedServer) LoadFromFile() error {
-	content, err := mmap.ReadFile[string](s.path)
+	content, close, err := mmap.ReadFile[string](s.path)
 	if err != nil {
 		return err
 	}
-	defer mmap.Unmap(content)
+	defer close()
 
 	s.mu.Lock()
 	// Skip if the file content is unchanged.
