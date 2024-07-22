@@ -1,4 +1,5 @@
-package v1
+// Package ssm implements the Shadowsocks Server Management API v1.
+package ssm
 
 import (
 	"errors"
@@ -7,6 +8,11 @@ import (
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/gofiber/fiber/v2"
 )
+
+// StandardError is the standard error response.
+type StandardError struct {
+	Message string `json:"error"`
+}
 
 // ServerInfo contains information about the API server.
 type ServerInfo struct {
@@ -51,8 +57,8 @@ func (sm *ServerManager) AddServer(name string, cms *cred.ManagedServer, sc stat
 	sm.managedServerNames = append(sm.managedServerNames, name)
 }
 
-// Routes sets up routes for the /v1/servers endpoint.
-func (sm *ServerManager) Routes(v1 fiber.Router) {
+// RegisterRoutes sets up routes for the /servers endpoint.
+func (sm *ServerManager) RegisterRoutes(v1 fiber.Router) {
 	v1.Get("/servers", sm.ListServers)
 
 	server := v1.Group("/servers/:server", sm.ContextManagedServer)

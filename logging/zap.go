@@ -43,7 +43,7 @@ func NewZapLogger(preset string, level zapcore.Level) (*zap.Logger, error) {
 	case "development":
 		cfg = zap.NewDevelopmentConfig()
 	default:
-		if err := jsonhelper.LoadAndDecodeDisallowUnknownFields(preset, &cfg); err != nil {
+		if err := jsonhelper.OpenAndDecodeDisallowUnknownFields(preset, &cfg); err != nil {
 			return nil, fmt.Errorf("failed to load zap logger config from file %q: %w", preset, err)
 		}
 	}

@@ -40,7 +40,7 @@ func main() {
 	defer logger.Sync()
 
 	var sc service.Config
-	if err = jsonhelper.LoadAndDecodeDisallowUnknownFields(confPath, &sc); err != nil {
+	if err = jsonhelper.OpenAndDecodeDisallowUnknownFields(confPath, &sc); err != nil {
 		logger.Fatal("Failed to load config",
 			zap.String("confPath", confPath),
 			zap.Error(err),

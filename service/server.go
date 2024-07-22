@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"time"
 
-	v1 "github.com/database64128/shadowsocks-go/api/v1"
+	"github.com/database64128/shadowsocks-go/api/ssm"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/direct"
@@ -535,7 +535,7 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Rel
 }
 
 // PostInit performs post-initialization tasks.
-func (sc *ServerConfig) PostInit(credman *cred.Manager, apiSM *v1.ServerManager) error {
+func (sc *ServerConfig) PostInit(credman *cred.Manager, apiSM *ssm.ServerManager) error {
 	var cms *cred.ManagedServer
 
 	switch sc.Protocol {
