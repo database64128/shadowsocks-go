@@ -24,7 +24,7 @@ type Config struct {
 }
 
 // Router creates a router from the RouterConfig.
-func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int) (*Router, error) {
+func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int) (r *Router, err error) {
 	defaultRoute := Route{name: "default"}
 
 	switch rc.DefaultTCPClientName {
@@ -38,7 +38,7 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, res
 	default:
 		defaultRoute.tcpClient = tcpClientMap[rc.DefaultTCPClientName]
 		if defaultRoute.tcpClient == nil {
-			return nil, fmt.Errorf("default TCP client not found: %s", rc.DefaultTCPClientName)
+			return nil, fmt.Errorf("default TCP client not found: %q", rc.DefaultTCPClientName)
 		}
 	}
 
@@ -53,20 +53,22 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, res
 	default:
 		defaultRoute.udpClient = udpClientMap[rc.DefaultUDPClientName]
 		if defaultRoute.udpClient == nil {
-			return nil, fmt.Errorf("default UDP client not found: %s", rc.DefaultUDPClientName)
+			return nil, fmt.Errorf("default UDP client not found: %q", rc.DefaultUDPClientName)
 		}
 	}
 
-	var (
-		geoip *geoip2.Reader
-		err   error
-	)
+	var geoip *geoip2.Reader
 
 	if rc.GeoLite2CountryDbPath != "" {
 		geoip, err = geoip2.Open(rc.GeoLite2CountryDbPath)
 		if err != nil {
 			return nil, err
 		}
+		defer func() {
+			if err != nil {
+				_ = geoip.Close()
+			}
+		}()
 	}
 
 	domainSetMap := make(map[string]domainset.DomainSet, len(rc.DomainSets))

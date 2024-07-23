@@ -114,7 +114,7 @@ func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 		return tcpRelayListener{}, fmt.Errorf("invalid network: %s", lnc.Network)
 	}
 
-	initialPayloadWaitTimeout := time.Duration(lnc.InitialPayloadWaitTimeout)
+	initialPayloadWaitTimeout := lnc.InitialPayloadWaitTimeout.Value()
 
 	switch {
 	case initialPayloadWaitTimeout == 0:
@@ -177,7 +177,7 @@ func (lnc *UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 		return udpRelayServerConn{}, err
 	}
 
-	natTimeout := time.Duration(lnc.NATTimeout)
+	natTimeout := lnc.NATTimeout.Value()
 
 	switch {
 	case natTimeout == 0:
