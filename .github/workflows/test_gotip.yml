@@ -18,7 +18,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: stable
 
       - name: Install gotip
         run: |
@@ -26,6 +26,13 @@ jobs:
           gotip download
 
       - name: Build
+        if: matrix.os != 'windows-latest'
+        run: |
+          gotip build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go
+          gotip build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go-domain-set-converter
+
+      - name: Build with tag tfogo_checklinkname0
+        if: matrix.os == 'windows-latest'
         run: |
           gotip build -v -trimpath -ldflags '-s -w -checklinkname=0' -tags tfogo_checklinkname0 ./cmd/shadowsocks-go
           gotip build -v -trimpath -ldflags '-s -w -checklinkname=0' -tags tfogo_checklinkname0 ./cmd/shadowsocks-go-domain-set-converter
@@ -34,6 +41,7 @@ jobs:
         run: gotip test -v ./...
 
       - name: Test with tag tfogo_checklinkname0
+        if: matrix.os == 'windows-latest'
         run: gotip test -v -ldflags '-checklinkname=0' -tags tfogo_checklinkname0 ./...
 
       - name: Upload Binaries
