@@ -1,6 +1,12 @@
 package domainset
 
-import "github.com/database64128/shadowsocks-go/maphelper"
+import (
+	"iter"
+	"maps"
+	"slices"
+
+	"github.com/database64128/shadowsocks-go/maphelper"
+)
 
 // MaxLinearSuffixes is the maximum number of suffix rules under which a linear matcher can outperform a trie matcher.
 const MaxLinearSuffixes = 4
@@ -32,8 +38,8 @@ func (slmp *SuffixLinearMatcher) Insert(rule string) {
 }
 
 // Rules implements the MatcherBuilder Rules method.
-func (slm SuffixLinearMatcher) Rules() []string {
-	return slm
+func (slm SuffixLinearMatcher) Rules() (int, iter.Seq[string]) {
+	return len(slm), slices.Values(slm)
 }
 
 // MatcherCount implements the MatcherBuilder MatcherCount method.
@@ -81,6 +87,15 @@ func SuffixMapMatcherFromSlice(suffixes []string) SuffixMapMatcher {
 	return smm
 }
 
+// SuffixMapMatcherFromSeq creates a [SuffixMapMatcher] from a sequence of suffix rules.
+func SuffixMapMatcherFromSeq(suffixCount int, suffixSeq iter.Seq[string]) SuffixMapMatcher {
+	smm := make(SuffixMapMatcher, suffixCount)
+	for suffix := range suffixSeq {
+		smm.Insert(suffix)
+	}
+	return smm
+}
+
 // Match implements the Matcher Match method.
 func (smm SuffixMapMatcher) Match(domain string) bool {
 	for i := len(domain) - 1; i >= 0; i-- {
@@ -101,8 +116,8 @@ func (smm SuffixMapMatcher) Insert(rule string) {
 }
 
 // Rules implements the MatcherBuilder Rules method.
-func (smm SuffixMapMatcher) Rules() []string {
-	return maphelper.Keys(smm)
+func (smm SuffixMapMatcher) Rules() (int, iter.Seq[string]) {
+	return len(smm), maps.Keys(smm)
 }
 
 // MatcherCount implements the MatcherBuilder MatcherCount method.

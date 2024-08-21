@@ -1,5 +1,7 @@
 package domainset
 
+import "iter"
+
 // Matcher provides the Match method.
 type Matcher interface {
 	// Match returns whether the domain is matched by the matcher.
@@ -15,8 +17,8 @@ type MatcherBuilder interface {
 	// the rule string should be "google.com".
 	Insert(rule string)
 
-	// Rules returns the inserted rules as a slice.
-	Rules() []string
+	// Rules returns the number of rules and an iterator over them.
+	Rules() (int, iter.Seq[string])
 
 	// MatcherCount returns the number of matchers that would be appended
 	// to the matcher slice by calling [AppendTo].

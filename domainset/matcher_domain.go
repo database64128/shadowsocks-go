@@ -1,6 +1,8 @@
 package domainset
 
 import (
+	"iter"
+	"maps"
 	"slices"
 
 	"github.com/database64128/shadowsocks-go/maphelper"
@@ -31,8 +33,8 @@ func (dlmp *DomainLinearMatcher) Insert(rule string) {
 }
 
 // Rules implements the MatcherBuilder Rules method.
-func (dlm DomainLinearMatcher) Rules() []string {
-	return dlm
+func (dlm DomainLinearMatcher) Rules() (int, iter.Seq[string]) {
+	return len(dlm), slices.Values(dlm)
 }
 
 // MatcherCount implements the MatcherBuilder MatcherCount method.
@@ -89,8 +91,8 @@ func (dbsmp *DomainBinarySearchMatcher) Insert(rule string) {
 }
 
 // Rules implements the MatcherBuilder Rules method.
-func (dbsm DomainBinarySearchMatcher) Rules() []string {
-	return dbsm
+func (dbsm DomainBinarySearchMatcher) Rules() (int, iter.Seq[string]) {
+	return len(dbsm), slices.Values(dbsm)
 }
 
 // MatcherCount implements the MatcherBuilder MatcherCount method.
@@ -132,6 +134,15 @@ func DomainMapMatcherFromSlice(domains []string) DomainMapMatcher {
 	return dmm
 }
 
+// DomainMapMatcherFromSeq creates a [DomainMapMatcher] from a sequence of domain rules.
+func DomainMapMatcherFromSeq(domainCount int, domainSeq iter.Seq[string]) DomainMapMatcher {
+	dmm := make(DomainMapMatcher, domainCount)
+	for domain := range domainSeq {
+		dmm.Insert(domain)
+	}
+	return dmm
+}
+
 // Match implements the Matcher Match method.
 func (dmm DomainMapMatcher) Match(domain string) bool {
 	_, ok := dmm[domain]
@@ -144,8 +155,8 @@ func (dmm DomainMapMatcher) Insert(rule string) {
 }
 
 // Rules implements the MatcherBuilder Rules method.
-func (dmm DomainMapMatcher) Rules() []string {
-	return maphelper.Keys(dmm)
+func (dmm DomainMapMatcher) Rules() (int, iter.Seq[string]) {
+	return len(dmm), maps.Keys(dmm)
 }
 
 // MatcherCount implements the MatcherBuilder MatcherCount method.

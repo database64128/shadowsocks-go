@@ -1,7 +1,9 @@
 package domainset
 
 import (
+	"iter"
 	"regexp"
+	"slices"
 
 	"github.com/database64128/shadowsocks-go/slicehelper"
 )
@@ -23,14 +25,20 @@ func NewRegexpMatcherBuilder(capacity int) MatcherBuilder {
 	return &rmb
 }
 
+// RegexpMatcherBuilderFromSeq creates a [RegexpMatcherBuilder] from a sequence of regular expressions.
+func RegexpMatcherBuilderFromSeq(regexCount int, regexSeq iter.Seq[string]) RegexpMatcherBuilder {
+	rmb := make(RegexpMatcherBuilder, 0, regexCount)
+	return slices.AppendSeq(rmb, regexSeq)
+}
+
 // Insert implements the MatcherBuilder Insert method.
 func (rmbp *RegexpMatcherBuilder) Insert(rule string) {
 	*rmbp = append(*rmbp, rule)
 }
 
 // Rules implements the MatcherBuilder Rules method.
-func (rmb RegexpMatcherBuilder) Rules() []string {
-	return rmb
+func (rmb RegexpMatcherBuilder) Rules() (int, iter.Seq[string]) {
+	return len(rmb), slices.Values(rmb)
 }
 
 // MatcherCount implements the MatcherBuilder MatcherCount method.

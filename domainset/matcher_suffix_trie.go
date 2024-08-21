@@ -1,5 +1,10 @@
 package domainset
 
+import (
+	"iter"
+	"slices"
+)
+
 // DomainSuffixTrie is a trie of domain parts segmented by '.'.
 type DomainSuffixTrie struct {
 	Included bool
@@ -110,8 +115,10 @@ func (dst *DomainSuffixTrie) keys(suffix string, keys []string) []string {
 }
 
 // Rules implements the MatcherBuilder Rules method.
-func (dst *DomainSuffixTrie) Rules() []string {
-	return dst.Keys()
+func (dst *DomainSuffixTrie) Rules() (int, iter.Seq[string]) {
+	// TODO: Implement an iterator for the trie.
+	keys := dst.Keys()
+	return len(keys), slices.Values(keys)
 }
 
 // MatcherCount implements the MatcherBuilder MatcherCount method.
@@ -138,6 +145,15 @@ func DomainSuffixTrieFromSlice(suffixes []string) *DomainSuffixTrie {
 	var dst DomainSuffixTrie
 	for _, s := range suffixes {
 		dst.Insert(s)
+	}
+	return &dst
+}
+
+// DomainSuffixTrieFromSeq creates a [*DomainSuffixTrie] from a sequence of suffix rules.
+func DomainSuffixTrieFromSeq(_ int, suffixSeq iter.Seq[string]) *DomainSuffixTrie {
+	var dst DomainSuffixTrie
+	for suffix := range suffixSeq {
+		dst.Insert(suffix)
 	}
 	return &dst
 }

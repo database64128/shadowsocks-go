@@ -70,6 +70,26 @@ func (dsc Config) DomainSet() (DomainSet, error) {
 // provides methods for writing in different formats.
 type Builder [4]MatcherBuilder
 
+// DomainMatcherBuilder returns the domain matcher builder.
+func (dsb Builder) DomainMatcherBuilder() MatcherBuilder {
+	return dsb[0]
+}
+
+// SuffixMatcherBuilder returns the suffix matcher builder.
+func (dsb Builder) SuffixMatcherBuilder() MatcherBuilder {
+	return dsb[1]
+}
+
+// KeywordMatcherBuilder returns the keyword matcher builder.
+func (dsb Builder) KeywordMatcherBuilder() MatcherBuilder {
+	return dsb[2]
+}
+
+// RegexpMatcherBuilder returns the regexp matcher builder.
+func (dsb Builder) RegexpMatcherBuilder() MatcherBuilder {
+	return dsb[3]
+}
+
 func (dsb Builder) DomainSet() (DomainSet, error) {
 	var capacity int
 	for _, mb := range dsb {
@@ -92,35 +112,35 @@ func (dsb Builder) WriteGob(w io.Writer) error {
 
 func (dsb Builder) WriteText(w io.Writer) error {
 	bw := bufio.NewWriter(w)
-	domains := dsb[0].Rules()
-	suffixes := dsb[1].Rules()
-	keywords := dsb[2].Rules()
-	regexps := dsb[3].Rules()
-	capacityHint := fmt.Sprintf("%s%d %d %d %d %s\n", capacityHintPrefix, len(domains), len(suffixes), len(keywords), len(regexps), capacityHintSuffix)
+	domainCount, domainSeq := dsb.DomainMatcherBuilder().Rules()
+	suffixCount, suffixSeq := dsb.SuffixMatcherBuilder().Rules()
+	keywordCount, keywordSeq := dsb.KeywordMatcherBuilder().Rules()
+	regexpCount, regexpSeq := dsb.RegexpMatcherBuilder().Rules()
+	capacityHint := fmt.Sprintf("%s%d %d %d %d %s\n", capacityHintPrefix, domainCount, suffixCount, keywordCount, regexpCount, capacityHintSuffix)
 
 	bw.WriteString(capacityHint)
 
-	for _, d := range domains {
+	for domain := range domainSeq {
 		bw.WriteString(domainPrefix)
-		bw.WriteString(d)
+		bw.WriteString(domain)
 		bw.WriteByte('\n')
 	}
 
-	for _, s := range suffixes {
+	for suffix := range suffixSeq {
 		bw.WriteString(suffixPrefix)
-		bw.WriteString(s)
+		bw.WriteString(suffix)
 		bw.WriteByte('\n')
 	}
 
-	for _, k := range keywords {
+	for keyword := range keywordSeq {
 		bw.WriteString(keywordPrefix)
-		bw.WriteString(k)
+		bw.WriteString(keyword)
 		bw.WriteByte('\n')
 	}
 
-	for _, r := range regexps {
+	for regexp := range regexpSeq {
 		bw.WriteString(regexpPrefix)
-		bw.WriteString(r)
+		bw.WriteString(regexp)
 		bw.WriteByte('\n')
 	}
 
@@ -184,15 +204,15 @@ func BuilderFromTextFunc(
 
 		switch line[:7] {
 		case suffixPrefix:
-			dsb[1].Insert(strings.Clone(line[7:]))
+			dsb.SuffixMatcherBuilder().Insert(strings.Clone(line[7:]))
 		case domainPrefix:
-			dsb[0].Insert(strings.Clone(line[7:]))
+			dsb.DomainMatcherBuilder().Insert(strings.Clone(line[7:]))
 		case regexpPrefix:
-			dsb[3].Insert(strings.Clone(line[7:]))
+			dsb.RegexpMatcherBuilder().Insert(strings.Clone(line[7:]))
 		default:
 			switch {
 			case len(line) > keywordPrefixLen && string(line[:keywordPrefixLen]) == keywordPrefix:
-				dsb[2].Insert(strings.Clone(line[keywordPrefixLen:]))
+				dsb.KeywordMatcherBuilder().Insert(strings.Clone(line[keywordPrefixLen:]))
 			case line[0] != '#':
 				return dsb, fmt.Errorf("invalid line: %s", line)
 			}
@@ -257,32 +277,32 @@ func (bg BuilderGob) WriteGob(w io.Writer) error {
 }
 
 func BuilderGobFromBuilder(dsb Builder) (bg BuilderGob) {
-	switch d := dsb[0].(type) {
+	switch d := dsb.DomainMatcherBuilder().(type) {
 	case *DomainMapMatcher:
 		bg.Domains = *d
 	default:
-		bg.Domains = DomainMapMatcherFromSlice(d.Rules())
+		bg.Domains = DomainMapMatcherFromSeq(d.Rules())
 	}
 
-	switch s := dsb[1].(type) {
+	switch s := dsb.SuffixMatcherBuilder().(type) {
 	case *DomainSuffixTrie:
 		bg.Suffixes = s
 	default:
-		bg.Suffixes = DomainSuffixTrieFromSlice(s.Rules())
+		bg.Suffixes = DomainSuffixTrieFromSeq(s.Rules())
 	}
 
-	switch k := dsb[2].(type) {
+	switch k := dsb.KeywordMatcherBuilder().(type) {
 	case *KeywordLinearMatcher:
 		bg.Keywords = *k
 	default:
-		bg.Keywords = KeywordLinearMatcher(k.Rules())
+		bg.Keywords = KeywordLinearMatcherFromSeq(k.Rules())
 	}
 
-	switch r := dsb[3].(type) {
+	switch r := dsb.RegexpMatcherBuilder().(type) {
 	case *RegexpMatcherBuilder:
 		bg.Regexps = *r
 	default:
-		bg.Regexps = RegexpMatcherBuilder(r.Rules())
+		bg.Regexps = RegexpMatcherBuilderFromSeq(r.Rules())
 	}
 
 	return bg

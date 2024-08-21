@@ -1,6 +1,10 @@
 package domainset
 
-import "strings"
+import (
+	"iter"
+	"slices"
+	"strings"
+)
 
 // KeywordLinearMatcher matches keyword rules by iterating over the keywords.
 type KeywordLinearMatcher []string
@@ -9,6 +13,12 @@ type KeywordLinearMatcher []string
 func NewKeywordLinearMatcher(capacity int) MatcherBuilder {
 	klm := make(KeywordLinearMatcher, 0, capacity)
 	return &klm
+}
+
+// KeywordLinearMatcherFromSeq creates a [KeywordLinearMatcher] from a sequence of keyword rules.
+func KeywordLinearMatcherFromSeq(keywordCount int, keywordSeq iter.Seq[string]) KeywordLinearMatcher {
+	klm := make(KeywordLinearMatcher, 0, keywordCount)
+	return slices.AppendSeq(klm, keywordSeq)
 }
 
 // Match implements the Matcher Match method.
@@ -27,8 +37,8 @@ func (klmp *KeywordLinearMatcher) Insert(rule string) {
 }
 
 // Rules implements the MatcherBuilder Rules method.
-func (klm KeywordLinearMatcher) Rules() []string {
-	return klm
+func (klm KeywordLinearMatcher) Rules() (int, iter.Seq[string]) {
+	return len(klm), slices.Values(klm)
 }
 
 // MatcherCount implements the MatcherBuilder MatcherCount method.

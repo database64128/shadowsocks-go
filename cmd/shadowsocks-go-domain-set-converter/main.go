@@ -161,13 +161,13 @@ func DomainSetBuilderFromDlc(text string) (domainset.Builder, error) {
 
 		switch {
 		case strings.HasPrefix(line, domainPrefix):
-			dsb[0].Insert(line[domainPrefixLen:end])
+			dsb.DomainMatcherBuilder().Insert(line[domainPrefixLen:end])
 		case strings.HasPrefix(line, suffixPrefix):
-			dsb[1].Insert(line[suffixPrefixLen:end])
+			dsb.SuffixMatcherBuilder().Insert(line[suffixPrefixLen:end])
 		case strings.HasPrefix(line, keywordPrefix):
-			dsb[2].Insert(line[keywordPrefixLen:end])
+			dsb.KeywordMatcherBuilder().Insert(line[keywordPrefixLen:end])
 		case strings.HasPrefix(line, regexpPrefix):
-			dsb[3].Insert(line[regexpPrefixLen:end])
+			dsb.RegexpMatcherBuilder().Insert(line[regexpPrefixLen:end])
 		default:
 			return dsb, fmt.Errorf("invalid line: %s", line)
 		}
