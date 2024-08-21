@@ -7,7 +7,9 @@ import (
 
 // DomainSuffixTrie is a trie of domain parts segmented by '.'.
 type DomainSuffixTrie struct {
-	Included bool
+	// Children maps the next domain part to its child node.
+	//
+	// If Children is nil, the node is a leaf node.
 	Children map[string]*DomainSuffixTrie
 }
 
@@ -24,7 +26,7 @@ func (dst *DomainSuffixTrie) Insert(domain string) {
 		}
 
 		part := domain[i+1:]
-		domain = domain[:i]
+
 		if cdst.Children == nil {
 			var ndst DomainSuffixTrie
 			cdst.Children = map[string]*DomainSuffixTrie{
@@ -38,28 +40,29 @@ func (dst *DomainSuffixTrie) Insert(domain string) {
 				ndst = &DomainSuffixTrie{}
 				cdst.Children[part] = ndst
 				cdst = ndst
-			case ndst.Included:
+			case ndst.Children == nil:
+				// Reached a leaf node halfway through, which means a shorter suffix
+				// is already present. No need to insert further.
 				return
 			default:
 				cdst = ndst
 			}
 		}
+
+		// Strip the current part from the domain.
+		domain = domain[:i]
 	}
 
+	// Make the final (from right to left) part a leaf node.
 	if cdst.Children == nil {
 		cdst.Children = map[string]*DomainSuffixTrie{
-			domain: {
-				Included: true,
-			},
+			domain: {},
 		}
 	} else {
 		ndst, ok := cdst.Children[domain]
 		if !ok {
-			cdst.Children[domain] = &DomainSuffixTrie{
-				Included: true,
-			}
+			cdst.Children[domain] = &DomainSuffixTrie{}
 		} else {
-			ndst.Included = true
 			ndst.Children = nil
 		}
 	}
@@ -74,15 +77,11 @@ func (dst *DomainSuffixTrie) Match(domain string) bool {
 			continue
 		}
 
-		if cdst.Children == nil {
-			return false
-		}
-
 		ndst, ok := cdst.Children[domain[i+1:]]
 		if !ok {
 			return false
 		}
-		if ndst.Included {
+		if ndst.Children == nil {
 			return true
 		}
 		cdst = ndst
@@ -93,7 +92,7 @@ func (dst *DomainSuffixTrie) Match(domain string) bool {
 	if !ok {
 		return false
 	}
-	return ndst.Included
+	return ndst.Children == nil
 }
 
 // Keys returns the keys of the trie.
@@ -105,8 +104,8 @@ func (dst *DomainSuffixTrie) Keys() (keys []string) {
 }
 
 func (dst *DomainSuffixTrie) keys(suffix string, keys []string) []string {
-	if dst.Included {
-		keys = append(keys, suffix)
+	if dst.Children == nil {
+		return append(keys, suffix)
 	}
 	for s, c := range dst.Children {
 		keys = c.keys(s+"."+suffix, keys)
