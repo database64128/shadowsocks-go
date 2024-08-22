@@ -32,14 +32,14 @@ const (
 
 var errEmptySet = errors.New("empty domain set")
 
-// Config is the configuration for a DomainSet.
+// Config is the configuration for a [DomainSet].
 type Config struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
 	Path string `json:"path"`
 }
 
-// DomainSet creates a DomainSet from the configuration.
+// DomainSet creates a [DomainSet] from the configuration.
 func (dsc Config) DomainSet() (DomainSet, error) {
 	data, close, err := mmap.ReadFile[string](dsc.Path)
 	if err != nil {
@@ -90,6 +90,7 @@ func (dsb Builder) RegexpMatcherBuilder() MatcherBuilder {
 	return dsb[3]
 }
 
+// DomainSet builds the matchers and returns them as a [DomainSet].
 func (dsb Builder) DomainSet() (DomainSet, error) {
 	var capacity int
 	for _, mb := range dsb {
@@ -106,47 +107,76 @@ func (dsb Builder) DomainSet() (DomainSet, error) {
 	return ds, nil
 }
 
+// WriteGob writes the builder to the writer in gob format.
 func (dsb Builder) WriteGob(w io.Writer) error {
 	return BuilderGobFromBuilder(dsb).WriteGob(w)
 }
 
+// WriteText writes the builder to the writer in text format.
 func (dsb Builder) WriteText(w io.Writer) error {
-	bw := bufio.NewWriter(w)
 	domainCount, domainSeq := dsb.DomainMatcherBuilder().Rules()
 	suffixCount, suffixSeq := dsb.SuffixMatcherBuilder().Rules()
 	keywordCount, keywordSeq := dsb.KeywordMatcherBuilder().Rules()
 	regexpCount, regexpSeq := dsb.RegexpMatcherBuilder().Rules()
 	capacityHint := fmt.Sprintf("%s%d %d %d %d %s\n", capacityHintPrefix, domainCount, suffixCount, keywordCount, regexpCount, capacityHintSuffix)
 
-	bw.WriteString(capacityHint)
+	bw := bufio.NewWriter(w)
+	if _, err := bw.WriteString(capacityHint); err != nil {
+		return err
+	}
 
 	for domain := range domainSeq {
-		bw.WriteString(domainPrefix)
-		bw.WriteString(domain)
-		bw.WriteByte('\n')
+		if _, err := bw.WriteString(domainPrefix); err != nil {
+			return err
+		}
+		if _, err := bw.WriteString(domain); err != nil {
+			return err
+		}
+		if err := bw.WriteByte('\n'); err != nil {
+			return err
+		}
 	}
 
 	for suffix := range suffixSeq {
-		bw.WriteString(suffixPrefix)
-		bw.WriteString(suffix)
-		bw.WriteByte('\n')
+		if _, err := bw.WriteString(suffixPrefix); err != nil {
+			return err
+		}
+		if _, err := bw.WriteString(suffix); err != nil {
+			return err
+		}
+		if err := bw.WriteByte('\n'); err != nil {
+			return err
+		}
 	}
 
 	for keyword := range keywordSeq {
-		bw.WriteString(keywordPrefix)
-		bw.WriteString(keyword)
-		bw.WriteByte('\n')
+		if _, err := bw.WriteString(keywordPrefix); err != nil {
+			return err
+		}
+		if _, err := bw.WriteString(keyword); err != nil {
+			return err
+		}
+		if err := bw.WriteByte('\n'); err != nil {
+			return err
+		}
 	}
 
 	for regexp := range regexpSeq {
-		bw.WriteString(regexpPrefix)
-		bw.WriteString(regexp)
-		bw.WriteByte('\n')
+		if _, err := bw.WriteString(regexpPrefix); err != nil {
+			return err
+		}
+		if _, err := bw.WriteString(regexp); err != nil {
+			return err
+		}
+		if err := bw.WriteByte('\n'); err != nil {
+			return err
+		}
 	}
 
 	return bw.Flush()
 }
 
+// BuilderFromGob reads a gob-encoded builder from the reader.
 func BuilderFromGob(r io.Reader) (Builder, error) {
 	bg, err := BuilderGobFromReader(r)
 	if err != nil {
@@ -155,14 +185,20 @@ func BuilderFromGob(r io.Reader) (Builder, error) {
 	return bg.Builder(), nil
 }
 
+// BuilderFromText reads a text-encoded builder from the text.
 func BuilderFromText(text string) (Builder, error) {
 	return BuilderFromTextFunc(text, NewDomainMapMatcher, NewDomainSuffixTrieMatcherBuilder, NewKeywordLinearMatcher, NewRegexpMatcherBuilder)
 }
 
+// BuilderFromTextFast is like [BuilderFromText], but prefers the [SuffixMapMatcher] for suffix matching.
+// It's only faster when building the matcher. The resulting matcher is actually a bit slower.
 func BuilderFromTextFast(text string) (Builder, error) {
 	return BuilderFromTextFunc(text, NewDomainMapMatcher, NewSuffixMapMatcher, NewKeywordLinearMatcher, NewRegexpMatcherBuilder)
 }
 
+// BuilderFromTextFunc parses the text for domain set rules,
+// inserts them into matcher builders created by the given functions,
+// and returns the resulting builder.
 func BuilderFromTextFunc(
 	text string,
 	newDomainMatcherBuilderFunc,
@@ -211,7 +247,7 @@ func BuilderFromTextFunc(
 			dsb.RegexpMatcherBuilder().Insert(strings.Clone(line[7:]))
 		default:
 			switch {
-			case len(line) > keywordPrefixLen && string(line[:keywordPrefixLen]) == keywordPrefix:
+			case len(line) > keywordPrefixLen && line[:keywordPrefixLen] == keywordPrefix:
 				dsb.KeywordMatcherBuilder().Insert(strings.Clone(line[keywordPrefixLen:]))
 			case line[0] != '#':
 				return dsb, fmt.Errorf("invalid line: %s", line)
@@ -228,10 +264,9 @@ func BuilderFromTextFunc(
 	return dsb, nil
 }
 
-func ParseCapacityHint(line string) ([4]int, bool, error) {
-	var dskr [4]int
-
-	found := len(line) > capacityHintPrefixLen && line[:capacityHintPrefixLen] == capacityHintPrefix
+// ParseCapacityHint parses the capacity hint from the first line of the text.
+func ParseCapacityHint(line string) (dskr [4]int, found bool, err error) {
+	found = len(line) > capacityHintPrefixLen && line[:capacityHintPrefixLen] == capacityHintPrefix
 	if found {
 		h := line[capacityHintPrefixLen:]
 
@@ -260,7 +295,7 @@ func ParseCapacityHint(line string) ([4]int, bool, error) {
 	return dskr, found, nil
 }
 
-// BuilderGob is the builder's gob serialization structure.
+// BuilderGob is a gob-encoded representation of a [Builder].
 type BuilderGob struct {
 	Domains  DomainMapMatcher
 	Suffixes DomainSuffixTrie
@@ -268,14 +303,17 @@ type BuilderGob struct {
 	Regexps  RegexpMatcherBuilder
 }
 
+// Builder returns a [Builder] from the gob representation.
 func (bg BuilderGob) Builder() Builder {
 	return Builder{&bg.Domains, &bg.Suffixes, &bg.Keywords, &bg.Regexps}
 }
 
+// WriteGob writes the gob representation to the writer.
 func (bg BuilderGob) WriteGob(w io.Writer) error {
 	return gob.NewEncoder(w).Encode(bg)
 }
 
+// BuilderGobFromBuilder converts a [Builder] to its gob representation.
 func BuilderGobFromBuilder(dsb Builder) (bg BuilderGob) {
 	switch d := dsb.DomainMatcherBuilder().(type) {
 	case *DomainMapMatcher:
@@ -308,6 +346,7 @@ func BuilderGobFromBuilder(dsb Builder) (bg BuilderGob) {
 	return bg
 }
 
+// BuilderGobFromReader reads a gob representation from the reader.
 func BuilderGobFromReader(r io.Reader) (bg BuilderGob, err error) {
 	err = gob.NewDecoder(r).Decode(&bg)
 	return

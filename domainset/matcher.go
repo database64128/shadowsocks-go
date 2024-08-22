@@ -2,7 +2,7 @@ package domainset
 
 import "iter"
 
-// Matcher provides the Match method.
+// Matcher provides functionality for matching domain names against a set of rules.
 type Matcher interface {
 	// Match returns whether the domain is matched by the matcher.
 	Match(domain string) bool

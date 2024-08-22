@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const testMissDomain = "aur.archlinux.org"
+const testMissDomain = "gitlab.archlinux.org"
 
 var testDomains = [...]string{
 	"example.com",
@@ -23,6 +23,14 @@ var testDomains = [...]string{
 	"www.google.com",
 	"youtube.com",
 	"www.youtube.com",
+	"music.youtube.com",
+	"youtu.be",
+	"news.ycombinator.com",
+	"lwn.net",
+	"kernel.org",
+	"lore.kernel.org",
+	"go.dev",
+	"pkg.go.dev",
 	"localdomain",
 }
 
@@ -35,7 +43,12 @@ func testDomainMatcher(t *testing.T, m Matcher) {
 	testMatcher(t, m, "github.com", true)
 	testMatcher(t, m, "api.github.com", false)
 	testMatcher(t, m, "raw.githubusercontent.com", false)
+	testMatcher(t, m, "blog", false)
 	testMatcher(t, m, "github.blog", false)
+	testMatcher(t, m, "io", false)
+	testMatcher(t, m, "github.io", false)
+	testMatcher(t, m, "database64128.github.io", false)
+	testMatcher(t, m, "xyz", false)
 	testMatcher(t, m, "cube64128.xyz", true)
 	testMatcher(t, m, "www.cube64128.xyz", true)
 	testMatcher(t, m, "nonexistent.cube64128.xyz", false)
@@ -55,11 +68,27 @@ func testDomainMatcher(t *testing.T, m Matcher) {
 	testMatcher(t, m, "dash.cloudflare.com", true)
 	testMatcher(t, m, "api.cloudflare.com", true)
 	testMatcher(t, m, "google.com", true)
+	testMatcher(t, m, "googlesource.com", false)
 	testMatcher(t, m, "www.google.com", true)
+	testMatcher(t, m, "accounts.google.com", false)
 	testMatcher(t, m, "amervice.google.com", false)
 	testMatcher(t, m, "youtube.com", true)
 	testMatcher(t, m, "www.youtube.com", true)
 	testMatcher(t, m, "m.youtube.com", false)
+	testMatcher(t, m, "music.youtube.com", true)
+	testMatcher(t, m, "be", false)
+	testMatcher(t, m, "youtu.be", true)
+	testMatcher(t, m, "ycombinator.com", false)
+	testMatcher(t, m, "news.ycombinator.com", true)
+	testMatcher(t, m, "net", false)
+	testMatcher(t, m, "lwn.net", true)
+	testMatcher(t, m, "static.lwn.net", false)
+	testMatcher(t, m, "kernel.org", true)
+	testMatcher(t, m, "lore.kernel.org", true)
+	testMatcher(t, m, "archive.kernel.org", false)
+	testMatcher(t, m, "dev", false)
+	testMatcher(t, m, "go.dev", true)
+	testMatcher(t, m, "pkg.go.dev", true)
 	testMatcher(t, m, "localdomain", true)
 	testMatcher(t, m, "www.localdomain", false)
 }
@@ -82,18 +111,22 @@ func TestDomainMapMatcher(t *testing.T) {
 func benchmarkDomainMatcher(b *testing.B, count int, name string, m Matcher) {
 	b.Run(fmt.Sprintf("%d/%s/Hit", count, name), func(b *testing.B) {
 		for i := range b.N {
-			m.Match(testDomains[i%count])
+			if !m.Match(testDomains[i%count]) {
+				b.Fatal("unexpected miss")
+			}
 		}
 	})
 	b.Run(fmt.Sprintf("%d/%s/Miss", count, name), func(b *testing.B) {
 		for range b.N {
-			m.Match(testMissDomain)
+			if m.Match(testMissDomain) {
+				b.Fatal("unexpected hit")
+			}
 		}
 	})
 }
 
 func BenchmarkDomainMatchers(b *testing.B) {
-	for i := len(testDomains) / 4; i <= len(testDomains); i += 3 {
+	for i := 4; i <= len(testDomains); i += 4 {
 		dlm := DomainLinearMatcher(testDomains[:i])
 		dbsm := DomainBinarySearchMatcherFromSlice(testDomains[:i])
 		dmm := DomainMapMatcherFromSlice(testDomains[:i])
