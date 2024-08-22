@@ -123,7 +123,7 @@ func DomainSetBuilderFromDlc(text string) (domainset.Builder, error) {
 
 	dsb := domainset.Builder{
 		domainset.NewDomainMapMatcher(0),
-		domainset.NewDomainSuffixTrie(0),
+		domainset.NewDomainSuffixTrieMatcherBuilder(0),
 		domainset.NewKeywordLinearMatcher(0),
 		domainset.NewRegexpMatcherBuilder(0),
 	}

@@ -156,7 +156,7 @@ func BuilderFromGob(r io.Reader) (Builder, error) {
 }
 
 func BuilderFromText(text string) (Builder, error) {
-	return BuilderFromTextFunc(text, NewDomainMapMatcher, NewDomainSuffixTrie, NewKeywordLinearMatcher, NewRegexpMatcherBuilder)
+	return BuilderFromTextFunc(text, NewDomainMapMatcher, NewDomainSuffixTrieMatcherBuilder, NewKeywordLinearMatcher, NewRegexpMatcherBuilder)
 }
 
 func BuilderFromTextFast(text string) (Builder, error) {
@@ -263,13 +263,13 @@ func ParseCapacityHint(line string) ([4]int, bool, error) {
 // BuilderGob is the builder's gob serialization structure.
 type BuilderGob struct {
 	Domains  DomainMapMatcher
-	Suffixes *DomainSuffixTrie
+	Suffixes DomainSuffixTrie
 	Keywords KeywordLinearMatcher
 	Regexps  RegexpMatcherBuilder
 }
 
 func (bg BuilderGob) Builder() Builder {
-	return Builder{&bg.Domains, bg.Suffixes, &bg.Keywords, &bg.Regexps}
+	return Builder{&bg.Domains, &bg.Suffixes, &bg.Keywords, &bg.Regexps}
 }
 
 func (bg BuilderGob) WriteGob(w io.Writer) error {
@@ -286,7 +286,7 @@ func BuilderGobFromBuilder(dsb Builder) (bg BuilderGob) {
 
 	switch s := dsb.SuffixMatcherBuilder().(type) {
 	case *DomainSuffixTrie:
-		bg.Suffixes = s
+		bg.Suffixes = *s
 	default:
 		bg.Suffixes = DomainSuffixTrieFromSeq(s.Rules())
 	}
