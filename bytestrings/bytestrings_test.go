@@ -1,6 +1,9 @@
 package bytestrings
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 const multiline = "\n1\r\n2\n\n3\r\n\r\n4"
 
@@ -35,5 +38,13 @@ func TestNextNonEmptyLine(t *testing.T) {
 	}
 	if text != multiline[13:] {
 		t.Fatalf("Expected text '%s', got '%s'", multiline[13:], text)
+	}
+}
+
+func TestNonEmptyLines(t *testing.T) {
+	expectedLines := []string{"1", "2", "3", "4"}
+	lines := slices.AppendSeq(make([]string, 0, len(expectedLines)), NonEmptyLines(multiline))
+	if !slices.Equal(lines, expectedLines) {
+		t.Errorf("Expected lines %v, got %v", expectedLines, lines)
 	}
 }

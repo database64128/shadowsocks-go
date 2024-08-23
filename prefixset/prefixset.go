@@ -28,17 +28,9 @@ func (psc Config) IPSet() (*netipx.IPSet, error) {
 
 // IPSetFromText parses prefixes from the text and builds a prefix set.
 func IPSetFromText(text string) (*netipx.IPSet, error) {
-	var (
-		line string
-		sb   netipx.IPSetBuilder
-	)
+	var sb netipx.IPSetBuilder
 
-	for {
-		line, text = bytestrings.NextNonEmptyLine(text)
-		if len(line) == 0 {
-			break
-		}
-
+	for line := range bytestrings.NonEmptyLines(text) {
 		if line[0] == '#' {
 			continue
 		}

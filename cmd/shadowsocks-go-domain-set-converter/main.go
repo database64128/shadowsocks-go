@@ -128,14 +128,7 @@ func DomainSetBuilderFromDlc(text string) (domainset.Builder, error) {
 		domainset.NewRegexpMatcherBuilder(0),
 	}
 
-	var line string
-
-	for {
-		line, text = bytestrings.NextNonEmptyLine(text)
-		if len(line) == 0 {
-			break
-		}
-
+	for line := range bytestrings.NonEmptyLines(text) {
 		if line[0] == '#' {
 			continue
 		}

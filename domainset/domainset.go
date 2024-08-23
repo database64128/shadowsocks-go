@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"strconv"
 	"strings"
 
@@ -206,8 +207,11 @@ func BuilderFromTextFunc(
 	newKeywordMatcherBuilderFunc,
 	newRegexpMatcherBuilderFunc func(int) MatcherBuilder,
 ) (Builder, error) {
-	line, text := bytestrings.NextNonEmptyLine(text)
-	if len(line) == 0 {
+	next, stop := iter.Pull(bytestrings.NonEmptyLines(text))
+	defer stop()
+
+	line, ok := next()
+	if !ok {
 		return Builder{}, errEmptySet
 	}
 
@@ -216,8 +220,8 @@ func BuilderFromTextFunc(
 		return Builder{}, err
 	}
 	if found {
-		line, text = bytestrings.NextNonEmptyLine(text)
-		if len(line) == 0 {
+		line, ok = next()
+		if !ok {
 			return Builder{}, errEmptySet
 		}
 	}
@@ -255,8 +259,8 @@ func BuilderFromTextFunc(
 		}
 
 	next:
-		line, text = bytestrings.NextNonEmptyLine(text)
-		if len(line) == 0 {
+		line, ok = next()
+		if !ok {
 			break
 		}
 	}
