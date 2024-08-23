@@ -59,7 +59,8 @@ func (slmp *SuffixLinearMatcher) AppendTo(matchers []Matcher) ([]Matcher, error)
 	}
 
 	if len(slm) > MaxLinearSuffixes {
-		return append(matchers, DomainSuffixTrieFromSlice(slm)), nil
+		dst := DomainSuffixTrieFromSlice(slm)
+		return dst.AppendTo(matchers)
 	}
 
 	return append(matchers, slmp), nil
@@ -136,6 +137,9 @@ func (smmp *SuffixMapMatcher) AppendTo(matchers []Matcher) ([]Matcher, error) {
 		return matchers, nil
 	}
 
+	// With 16 suffix rules, a linear matcher is still mostly faster than a map matcher.
+	// But a linear matcher will migrate to a trie matcher when the number of rules exceeds 4.
+	// So we only migrate to a linear matcher when the number of rules does not exceed 4.
 	if len(smm) <= MaxLinearSuffixes {
 		slm := SuffixLinearMatcher(maphelper.Keys(smm))
 		return slm.AppendTo(matchers)

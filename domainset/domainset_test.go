@@ -2,6 +2,7 @@ package domainset
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -96,11 +97,11 @@ func TestDomainSetFromGob(t *testing.T) {
 }
 
 func TestBuilderWriteText(t *testing.T) {
-	var buf bytes.Buffer
-	if err := testDomainSetBuilder.WriteText(&buf); err != nil {
+	var sb strings.Builder
+	if err := testDomainSetBuilder.WriteText(&sb); err != nil {
 		t.Fatal(err)
 	}
-	dsb, err := BuilderFromText(buf.String())
+	dsb, err := BuilderFromText(sb.String())
 	if err != nil {
 		t.Fatal(err)
 	}

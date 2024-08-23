@@ -95,17 +95,38 @@ func testDomainMatcher(t *testing.T, m Matcher) {
 
 func TestDomainLinearMatcher(t *testing.T) {
 	dlm := DomainLinearMatcher(testDomains[:])
-	testDomainMatcher(t, &dlm)
+
+	t.Run("Match", func(t *testing.T) {
+		testDomainMatcher(t, &dlm)
+	})
+
+	t.Run("Rules", func(t *testing.T) {
+		testMatcherBuilderRules(t, &dlm, testDomains[:])
+	})
 }
 
 func TestDomainBinarySearchMatcher(t *testing.T) {
 	dbsm := DomainBinarySearchMatcherFromSlice(testDomains[:])
-	testDomainMatcher(t, &dbsm)
+
+	t.Run("Match", func(t *testing.T) {
+		testDomainMatcher(t, &dbsm)
+	})
+
+	t.Run("Rules", func(t *testing.T) {
+		testMatcherBuilderRules(t, &dbsm, testDomains[:])
+	})
 }
 
 func TestDomainMapMatcher(t *testing.T) {
 	dmm := DomainMapMatcherFromSlice(testDomains[:])
-	testDomainMatcher(t, &dmm)
+
+	t.Run("Match", func(t *testing.T) {
+		testDomainMatcher(t, &dmm)
+	})
+
+	t.Run("Rules", func(t *testing.T) {
+		testMatcherBuilderRules(t, &dmm, testDomains[:])
+	})
 }
 
 func benchmarkDomainMatcher(b *testing.B, count int, name string, m Matcher) {

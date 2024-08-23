@@ -91,17 +91,38 @@ func testSuffixMatcher(t *testing.T, m Matcher) {
 
 func TestSuffixLinearMatcher(t *testing.T) {
 	slm := SuffixLinearMatcher(testSuffixes[:])
-	testSuffixMatcher(t, &slm)
+
+	t.Run("Match", func(t *testing.T) {
+		testSuffixMatcher(t, &slm)
+	})
+
+	t.Run("Rules", func(t *testing.T) {
+		testMatcherBuilderRules(t, &slm, testSuffixes[:])
+	})
 }
 
 func TestSuffixMapMatcher(t *testing.T) {
 	smm := SuffixMapMatcherFromSlice(testSuffixes[:])
-	testSuffixMatcher(t, &smm)
+
+	t.Run("Match", func(t *testing.T) {
+		testSuffixMatcher(t, &smm)
+	})
+
+	t.Run("Rules", func(t *testing.T) {
+		testMatcherBuilderRules(t, &smm, testSuffixes[:])
+	})
 }
 
 func TestSuffixTrieMatcher(t *testing.T) {
 	stm := DomainSuffixTrieFromSlice(testSuffixes[:])
-	testSuffixMatcher(t, stm)
+
+	t.Run("Match", func(t *testing.T) {
+		testSuffixMatcher(t, &stm)
+	})
+
+	t.Run("Rules", func(t *testing.T) {
+		testMatcherBuilderRules(t, &stm, testSuffixes[:])
+	})
 }
 
 func benchmarkSuffixMatcher(b *testing.B, count int, name string, m Matcher) {
