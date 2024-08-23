@@ -52,10 +52,9 @@ func (dsc Config) DomainSet() (DomainSet, error) {
 
 	switch dsc.Type {
 	case "text", "":
-		dsb, err = BuilderFromTextFast(data)
+		dsb, err = BuilderFromTextFastClone(data)
 	case "gob":
-		r := strings.NewReader(data)
-		dsb, err = BuilderFromGob(r)
+		dsb, err = BuilderFromGobString(data)
 	default:
 		err = fmt.Errorf("invalid domain set type: %s", dsc.Type)
 	}
@@ -186,26 +185,63 @@ func BuilderFromGob(r io.Reader) (Builder, error) {
 	return bg.Builder(), nil
 }
 
-// BuilderFromText reads a text-encoded builder from the text.
+// BuilderFromGobString reads a gob-encoded builder from the string.
+func BuilderFromGobString(s string) (Builder, error) {
+	r := strings.NewReader(s)
+	return BuilderFromGob(r)
+}
+
+func noCloneString(s string) string {
+	return s
+}
+
+// BuilderFromText reads a text-encoded builder from the text, referencing the text in the rule strings.
 func BuilderFromText(text string) (Builder, error) {
-	return BuilderFromTextFunc(text, NewDomainMapMatcher, NewDomainSuffixTrieMatcherBuilder, NewKeywordLinearMatcher, NewRegexpMatcherBuilder)
+	return BuilderFromTextFunc(
+		text,
+		NewDomainMapMatcher,
+		NewDomainSuffixTrieMatcherBuilder,
+		NewKeywordLinearMatcher,
+		NewRegexpMatcherBuilder,
+		noCloneString,
+	)
 }
 
 // BuilderFromTextFast is like [BuilderFromText], but prefers the [SuffixMapMatcher] for suffix matching.
 // It's only faster when building the matcher. The resulting matcher is actually a bit slower.
 func BuilderFromTextFast(text string) (Builder, error) {
-	return BuilderFromTextFunc(text, NewDomainMapMatcher, NewSuffixMapMatcher, NewKeywordLinearMatcher, NewRegexpMatcherBuilder)
+	return BuilderFromTextFunc(
+		text,
+		NewDomainMapMatcher,
+		NewSuffixMapMatcher,
+		NewKeywordLinearMatcher,
+		NewRegexpMatcherBuilder,
+		noCloneString,
+	)
 }
 
-// BuilderFromTextFunc parses the text for domain set rules,
-// inserts them into matcher builders created by the given functions,
-// and returns the resulting builder.
+// BuilderFromTextFastClone is like [BuilderFromTextFast], but clones the rule strings.
+// The returned builder has no reference to the input text.
+func BuilderFromTextFastClone(text string) (Builder, error) {
+	return BuilderFromTextFunc(
+		text,
+		NewDomainMapMatcher,
+		NewSuffixMapMatcher,
+		NewKeywordLinearMatcher,
+		NewRegexpMatcherBuilder,
+		strings.Clone,
+	)
+}
+
+// BuilderFromTextFunc parses the text for domain set rules, calls cloneString to clone rule strings,
+// inserts them into matcher builders created by the given functions, and returns the resulting builder.
 func BuilderFromTextFunc(
 	text string,
-	newDomainMatcherBuilderFunc,
-	newSuffixMatcherBuilderFunc,
-	newKeywordMatcherBuilderFunc,
-	newRegexpMatcherBuilderFunc func(int) MatcherBuilder,
+	newDomainMatcherBuilder,
+	newSuffixMatcherBuilder,
+	newKeywordMatcherBuilder,
+	newRegexpMatcherBuilder func(int) MatcherBuilder,
+	cloneString func(string) string,
 ) (Builder, error) {
 	next, stop := iter.Pull(bytestrings.NonEmptyLines(text))
 	defer stop()
@@ -227,10 +263,10 @@ func BuilderFromTextFunc(
 	}
 
 	dsb := Builder{
-		newDomainMatcherBuilderFunc(dskr[0]),
-		newSuffixMatcherBuilderFunc(dskr[1]),
-		newKeywordMatcherBuilderFunc(dskr[2]),
-		newRegexpMatcherBuilderFunc(dskr[3]),
+		newDomainMatcherBuilder(dskr[0]),
+		newSuffixMatcherBuilder(dskr[1]),
+		newKeywordMatcherBuilder(dskr[2]),
+		newRegexpMatcherBuilder(dskr[3]),
 	}
 
 	for {
@@ -244,15 +280,15 @@ func BuilderFromTextFunc(
 
 		switch line[:7] {
 		case suffixPrefix:
-			dsb.SuffixMatcherBuilder().Insert(strings.Clone(line[7:]))
+			dsb.SuffixMatcherBuilder().Insert(cloneString(line[7:]))
 		case domainPrefix:
-			dsb.DomainMatcherBuilder().Insert(strings.Clone(line[7:]))
+			dsb.DomainMatcherBuilder().Insert(cloneString(line[7:]))
 		case regexpPrefix:
-			dsb.RegexpMatcherBuilder().Insert(strings.Clone(line[7:]))
+			dsb.RegexpMatcherBuilder().Insert(cloneString(line[7:]))
 		default:
 			switch {
 			case len(line) > keywordPrefixLen && line[:keywordPrefixLen] == keywordPrefix:
-				dsb.KeywordMatcherBuilder().Insert(strings.Clone(line[keywordPrefixLen:]))
+				dsb.KeywordMatcherBuilder().Insert(cloneString(line[keywordPrefixLen:]))
 			case line[0] != '#':
 				return dsb, fmt.Errorf("invalid line: %s", line)
 			}

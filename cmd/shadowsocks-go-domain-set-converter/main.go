@@ -47,10 +47,7 @@ func main() {
 	if *inGob != "" {
 		inCount++
 		inPath = *inGob
-		inFunc = func(s string) (domainset.Builder, error) {
-			r := strings.NewReader(s)
-			return domainset.BuilderFromGob(r)
-		}
+		inFunc = domainset.BuilderFromGobString
 	}
 
 	if inCount != 1 {
