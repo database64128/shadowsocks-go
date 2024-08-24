@@ -206,6 +206,19 @@ func BuilderFromText(text string) (Builder, error) {
 	)
 }
 
+// BuilderFromTextClone is like [BuilderFromText], but clones the rule strings.
+// The returned builder has no reference to the input text.
+func BuilderFromTextClone(text string) (Builder, error) {
+	return BuilderFromTextFunc(
+		text,
+		NewDomainMapMatcher,
+		NewDomainSuffixTrieMatcherBuilder,
+		NewKeywordLinearMatcher,
+		NewRegexpMatcherBuilder,
+		strings.Clone,
+	)
+}
+
 // BuilderFromTextFast is like [BuilderFromText], but prefers the [SuffixMapMatcher] for suffix matching.
 // It's only faster when building the matcher. The resulting matcher is actually a bit slower.
 func BuilderFromTextFast(text string) (Builder, error) {

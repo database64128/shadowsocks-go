@@ -29,6 +29,7 @@ func mustDomainSetBuilderFromText(s string) Builder {
 }
 
 func testMatch(t *testing.T, ds DomainSet, domain string, expectedResult bool) {
+	t.Helper()
 	if ds.Match(domain) != expectedResult {
 		t.Errorf("%s should return %v", domain, expectedResult)
 	}
