@@ -34,8 +34,16 @@ var errEmptySet = errors.New("empty domain set")
 
 // Config is the configuration for a [DomainSet].
 type Config struct {
+// Name is the name of the domain set.
 	Name string `json:"name"`
+
+	// Type is the type of the domain set.
+	//
+	//	- "text": text format (default)
+	//	- "gob": gob format
 	Type string `json:"type"`
+
+	// Path is the path to the domain set file.
 	Path string `json:"path"`
 }
 

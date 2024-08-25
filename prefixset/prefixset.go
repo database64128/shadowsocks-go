@@ -11,7 +11,10 @@ import (
 
 // Config is the configuration for a prefix set.
 type Config struct {
+	// Name is the name of the prefix set.
 	Name string `json:"name"`
+
+	// Path is the path to the prefix set file.
 	Path string `json:"path"`
 }
 
@@ -19,7 +22,7 @@ type Config struct {
 func (psc Config) IPSet() (*netipx.IPSet, error) {
 	data, close, err := mmap.ReadFile[string](psc.Path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load prefix set %s: %w", psc.Name, err)
+		return nil, fmt.Errorf("failed to read prefix set file: %w", err)
 	}
 	defer close()
 

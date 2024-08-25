@@ -73,22 +73,22 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, res
 
 	domainSetMap := make(map[string]domainset.DomainSet, len(rc.DomainSets))
 
-	for i := range rc.DomainSets {
-		domainSet, err := rc.DomainSets[i].DomainSet()
+	for _, dsc := range rc.DomainSets {
+		domainSet, err := dsc.DomainSet()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to load domain set %q: %w", dsc.Name, err)
 		}
-		domainSetMap[rc.DomainSets[i].Name] = domainSet
+		domainSetMap[dsc.Name] = domainSet
 	}
 
 	prefixSetMap := make(map[string]*netipx.IPSet, len(rc.PrefixSets))
 
-	for i := range rc.PrefixSets {
-		s, err := rc.PrefixSets[i].IPSet()
+	for _, psc := range rc.PrefixSets {
+		s, err := psc.IPSet()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to load prefix set %q: %w", psc.Name, err)
 		}
-		prefixSetMap[rc.PrefixSets[i].Name] = s
+		prefixSetMap[psc.Name] = s
 	}
 
 	routes := make([]Route, len(rc.Routes)+1)
