@@ -132,7 +132,7 @@ func DomainSetBuilderFromDlc(text string) (domainset.Builder, error) {
 
 		end := strings.IndexByte(line, '@')
 		if end == 0 {
-			return dsb, fmt.Errorf("invalid line: %s", line)
+			return dsb, fmt.Errorf("invalid line: %q", line)
 		}
 
 		if *tag == "" { // select all lines
@@ -159,7 +159,7 @@ func DomainSetBuilderFromDlc(text string) (domainset.Builder, error) {
 		case strings.HasPrefix(line, regexpPrefix):
 			dsb.RegexpMatcherBuilder().Insert(line[regexpPrefixLen:end])
 		default:
-			return dsb, fmt.Errorf("invalid line: %s", line)
+			return dsb, fmt.Errorf("invalid line: %q", line)
 		}
 	}
 

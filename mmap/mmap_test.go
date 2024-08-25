@@ -11,7 +11,6 @@ func TestReadFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := f.Name()
-	defer os.Remove(name)
 
 	_, err = f.WriteString(name)
 	f.Close()

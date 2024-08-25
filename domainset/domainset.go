@@ -145,7 +145,7 @@ func (dsb Builder) WriteText(w io.Writer) error {
 	regexpCount, regexpSeq := dsb.RegexpMatcherBuilder().Rules()
 	capacityHint := fmt.Sprintf("%s%d %d %d %d %s\n", capacityHintPrefix, domainCount, suffixCount, keywordCount, regexpCount, capacityHintSuffix)
 
-	bw := bufio.NewWriter(w)
+	bw := bufio.NewWriterSize(w, 128*1024)
 	if _, err := bw.WriteString(capacityHint); err != nil {
 		return err
 	}
