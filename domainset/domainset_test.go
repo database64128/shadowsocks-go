@@ -70,7 +70,7 @@ func testDomainSet(t *testing.T, ds DomainSet) {
 }
 
 func TestDomainSetFromText(t *testing.T) {
-	dsb, err := BuilderFromTextFast(testDomainSetText)
+	dsb, err := BuilderFromText(testDomainSetText)
 	if err != nil {
 		t.Fatal(err)
 	}

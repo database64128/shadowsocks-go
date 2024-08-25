@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
+	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/bytestrings"
 	"github.com/database64128/shadowsocks-go/mmap"
@@ -34,7 +36,7 @@ var errEmptySet = errors.New("empty domain set")
 
 // Config is the configuration for a [DomainSet].
 type Config struct {
-// Name is the name of the domain set.
+	// Name is the name of the domain set.
 	Name string `json:"name"`
 
 	// Type is the type of the domain set.
@@ -49,25 +51,41 @@ type Config struct {
 
 // DomainSet creates a [DomainSet] from the configuration.
 func (dsc Config) DomainSet() (DomainSet, error) {
-	data, close, err := mmap.ReadFile[string](dsc.Path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load domain set %s: %w", dsc.Name, err)
-	}
-	defer close()
-
-	var dsb Builder
+	var (
+		dsb Builder
+		err error
+	)
 
 	switch dsc.Type {
 	case "text", "":
-		dsb, err = BuilderFromTextFastClone(data)
+		// Benchmarking shows that reading the whole file and then parsing it is faster than
+		// mmapping and cloning strings, with a slight increase in memory usage.
+
+		var data []byte
+		data, err = os.ReadFile(dsc.Path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read domain set file: %w", err)
+		}
+		dsb, err = BuilderFromText(unsafe.String(unsafe.SliceData(data), len(data)))
+
 	case "gob":
+		var (
+			data  string
+			close func() error
+		)
+		data, close, err = mmap.ReadFile[string](dsc.Path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read domain set file: %w", err)
+		}
 		dsb, err = BuilderFromGobString(data)
+		_ = close()
+
 	default:
-		err = fmt.Errorf("invalid domain set type: %s", dsc.Type)
+		return nil, fmt.Errorf("invalid domain set type: %q", dsc.Type)
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to load domain set %s: %w", dsc.Name, err)
+		return nil, fmt.Errorf("failed to parse domain set file: %w", err)
 	}
 
 	return dsb.DomainSet()
@@ -198,71 +216,11 @@ func BuilderFromGobString(s string) (Builder, error) {
 	return BuilderFromGob(r)
 }
 
-func noCloneString(s string) string {
-	return s
-}
-
-// BuilderFromText reads a text-encoded builder from the text, referencing the text in the rule strings.
+// BuilderFromText parses the text for domain set rules, inserts them into appropriate
+// matcher builders, and returns the resulting domain set builder.
+//
+// The rule strings are not cloned. They reference the same memory as the input text.
 func BuilderFromText(text string) (Builder, error) {
-	return BuilderFromTextFunc(
-		text,
-		NewDomainMapMatcher,
-		NewDomainSuffixTrieMatcherBuilder,
-		NewKeywordLinearMatcher,
-		NewRegexpMatcherBuilder,
-		noCloneString,
-	)
-}
-
-// BuilderFromTextClone is like [BuilderFromText], but clones the rule strings.
-// The returned builder has no reference to the input text.
-func BuilderFromTextClone(text string) (Builder, error) {
-	return BuilderFromTextFunc(
-		text,
-		NewDomainMapMatcher,
-		NewDomainSuffixTrieMatcherBuilder,
-		NewKeywordLinearMatcher,
-		NewRegexpMatcherBuilder,
-		strings.Clone,
-	)
-}
-
-// BuilderFromTextFast is like [BuilderFromText], but prefers the [SuffixMapMatcher] for suffix matching.
-// It's only faster when building the matcher. The resulting matcher is actually a bit slower.
-func BuilderFromTextFast(text string) (Builder, error) {
-	return BuilderFromTextFunc(
-		text,
-		NewDomainMapMatcher,
-		NewSuffixMapMatcher,
-		NewKeywordLinearMatcher,
-		NewRegexpMatcherBuilder,
-		noCloneString,
-	)
-}
-
-// BuilderFromTextFastClone is like [BuilderFromTextFast], but clones the rule strings.
-// The returned builder has no reference to the input text.
-func BuilderFromTextFastClone(text string) (Builder, error) {
-	return BuilderFromTextFunc(
-		text,
-		NewDomainMapMatcher,
-		NewSuffixMapMatcher,
-		NewKeywordLinearMatcher,
-		NewRegexpMatcherBuilder,
-		strings.Clone,
-	)
-}
-
-// BuilderFromTextFunc parses the text for domain set rules, calls cloneString to clone rule strings,
-// inserts them into matcher builders created by the given functions, and returns the resulting builder.
-func BuilderFromTextFunc(
-	text string,
-	newDomainMatcherBuilder,
-	newSuffixMatcherBuilder,
-	newKeywordMatcherBuilder,
-	newRegexpMatcherBuilder func(int) MatcherBuilder,
-	cloneString func(string) string,
-) (Builder, error) {
 	line, text := bytestrings.NextNonEmptyLine(text)
 	if len(line) == 0 {
 		return Builder{}, errEmptySet
@@ -280,35 +238,36 @@ func BuilderFromTextFunc(
 	}
 
 	dsb := Builder{
-		newDomainMatcherBuilder(dskr[0]),
-		newSuffixMatcherBuilder(dskr[1]),
-		newKeywordMatcherBuilder(dskr[2]),
-		newRegexpMatcherBuilder(dskr[3]),
+		NewDomainMapMatcher(dskr[0]),
+		NewDomainSuffixTrieMatcherBuilder(dskr[1]),
+		NewKeywordLinearMatcher(dskr[2]),
+		NewRegexpMatcherBuilder(dskr[3]),
 	}
 
 	for {
 		// domainPrefixLen == suffixPrefixLen == regexpPrefixLen == 7
-		if len(line) <= 7 {
-			if line[0] != '#' {
-				return dsb, fmt.Errorf("invalid line: %s", line)
+		if len(line) > 7 {
+			switch line[:7] {
+			case suffixPrefix:
+				dsb.SuffixMatcherBuilder().Insert(line[suffixPrefixLen:])
+				goto next
+			case domainPrefix:
+				dsb.DomainMatcherBuilder().Insert(line[domainPrefixLen:])
+				goto next
+			case regexpPrefix:
+				dsb.RegexpMatcherBuilder().Insert(line[regexpPrefixLen:])
+				goto next
+			case keywordPrefix[:7]:
+				if len(line) <= keywordPrefixLen || line[7] != keywordPrefix[7] {
+					return dsb, fmt.Errorf("invalid line: %q", line)
+				}
+				dsb.KeywordMatcherBuilder().Insert(line[keywordPrefixLen:])
+				goto next
 			}
-			goto next
 		}
 
-		switch line[:7] {
-		case suffixPrefix:
-			dsb.SuffixMatcherBuilder().Insert(cloneString(line[7:]))
-		case domainPrefix:
-			dsb.DomainMatcherBuilder().Insert(cloneString(line[7:]))
-		case regexpPrefix:
-			dsb.RegexpMatcherBuilder().Insert(cloneString(line[7:]))
-		default:
-			switch {
-			case len(line) > keywordPrefixLen && line[:keywordPrefixLen] == keywordPrefix:
-				dsb.KeywordMatcherBuilder().Insert(cloneString(line[keywordPrefixLen:]))
-			case line[0] != '#':
-				return dsb, fmt.Errorf("invalid line: %s", line)
-			}
+		if line[0] != '#' {
+			return dsb, fmt.Errorf("invalid line: %q", line)
 		}
 
 	next:
@@ -321,7 +280,7 @@ func BuilderFromTextFunc(
 	return dsb, nil
 }
 
-// ParseCapacityHint parses the capacity hint from the first line of the text.
+// ParseCapacityHint parses the capacity hint from the line.
 func ParseCapacityHint(line string) (dskr [4]int, found bool, err error) {
 	found = len(line) > capacityHintPrefixLen && line[:capacityHintPrefixLen] == capacityHintPrefix
 	if found {
@@ -330,22 +289,22 @@ func ParseCapacityHint(line string) (dskr [4]int, found bool, err error) {
 		for i := range dskr {
 			delimiterIndex := strings.IndexByte(h, ' ')
 			if delimiterIndex == -1 {
-				return dskr, found, fmt.Errorf("bad capacity hint: %s", line)
+				return dskr, found, fmt.Errorf("bad capacity hint %q", line)
 			}
 
 			c, err := strconv.Atoi(h[:delimiterIndex])
 			if err != nil {
-				return dskr, found, fmt.Errorf("bad capacity hint: %s: %w", line, err)
+				return dskr, found, fmt.Errorf("bad capacity hint %q: %w", line, err)
 			}
 			if c < 0 {
-				return dskr, found, fmt.Errorf("bad capacity hint: %s: capacity cannot be negative", line)
+				return dskr, found, fmt.Errorf("bad capacity hint %q: capacity cannot be negative", line)
 			}
 			dskr[i] = c
 			h = h[delimiterIndex+1:]
 		}
 
 		if h != capacityHintSuffix {
-			return dskr, found, fmt.Errorf("bad capacity hint: %s: expected suffix '%s'", line, capacityHintSuffix)
+			return dskr, found, fmt.Errorf("bad capacity hint %q: expected suffix %q", line, capacityHintSuffix)
 		}
 	}
 
