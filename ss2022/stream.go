@@ -384,6 +384,9 @@ func increment(b []byte) {
 func readOnceExpectFull(r io.Reader, b []byte) (int, error) {
 	n, err := r.Read(b)
 	if err != nil {
+		if err == io.EOF && 0 < n && n < len(b) {
+			return n, io.ErrUnexpectedEOF
+		}
 		return n, err
 	}
 	if n < len(b) {
