@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -208,8 +209,14 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 		payloadLength, err := clientRW.ReadZeroCopy(payload, clientReaderInfo.Headroom.Front, payloadBufSize)
 		switch {
 		case err == nil:
-			payload = payload[clientReaderInfo.Headroom.Front : clientReaderInfo.Headroom.Front+payloadLength]
 			if ce := logger.Check(zap.DebugLevel, "Got initial payload"); ce != nil {
+				ce.Write(
+					zap.Int("payloadLength", payloadLength),
+				)
+			}
+
+		case err == io.EOF:
+			if ce := logger.Check(zap.DebugLevel, "Got initial payload and EOF"); ce != nil {
 				ce.Write(
 					zap.Int("payloadLength", payloadLength),
 				)
@@ -224,6 +231,8 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 			logger.Warn("Failed to read initial payload", zap.Error(err))
 			return
 		}
+
+		payload = payload[clientReaderInfo.Headroom.Front : clientReaderInfo.Headroom.Front+payloadLength]
 
 		err = clientConn.SetReadDeadline(time.Time{})
 		if err != nil {
