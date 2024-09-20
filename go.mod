@@ -3,6 +3,7 @@ module github.com/database64128/shadowsocks-go
 go 1.23.0
 
 require (
+	github.com/database64128/netx-go v0.0.0-20240905055117-62795b8b054a
 	github.com/database64128/tfo-go/v2 v2.2.2
 	github.com/gofiber/contrib/fiberzap/v2 v2.1.4
 	github.com/gofiber/fiber/v2 v2.52.5
@@ -16,7 +17,6 @@ require (
 
 require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
-	github.com/database64128/netx-go v0.0.0-20240905055117-62795b8b054a // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.8 // indirect

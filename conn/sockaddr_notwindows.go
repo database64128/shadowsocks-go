@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"unsafe"
 
+	"github.com/database64128/netx-go"
 	"golang.org/x/sys/unix"
 )
 
@@ -18,7 +19,7 @@ func SockaddrValueToAddrPort(rsa6 unix.RawSockaddrInet6, namelen uint32) (netip.
 	case unix.SizeofSockaddrInet4:
 		addr = netip.AddrFrom4(*(*[4]byte)(unsafe.Pointer(&rsa6.Flowinfo)))
 	case unix.SizeofSockaddrInet6:
-		addr = netip.AddrFrom16(rsa6.Addr)
+		addr = netip.AddrFrom16(rsa6.Addr).WithZone(netx.ZoneCache.Name(int(rsa6.Scope_id)))
 	default:
 		return netip.AddrPort{}, fmt.Errorf("bad sockaddr length: %d", namelen)
 	}
@@ -76,6 +77,6 @@ func SockaddrInet4ToAddrPort(sa *unix.RawSockaddrInet4) netip.AddrPort {
 func SockaddrInet6ToAddrPort(sa *unix.RawSockaddrInet6) netip.AddrPort {
 	portp := (*[2]byte)(unsafe.Pointer(&sa.Port))
 	port := uint16(portp[0])<<8 + uint16(portp[1])
-	ip := netip.AddrFrom16(sa.Addr)
+	ip := netip.AddrFrom16(sa.Addr).WithZone(netx.ZoneCache.Name(int(sa.Scope_id)))
 	return netip.AddrPortFrom(ip, port)
 }
