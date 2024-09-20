@@ -3,6 +3,7 @@ package zerocopy
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"sync"
 )
@@ -218,23 +219,23 @@ type ReadWriter interface {
 // It returns the number of bytes sent from left to right, from right to left,
 // and any error occurred during transfer.
 func TwoWayRelay(left, right ReadWriter) (nl2r, nr2l int64, err error) {
-	var l2rErr error
-	l2rDone := make(chan struct{})
+	var (
+		wg     sync.WaitGroup
+		l2rErr error
+	)
 
+	wg.Add(1)
 	go func() {
 		nl2r, l2rErr = Relay(right, left)
-		right.CloseWrite()
-		close(l2rDone)
+		_ = right.CloseWrite()
+		wg.Done()
 	}()
 
 	nr2l, err = Relay(left, right)
-	left.CloseWrite()
-	<-l2rDone
+	_ = left.CloseWrite()
+	wg.Wait()
 
-	if l2rErr != nil {
-		err = l2rErr
-	}
-	return
+	return nl2r, nr2l, errors.Join(l2rErr, err)
 }
 
 // DirectReadWriteCloser extends io.ReadWriteCloser with CloseRead and CloseWrite.
@@ -248,23 +249,23 @@ type DirectReadWriteCloser interface {
 // It returns the number of bytes sent from left to right, from right to left,
 // and any error occurred during transfer.
 func DirectTwoWayRelay(left, right DirectReadWriteCloser) (nl2r, nr2l int64, err error) {
-	var l2rErr error
-	l2rDone := make(chan struct{})
+	var (
+		wg     sync.WaitGroup
+		l2rErr error
+	)
 
+	wg.Add(1)
 	go func() {
 		nl2r, l2rErr = io.Copy(right, left)
-		right.CloseWrite()
-		close(l2rDone)
+		_ = right.CloseWrite()
+		wg.Done()
 	}()
 
 	nr2l, err = io.Copy(left, right)
-	left.CloseWrite()
-	<-l2rDone
+	_ = left.CloseWrite()
+	wg.Wait()
 
-	if l2rErr != nil {
-		err = l2rErr
-	}
-	return
+	return nl2r, nr2l, errors.Join(l2rErr, err)
 }
 
 // DirectReadWriteCloserOpener provides the Open method to open a [DirectReadWriteCloser].

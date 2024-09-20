@@ -87,13 +87,16 @@ func testShadowStreamReadWriterReplay(t *testing.T, ctx context.Context, clientC
 	s := NewTCPServer(false, userCipherConfig, identityCipherConfig, nil, nil)
 	s.ReplaceUserLookupMap(userLookupMap)
 
-	var cerr, serr error
-	ctrlCh := make(chan struct{})
+	var (
+		wg   sync.WaitGroup
+		cerr error
+	)
 
 	// Start client.
+	wg.Add(1)
 	go func() {
 		_, _, cerr = c.Dial(ctx, clientTargetAddr, nil)
-		close(ctrlCh)
+		wg.Done()
 	}()
 
 	// Hijack client request and save it in b.
@@ -110,7 +113,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, ctx context.Context, clientC
 	}
 
 	// Ensure client success.
-	<-ctrlCh
+	wg.Wait()
 	if cerr != nil {
 		t.Fatal(cerr)
 	}
@@ -119,7 +122,7 @@ func testShadowStreamReadWriterReplay(t *testing.T, ctx context.Context, clientC
 	go sendFunc()
 
 	// Start server.
-	_, _, _, _, serr = s.Accept(pr)
+	_, _, _, _, serr := s.Accept(pr)
 	if serr != nil {
 		t.Fatal(serr)
 	}
