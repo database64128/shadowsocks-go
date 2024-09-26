@@ -288,7 +288,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 		}
 
 		if updateClientAddrPort || updateClientPktinfo {
-			clientPktinfoAddr, clientPktinfoIfindex, err := conn.ParsePktinfoCmsg(cmsg)
+			m, err := conn.ParseSocketControlMessage(cmsg)
 			if err != nil {
 				lnc.logger.Warn("Failed to parse pktinfo control message from serverConn",
 					zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
@@ -312,8 +312,8 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 					zap.String("username", entry.username),
 					zap.Uint64("clientSessionID", csid),
 					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-					zap.Stringer("clientPktinfoAddr", clientPktinfoAddr),
-					zap.Uint32("clientPktinfoIfindex", clientPktinfoIfindex),
+					zap.Stringer("clientPktinfoAddr", m.PktinfoAddr),
+					zap.Uint32("clientPktinfoIfindex", m.PktinfoIfindex),
 				)
 			}
 		}

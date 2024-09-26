@@ -199,7 +199,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(ctx context.Context, lnc *udpRe
 			cmsg := cmsgvec[i][:msg.Msghdr.Controllen]
 
 			if !bytes.Equal(entry.clientPktinfoCache, cmsg) {
-				clientPktinfoAddr, clientPktinfoIfindex, err := conn.ParsePktinfoCmsg(cmsg)
+				m, err := conn.ParseSocketControlMessage(cmsg)
 				if err != nil {
 					lnc.logger.Warn("Failed to parse pktinfo control message from serverConn",
 						zap.Stringer("clientAddress", clientAddrPort),
@@ -220,8 +220,8 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(ctx context.Context, lnc *udpRe
 					ce.Write(
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-						zap.Stringer("clientPktinfoAddr", clientPktinfoAddr),
-						zap.Uint32("clientPktinfoIfindex", clientPktinfoIfindex),
+						zap.Stringer("clientPktinfoAddr", m.PktinfoAddr),
+						zap.Uint32("clientPktinfoIfindex", m.PktinfoIfindex),
 					)
 				}
 			}
