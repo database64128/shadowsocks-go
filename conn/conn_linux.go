@@ -51,6 +51,10 @@ func setTCPUserTimeout(fd, msecs int) error {
 	return nil
 }
 
+func setUDPGenericReceiveOffload(fd int) {
+	_ = unix.SetsockoptInt(fd, unix.IPPROTO_UDP, unix.UDP_GRO, 1)
+}
+
 func setTransparent(fd int, network string) error {
 	switch network {
 	case "tcp4", "udp4":
@@ -162,6 +166,7 @@ func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
 		appendSetReusePortFunc(lso.ReusePort).
 		appendSetTransparentFunc(lso.Transparent).
 		appendSetPMTUDFunc(lso.PathMTUDiscovery).
+		appendSetUDPGenericReceiveOffloadFunc(lso.UDPGenericReceiveOffload).
 		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo).
 		appendSetRecvOrigDstAddrFunc(lso.ReceiveOriginalDestAddr)
 }

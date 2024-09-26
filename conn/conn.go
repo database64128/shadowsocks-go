@@ -138,6 +138,11 @@ type ListenerSocketOptions struct {
 	// Available on platforms supported by Go std's MPTCP implementation.
 	MultipathTCP bool
 
+	// UDPGenericReceiveOffload enables UDP Generic Receive Offload (GRO) on the listener.
+	//
+	// Available on Linux and Windows.
+	UDPGenericReceiveOffload bool
+
 	// ReceivePacketInfo enables the reception of packet information control messages on the listener.
 	//
 	// Available on Linux, macOS, and Windows.
