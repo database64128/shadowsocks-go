@@ -236,9 +236,11 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 	}
 
 	listenConfig := cc.listenConfigCache.Get(conn.ListenerSocketOptions{
-		Fwmark:           cc.DialerFwmark,
-		TrafficClass:     cc.DialerTrafficClass,
-		PathMTUDiscovery: true,
+		SendBufferSize:    conn.DefaultUDPSocketBufferSize,
+		ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
+		Fwmark:            cc.DialerFwmark,
+		TrafficClass:      cc.DialerTrafficClass,
+		PathMTUDiscovery:  true,
 	})
 
 	switch cc.Protocol {

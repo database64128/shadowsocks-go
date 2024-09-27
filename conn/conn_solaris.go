@@ -1,5 +1,8 @@
 package conn
 
 func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
-	return setFuncSlice{}.appendSetTrafficClassFunc(lso.TrafficClass)
+	return setFuncSlice{}.
+		appendSetSendBufferSize(lso.SendBufferSize).
+		appendSetRecvBufferSize(lso.ReceiveBufferSize).
+		appendSetTrafficClassFunc(lso.TrafficClass)
 }

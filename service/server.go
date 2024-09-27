@@ -188,6 +188,8 @@ func (lnc *UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 
 	return udpRelayServerConn{
 		listenConfig: listenConfigCache.Get(conn.ListenerSocketOptions{
+			SendBufferSize:    conn.DefaultUDPSocketBufferSize,
+			ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
 			Fwmark:            lnc.Fwmark,
 			TrafficClass:      lnc.TrafficClass,
 			ReusePort:         lnc.ReusePort,
@@ -465,11 +467,13 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Rel
 
 	case "tproxy":
 		transparentConnListenConfig = sc.listenConfigCache.Get(conn.ListenerSocketOptions{
-			Fwmark:           sc.ListenerFwmark,
-			TrafficClass:     sc.ListenerTrafficClass,
-			Transparent:      true,
-			ReusePort:        true,
-			PathMTUDiscovery: true,
+			SendBufferSize:    conn.DefaultUDPSocketBufferSize,
+			ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
+			Fwmark:            sc.ListenerFwmark,
+			TrafficClass:      sc.ListenerTrafficClass,
+			Transparent:       true,
+			ReusePort:         true,
+			PathMTUDiscovery:  true,
 		})
 		listenerTransparent = true
 
