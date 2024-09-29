@@ -311,7 +311,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 	}
 	defer clientSession.Close()
 
-	udpConn, err := clientInfo.ListenConfig.ListenUDP(ctx, "udp", "")
+	udpConn, _, err := clientInfo.ListenConfig.ListenUDP(ctx, "udp", "")
 	if err != nil {
 		r.logger.Warn("Failed to create UDP socket for DNS lookup",
 			zap.String("resolver", r.name),

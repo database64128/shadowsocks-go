@@ -17,7 +17,7 @@ func setReusePort(fd int) error {
 
 func (fns setFuncSlice) appendSetReusePortFunc(reusePort bool) setFuncSlice {
 	if reusePort {
-		return append(fns, func(fd int, network string) error {
+		return append(fns, func(fd int, network string, _ *SocketInfo) error {
 			return setReusePort(fd)
 		})
 	}

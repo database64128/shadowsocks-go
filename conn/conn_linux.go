@@ -67,8 +67,10 @@ func setTCPUserTimeout(fd, msecs int) error {
 	return nil
 }
 
-func setUDPGenericReceiveOffload(fd int) {
-	_ = unix.SetsockoptInt(fd, unix.IPPROTO_UDP, unix.UDP_GRO, 1)
+func setUDPGenericReceiveOffload(fd int, info *SocketInfo) {
+	if err := unix.SetsockoptInt(fd, unix.IPPROTO_UDP, unix.UDP_GRO, 1); err == nil {
+		info.UDPGenericReceiveOffload = true
+	}
 }
 
 func setTransparent(fd int, network string) error {
@@ -143,7 +145,7 @@ func setRecvOrigDstAddr(fd int, network string) error {
 
 func (fns setFuncSlice) appendSetTCPDeferAcceptFunc(deferAcceptSecs int) setFuncSlice {
 	if deferAcceptSecs > 0 {
-		return append(fns, func(fd int, network string) error {
+		return append(fns, func(fd int, network string, _ *SocketInfo) error {
 			return setTCPDeferAccept(fd, deferAcceptSecs)
 		})
 	}
@@ -152,7 +154,7 @@ func (fns setFuncSlice) appendSetTCPDeferAcceptFunc(deferAcceptSecs int) setFunc
 
 func (fns setFuncSlice) appendSetTCPUserTimeoutFunc(userTimeoutMsecs int) setFuncSlice {
 	if userTimeoutMsecs > 0 {
-		return append(fns, func(fd int, network string) error {
+		return append(fns, func(fd int, network string, _ *SocketInfo) error {
 			return setTCPUserTimeout(fd, userTimeoutMsecs)
 		})
 	}
@@ -161,14 +163,18 @@ func (fns setFuncSlice) appendSetTCPUserTimeoutFunc(userTimeoutMsecs int) setFun
 
 func (fns setFuncSlice) appendSetTransparentFunc(transparent bool) setFuncSlice {
 	if transparent {
-		return append(fns, setTransparent)
+		return append(fns, func(fd int, network string, _ *SocketInfo) error {
+			return setTransparent(fd, network)
+		})
 	}
 	return fns
 }
 
 func (fns setFuncSlice) appendSetRecvOrigDstAddrFunc(recvOrigDstAddr bool) setFuncSlice {
 	if recvOrigDstAddr {
-		return append(fns, setRecvOrigDstAddr)
+		return append(fns, func(fd int, network string, _ *SocketInfo) error {
+			return setRecvOrigDstAddr(fd, network)
+		})
 	}
 	return fns
 }

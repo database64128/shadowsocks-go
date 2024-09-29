@@ -88,7 +88,7 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 		index := i
 		lnc := &s.listeners[index]
 
-		l, err := lnc.listenConfig.ListenTCP(ctx, lnc.network, lnc.address)
+		l, _, err := lnc.listenConfig.ListenTCP(ctx, lnc.network, lnc.address)
 		if err != nil {
 			return err
 		}

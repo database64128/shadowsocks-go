@@ -58,7 +58,7 @@ func (s *UDPSessionRelay) start(ctx context.Context, index int, lnc *udpRelaySer
 }
 
 func (s *UDPSessionRelay) startMmsg(ctx context.Context, index int, lnc *udpRelayServerConn) error {
-	serverConn, err := lnc.listenConfig.ListenUDPRawConn(ctx, lnc.network, lnc.address)
+	serverConn, _, err := lnc.listenConfig.ListenUDPRawConn(ctx, lnc.network, lnc.address)
 	if err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(ctx context.Context, lnc *u
 						return
 					}
 
-					natConn, err := clientInfo.ListenConfig.ListenUDPRawConn(ctx, "udp", "")
+					natConn, _, err := clientInfo.ListenConfig.ListenUDPRawConn(ctx, "udp", "")
 					if err != nil {
 						lnc.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),

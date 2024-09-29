@@ -128,7 +128,7 @@ func (s *UDPTransparentRelay) Start(ctx context.Context) error {
 		index := i
 		lnc := &s.listeners[index]
 
-		serverConn, err := lnc.listenConfig.ListenUDPRawConn(ctx, lnc.network, lnc.address)
+		serverConn, _, err := lnc.listenConfig.ListenUDPRawConn(ctx, lnc.network, lnc.address)
 		if err != nil {
 			return err
 		}
@@ -297,7 +297,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 						return
 					}
 
-					natConn, err := clientInfo.ListenConfig.ListenUDPRawConn(ctx, "udp", "")
+					natConn, _, err := clientInfo.ListenConfig.ListenUDPRawConn(ctx, "udp", "")
 					if err != nil {
 						lnc.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.Stringer("clientAddress", clientAddrPort),
@@ -546,7 +546,7 @@ type transparentConn struct {
 }
 
 func (s *UDPTransparentRelay) newTransparentConn(ctx context.Context, address string, relayBatchSize int, name *byte, namelen uint32) (*transparentConn, error) {
-	c, err := s.transparentConnListenConfig.ListenUDPRawConn(ctx, "udp", address)
+	c, _, err := s.transparentConnListenConfig.ListenUDPRawConn(ctx, "udp", address)
 	if err != nil {
 		return nil, err
 	}

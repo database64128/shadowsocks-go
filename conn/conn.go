@@ -8,18 +8,31 @@ import (
 	"github.com/database64128/tfo-go/v2"
 )
 
-type setFunc = func(fd int, network string) error
+// SocketInfo contains information about a socket.
+type SocketInfo struct {
+	// MaxUDPGSOSegments is the maximum number of UDP GSO segments supported by the socket.
+	//
+	// If UDP GSO is not enabled on the socket, or the system does not support UDP GSO, the value is 1.
+	//
+	// The value is 0 if the socket is not a UDP socket.
+	MaxUDPGSOSegments int
+
+	// UDPGenericReceiveOffload indicates whether UDP GRO is enabled on the socket.
+	UDPGenericReceiveOffload bool
+}
+
+type setFunc = func(fd int, network string, info *SocketInfo) error
 
 type setFuncSlice []setFunc
 
-func (fns setFuncSlice) controlContextFunc() func(ctx context.Context, network, address string, c syscall.RawConn) error {
+func (fns setFuncSlice) controlContextFunc(info *SocketInfo) func(ctx context.Context, network, address string, c syscall.RawConn) error {
 	if len(fns) == 0 {
 		return nil
 	}
 	return func(ctx context.Context, network, address string, c syscall.RawConn) (err error) {
 		if cerr := c.Control(func(fd uintptr) {
 			for _, fn := range fns {
-				if err = fn(int(fd), network); err != nil {
+				if err = fn(int(fd), network, info); err != nil {
 					return
 				}
 			}
@@ -30,14 +43,14 @@ func (fns setFuncSlice) controlContextFunc() func(ctx context.Context, network, 
 	}
 }
 
-func (fns setFuncSlice) controlFunc() func(network, address string, c syscall.RawConn) error {
+func (fns setFuncSlice) controlFunc(info *SocketInfo) func(network, address string, c syscall.RawConn) error {
 	if len(fns) == 0 {
 		return nil
 	}
 	return func(network, address string, c syscall.RawConn) (err error) {
 		if cerr := c.Control(func(fd uintptr) {
 			for _, fn := range fns {
-				if err = fn(int(fd), network); err != nil {
+				if err = fn(int(fd), network, info); err != nil {
 					return
 				}
 			}
@@ -48,25 +61,32 @@ func (fns setFuncSlice) controlFunc() func(network, address string, c syscall.Ra
 	}
 }
 
-// ListenConfig is [tfo.ListenConfig] but provides a subjectively nicer API.
-type ListenConfig tfo.ListenConfig
+// ListenConfig wraps a [tfo.ListenConfig] and provides a subjectively nicer API.
+type ListenConfig struct {
+	tlc tfo.ListenConfig
+	fns setFuncSlice
+}
 
 // ListenTCP wraps [tfo.ListenConfig.Listen] and returns a [*net.TCPListener] directly.
-func (lc *ListenConfig) ListenTCP(ctx context.Context, network, address string) (*net.TCPListener, error) {
-	l, err := (*tfo.ListenConfig)(lc).Listen(ctx, network, address)
+func (lc *ListenConfig) ListenTCP(ctx context.Context, network, address string) (tln *net.TCPListener, info SocketInfo, err error) {
+	tlc := lc.tlc
+	tlc.Control = lc.fns.controlFunc(&info)
+	ln, err := tlc.Listen(ctx, network, address)
 	if err != nil {
-		return nil, err
+		return nil, info, err
 	}
-	return l.(*net.TCPListener), nil
+	return ln.(*net.TCPListener), info, nil
 }
 
 // ListenUDP wraps [net.ListenConfig.ListenPacket] and returns a [*net.UDPConn] directly.
-func (lc *ListenConfig) ListenUDP(ctx context.Context, network, address string) (*net.UDPConn, error) {
-	pc, err := lc.ListenConfig.ListenPacket(ctx, network, address)
+func (lc *ListenConfig) ListenUDP(ctx context.Context, network, address string) (uc *net.UDPConn, info SocketInfo, err error) {
+	nlc := lc.tlc.ListenConfig
+	nlc.Control = lc.fns.controlFunc(&info)
+	pc, err := nlc.ListenPacket(ctx, network, address)
 	if err != nil {
-		return nil, err
+		return nil, info, err
 	}
-	return pc.(*net.UDPConn), nil
+	return pc.(*net.UDPConn), info, nil
 }
 
 // ListenerSocketOptions contains listener-specific socket options.
@@ -164,17 +184,17 @@ type ListenerSocketOptions struct {
 	ReceiveOriginalDestAddr bool
 }
 
-// ListenConfig returns a [ListenConfig] with a control function that sets the socket options.
+// ListenConfig returns a [ListenConfig] that sets the socket options.
 func (lso ListenerSocketOptions) ListenConfig() ListenConfig {
 	lc := ListenConfig{
-		ListenConfig: net.ListenConfig{
-			Control: lso.buildSetFns().controlFunc(),
+		tlc: tfo.ListenConfig{
+			Backlog:    lso.TCPFastOpenBacklog,
+			DisableTFO: !lso.TCPFastOpen,
+			Fallback:   lso.TCPFastOpenFallback,
 		},
-		Backlog:    lso.TCPFastOpenBacklog,
-		DisableTFO: !lso.TCPFastOpen,
-		Fallback:   lso.TCPFastOpenFallback,
+		fns: lso.buildSetFns(),
 	}
-	lc.SetMultipathTCP(lso.MultipathTCP)
+	lc.tlc.SetMultipathTCP(lso.MultipathTCP)
 	return lc
 }
 
@@ -277,7 +297,7 @@ type DialerSocketOptions struct {
 func (dso DialerSocketOptions) Dialer() Dialer {
 	d := Dialer{
 		Dialer: net.Dialer{
-			ControlContext: dso.buildSetFns().controlContextFunc(),
+			ControlContext: dso.buildSetFns().controlContextFunc(nil),
 		},
 		DisableTFO: !dso.TCPFastOpen,
 		Fallback:   dso.TCPFastOpenFallback,
