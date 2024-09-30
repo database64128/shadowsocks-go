@@ -168,6 +168,12 @@ type ListenerSocketOptions struct {
 	// Available on platforms supported by Go std's MPTCP implementation.
 	MultipathTCP bool
 
+	// ProbeUDPGSOSupport enables best-effort probing of
+	// UDP Generic Segmentation Offload (GSO) support on the listener.
+	//
+	// Available on Linux and Windows.
+	ProbeUDPGSOSupport bool
+
 	// UDPGenericReceiveOffload enables UDP Generic Receive Offload (GRO) on the listener.
 	//
 	// Available on Linux and Windows.
