@@ -9,6 +9,7 @@ import (
 
 // ListenUDPRawConn is like [ListenUDP] but wraps the [*net.UDPConn] in a [rawUDPConn] for batch I/O.
 func (lc *ListenConfig) ListenUDPRawConn(ctx context.Context, network, address string) (c rawUDPConn, info SocketInfo, err error) {
+	info.MaxUDPGSOSegments = 1
 	nlc := lc.tlc.ListenConfig
 	nlc.Control = lc.fns.controlFunc(&info)
 	pc, err := nlc.ListenPacket(ctx, network, address)

@@ -15,7 +15,7 @@ type SocketInfo struct {
 	// If UDP GSO is not enabled on the socket, or the system does not support UDP GSO, the value is 1.
 	//
 	// The value is 0 if the socket is not a UDP socket.
-	MaxUDPGSOSegments int
+	MaxUDPGSOSegments uint32
 
 	// UDPGenericReceiveOffload indicates whether UDP GRO is enabled on the socket.
 	UDPGenericReceiveOffload bool
@@ -80,6 +80,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network, address string) 
 
 // ListenUDP wraps [net.ListenConfig.ListenPacket] and returns a [*net.UDPConn] directly.
 func (lc *ListenConfig) ListenUDP(ctx context.Context, network, address string) (uc *net.UDPConn, info SocketInfo, err error) {
+	info.MaxUDPGSOSegments = 1
 	nlc := lc.tlc.ListenConfig
 	nlc.Control = lc.fns.controlFunc(&info)
 	pc, err := nlc.ListenPacket(ctx, network, address)
