@@ -58,7 +58,7 @@ func (s *UDPSessionRelay) start(ctx context.Context, index int, lnc *udpRelaySer
 }
 
 func (s *UDPSessionRelay) startMmsg(ctx context.Context, index int, lnc *udpRelayServerConn) error {
-	serverConn, _, err := lnc.listenConfig.ListenUDPRawConn(ctx, lnc.network, lnc.address)
+	serverConn, _, err := lnc.listenConfig.ListenUDPMmsgConn(ctx, lnc.network, lnc.address)
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func (s *UDPSessionRelay) startMmsg(ctx context.Context, index int, lnc *udpRela
 	s.mwg.Add(1)
 
 	go func() {
-		s.recvFromServerConnRecvmmsg(ctx, lnc, serverConn.RConn())
+		s.recvFromServerConnRecvmmsg(ctx, lnc, serverConn.NewRConn())
 		s.mwg.Done()
 	}()
 
@@ -316,7 +316,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(ctx context.Context, lnc *u
 						return
 					}
 
-					natConn, _, err := clientInfo.ListenConfig.ListenUDPRawConn(ctx, "udp", "")
+					natConn, _, err := clientInfo.ListenConfig.ListenUDPMmsgConn(ctx, "udp", "")
 					if err != nil {
 						lnc.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
@@ -384,7 +384,7 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(ctx context.Context, lnc *u
 						s.relayServerConnToNatConnSendmmsg(ctx, sessionUplinkMmsg{
 							csid:           csid,
 							clientName:     clientInfo.Name,
-							natConn:        natConn.WConn(),
+							natConn:        natConn.NewWConn(),
 							natConnSendCh:  natConnSendCh,
 							natConnPacker:  clientSession.Packer,
 							natTimeout:     lnc.natTimeout,
@@ -402,10 +402,10 @@ func (s *UDPSessionRelay) recvFromServerConnRecvmmsg(ctx context.Context, lnc *u
 						clientName:         clientInfo.Name,
 						clientAddrInfop:    clientAddrInfop,
 						clientAddrInfo:     &entry.clientAddrInfo,
-						natConn:            natConn.RConn(),
+						natConn:            natConn.NewRConn(),
 						natConnRecvBufSize: clientSession.MaxPacketSize,
 						natConnUnpacker:    clientSession.Unpacker,
-						serverConn:         serverConn.WConn(),
+						serverConn:         serverConn.NewWConn(),
 						serverConnPacker:   serverConnPacker,
 						username:           entry.username,
 						relayBatchSize:     lnc.relayBatchSize,
@@ -467,6 +467,7 @@ func (s *UDPSessionRelay) relayServerConnToNatConnSendmmsg(ctx context.Context, 
 	)
 
 	qpvec := make([]*sessionQueuedPacket, uplink.relayBatchSize)
+	dapvec := make([]netip.AddrPort, uplink.relayBatchSize)
 	namevec := make([]unix.RawSockaddrInet6, uplink.relayBatchSize)
 	iovec := make([]unix.Iovec, uplink.relayBatchSize)
 	msgvec := make([]conn.Mmsghdr, uplink.relayBatchSize)
@@ -511,6 +512,7 @@ main:
 			}
 
 			qpvec[count] = queuedPacket
+			dapvec[count] = destAddrPort
 			namevec[count] = conn.AddrPortToSockaddrInet6(destAddrPort)
 			iovec[count].Base = &queuedPacket.buf[packetStart]
 			iovec[count].SetLen(packetLength)
@@ -532,16 +534,26 @@ main:
 			}
 		}
 
-		if err := uplink.natConn.WriteMsgs(msgvec[:count], 0); err != nil {
-			uplink.logger.Warn("Failed to batch write packets to natConn",
-				zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-				zap.String("username", uplink.username),
-				zap.Uint64("clientSessionID", uplink.csid),
-				zap.Stringer("lastTargetAddress", &qpvec[count-1].targetAddr),
-				zap.String("client", uplink.clientName),
-				zap.Stringer("lastWriteDestAddress", destAddrPort),
-				zap.Error(err),
-			)
+		for start := 0; start < count; {
+			n, err := uplink.natConn.WriteMsgs(msgvec[start:count], 0)
+			start += n
+			if err != nil {
+				uplink.logger.Warn("Failed to batch write packets to natConn",
+					zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
+					zap.String("username", uplink.username),
+					zap.Uint64("clientSessionID", uplink.csid),
+					zap.Stringer("targetAddress", &qpvec[start].targetAddr),
+					zap.String("client", uplink.clientName),
+					zap.Stringer("writeDestAddress", &dapvec[start]),
+					zap.Uint("packetLength", uint(iovec[start].Len)),
+					zap.Error(err),
+				)
+				start++
+			}
+
+			sendmmsgCount++
+			packetsSent += uint64(n)
+			burstBatchSize = max(burstBatchSize, n)
 		}
 
 		if err := uplink.natConn.SetReadDeadline(time.Now().Add(uplink.natTimeout)); err != nil {
@@ -549,17 +561,11 @@ main:
 				zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 				zap.String("username", uplink.username),
 				zap.Uint64("clientSessionID", uplink.csid),
-				zap.Stringer("lastTargetAddress", &qpvec[count-1].targetAddr),
 				zap.String("client", uplink.clientName),
-				zap.Stringer("lastWriteDestAddress", destAddrPort),
 				zap.Duration("natTimeout", uplink.natTimeout),
 				zap.Error(err),
 			)
 		}
-
-		sendmmsgCount++
-		packetsSent += uint64(count)
-		burstBatchSize = max(burstBatchSize, count)
 
 		qpvecn := qpvec[:count]
 
@@ -735,20 +741,25 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(downlink sessionDownl
 			continue
 		}
 
-		err = downlink.serverConn.WriteMsgs(smsgvec[:ns], 0)
-		if err != nil {
-			downlink.logger.Warn("Failed to batch write packets to serverConn",
-				zap.Stringer("clientAddress", clientAddrPort),
-				zap.String("username", downlink.username),
-				zap.Uint64("clientSessionID", downlink.csid),
-				zap.String("client", downlink.clientName),
-				zap.Error(err),
-			)
-		}
+		for start := 0; start < ns; {
+			n, err := downlink.serverConn.WriteMsgs(smsgvec[start:ns], 0)
+			start += n
+			if err != nil {
+				downlink.logger.Warn("Failed to batch write packets to serverConn",
+					zap.Stringer("clientAddress", clientAddrPort),
+					zap.String("username", downlink.username),
+					zap.Uint64("clientSessionID", downlink.csid),
+					zap.String("client", downlink.clientName),
+					zap.Uint("packetLength", uint(siovec[start].Len)),
+					zap.Error(err),
+				)
+				start++
+			}
 
-		sendmmsgCount++
-		packetsSent += uint64(ns)
-		burstBatchSize = max(burstBatchSize, ns)
+			sendmmsgCount++
+			packetsSent += uint64(n)
+			burstBatchSize = max(burstBatchSize, n)
+		}
 	}
 
 	downlink.logger.Info("Finished relay serverConn <- natConn",

@@ -475,9 +475,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(ctx context.Context, uplin
 		if err != nil {
 			uplink.logger.Warn("Failed to set read deadline on natConn",
 				zap.Stringer("clientAddress", uplink.clientAddrPort),
-				zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 				zap.String("client", uplink.clientName),
-				zap.Stringer("writeDestAddress", destAddrPort),
 				zap.Duration("natTimeout", uplink.natTimeout),
 				zap.Error(err),
 			)

@@ -548,9 +548,7 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(ctx context.Context, u
 				zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
 				zap.String("username", uplink.username),
 				zap.Uint64("clientSessionID", uplink.csid),
-				zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 				zap.String("client", uplink.clientName),
-				zap.Stringer("writeDestAddress", destAddrPort),
 				zap.Duration("natTimeout", uplink.natTimeout),
 				zap.Error(err),
 			)

@@ -56,7 +56,7 @@ func (s *UDPNATRelay) start(ctx context.Context, index int, lnc *udpRelayServerC
 }
 
 func (s *UDPNATRelay) startMmsg(ctx context.Context, index int, lnc *udpRelayServerConn) error {
-	serverConn, _, err := lnc.listenConfig.ListenUDPRawConn(ctx, lnc.network, lnc.address)
+	serverConn, _, err := lnc.listenConfig.ListenUDPMmsgConn(ctx, lnc.network, lnc.address)
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func (s *UDPNATRelay) startMmsg(ctx context.Context, index int, lnc *udpRelaySer
 	s.mwg.Add(1)
 
 	go func() {
-		s.recvFromServerConnRecvmmsg(ctx, lnc, serverConn.RConn())
+		s.recvFromServerConnRecvmmsg(ctx, lnc, serverConn.NewRConn())
 		s.mwg.Done()
 	}()
 
@@ -275,7 +275,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(ctx context.Context, lnc *udpRe
 						return
 					}
 
-					natConn, _, err := clientInfo.ListenConfig.ListenUDPRawConn(ctx, "udp", "")
+					natConn, _, err := clientInfo.ListenConfig.ListenUDPMmsgConn(ctx, "udp", "")
 					if err != nil {
 						lnc.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.Stringer("clientAddress", clientAddrPort),
@@ -335,7 +335,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(ctx context.Context, lnc *udpRe
 						s.relayServerConnToNatConnSendmmsg(ctx, natUplinkMmsg{
 							clientName:     clientInfo.Name,
 							clientAddrPort: clientAddrPort,
-							natConn:        natConn.WConn(),
+							natConn:        natConn.NewWConn(),
 							natConnSendCh:  natConnSendCh,
 							natConnPacker:  clientSession.Packer,
 							natTimeout:     lnc.natTimeout,
@@ -352,10 +352,10 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(ctx context.Context, lnc *udpRe
 						clientAddrPort:     clientAddrPort,
 						clientPktinfop:     clientPktinfop,
 						clientPktinfo:      &entry.clientPktinfo,
-						natConn:            natConn.RConn(),
+						natConn:            natConn.NewRConn(),
 						natConnRecvBufSize: clientSession.MaxPacketSize,
 						natConnUnpacker:    clientSession.Unpacker,
-						serverConn:         serverConn.WConn(),
+						serverConn:         serverConn.NewWConn(),
 						serverConnPacker:   serverConnPacker,
 						relayBatchSize:     lnc.relayBatchSize,
 						logger:             lnc.logger,
@@ -412,6 +412,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnSendmmsg(ctx context.Context, upli
 	)
 
 	qpvec := make([]*natQueuedPacket, uplink.relayBatchSize)
+	dapvec := make([]netip.AddrPort, uplink.relayBatchSize)
 	namevec := make([]unix.RawSockaddrInet6, uplink.relayBatchSize)
 	iovec := make([]unix.Iovec, uplink.relayBatchSize)
 	msgvec := make([]conn.Mmsghdr, uplink.relayBatchSize)
@@ -454,6 +455,7 @@ main:
 			}
 
 			qpvec[count] = queuedPacket
+			dapvec[count] = destAddrPort
 			namevec[count] = conn.AddrPortToSockaddrInet6(destAddrPort)
 			iovec[count].Base = &queuedPacket.buf[packetStart]
 			iovec[count].SetLen(packetLength)
@@ -475,30 +477,34 @@ main:
 			}
 		}
 
-		if err := uplink.natConn.WriteMsgs(msgvec[:count], 0); err != nil {
-			uplink.logger.Warn("Failed to batch write packets to natConn",
-				zap.Stringer("clientAddress", uplink.clientAddrPort),
-				zap.Stringer("lastTargetAddress", &qpvec[count-1].targetAddr),
-				zap.String("client", uplink.clientName),
-				zap.Stringer("lastWriteDestAddress", destAddrPort),
-				zap.Error(err),
-			)
+		for start := 0; start < count; {
+			n, err := uplink.natConn.WriteMsgs(msgvec[start:count], 0)
+			start += n
+			if err != nil {
+				uplink.logger.Warn("Failed to batch write packets to natConn",
+					zap.Stringer("clientAddress", uplink.clientAddrPort),
+					zap.Stringer("targetAddress", &qpvec[start].targetAddr),
+					zap.String("client", uplink.clientName),
+					zap.Stringer("writeDestAddress", &dapvec[start]),
+					zap.Uint("packetLength", uint(iovec[start].Len)),
+					zap.Error(err),
+				)
+				start++
+			}
+
+			sendmmsgCount++
+			packetsSent += uint64(n)
+			burstBatchSize = max(burstBatchSize, n)
 		}
 
 		if err := uplink.natConn.SetReadDeadline(time.Now().Add(uplink.natTimeout)); err != nil {
 			uplink.logger.Warn("Failed to set read deadline on natConn",
 				zap.Stringer("clientAddress", uplink.clientAddrPort),
-				zap.Stringer("lastTargetAddress", &qpvec[count-1].targetAddr),
 				zap.String("client", uplink.clientName),
-				zap.Stringer("lastWriteDestAddress", destAddrPort),
 				zap.Duration("natTimeout", uplink.natTimeout),
 				zap.Error(err),
 			)
 		}
-
-		sendmmsgCount++
-		packetsSent += uint64(count)
-		burstBatchSize = max(burstBatchSize, count)
 
 		qpvecn := qpvec[:count]
 
@@ -659,18 +665,23 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(downlink natDownlinkMmsg)
 			}
 		}
 
-		err = downlink.serverConn.WriteMsgs(smsgvec[:ns], 0)
-		if err != nil {
-			downlink.logger.Warn("Failed to batch write packets to serverConn",
-				zap.Stringer("clientAddress", downlink.clientAddrPort),
-				zap.String("client", downlink.clientName),
-				zap.Error(err),
-			)
-		}
+		for start := 0; start < ns; {
+			n, err := downlink.serverConn.WriteMsgs(smsgvec[start:ns], 0)
+			start += n
+			if err != nil {
+				downlink.logger.Warn("Failed to batch write packets to serverConn",
+					zap.Stringer("clientAddress", downlink.clientAddrPort),
+					zap.String("client", downlink.clientName),
+					zap.Uint("packetLength", uint(siovec[start].Len)),
+					zap.Error(err),
+				)
+				start++
+			}
 
-		sendmmsgCount++
-		packetsSent += uint64(ns)
-		burstBatchSize = max(burstBatchSize, ns)
+			sendmmsgCount++
+			packetsSent += uint64(n)
+			burstBatchSize = max(burstBatchSize, n)
+		}
 	}
 
 	downlink.logger.Info("Finished relay serverConn <- natConn",
