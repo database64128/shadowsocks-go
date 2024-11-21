@@ -1,7 +1,10 @@
 package http
 
 import (
+	"maps"
+	"net/http"
 	"net/netip"
+	"slices"
 	"sync"
 	"testing"
 
@@ -98,4 +101,41 @@ func TestHostHeaderToAddr(t *testing.T) {
 	testHostHeaderToIPPort(t, "[2606:4700:4700::1111]:443", netip.AddrPortFrom(addr6, 443))
 
 	testHostHeaderToError(t, "", errEmptyHostHeader)
+}
+
+func TestRemoveConnectionSpecificFields(t *testing.T) {
+	header := http.Header{
+		"Connection":        []string{"keep-alive, upgrade, drop-this"},
+		"Proxy-Connection":  []string{"Keep-Alive"},
+		"Keep-Alive":        []string{"timeout=5, max=1000"},
+		"Upgrade":           []string{"websocket"},
+		"Drop-This":         []string{"Drop me!"},
+		"Keep-This":         []string{"Keep me!"},
+		"Te":                []string{"trailers"},
+		"Transfer-Encoding": []string{"chunked"},
+	}
+
+	expectedHeader := http.Header{
+		"Upgrade":   []string{"websocket"},
+		"Keep-This": []string{"Keep me!"},
+	}
+
+	trailer := http.Header{
+		"Drop-This": []string{"Drop me!"},
+		"Keep-This": []string{"Keep me!"},
+	}
+
+	expectedTrailer := http.Header{
+		"Keep-This": []string{"Keep me!"},
+	}
+
+	removeConnectionSpecificFields(header, trailer)
+
+	if !maps.EqualFunc(header, expectedHeader, slices.Equal) {
+		t.Errorf("header = %v, expected %v", header, expectedHeader)
+	}
+
+	if !maps.EqualFunc(trailer, expectedTrailer, slices.Equal) {
+		t.Errorf("trailer = %v, expected %v", trailer, expectedTrailer)
+	}
 }

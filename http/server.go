@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
@@ -46,7 +45,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 
 	// Fast-track CONNECT.
 	if req.Method == http.MethodConnect {
-		if _, err = fmt.Fprintf(rw, "HTTP/1.1 200 OK\r\nDate: %s\r\n\r\n", time.Now().UTC().Format(http.TimeFormat)); err != nil {
+		if err = send200(rw); err != nil {
 			return nil, conn.Addr{}, err
 		}
 		return direct.NewDirectStreamReadWriter(rw), targetAddr, nil
@@ -74,7 +73,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 
 		go func() {
 			defer wg.Done()
-			err := serverForwardRequests(req, reqCh, plbw, rwbr, logger)
+			err := serverForwardRequests(targetAddr, req, reqCh, pl, plbw, rw, rwbr, logger)
 			pl.CloseWriteWithError(err)
 		}()
 
@@ -87,25 +86,24 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 	return direct.NewDirectStreamReadWriter(pr), targetAddr, nil
 }
 
-func serverForwardRequests(req *http.Request, reqCh chan<- *http.Request, plbw *bufio.Writer, rwbr *bufio.Reader, logger *zap.Logger) (err error) {
+func serverForwardRequests(
+	targetAddr conn.Addr,
+	req *http.Request,
+	reqCh chan<- *http.Request,
+	pl *pipe.DuplexPipeEnd,
+	plbw *bufio.Writer,
+	rw zerocopy.DirectReadWriteCloser,
+	rwbr *bufio.Reader,
+	logger *zap.Logger,
+) (err error) {
 	defer close(reqCh)
 
 	// The current implementation only supports a fixed destination host.
 	fixedHost := req.Host
 
 	for {
-		// Delete hop-by-hop headers specified in Connection.
-		//
-		// We might want to look at the Connection header here to handle Upgrade requests.
-		// In practice, browsers prefer SOCKS5 proxies for WebSocket connections, so we hold off
-		// on the extra complexity for now.
-		connectionHeader := req.Header["Connection"]
-		for i := range connectionHeader {
-			req.Header.Del(connectionHeader[i])
-		}
-		delete(req.Header, "Connection")
-
-		delete(req.Header, "Proxy-Connection")
+		// Remove hop-by-hop header and trailer fields.
+		removeConnectionSpecificFields(req.Header, req.Trailer)
 
 		// Notify the response forwarding routine about the request before writing it out,
 		// so that a received 100 Continue response can be forwarded back to the client
@@ -121,6 +119,10 @@ func serverForwardRequests(req *http.Request, reqCh chan<- *http.Request, plbw *
 		if err = plbw.Flush(); err != nil {
 			return fmt.Errorf("failed to flush HTTP request: %w", err)
 		}
+
+		// We might want to look at the Upgrade header here and handle it accordingly.
+		// In practice, browsers seem to only use SOCKS5 proxies and HTTP CONNECT for
+		// WebSocket connections, so we hold off on the extra complexity for now.
 
 		// No need to check req.Close here because http.ReadRequest will naturally
 		// fail with io.EOF when the client shuts down further writes.
@@ -147,9 +149,53 @@ func serverForwardRequests(req *http.Request, reqCh chan<- *http.Request, plbw *
 		}
 
 		// Close the proxy connection if the destination host changes.
-		// This workaround is necessary until we migrate to using [*http.Client].
+		// This is allowed, according to RFC 9112 section 9.5:
+		//
+		//	A client, server, or proxy MAY close the transport connection at any time.
+		//	For example, a client might have started to send a new request at the same
+		//	time that the server has decided to close the "idle" connection. From the
+		//	server's point of view, the connection is being closed while it was idle,
+		//	but from the client's point of view, a request is in progress.
+
+		// According to RFC 9110 section 3.3, a CONNECT request can occur at any time,
+		// not just in the first message on a connection. Although no client is known to
+		// do this, we handle it with best effort.
+		if req.Method == http.MethodConnect {
+			// The Host header in a CONNECT request includes the port number,
+			// whereas in other requests the port number is usually omitted if it's 80.
+			// Therefore, parse and compare as a socket address.
+			newTargetAddr, err := hostHeaderToAddr(req.Host)
+			if err != nil {
+				_ = send400(pl)
+				return err
+			}
+
+			if !newTargetAddr.Equals(targetAddr) {
+				if ce := logger.Check(zap.DebugLevel, "CONNECT request to different host, closing connection"); ce != nil {
+					ce.Write(
+						zap.String("oldHost", fixedHost),
+						zap.String("newHost", req.Host),
+					)
+				}
+				return nil
+			}
+
+			if err = send200(pl); err != nil {
+				return fmt.Errorf("failed to send 200 OK response: %w", err)
+			}
+
+			_, _, err = zerocopy.DirectTwoWayRelay(rw, pl)
+			return err
+		}
+
 		if req.Host != fixedHost {
-			return fmt.Errorf("destination host changed from %q to %q", fixedHost, req.Host)
+			if ce := logger.Check(zap.DebugLevel, "Host header changed, closing connection"); ce != nil {
+				ce.Write(
+					zap.String("oldHost", fixedHost),
+					zap.String("newHost", req.Host),
+				)
+			}
+			return nil
 		}
 	}
 }
@@ -224,6 +270,9 @@ func serverForwardResponses(reqCh <-chan *http.Request, plbr *bufio.Reader, rw z
 				}
 			}
 
+			// Remove hop-by-hop header and trailer fields.
+			removeConnectionSpecificFields(resp.Header, resp.Trailer)
+
 			// Write response.
 			//
 			// The Write method always drains the response body, even when the destination writer returns an error.
@@ -232,7 +281,7 @@ func serverForwardResponses(reqCh <-chan *http.Request, plbr *bufio.Reader, rw z
 			// The Write call will block until the entire file is downloaded, which is a total waste of resources.
 			// To mitigate this, we wrap the destination writer in a [*pipeClosingWriter] that stops further reads on write error.
 			//
-			// When we migrate to using [*http.Client], [*pipeClosingWriter] needs to be updated to cancel the request context instead.
+			// If we migrate to using [*http.Client], [*pipeClosingWriter] needs to be updated to cancel the request context instead.
 			if err = resp.Write(rwbwpcw); err != nil {
 				logger.Warn("Failed to write HTTP response",
 					zap.String("reqProto", req.Proto),
@@ -270,8 +319,9 @@ func serverForwardResponses(reqCh <-chan *http.Request, plbr *bufio.Reader, rw z
 
 			// Stop forwarding if either the client or server indicates that the connection should be closed.
 			//
-			// RFC 7230 section 6.6 says:
-			// The server SHOULD send a "close" connection option in its final response on that connection.
+			// RFC 9112 section 9.6 says:
+			//
+			//	The server SHOULD send a "close" connection option in its final response on that connection.
 			//
 			// It's not a "MUST", so we check both.
 			if req.Close || resp.Close {
@@ -310,6 +360,11 @@ func hostHeaderToAddr(host string) (conn.Addr, error) {
 	}
 }
 
+func send200(w io.Writer) error {
+	_, err := w.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+	return err
+}
+
 func send400(w io.Writer) error {
 	_, err := w.Write([]byte("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"))
 	return err
@@ -318,6 +373,40 @@ func send400(w io.Writer) error {
 func send502(w io.Writer) error {
 	_, err := w.Write([]byte("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n"))
 	return err
+}
+
+// removeConnectionSpecificFields removes hop-by-hop header and trailer fields,
+// including but not limited to those specified in Connection.
+func removeConnectionSpecificFields(header, trailer http.Header) {
+	for _, opts := range header["Connection"] {
+		var (
+			opt   string
+			found bool
+		)
+
+		for {
+			opt, opts, found = strings.Cut(opts, ",")
+			opt = strings.TrimSpace(opt)
+			canOpt := http.CanonicalHeaderKey(opt)
+
+			switch canOpt {
+			case "Close", "Upgrade":
+			default:
+				delete(header, canOpt)
+				delete(trailer, canOpt)
+			}
+
+			if !found {
+				break
+			}
+		}
+	}
+
+	delete(header, "Connection")
+	delete(header, "Proxy-Connection")
+	delete(header, "Keep-Alive")
+	delete(header, "Te")
+	delete(header, "Transfer-Encoding")
 }
 
 // pipeClosingWriter passes writes to the underlying [io.Writer] and closes the [*pipe.DuplexPipeEnd] on error.

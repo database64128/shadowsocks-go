@@ -18,7 +18,10 @@ func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr
 	targetAddress := targetAddr.String()
 
 	// Write CONNECT.
-	_, err := fmt.Fprintf(rw, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: shadowsocks-go/0.0.0\r\nProxy-Connection: Keep-Alive\r\n\r\n", targetAddress, targetAddress)
+	//
+	// Some clients include Proxy-Connection: Keep-Alive in proxy requests.
+	// This is discouraged by RFC 9112 as stated in appendix C.2.2, so we don't include it.
+	_, err := fmt.Fprintf(rw, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: shadowsocks-go/0.0.0\r\n\r\n", targetAddress, targetAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -29,8 +32,10 @@ func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("HTTP %s", resp.Status)
+
+	// Per RFC 9110, any 2xx (Successful) response is considered a success.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("HTTP CONNECT failed with status code %d", resp.StatusCode)
 	}
 
 	// Check if server spoke first.
