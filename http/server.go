@@ -105,6 +105,12 @@ func serverForwardRequests(
 		// Remove hop-by-hop header and trailer fields.
 		removeConnectionSpecificFields(req.Header, req.Trailer)
 
+		// Remove the Upgrade header field from the request.
+		// In practice, browsers seem to only use SOCKS5 proxies and HTTP CONNECT for
+		// WebSocket connections. It's not worth the extra complexity to support something
+		// no one uses.
+		delete(req.Header, "Upgrade")
+
 		// Notify the response forwarding routine about the request before writing it out,
 		// so that a received 100 Continue response can be forwarded back to the client
 		// in time, unblocking the write.
@@ -119,10 +125,6 @@ func serverForwardRequests(
 		if err = plbw.Flush(); err != nil {
 			return fmt.Errorf("failed to flush HTTP request: %w", err)
 		}
-
-		// We might want to look at the Upgrade header here and handle it accordingly.
-		// In practice, browsers seem to only use SOCKS5 proxies and HTTP CONNECT for
-		// WebSocket connections, so we hold off on the extra complexity for now.
 
 		// No need to check req.Close here because http.ReadRequest will naturally
 		// fail with io.EOF when the client shuts down further writes.
@@ -377,6 +379,10 @@ func send502(w io.Writer) error {
 
 // removeConnectionSpecificFields removes hop-by-hop header and trailer fields,
 // including but not limited to those specified in Connection.
+//
+// The Upgrade header field is not removed, as it is allowed to do something like:
+//
+//	Upgrade: HTTP/3.0
 func removeConnectionSpecificFields(header, trailer http.Header) {
 	for _, opts := range header["Connection"] {
 		var (
