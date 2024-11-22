@@ -249,6 +249,23 @@
             "slidingWindowFilterSize": 256
         },
         {
+            "name": "http-connect",
+            "protocol": "http",
+            "network": "ip",
+            "tcpAddress": "[2001:db8:d698:8b7c:10d8:9ac4:c6f8:b188]:8080",
+            "dialerFwmark": 52140,
+            "dialerTrafficClass": 0,
+            "enableTCP": true,
+            "dialerTFO": true,
+            "tcpFastOpenFallback": false,
+            "multipathTCP": false,
+            "http": {
+                "username": "username",
+                "password": "password",
+                "useBasicAuth": true
+            }
+        },
+        {
             "name": "direct",
             "protocol": "direct",
             "dialerFwmark": 52140,
@@ -256,6 +273,7 @@
             "enableTCP": true,
             "dialerTFO": true,
             "tcpFastOpenFallback": false,
+            "multipathTCP": false,
             "enableUDP": true,
             "mtu": 1500
         },

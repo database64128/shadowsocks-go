@@ -14,14 +14,14 @@ import (
 var ErrServerSpokeFirst = errors.New("server-speaks-first protocols are not supported by this HTTP proxy client implementation")
 
 // NewHttpStreamClientReadWriter writes a HTTP/1.1 CONNECT request to rw and wraps rw into a ReadWriter ready for use.
-func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr conn.Addr) (*direct.DirectStreamReadWriter, error) {
+func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr conn.Addr, proxyAuthHeader string) (*direct.DirectStreamReadWriter, error) {
 	targetAddress := targetAddr.String()
 
 	// Write CONNECT.
 	//
 	// Some clients include Proxy-Connection: Keep-Alive in proxy requests.
 	// This is discouraged by RFC 9112 as stated in appendix C.2.2, so we don't include it.
-	_, err := fmt.Fprintf(rw, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: shadowsocks-go/0.0.0\r\n\r\n", targetAddress, targetAddress)
+	_, err := fmt.Fprintf(rw, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: shadowsocks-go/0.0.0%s\r\n\r\n", targetAddress, targetAddress, proxyAuthHeader)
 	if err != nil {
 		return nil, err
 	}

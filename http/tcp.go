@@ -2,11 +2,45 @@ package http
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
+	"strings"
+	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
+
+var errUsernameContainsColon = errors.New("username contains colon")
+
+// ClientConfig contains configuration options for an HTTP proxy client.
+type ClientConfig struct {
+	// Name is the name of the client.
+	Name string
+
+	// Network controls the address family when resolving the address.
+	//
+	// - "tcp": System default, likely dual-stack.
+	// - "tcp4": Resolve to IPv4 addresses.
+	// - "tcp6": Resolve to IPv6 addresses.
+	Network string
+
+	// Address is the address of the remote proxy server.
+	Address string
+
+	// Dialer is the dialer used to establish connections.
+	Dialer conn.Dialer
+
+	// Username is the username used for authentication.
+	Username string
+
+	// Password is the password used for authentication.
+	Password string
+
+	// UseBasicAuth controls whether to use HTTP Basic Authentication.
+	UseBasicAuth bool
+}
 
 // ProxyClient implements the zerocopy TCPClient interface.
 type ProxyClient struct {
@@ -14,15 +48,33 @@ type ProxyClient struct {
 	network string
 	address string
 	dialer  conn.Dialer
+
+	proxyAuthHeader string
 }
 
-func NewProxyClient(name, network, address string, dialer conn.Dialer) *ProxyClient {
-	return &ProxyClient{
-		name:    name,
-		network: network,
-		address: address,
-		dialer:  dialer,
+// NewProxyClient creates a new HTTP proxy client.
+func (c *ClientConfig) NewProxyClient() (*ProxyClient, error) {
+	client := ProxyClient{
+		name:    c.Name,
+		network: c.Network,
+		address: c.Address,
+		dialer:  c.Dialer,
 	}
+
+	if c.UseBasicAuth {
+		if strings.IndexByte(c.Username, ':') >= 0 {
+			return nil, errUsernameContainsColon
+		}
+
+		const proxyAuthHeaderPrefix = "\r\nProxy-Authorization: Basic "
+		length := len(proxyAuthHeaderPrefix) + base64.StdEncoding.EncodedLen(len(c.Username)+1+len(c.Password))
+		b := make([]byte, length)
+		_ = copy(b, proxyAuthHeaderPrefix)
+		base64.StdEncoding.Encode(b[len(proxyAuthHeaderPrefix):], []byte(c.Username+":"+c.Password))
+		client.proxyAuthHeader = unsafe.String(unsafe.SliceData(b), length)
+	}
+
+	return &client, nil
 }
 
 // Info implements the zerocopy.TCPClient Info method.
@@ -40,7 +92,7 @@ func (c *ProxyClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []
 		return
 	}
 
-	rw, err = NewHttpStreamClientReadWriter(rawRW, targetAddr)
+	rw, err = NewHttpStreamClientReadWriter(rawRW, targetAddr, c.proxyAuthHeader)
 	if err != nil {
 		rawRW.Close()
 		return

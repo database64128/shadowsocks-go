@@ -34,7 +34,7 @@ func TestHttpStreamReadWriter(t *testing.T) {
 	wg.Add(2)
 
 	go func() {
-		c, cerr = NewHttpStreamClientReadWriter(pl, clientTargetAddr)
+		c, cerr = NewHttpStreamClientReadWriter(pl, clientTargetAddr, "")
 		wg.Done()
 	}()
 

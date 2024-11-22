@@ -89,6 +89,9 @@ type ClientConfig struct {
 	EnableUDP bool `json:"enableUDP"`
 	MTU       int  `json:"mtu"`
 
+	// HTTP is the protocol-specific configuration for "http".
+	HTTP HTTPProxyClientConfig `json:"http"`
+
 	// Shadowsocks
 
 	PSK           []byte   `json:"psk"`
@@ -215,7 +218,16 @@ func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
 	case "socks5":
 		return direct.NewSocks5TCPClient(cc.Name, network, cc.TCPAddress.String(), dialer), nil
 	case "http":
-		return http.NewProxyClient(cc.Name, network, cc.TCPAddress.String(), dialer), nil
+		hpcc := http.ClientConfig{
+			Name:         cc.Name,
+			Network:      network,
+			Address:      cc.TCPAddress.String(),
+			Dialer:       dialer,
+			Username:     cc.HTTP.Username,
+			Password:     cc.HTTP.Password,
+			UseBasicAuth: cc.HTTP.UseBasicAuth,
+		}
+		return hpcc.NewProxyClient()
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		if len(cc.UnsafeRequestStreamPrefix) != 0 || len(cc.UnsafeResponseStreamPrefix) != 0 {
 			cc.logger.Warn("Unsafe stream prefix taints the client", zap.String("client", cc.Name))
@@ -269,4 +281,16 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}
+}
+
+// HTTPProxyClientConfig is the configuration for an HTTP proxy client.
+type HTTPProxyClientConfig struct {
+	// Username is the username used for authentication.
+	Username string `json:"username"`
+
+	// Password is the password used for authentication.
+	Password string `json:"password"`
+
+	// UseBasicAuth controls whether to use HTTP Basic Authentication.
+	UseBasicAuth bool `json:"useBasicAuth"`
 }
