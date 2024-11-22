@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"maps"
 	"net/http"
 	"net/netip"
@@ -21,41 +22,122 @@ func TestHttpStreamReadWriter(t *testing.T) {
 
 	pl, pr := pipe.NewDuplexPipe()
 
-	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 80))
 
 	var (
-		c                *direct.DirectStreamReadWriter
+		wg               sync.WaitGroup
+		c                zerocopy.ReadWriter
 		s                *direct.DirectStreamReadWriter
 		serverTargetAddr conn.Addr
 		cerr, serr       error
 	)
 
-	var wg sync.WaitGroup
 	wg.Add(2)
 
 	go func() {
+		defer wg.Done()
 		c, cerr = NewHttpStreamClientReadWriter(pl, clientTargetAddr, "")
-		wg.Done()
 	}()
 
 	go func() {
+		defer wg.Done()
 		s, serverTargetAddr, serr = NewHttpStreamServerReadWriter(pr, logger)
-		wg.Done()
 	}()
 
 	wg.Wait()
+
 	if cerr != nil {
 		t.Fatal(cerr)
 	}
 	if serr != nil {
 		t.Fatal(serr)
 	}
-
 	if !clientTargetAddr.Equals(serverTargetAddr) {
-		t.Errorf("Target address mismatch: c: %s, s: %s", clientTargetAddr, serverTargetAddr)
+		t.Errorf("Target address mismatch: c: %q, s: %q", clientTargetAddr, serverTargetAddr)
 	}
 
 	zerocopy.ReadWriterTestFunc(t, c, s)
+}
+
+func TestHttpStreamClientReadWriterServerSpeaksFirst(t *testing.T) {
+	pl, pr := pipe.NewDuplexPipe()
+
+	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 80))
+	clientTargetAddrString := clientTargetAddr.String()
+	expectedRequest := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: shadowsocks-go/0.0.0\r\n\r\n", clientTargetAddrString, clientTargetAddrString)
+
+	var (
+		wg        sync.WaitGroup
+		client    zerocopy.ReadWriter
+		clientErr error
+	)
+
+	// Start client.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		client, clientErr = NewHttpStreamClientReadWriter(pl, clientTargetAddr, "")
+	}()
+
+	// Read and verify client request.
+	b := make([]byte, 1024)
+	n, err := pr.Read(b)
+	if err != nil {
+		t.Fatalf("Failed to read client request: %s", err)
+	}
+	b = b[:n]
+
+	if string(b) != expectedRequest {
+		t.Errorf("request = %q, want %q", b, expectedRequest)
+	}
+
+	const serverPayload = "I'd like to speak first!"
+
+	// Write server response with payload.
+	if _, err := pr.Write([]byte("HTTP/1.1 200 OK\r\n\r\n" + serverPayload)); err != nil {
+		t.Fatalf("Failed to write server response: %s", err)
+	}
+
+	wg.Wait()
+	if clientErr != nil {
+		t.Fatal(clientErr)
+	}
+
+	// Read from client and verify.
+	b = b[:1024]
+	n, err = client.ReadZeroCopy(b, 0, len(b))
+	if err != nil {
+		t.Fatalf("Failed to read from client: %s", err)
+	}
+	b = b[:n]
+
+	if string(b) != serverPayload {
+		t.Errorf("payload = %q, want %q", b, serverPayload)
+	}
+
+	const clientPayload = "Hear! Hear!"
+
+	// Write client payload.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, clientErr = client.WriteZeroCopy([]byte(clientPayload), 0, len(clientPayload))
+		_ = client.CloseWrite()
+	}()
+
+	// Read from server and verify.
+	b = b[:1024]
+	n, err = pr.Read(b)
+	if err != nil {
+		t.Fatalf("Failed to read from server: %s", err)
+	}
+	b = b[:n]
+
+	if string(b) != clientPayload {
+		t.Errorf("payload = %q, want %q", b, clientPayload)
+	}
+
+	wg.Wait()
 }
 
 func testHostHeaderToDomainPort(t *testing.T, host, expectedDomain string, expectedPort uint16) {

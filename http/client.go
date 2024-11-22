@@ -2,8 +2,8 @@ package http
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -11,10 +11,8 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-var ErrServerSpokeFirst = errors.New("server-speaks-first protocols are not supported by this HTTP proxy client implementation")
-
-// NewHttpStreamClientReadWriter writes a HTTP/1.1 CONNECT request to rw and wraps rw into a ReadWriter ready for use.
-func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr conn.Addr, proxyAuthHeader string) (*direct.DirectStreamReadWriter, error) {
+// NewHttpStreamClientReadWriter writes a HTTP/1.1 CONNECT request to rw and wraps rw into a [zerocopy.ReadWriter] ready for use.
+func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr conn.Addr, proxyAuthHeader string) (zerocopy.ReadWriter, error) {
 	targetAddress := targetAddr.String()
 
 	// Write CONNECT.
@@ -40,8 +38,64 @@ func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr
 
 	// Check if server spoke first.
 	if br.Buffered() > 0 {
-		return nil, ErrServerSpokeFirst
+		return newDirectReadBufferedStreamReadWriter(rw, br), nil
 	}
 
 	return direct.NewDirectStreamReadWriter(rw), nil
+}
+
+// directReadBufferedStreamReadWriter is like [direct.DirectStreamReadWriter], but uses a [*bufio.Reader] for reads.
+type directReadBufferedStreamReadWriter struct {
+	rw zerocopy.DirectReadWriteCloser
+	br *bufio.Reader
+}
+
+// newDirectReadBufferedStreamReadWriter creates a new [directReadBufferedStreamReadWriter].
+func newDirectReadBufferedStreamReadWriter(rw zerocopy.DirectReadWriteCloser, br *bufio.Reader) *directReadBufferedStreamReadWriter {
+	return &directReadBufferedStreamReadWriter{rw: rw, br: br}
+}
+
+// WriterInfo implements [zerocopy.Writer.WriterInfo].
+func (rw *directReadBufferedStreamReadWriter) WriterInfo() zerocopy.WriterInfo {
+	return zerocopy.WriterInfo{}
+}
+
+// WriteZeroCopy implements [zerocopy.Writer.WriteZeroCopy].
+func (rw *directReadBufferedStreamReadWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
+	return rw.rw.Write(b[payloadStart : payloadStart+payloadLen])
+}
+
+// DirectWriter implements [zerocopy.DirectWriter.DirectWriter].
+func (rw *directReadBufferedStreamReadWriter) DirectWriter() io.Writer {
+	return rw.rw
+}
+
+// ReaderInfo implements [zerocopy.Reader.ReaderInfo].
+func (rw *directReadBufferedStreamReadWriter) ReaderInfo() zerocopy.ReaderInfo {
+	return zerocopy.ReaderInfo{}
+}
+
+// ReadZeroCopy implements [zerocopy.Reader.ReadZeroCopy].
+func (rw *directReadBufferedStreamReadWriter) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
+	return rw.br.Read(b[payloadBufStart : payloadBufStart+payloadBufLen])
+}
+
+// DirectReader implements [zerocopy.DirectReader.DirectReader].
+func (rw *directReadBufferedStreamReadWriter) DirectReader() io.Reader {
+	return rw.br
+}
+
+// CloseWrite implements [zerocopy.ReadWriter.CloseWrite].
+func (rw *directReadBufferedStreamReadWriter) CloseWrite() error {
+	return rw.rw.CloseWrite()
+}
+
+// CloseRead implements [zerocopy.ReadWriter.CloseRead].
+func (rw *directReadBufferedStreamReadWriter) CloseRead() error {
+	return rw.rw.CloseRead()
+}
+
+// Close implements [zerocopy.ReadWriter.Close].
+func (rw *directReadBufferedStreamReadWriter) Close() error {
+	return rw.rw.Close()
 }
