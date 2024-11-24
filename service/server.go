@@ -268,6 +268,9 @@ type ServerConfig struct {
 	// Only applicable to Shadowsocks 2022 TCP.
 	AllowSegmentedFixedLengthHeader bool `json:"allowSegmentedFixedLengthHeader"`
 
+	// HTTP is the protocol-specific configuration for "http".
+	HTTP HTTPProxyServerConfig `json:"http"`
+
 	// Shadowsocks
 
 	PSK           []byte `json:"psk"`
@@ -400,7 +403,16 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		server = direct.NewSocks5TCPServer(sc.tcpEnabled, sc.udpEnabled)
 
 	case "http":
-		server = http.NewProxyServer(sc.logger)
+		hpsc := http.ServerConfig{
+			Logger:          sc.logger,
+			Users:           sc.HTTP.Users,
+			EnableBasicAuth: sc.HTTP.EnableBasicAuth,
+		}
+
+		server, err = hpsc.NewProxyServer()
+		if err != nil {
+			return nil, err
+		}
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		if len(sc.UnsafeRequestStreamPrefix) != 0 || len(sc.UnsafeResponseStreamPrefix) != 0 {
@@ -558,4 +570,14 @@ func (sc *ServerConfig) PostInit(credman *cred.Manager, apiSM *ssm.ServerManager
 	}
 
 	return nil
+}
+
+// HTTPProxyServerConfig is the configuration for an HTTP proxy server.
+type HTTPProxyServerConfig struct {
+	// Users is a list of users allowed to connect to the server.
+	// It is ignored if none of the authentication methods are enabled.
+	Users []http.ServerUserCredentials `json:"users"`
+
+	// EnableBasicAuth controls whether to enable HTTP Basic Authentication.
+	EnableBasicAuth bool `json:"enableBasicAuth"`
 }

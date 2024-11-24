@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/pipe"
 	"github.com/database64128/shadowsocks-go/zerocopy"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -20,6 +22,36 @@ func TestHttpStreamReadWriter(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 	defer logger.Sync()
 
+	for _, c := range []struct {
+		name                  string
+		expectedUsername      string
+		clientProxyAuthHeader string
+		serverUsernameByToken map[string]string
+	}{
+		{
+			name:                  "NoAuth",
+			expectedUsername:      "",
+			clientProxyAuthHeader: "",
+			serverUsernameByToken: nil,
+		},
+		{
+			name:                  "BasicAuth",
+			expectedUsername:      "hello",
+			clientProxyAuthHeader: "\r\nProxy-Authorization: basic aGVsbG86d29ybGQ=",
+			serverUsernameByToken: map[string]string{"aGVsbG86d29ybGQ=": "hello"},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			testHttpStreamReadWriter(t, c.expectedUsername, c.clientProxyAuthHeader, c.serverUsernameByToken, logger)
+		})
+	}
+
+	t.Run("BasicAuth/BadCredentials", func(t *testing.T) {
+		testHttpStreamReadWriterBasicAuthBadCredentials(t, logger)
+	})
+}
+
+func testHttpStreamReadWriter(t *testing.T, expectedUsername, clientProxyAuthHeader string, serverUsernameByToken map[string]string, logger *zap.Logger) {
 	pl, pr := pipe.NewDuplexPipe()
 
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 80))
@@ -29,6 +61,7 @@ func TestHttpStreamReadWriter(t *testing.T) {
 		c                zerocopy.ReadWriter
 		s                *direct.DirectStreamReadWriter
 		serverTargetAddr conn.Addr
+		username         string
 		cerr, serr       error
 	)
 
@@ -36,12 +69,12 @@ func TestHttpStreamReadWriter(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		c, cerr = NewHttpStreamClientReadWriter(pl, clientTargetAddr, "")
+		c, cerr = NewHttpStreamClientReadWriter(pl, clientTargetAddr, clientProxyAuthHeader)
 	}()
 
 	go func() {
 		defer wg.Done()
-		s, serverTargetAddr, serr = NewHttpStreamServerReadWriter(pr, logger)
+		s, serverTargetAddr, username, serr = NewHttpStreamServerReadWriter(pr, serverUsernameByToken, logger)
 	}()
 
 	wg.Wait()
@@ -55,8 +88,66 @@ func TestHttpStreamReadWriter(t *testing.T) {
 	if !clientTargetAddr.Equals(serverTargetAddr) {
 		t.Errorf("Target address mismatch: c: %q, s: %q", clientTargetAddr, serverTargetAddr)
 	}
+	if username != expectedUsername {
+		t.Errorf("username = %q, want %q", username, expectedUsername)
+	}
 
 	zerocopy.ReadWriterTestFunc(t, c, s)
+}
+
+func testHttpStreamReadWriterBasicAuthBadCredentials(t *testing.T, logger *zap.Logger) {
+	pl, pr := pipe.NewDuplexPipe()
+
+	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 80))
+	clientProxyAuthHeaders := [...]string{
+		"",
+		"\r\nProxy-Authorization: Basic aGVsbG86d29ybGQ=",
+		"\r\nProxy-Authorization: Basic dGVzdDoxMjPCow==",
+		"\r\nProxy-Authorization: Basic aGVsbG86d29ybGQ=",
+		"\r\nProxy-Authorization: Bas1c QWxhZGRpbjpvcGVuIHNlc2FtZQ==",
+		"\r\nProxy-Authorization: Digest",
+	}
+	clientErrors := make([]error, len(clientProxyAuthHeaders))
+
+	var (
+		wg   sync.WaitGroup
+		serr error
+	)
+
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for i, clientProxyAuthHeader := range clientProxyAuthHeaders {
+			_, clientErrors[i] = NewHttpStreamClientReadWriter(pl, clientTargetAddr, clientProxyAuthHeader)
+		}
+		_ = pl.CloseWrite()
+	}()
+
+	go func() {
+		defer wg.Done()
+		_, _, _, serr = NewHttpStreamServerReadWriter(pr, map[string]string{"QWxhZGRpbjpvcGVuIHNlc2FtZQ==": "Aladdin"}, logger)
+	}()
+
+	wg.Wait()
+
+	for i, err := range clientErrors {
+		var respErr ConnectNonSuccessfulResponseError
+		if !errors.As(err, &respErr) {
+			t.Errorf("clientErrors[%d] = %v, want ConnectNonSuccessfulResponseError", i, err)
+		}
+		if respErr.StatusCode != http.StatusProxyAuthRequired {
+			t.Errorf("clientErrors[%d].StatusCode = %d, want %d", i, respErr.StatusCode, http.StatusProxyAuthRequired)
+		}
+	}
+
+	var authErr FailedAuthAttemptsError
+	if !errors.As(serr, &authErr) {
+		t.Errorf("serr = %v, want FailedAuthAttemptsError", serr)
+	}
+	if authErr.Attempts != len(clientProxyAuthHeaders) {
+		t.Errorf("authErr.Attempts = %d, want %d", authErr.Attempts, len(clientProxyAuthHeaders))
+	}
 }
 
 func TestHttpStreamClientReadWriterServerSpeaksFirst(t *testing.T) {
@@ -187,14 +278,17 @@ func TestHostHeaderToAddr(t *testing.T) {
 
 func TestRemoveConnectionSpecificFields(t *testing.T) {
 	header := http.Header{
-		"Connection":        []string{"keep-alive, upgrade, drop-this"},
-		"Proxy-Connection":  []string{"Keep-Alive"},
-		"Keep-Alive":        []string{"timeout=5, max=1000"},
-		"Upgrade":           []string{"websocket"},
-		"Drop-This":         []string{"Drop me!"},
-		"Keep-This":         []string{"Keep me!"},
-		"Te":                []string{"trailers"},
-		"Transfer-Encoding": []string{"chunked"},
+		"Connection":                []string{"keep-alive, upgrade, drop-this"},
+		"Proxy-Connection":          []string{"Keep-Alive"},
+		"Keep-Alive":                []string{"timeout=5, max=1000"},
+		"Upgrade":                   []string{"websocket"},
+		"Drop-This":                 []string{"Drop me!"},
+		"Keep-This":                 []string{"Keep me!"},
+		"Te":                        []string{"trailers"},
+		"Transfer-Encoding":         []string{"chunked"},
+		"Proxy-Authenticate":        []string{"#challenge"},
+		"Proxy-Authorization":       []string{"credentials"},
+		"Proxy-Authentication-Info": []string{"#auth-param"},
 	}
 
 	expectedHeader := http.Header{

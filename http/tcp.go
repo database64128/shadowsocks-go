@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"slices"
 	"strings"
 	"unsafe"
 
@@ -42,7 +43,9 @@ type ClientConfig struct {
 	UseBasicAuth bool
 }
 
-// ProxyClient implements the zerocopy TCPClient interface.
+// ProxyClient is an HTTP proxy client.
+//
+// ProxyClient implements [zerocopy.TCPClient].
 type ProxyClient struct {
 	name    string
 	network string
@@ -77,7 +80,7 @@ func (c *ClientConfig) NewProxyClient() (*ProxyClient, error) {
 	return &client, nil
 }
 
-// Info implements the zerocopy.TCPClient Info method.
+// Info implements [zerocopy.TCPClient.Info].
 func (c *ProxyClient) Info() zerocopy.TCPClientInfo {
 	return zerocopy.TCPClientInfo{
 		Name:                 c.name,
@@ -85,7 +88,7 @@ func (c *ProxyClient) Info() zerocopy.TCPClientInfo {
 	}
 }
 
-// Dial implements the zerocopy.TCPClient Dial method.
+// Dial implements [zerocopy.TCPClient.Dial].
 func (c *ProxyClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
 	rawRW, err = c.dialer.DialTCP(ctx, c.network, c.address, nil)
 	if err != nil {
@@ -106,16 +109,64 @@ func (c *ProxyClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []
 	return
 }
 
-// ProxyServer implements the zerocopy TCPServer interface.
+// ServerConfig contains configuration options for an HTTP proxy server.
+type ServerConfig struct {
+	// Logger is the logger used for logging.
+	Logger *zap.Logger
+
+	// Users is a list of users allowed to connect to the server.
+	// It is ignored if none of the authentication methods are enabled.
+	Users []ServerUserCredentials
+
+	// EnableBasicAuth controls whether to enable HTTP Basic Authentication.
+	EnableBasicAuth bool
+}
+
+// ServerUserCredentials contains the username and password for a server user.
+type ServerUserCredentials struct {
+	// Username is the username.
+	Username string `json:"username"`
+
+	// Password is the password.
+	Password string `json:"password"`
+}
+
+// ProxyServer is an HTTP proxy server.
+//
+// ProxyServer implements [zerocopy.TCPServer].
 type ProxyServer struct {
-	logger *zap.Logger
+	logger          *zap.Logger
+	usernameByToken map[string]string
 }
 
-func NewProxyServer(logger *zap.Logger) *ProxyServer {
-	return &ProxyServer{logger}
+// NewProxyServer creates a new HTTP proxy server.
+func (c *ServerConfig) NewProxyServer() (*ProxyServer, error) {
+	server := ProxyServer{
+		logger: c.Logger,
+	}
+
+	if c.EnableBasicAuth {
+		var b []byte
+		server.usernameByToken = make(map[string]string, len(c.Users))
+		for _, user := range c.Users {
+			if strings.IndexByte(user.Username, ':') >= 0 {
+				return nil, errUsernameContainsColon
+			}
+
+			b = b[:0]
+			b = slices.Grow(b, len(user.Username)+1+len(user.Password))
+			b = append(b, user.Username...)
+			b = append(b, ':')
+			b = append(b, user.Password...)
+			token := base64.StdEncoding.EncodeToString(b)
+			server.usernameByToken[token] = user.Username
+		}
+	}
+
+	return &server, nil
 }
 
-// Info implements the zerocopy.TCPServer Info method.
+// Info implements [zerocopy.TCPServer.Info].
 func (s *ProxyServer) Info() zerocopy.TCPServerInfo {
 	return zerocopy.TCPServerInfo{
 		NativeInitialPayload: false,
@@ -123,8 +174,8 @@ func (s *ProxyServer) Info() zerocopy.TCPServerInfo {
 	}
 }
 
-// Accept implements the zerocopy.TCPServer Accept method.
+// Accept implements [zerocopy.TCPServer.Accept].
 func (s *ProxyServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
-	rw, targetAddr, err = NewHttpStreamServerReadWriter(rawRW, s.logger)
+	rw, targetAddr, username, err = NewHttpStreamServerReadWriter(rawRW, s.usernameByToken, s.logger)
 	return
 }

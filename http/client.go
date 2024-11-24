@@ -11,6 +11,20 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
+// ConnectNonSuccessfulResponseError is returned when the HTTP CONNECT response status code is not 2xx (Successful).
+type ConnectNonSuccessfulResponseError struct {
+	StatusCode int
+}
+
+func newConnectNonSuccessfulResponseError(statusCode int) error {
+	return ConnectNonSuccessfulResponseError{StatusCode: statusCode}
+}
+
+// Error implements [error.Error].
+func (e ConnectNonSuccessfulResponseError) Error() string {
+	return fmt.Sprintf("HTTP CONNECT failed with status code %d", e.StatusCode)
+}
+
 // NewHttpStreamClientReadWriter writes a HTTP/1.1 CONNECT request to rw and wraps rw into a [zerocopy.ReadWriter] ready for use.
 func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr conn.Addr, proxyAuthHeader string) (zerocopy.ReadWriter, error) {
 	targetAddress := targetAddr.String()
@@ -33,7 +47,7 @@ func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr
 
 	// Per RFC 9110, any 2xx (Successful) response is considered a success.
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP CONNECT failed with status code %d", resp.StatusCode)
+		return nil, newConnectNonSuccessfulResponseError(resp.StatusCode)
 	}
 
 	// Check if server spoke first.

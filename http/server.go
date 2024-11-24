@@ -17,12 +17,72 @@ import (
 	"go.uber.org/zap"
 )
 
+// FailedAuthAttemptsError is returned when the client fails to authenticate itself during the lifetime of the connection.
+type FailedAuthAttemptsError struct {
+	// Attempts is the number of failed attempts.
+	Attempts int
+}
+
+func newFailedAuthAttemptsError(attempts int) error {
+	return FailedAuthAttemptsError{Attempts: attempts}
+}
+
+// Error implements [error.Error].
+func (e FailedAuthAttemptsError) Error() string {
+	return fmt.Sprintf("%d failed authentication attempt(s)", e.Attempts)
+}
+
 // NewHttpStreamServerReadWriter handles a HTTP request from rw and wraps rw into a ReadWriter ready for use.
-func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *zap.Logger) (*direct.DirectStreamReadWriter, conn.Addr, error) {
+func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, usernameByToken map[string]string, logger *zap.Logger) (*direct.DirectStreamReadWriter, conn.Addr, string, error) {
+	var (
+		req                *http.Request
+		err                error
+		username           string
+		ok                 bool
+		failedAuthAttempts int
+	)
+
 	rwbr := bufio.NewReader(rw)
-	req, err := http.ReadRequest(rwbr)
-	if err != nil {
-		return nil, conn.Addr{}, err
+
+	for {
+		req, err = http.ReadRequest(rwbr)
+		if err != nil {
+			if failedAuthAttempts > 0 {
+				return nil, conn.Addr{}, "", fmt.Errorf("failed to read HTTP request after %w: %w", newFailedAuthAttemptsError(failedAuthAttempts), err)
+			}
+			return nil, conn.Addr{}, "", fmt.Errorf("failed to read HTTP request: %w", err)
+		}
+
+		if usernameByToken == nil {
+			break
+		}
+
+		username, ok = serverHandleBasicAuth(req.Header, usernameByToken)
+		if ok {
+			break
+		}
+
+		failedAuthAttempts++
+
+		if ce := logger.Check(zap.DebugLevel, "Sending 407 Proxy Authentication Required response"); ce != nil {
+			ce.Write(
+				zap.String("proto", req.Proto),
+				zap.String("method", req.Method),
+				zap.String("url", req.RequestURI),
+				zap.String("host", req.Host),
+				zap.Int64("contentLength", req.ContentLength),
+				zap.Bool("close", req.Close),
+				zap.Int("failedAuthAttempts", failedAuthAttempts),
+			)
+		}
+
+		if err = send407(rw); err != nil {
+			return nil, conn.Addr{}, "", fmt.Errorf("failed to send 407 Proxy Authentication Required response after %w: %w", newFailedAuthAttemptsError(failedAuthAttempts), err)
+		}
+
+		if req.Close {
+			return nil, conn.Addr{}, "", newFailedAuthAttemptsError(failedAuthAttempts)
+		}
 	}
 
 	if ce := logger.Check(zap.DebugLevel, "Received initial HTTP request"); ce != nil {
@@ -40,15 +100,15 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 	targetAddr, err := hostHeaderToAddr(req.Host)
 	if err != nil {
 		_ = send400(rw)
-		return nil, conn.Addr{}, err
+		return nil, conn.Addr{}, username, fmt.Errorf("failed to parse host header: %w", err)
 	}
 
 	// Fast-track CONNECT.
 	if req.Method == http.MethodConnect {
 		if err = send200(rw); err != nil {
-			return nil, conn.Addr{}, err
+			return nil, conn.Addr{}, username, fmt.Errorf("failed to send 200 OK response: %w", err)
 		}
-		return direct.NewDirectStreamReadWriter(rw), targetAddr, nil
+		return direct.NewDirectStreamReadWriter(rw), targetAddr, username, nil
 	}
 
 	// Set up pipes.
@@ -83,7 +143,25 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, logger *za
 	}()
 
 	// Wrap pr into a direct stream ReadWriter.
-	return direct.NewDirectStreamReadWriter(pr), targetAddr, nil
+	return direct.NewDirectStreamReadWriter(pr), targetAddr, username, nil
+}
+
+func serverHandleBasicAuth(header http.Header, usernameByToken map[string]string) (string, bool) {
+	for _, creds := range header["Proxy-Authorization"] {
+		const prefix = "Basic "
+		if len(creds) > len(prefix) &&
+			(creds[0] == 'B' || creds[0] == 'b') &&
+			(creds[1] == 'a' || creds[1] == 'A') &&
+			(creds[2] == 's' || creds[2] == 'S') &&
+			(creds[3] == 'i' || creds[3] == 'I') &&
+			(creds[4] == 'c' || creds[4] == 'C') &&
+			creds[5] == ' ' {
+			username, ok := usernameByToken[creds[len(prefix):]]
+			return username, ok
+		}
+	}
+
+	return "", false
 }
 
 func serverForwardRequests(
@@ -372,6 +450,11 @@ func send400(w io.Writer) error {
 	return err
 }
 
+func send407(w io.Writer) error {
+	_, err := w.Write([]byte("HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"shadowsocks-go\", charset=\"UTF-8\"\r\n\r\n"))
+	return err
+}
+
 func send502(w io.Writer) error {
 	_, err := w.Write([]byte("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n"))
 	return err
@@ -413,6 +496,10 @@ func removeConnectionSpecificFields(header, trailer http.Header) {
 	delete(header, "Keep-Alive")
 	delete(header, "Te")
 	delete(header, "Transfer-Encoding")
+
+	delete(header, "Proxy-Authenticate")
+	delete(header, "Proxy-Authorization")
+	delete(header, "Proxy-Authentication-Info")
 }
 
 // pipeClosingWriter passes writes to the underlying [io.Writer] and closes the [*pipe.DuplexPipeEnd] on error.
