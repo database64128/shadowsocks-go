@@ -15,6 +15,7 @@ import (
 
 var (
 	ErrAcceptDoneNoRelay     = errors.New("the accepted connection has been handled without relaying")
+	ErrAcceptRequiresNetConn = errors.New("rawRW is required to implement net.Conn")
 	ErrAcceptRequiresTCPConn = errors.New("rawRW is required to be a *net.TCPConn")
 )
 

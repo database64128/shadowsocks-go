@@ -2,8 +2,11 @@ package http
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
+	"net"
 	"slices"
 	"strings"
 	"unsafe"
@@ -33,11 +36,35 @@ type ClientConfig struct {
 	// Dialer is the dialer used to establish connections.
 	Dialer conn.Dialer
 
+	// Certificates is an optional list of client certificates for mutual TLS.
+	// See [tls.Config.Certificates].
+	Certificates []tls.Certificate
+
+	// GetClientCertificate is an optional function that returns the client certificate for mutual TLS.
+	// See [tls.Config.GetClientCertificate].
+	GetClientCertificate func(*tls.CertificateRequestInfo) (*tls.Certificate, error)
+
+	// RootCAs is the set of root CAs used to verify server certificates.
+	// If nil, the host's CA set is used.
+	// See [tls.Config.RootCAs].
+	RootCAs *x509.CertPool
+
+	// ServerName is the server name used to verify the hostname on the returned certificates.
+	// See [tls.Config.ServerName].
+	ServerName string
+
+	// EncryptedClientHelloConfigList is a serialized ECHConfigList.
+	// See [tls.Config.EncryptedClientHelloConfigList].
+	EncryptedClientHelloConfigList []byte
+
 	// Username is the username used for authentication.
 	Username string
 
 	// Password is the password used for authentication.
 	Password string
+
+	// UseTLS controls whether to use TLS.
+	UseTLS bool
 
 	// UseBasicAuth controls whether to use HTTP Basic Authentication.
 	UseBasicAuth bool
@@ -52,6 +79,8 @@ type ProxyClient struct {
 	address string
 	dialer  conn.Dialer
 
+	tlsConfig *tls.Config
+
 	proxyAuthHeader string
 }
 
@@ -62,6 +91,16 @@ func (c *ClientConfig) NewProxyClient() (*ProxyClient, error) {
 		network: c.Network,
 		address: c.Address,
 		dialer:  c.Dialer,
+	}
+
+	if c.UseTLS {
+		client.tlsConfig = &tls.Config{
+			Certificates:                   c.Certificates,
+			GetClientCertificate:           c.GetClientCertificate,
+			RootCAs:                        c.RootCAs,
+			ServerName:                     c.ServerName,
+			EncryptedClientHelloConfigList: c.EncryptedClientHelloConfigList,
+		}
 	}
 
 	if c.UseBasicAuth {
@@ -90,23 +129,32 @@ func (c *ProxyClient) Info() zerocopy.TCPClientInfo {
 
 // Dial implements [zerocopy.TCPClient.Dial].
 func (c *ProxyClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
-	rawRW, err = c.dialer.DialTCP(ctx, c.network, c.address, nil)
+	tcpConn, err := c.dialer.DialTCP(ctx, c.network, c.address, nil)
 	if err != nil {
-		return
+		return nil, nil, err
+	}
+
+	if c.tlsConfig != nil {
+		tlsConn := tls.Client(tcpConn, c.tlsConfig)
+		rawRW = directReadWriteCloserFromTLSConn(tlsConn)
+	} else {
+		rawRW = tcpConn
 	}
 
 	rw, err = NewHttpStreamClientReadWriter(rawRW, targetAddr, c.proxyAuthHeader)
 	if err != nil {
-		rawRW.Close()
-		return
+		_ = rawRW.Close()
+		return nil, nil, err
 	}
 
 	if len(payload) > 0 {
 		if _, err = rw.WriteZeroCopy(payload, 0, len(payload)); err != nil {
-			rawRW.Close()
+			_ = rawRW.Close()
+			return nil, nil, err
 		}
 	}
-	return
+
+	return rawRW, rw, nil
 }
 
 // ServerConfig contains configuration options for an HTTP proxy server.
@@ -118,8 +166,26 @@ type ServerConfig struct {
 	// It is ignored if none of the authentication methods are enabled.
 	Users []ServerUserCredentials
 
+	// Certificates is the list of server certificates for TLS.
+	// See [tls.Config.Certificates].
+	Certificates []tls.Certificate
+
+	// GetCertificate is a function that returns the server certificate for TLS.
+	// See [tls.Config.GetCertificate].
+	GetCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)
+
+	// ClientCAs is the set of root CAs used to verify client certificates.
+	// See [tls.Config.ClientCAs].
+	ClientCAs *x509.CertPool
+
 	// EnableBasicAuth controls whether to enable HTTP Basic Authentication.
 	EnableBasicAuth bool
+
+	// EnableTLS controls whether to enable TLS.
+	EnableTLS bool
+
+	// RequireAndVerifyClientCert controls whether to require and verify client certificates.
+	RequireAndVerifyClientCert bool
 }
 
 // ServerUserCredentials contains the username and password for a server user.
@@ -140,7 +206,7 @@ type ProxyServer struct {
 }
 
 // NewProxyServer creates a new HTTP proxy server.
-func (c *ServerConfig) NewProxyServer() (*ProxyServer, error) {
+func (c *ServerConfig) NewProxyServer() (zerocopy.TCPServer, error) {
 	server := ProxyServer{
 		logger: c.Logger,
 	}
@@ -163,6 +229,21 @@ func (c *ServerConfig) NewProxyServer() (*ProxyServer, error) {
 		}
 	}
 
+	if c.EnableTLS {
+		tlsServer := TLSProxyServer{
+			plainServer: server,
+			tlsConfig: &tls.Config{
+				Certificates:   c.Certificates,
+				GetCertificate: c.GetCertificate,
+				ClientCAs:      c.ClientCAs,
+			},
+		}
+		if c.RequireAndVerifyClientCert {
+			tlsServer.tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+		}
+		return &tlsServer, nil
+	}
+
 	return &server, nil
 }
 
@@ -178,4 +259,47 @@ func (s *ProxyServer) Info() zerocopy.TCPServerInfo {
 func (s *ProxyServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
 	rw, targetAddr, username, err = NewHttpStreamServerReadWriter(rawRW, s.usernameByToken, s.logger)
 	return
+}
+
+// TLSProxyServer is an HTTP proxy server that uses TLS.
+//
+// TLSProxyServer implements [zerocopy.TCPServer].
+type TLSProxyServer struct {
+	plainServer ProxyServer
+	tlsConfig   *tls.Config
+}
+
+// Info implements [zerocopy.TCPServer.Info].
+func (s *TLSProxyServer) Info() zerocopy.TCPServerInfo {
+	return s.plainServer.Info()
+}
+
+// Accept implements [zerocopy.TCPServer.Accept].
+func (s *TLSProxyServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
+	netConn, ok := rawRW.(net.Conn)
+	if !ok {
+		return nil, conn.Addr{}, nil, "", zerocopy.ErrAcceptRequiresNetConn
+	}
+	tlsConn := tls.Server(netConn, s.tlsConfig)
+	rawRW = directReadWriteCloserFromTLSConn(tlsConn)
+	return s.plainServer.Accept(rawRW)
+}
+
+// tlsConnDirectReadWriteCloser wraps a [*tls.Conn] as a [zerocopy.DirectReadWriteCloser]
+// by adding a no-op [CloseRead] method.
+//
+// [tls.Conn.CloseWrite] does not call the underlying connection's CloseWrite method.
+// Nevertheless, it sends an alertCloseNotify record, which causes Read on the other end to return [io.EOF].
+type tlsConnDirectReadWriteCloser struct {
+	*tls.Conn
+}
+
+// directReadWriteCloserFromTLSConn creates a [zerocopy.DirectReadWriteCloser] from a [*tls.Conn].
+func directReadWriteCloserFromTLSConn(c *tls.Conn) zerocopy.DirectReadWriteCloser {
+	return tlsConnDirectReadWriteCloser{c}
+}
+
+// CloseRead implements [zerocopy.DirectReadWriteCloser.CloseRead].
+func (tlsConnDirectReadWriteCloser) CloseRead() error {
+	return nil
 }
