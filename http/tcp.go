@@ -280,9 +280,20 @@ func (s *TLSProxyServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zeroco
 	if !ok {
 		return nil, conn.Addr{}, nil, "", zerocopy.ErrAcceptRequiresNetConn
 	}
+
 	tlsConn := tls.Server(netConn, s.tlsConfig)
 	rawRW = directReadWriteCloserFromTLSConn(tlsConn)
-	return s.plainServer.Accept(rawRW)
+	rw, targetAddr, payload, username, err = s.plainServer.Accept(rawRW)
+	if err != nil {
+		return
+	}
+
+	if s.plainServer.usernameByToken == nil && s.tlsConfig.ClientAuth == tls.RequireAndVerifyClientCert {
+		tlsConnState := tlsConn.ConnectionState()
+		username = tlsConnState.PeerCertificates[0].Subject.CommonName
+	}
+
+	return
 }
 
 // tlsConnDirectReadWriteCloser wraps a [*tls.Conn] as a [zerocopy.DirectReadWriteCloser]
