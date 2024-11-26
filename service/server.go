@@ -15,6 +15,7 @@ import (
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"github.com/database64128/shadowsocks-go/stats"
+	"github.com/database64128/shadowsocks-go/tlscerts"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
@@ -296,6 +297,7 @@ type ServerConfig struct {
 	UnsafeRequestStreamPrefix  []byte    `json:"unsafeRequestStreamPrefix"`
 	UnsafeResponseStreamPrefix []byte    `json:"unsafeResponseStreamPrefix"`
 
+	tlsCertStore      *tlscerts.Store
 	listenConfigCache conn.ListenConfigCache
 	collector         stats.Collector
 	router            *router.Router
@@ -304,7 +306,7 @@ type ServerConfig struct {
 }
 
 // Initialize initializes the server configuration.
-func (sc *ServerConfig) Initialize(listenConfigCache conn.ListenConfigCache, collector stats.Collector, router *router.Router, logger *zap.Logger, index int) error {
+func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCache conn.ListenConfigCache, collector stats.Collector, router *router.Router, logger *zap.Logger, index int) error {
 	sc.tcpEnabled = sc.EnableTCP || len(sc.TCPListeners) > 0
 	sc.udpEnabled = sc.EnableUDP || len(sc.UDPListeners) > 0
 
@@ -312,6 +314,11 @@ func (sc *ServerConfig) Initialize(listenConfigCache conn.ListenConfigCache, col
 	case "direct":
 		if !sc.TunnelRemoteAddress.IsValid() {
 			return errors.New("tunnelRemoteAddress is required for simple tunnel")
+		}
+
+	case "http":
+		if err := sc.HTTP.Validate(); err != nil {
+			return err
 		}
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
@@ -364,6 +371,7 @@ func (sc *ServerConfig) Initialize(listenConfigCache conn.ListenConfigCache, col
 		})
 	}
 
+	sc.tlsCertStore = tlsCertStore
 	sc.listenConfigCache = listenConfigCache
 	sc.collector = collector
 	sc.router = router
@@ -404,9 +412,28 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 
 	case "http":
 		hpsc := http.ServerConfig{
-			Logger:          sc.logger,
-			Users:           sc.HTTP.Users,
-			EnableBasicAuth: sc.HTTP.EnableBasicAuth,
+			Logger:                     sc.logger,
+			Users:                      sc.HTTP.Users,
+			EnableBasicAuth:            sc.HTTP.EnableBasicAuth,
+			EnableTLS:                  sc.HTTP.EnableTLS,
+			RequireAndVerifyClientCert: sc.HTTP.RequireAndVerifyClientCert,
+		}
+
+		if sc.HTTP.CertList != "" {
+			certs, getCert, ok := sc.tlsCertStore.GetCertList(sc.HTTP.CertList)
+			if !ok {
+				return nil, fmt.Errorf("certificate list %q not found", sc.HTTP.CertList)
+			}
+			hpsc.Certificates = certs
+			hpsc.GetCertificate = getCert
+		}
+
+		if sc.HTTP.ClientCAs != "" {
+			pool, ok := sc.tlsCertStore.GetX509CertPool(sc.HTTP.ClientCAs)
+			if !ok {
+				return nil, fmt.Errorf("client CA X.509 certificate pool %q not found", sc.HTTP.ClientCAs)
+			}
+			hpsc.ClientCAs = pool
 		}
 
 		server, err = hpsc.NewProxyServer()
@@ -578,6 +605,28 @@ type HTTPProxyServerConfig struct {
 	// It is ignored if none of the authentication methods are enabled.
 	Users []http.ServerUserCredentials `json:"users"`
 
+	// CertList is the name of the certificate list in the certificate store,
+	// used as the server certificate for HTTPS.
+	CertList string `json:"certList"`
+
+	// ClientCAs is the name of the X.509 certificate pool in the certificate store,
+	// used as the root CA set for verifying client certificates.
+	ClientCAs string `json:"clientCAs"`
+
 	// EnableBasicAuth controls whether to enable HTTP Basic Authentication.
 	EnableBasicAuth bool `json:"enableBasicAuth"`
+
+	// EnableTLS controls whether to enable TLS.
+	EnableTLS bool `json:"enableTLS"`
+
+	// RequireAndVerifyClientCert controls whether to require and verify client certificates.
+	RequireAndVerifyClientCert bool `json:"requireAndVerifyClientCert"`
+}
+
+// Validate validates the configuration.
+func (c *HTTPProxyServerConfig) Validate() error {
+	if c.EnableTLS && c.CertList == "" {
+		return errors.New("certificate list is required for HTTPS")
+	}
+	return nil
 }

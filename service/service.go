@@ -11,6 +11,7 @@ import (
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
+	"github.com/database64128/shadowsocks-go/tlscerts"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
@@ -33,12 +34,13 @@ type Relay interface {
 // Config is the main configuration structure.
 // It may be marshaled as or unmarshaled from JSON.
 type Config struct {
-	Servers []ServerConfig       `json:"servers"`
-	Clients []ClientConfig       `json:"clients"`
-	DNS     []dns.ResolverConfig `json:"dns"`
-	Router  router.Config        `json:"router"`
-	Stats   stats.Config         `json:"stats"`
-	API     api.Config           `json:"api"`
+	Servers  []ServerConfig       `json:"servers"`
+	Clients  []ClientConfig       `json:"clients"`
+	DNS      []dns.ResolverConfig `json:"dns"`
+	Router   router.Config        `json:"router"`
+	Stats    stats.Config         `json:"stats"`
+	API      api.Config           `json:"api"`
+	TLSCerts tlscerts.Config      `json:"certs"`
 }
 
 // Manager initializes the service manager.
@@ -63,6 +65,11 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		}
 	}
 
+	tlsCertStore, err := sc.TLSCerts.NewStore()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create TLS certificate store: %w", err)
+	}
+
 	listenConfigCache := conn.NewListenConfigCache()
 	dialerCache := conn.NewDialerCache()
 	clientIndexByName := make(map[string]int, len(sc.Clients))
@@ -78,7 +85,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		}
 		clientIndexByName[clientConfig.Name] = i
 
-		if err := clientConfig.Initialize(listenConfigCache, dialerCache, logger); err != nil {
+		if err := clientConfig.Initialize(tlsCertStore, listenConfigCache, dialerCache, logger); err != nil {
 			return nil, fmt.Errorf("failed to initialize client %q: %w", clientConfig.Name, err)
 		}
 
@@ -151,7 +158,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	for i := range sc.Servers {
 		serverConfig := &sc.Servers[i]
 		collector := sc.Stats.Collector()
-		if err := serverConfig.Initialize(listenConfigCache, collector, router, logger, i); err != nil {
+		if err := serverConfig.Initialize(tlsCertStore, listenConfigCache, collector, router, logger, i); err != nil {
 			return nil, fmt.Errorf("failed to initialize server %q: %w", serverConfig.Name, err)
 		}
 

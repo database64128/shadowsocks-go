@@ -176,7 +176,11 @@
                         "password": "password"
                     }
                 ],
-                "enableBasicAuth": true
+                "certList": "example.com",
+                "clientCAs": "my-root-ca",
+                "enableBasicAuth": true,
+                "enableTLS": false,
+                "requireAndVerifyClientCert": false
             }
         },
         {
@@ -291,8 +295,13 @@
             "tcpFastOpenFallback": false,
             "multipathTCP": false,
             "http": {
+                "certList": "my-client-cert",
+                "rootCAs": "my-root-ca",
+                "serverName": "example.com",
+                "echConfigList": "",
                 "username": "username",
                 "password": "password",
+                "useTLS": false,
                 "useBasicAuth": true
             }
         },
@@ -460,5 +469,35 @@
         "clientCertFile": "",
         "secretPath": "/4paZvyoK3dCjyQXU33md5huJMMYVD9o8",
         "fiberConfigPath": ""
+    },
+    "certs": {
+        "certLists": [
+            {
+                "name": "example.com",
+                "certs": [
+                    {
+                        "certPath": "/etc/letsencrypt/live/example.com/fullchain.pem",
+                        "keyPath": "/etc/letsencrypt/live/example.com/privkey.pem"
+                    }
+                ]
+            },
+            {
+                "name": "my-client-cert",
+                "certs": [
+                    {
+                        "certPath": "/etc/shadowsocks-go/my-client-cert.pem",
+                        "keyPath": "/etc/shadowsocks-go/my-client-key.pem"
+                    }
+                ]
+            }
+        ],
+        "x509CertPools": [
+            {
+                "name": "my-root-ca",
+                "certPaths": [
+                    "/etc/shadowsocks-go/my-root-ca.pem"
+                ]
+            }
+        ]
     }
 }

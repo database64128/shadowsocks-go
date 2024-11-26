@@ -8,6 +8,7 @@ import (
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/http"
 	"github.com/database64128/shadowsocks-go/ss2022"
+	"github.com/database64128/shadowsocks-go/tlscerts"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
@@ -112,6 +113,7 @@ type ClientConfig struct {
 	UnsafeRequestStreamPrefix  []byte `json:"unsafeRequestStreamPrefix"`
 	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix"`
 
+	tlsCertStore      *tlscerts.Store
 	listenConfigCache conn.ListenConfigCache
 	dialerCache       conn.DialerCache
 	logger            *zap.Logger
@@ -148,7 +150,7 @@ func (cc *ClientConfig) checkAddresses() error {
 }
 
 // Initialize initializes the client configuration.
-func (cc *ClientConfig) Initialize(listenConfigCache conn.ListenConfigCache, dialerCache conn.DialerCache, logger *zap.Logger) (err error) {
+func (cc *ClientConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCache conn.ListenConfigCache, dialerCache conn.DialerCache, logger *zap.Logger) (err error) {
 	switch cc.Network {
 	case "":
 		cc.Network = "ip"
@@ -162,6 +164,11 @@ func (cc *ClientConfig) Initialize(listenConfigCache conn.ListenConfigCache, dia
 	}
 
 	switch cc.Protocol {
+	case "http":
+		if cc.HTTP.UseTLS && cc.HTTP.ServerName == "" {
+			cc.HTTP.ServerName = cc.TCPAddress.Host()
+		}
+
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		if err = ss2022.CheckPSKLength(cc.Protocol, cc.PSK, cc.IPSKs); err != nil {
 			return
@@ -172,6 +179,7 @@ func (cc *ClientConfig) Initialize(listenConfigCache conn.ListenConfigCache, dia
 		}
 	}
 
+	cc.tlsCertStore = tlsCertStore
 	cc.listenConfigCache = listenConfigCache
 	cc.dialerCache = dialerCache
 	cc.logger = logger
@@ -219,14 +227,35 @@ func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
 		return direct.NewSocks5TCPClient(cc.Name, network, cc.TCPAddress.String(), dialer), nil
 	case "http":
 		hpcc := http.ClientConfig{
-			Name:         cc.Name,
-			Network:      network,
-			Address:      cc.TCPAddress.String(),
-			Dialer:       dialer,
-			Username:     cc.HTTP.Username,
-			Password:     cc.HTTP.Password,
-			UseBasicAuth: cc.HTTP.UseBasicAuth,
+			Name:                           cc.Name,
+			Network:                        network,
+			Address:                        cc.TCPAddress.String(),
+			Dialer:                         dialer,
+			ServerName:                     cc.HTTP.ServerName,
+			EncryptedClientHelloConfigList: cc.HTTP.ECHConfigList,
+			Username:                       cc.HTTP.Username,
+			Password:                       cc.HTTP.Password,
+			UseTLS:                         cc.HTTP.UseTLS,
+			UseBasicAuth:                   cc.HTTP.UseBasicAuth,
 		}
+
+		if cc.HTTP.CertList != "" {
+			certs, getClientCert, ok := cc.tlsCertStore.GetClientCertList(cc.HTTP.CertList)
+			if !ok {
+				return nil, fmt.Errorf("certificate list not found: %q", cc.HTTP.CertList)
+			}
+			hpcc.Certificates = certs
+			hpcc.GetClientCertificate = getClientCert
+		}
+
+		if cc.HTTP.RootCAs != "" {
+			pool, ok := cc.tlsCertStore.GetX509CertPool(cc.HTTP.RootCAs)
+			if !ok {
+				return nil, fmt.Errorf("root CA X.509 certificate pool not found: %q", cc.HTTP.RootCAs)
+			}
+			hpcc.RootCAs = pool
+		}
+
 		return hpcc.NewProxyClient()
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		if len(cc.UnsafeRequestStreamPrefix) != 0 || len(cc.UnsafeResponseStreamPrefix) != 0 {
@@ -285,11 +314,32 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 
 // HTTPProxyClientConfig is the configuration for an HTTP proxy client.
 type HTTPProxyClientConfig struct {
+	// CertList is the name of the certificate list in the certificate store,
+	// used as the client certificate for mutual TLS.
+	// If empty, no client certificate is used.
+	CertList string `json:"certList"`
+
+	// RootCAs is the name of the X.509 certificate pool in the certificate store,
+	// used for verifying the server certificate.
+	// If empty, the system default is used.
+	RootCAs string `json:"rootCAs"`
+
+	// ServerName is the server name used for TLS.
+	// If empty, it is inferred from the address.
+	ServerName string `json:"serverName"`
+
+	// ECHConfigList is a serialized ECHConfigList.
+	// See [tls.Config.EncryptedClientHelloConfigList].
+	ECHConfigList []byte `json:"echConfigList"`
+
 	// Username is the username used for authentication.
 	Username string `json:"username"`
 
 	// Password is the password used for authentication.
 	Password string `json:"password"`
+
+	// UseTLS controls whether to use TLS.
+	UseTLS bool `json:"useTLS"`
 
 	// UseBasicAuth controls whether to use HTTP Basic Authentication.
 	UseBasicAuth bool `json:"useBasicAuth"`
