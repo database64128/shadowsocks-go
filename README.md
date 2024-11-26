@@ -3,10 +3,6 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/database64128/shadowsocks-go.svg)](https://pkg.go.dev/github.com/database64128/shadowsocks-go)
 [![Test](https://github.com/database64128/shadowsocks-go/actions/workflows/test.yml/badge.svg)](https://github.com/database64128/shadowsocks-go/actions/workflows/test.yml)
 [![Release](https://github.com/database64128/shadowsocks-go/actions/workflows/release.yml/badge.svg)](https://github.com/database64128/shadowsocks-go/actions/workflows/release.yml)
-[![shadowsocks-go AUR package](https://img.shields.io/aur/version/shadowsocks-go?label=shadowsocks-go)](https://aur.archlinux.org/packages/shadowsocks-go)
-[![shadowsocks-go-git AUR package](https://img.shields.io/aur/version/shadowsocks-go-git?label=shadowsocks-go-git)](https://aur.archlinux.org/packages/shadowsocks-go-git)
-[![shadowsocks-go-domain-sets-git AUR package](https://img.shields.io/aur/version/shadowsocks-go-domain-sets-git?label=shadowsocks-go-domain-sets-git)](https://aur.archlinux.org/packages/shadowsocks-go-domain-sets-git)
-[![shadowsocks-go-geolite2-country-git AUR package](https://img.shields.io/aur/version/shadowsocks-go-geolite2-country-git?label=shadowsocks-go-geolite2-country-git)](https://aur.archlinux.org/packages/shadowsocks-go-geolite2-country-git)
 
 A versatile and efficient proxy platform for secure communications.
 
@@ -20,7 +16,38 @@ A versatile and efficient proxy platform for secure communications.
 - TCP relay fast path on Linux with `splice(2)`.
 - UDP relay fast path on Linux with `recvmmsg(2)` and `sendmmsg(2)`.
 
-## Configuration Examples
+## Deployment
+
+### Arch Linux package
+
+Release and VCS packages are available in the AUR:
+
+- [![shadowsocks-go AUR package](https://img.shields.io/aur/version/shadowsocks-go?label=shadowsocks-go)](https://aur.archlinux.org/packages/shadowsocks-go)
+- [![shadowsocks-go-git AUR package](https://img.shields.io/aur/version/shadowsocks-go-git?label=shadowsocks-go-git)](https://aur.archlinux.org/packages/shadowsocks-go-git)
+- [![shadowsocks-go-domain-sets-git AUR package](https://img.shields.io/aur/version/shadowsocks-go-domain-sets-git?label=shadowsocks-go-domain-sets-git)](https://aur.archlinux.org/packages/shadowsocks-go-domain-sets-git)
+- [![shadowsocks-go-geolite2-country-git AUR package](https://img.shields.io/aur/version/shadowsocks-go-geolite2-country-git?label=shadowsocks-go-geolite2-country-git)](https://aur.archlinux.org/packages/shadowsocks-go-geolite2-country-git)
+
+### Prebuilt binaries
+
+Download from [releases](https://github.com/database64128/shadowsocks-go/releases).
+
+### Build from source
+
+Build and install the latest version using Go:
+
+```sh
+go install github.com/database64128/shadowsocks-go/cmd/shadowsocks-go@latest
+go install github.com/database64128/shadowsocks-go/cmd/shadowsocks-go-domain-set-converter@latest
+```
+
+Or clone the repository and build it manually:
+
+```sh
+go build -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go
+go build -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go-domain-set-converter
+```
+
+## Configuration
 
 All configuration examples and systemd unit files can be found in the [docs](docs) directory.
 
@@ -35,6 +62,8 @@ UDP packets may be padded to up to the maximum packet size calculated from `mtu`
 For servers without any user PSKs (single-user mode), the `psk` field specifies the PSK, and the `uPSKStorePath` field can be omitted or left empty. When one or more user PSKs are specified in the uPSK store file, the `psk` field specifies the identity PSK.
 
 To add/update/remove users without restarting the server, modify the uPSK store file and send a `SIGUSR1` signal to the server process, or use the RESTful API. Updates from the RESTful API will be saved to the uPSK store file automatically.
+
+#### 1.1. File: `/etc/shadowsocks-go/config.json`
 
 ```json
 {
@@ -53,6 +82,8 @@ To add/update/remove users without restarting the server, modify the uPSK store 
     ]
 }
 ```
+
+#### 1.2. File: `/etc/shadowsocks-go/upsks.json`
 
 ```json
 {
@@ -300,4 +331,4 @@ To use this feature, add `unsafeRequestStreamPrefix` and `unsafeResponseStreamPr
 
 ## License
 
-[AGPLv3](LICENSE)
+[AGPL-3.0-or-later](LICENSE)

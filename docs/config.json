@@ -149,7 +149,7 @@
             "disableInitialPayloadWait": false
         },
         {
-            "name": "http",
+            "name": "http-basic-auth",
             "protocol": "http",
             "tcpListeners": [
                 {
@@ -253,6 +253,7 @@
             "enableTCP": true,
             "dialerTFO": true,
             "tcpFastOpenFallback": false,
+            "multipathTCP": false,
             "allowSegmentedFixedLengthHeader": false,
             "enableUDP": true,
             "mtu": 1500,
@@ -273,6 +274,7 @@
             "enableTCP": true,
             "dialerTFO": true,
             "tcpFastOpenFallback": false,
+            "multipathTCP": false,
             "allowSegmentedFixedLengthHeader": false,
             "enableUDP": true,
             "mtu": 1500,
@@ -286,7 +288,6 @@
         {
             "name": "http-connect",
             "protocol": "http",
-            "network": "ip",
             "tcpAddress": "[2001:db8:d698:8b7c:10d8:9ac4:c6f8:b188]:8080",
             "dialerFwmark": 52140,
             "dialerTrafficClass": 0,
@@ -308,6 +309,7 @@
         {
             "name": "direct",
             "protocol": "direct",
+            "network": "ip",
             "dialerFwmark": 52140,
             "dialerTrafficClass": 0,
             "enableTCP": true,
@@ -326,6 +328,7 @@
             "enableTCP": true,
             "dialerTFO": true,
             "tcpFastOpenFallback": false,
+            "multipathTCP": false,
             "enableUDP": true,
             "mtu": 1500
         },
@@ -338,6 +341,7 @@
             "enableTCP": true,
             "dialerTFO": true,
             "tcpFastOpenFallback": false,
+            "multipathTCP": false,
             "enableUDP": true,
             "mtu": 1500
         }
