@@ -6,7 +6,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
-	"github.com/database64128/shadowsocks-go/http"
+	"github.com/database64128/shadowsocks-go/httpproxy"
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"github.com/database64128/shadowsocks-go/tlscerts"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -226,7 +226,7 @@ func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
 	case "socks5":
 		return direct.NewSocks5TCPClient(cc.Name, network, cc.TCPAddress.String(), dialer), nil
 	case "http":
-		hpcc := http.ClientConfig{
+		hpcc := httpproxy.ClientConfig{
 			Name:                           cc.Name,
 			Network:                        network,
 			Address:                        cc.TCPAddress.String(),

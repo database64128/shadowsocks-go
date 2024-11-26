@@ -10,7 +10,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/direct"
-	"github.com/database64128/shadowsocks-go/http"
+	"github.com/database64128/shadowsocks-go/httpproxy"
 	"github.com/database64128/shadowsocks-go/jsonhelper"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/ss2022"
@@ -411,7 +411,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		server = direct.NewSocks5TCPServer(sc.tcpEnabled, sc.udpEnabled)
 
 	case "http":
-		hpsc := http.ServerConfig{
+		hpsc := httpproxy.ServerConfig{
 			Logger:                     sc.logger,
 			Users:                      sc.HTTP.Users,
 			EnableBasicAuth:            sc.HTTP.EnableBasicAuth,
@@ -603,7 +603,7 @@ func (sc *ServerConfig) PostInit(credman *cred.Manager, apiSM *ssm.ServerManager
 type HTTPProxyServerConfig struct {
 	// Users is a list of users allowed to connect to the server.
 	// It is ignored if none of the authentication methods are enabled.
-	Users []http.ServerUserCredentials `json:"users"`
+	Users []httpproxy.ServerUserCredentials `json:"users"`
 
 	// CertList is the name of the certificate list in the certificate store,
 	// used as the server certificate for HTTPS.
