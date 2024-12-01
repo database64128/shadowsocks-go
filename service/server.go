@@ -13,6 +13,7 @@ import (
 	"github.com/database64128/shadowsocks-go/httpproxy"
 	"github.com/database64128/shadowsocks-go/jsonhelper"
 	"github.com/database64128/shadowsocks-go/router"
+	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/tlscerts"
@@ -269,6 +270,9 @@ type ServerConfig struct {
 	// Only applicable to Shadowsocks 2022 TCP.
 	AllowSegmentedFixedLengthHeader bool `json:"allowSegmentedFixedLengthHeader"`
 
+	// Socks5 is the protocol-specific configuration for "socks5".
+	Socks5 Socks5ServerConfig `json:"socks5"`
+
 	// HTTP is the protocol-specific configuration for "http".
 	HTTP HTTPProxyServerConfig `json:"http"`
 
@@ -408,7 +412,17 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		server = direct.NewShadowsocksNoneTCPServer()
 
 	case "socks5":
-		server = direct.NewSocks5TCPServer(sc.tcpEnabled, sc.udpEnabled)
+		s5tsc := direct.Socks5TCPServerConfig{
+			Users:              sc.Socks5.Users,
+			EnableUserPassAuth: sc.Socks5.EnableUserPassAuth,
+			EnableTCP:          sc.tcpEnabled,
+			EnableUDP:          sc.udpEnabled,
+		}
+
+		server, err = s5tsc.NewServer()
+		if err != nil {
+			return nil, err
+		}
 
 	case "http":
 		hpsc := httpproxy.ServerConfig{
@@ -597,6 +611,18 @@ func (sc *ServerConfig) PostInit(credman *cred.Manager, apiSM *ssm.ServerManager
 	}
 
 	return nil
+}
+
+// Socks5ServerConfig is the configuration for a SOCKS5 server.
+type Socks5ServerConfig struct {
+	// Users is a list of users allowed to connect to the server.
+	// It is ignored if none of the authentication methods are enabled.
+	Users []socks5.UserInfo `json:"users"`
+
+	// EnableUserPassAuth controls whether to enable username/password authentication.
+	//
+	// CAVEAT: UDP listeners, if any, are not protected by username/password authentication.
+	EnableUserPassAuth bool `json:"enableUserPassAuth"`
 }
 
 // HTTPProxyServerConfig is the configuration for an HTTP proxy server.

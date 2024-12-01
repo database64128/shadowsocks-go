@@ -2,6 +2,7 @@ package direct
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/socks5"
@@ -161,30 +162,89 @@ func (c *Socks5TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payloa
 	return
 }
 
-// Socks5TCPServer implements the zerocopy TCPServer interface.
+// Socks5TCPServerConfig contains configuration options for a SOCKS5 TCP server.
+type Socks5TCPServerConfig struct {
+	// Users is a list of users allowed to connect to the server.
+	// It is ignored if none of the authentication methods are enabled.
+	Users []socks5.UserInfo
+
+	// EnableUserPassAuth controls whether to enable username/password authentication.
+	EnableUserPassAuth bool
+
+	// EnableTCP controls whether to accept CONNECT requests.
+	EnableTCP bool
+
+	// EnableUDP controls whether to accept UDP ASSOCIATE requests.
+	EnableUDP bool
+}
+
+// NewServer creates a new SOCKS5 TCP server.
+func (c *Socks5TCPServerConfig) NewServer() (zerocopy.TCPServer, error) {
+	server := Socks5TCPServer{
+		enableTCP: c.EnableTCP,
+		enableUDP: c.EnableUDP,
+	}
+
+	if c.EnableUserPassAuth {
+		userInfoByUsername := make(map[string]socks5.UserInfo, len(c.Users))
+
+		for i, u := range c.Users {
+			if err := u.Validate(); err != nil {
+				return nil, fmt.Errorf("bad user credentials at index %d: %w", i, err)
+			}
+			userInfoByUsername[u.Username] = u
+		}
+
+		return &Socks5AuthTCPServer{
+			userInfoByUsername: userInfoByUsername,
+			plainServer:        server,
+		}, nil
+	}
+
+	return &server, nil
+}
+
+// Socks5TCPServer is an unauthenticated SOCKS5 TCP server.
+//
+// Socks5TCPServer implements [zerocopy.TCPServer].
 type Socks5TCPServer struct {
 	enableTCP bool
 	enableUDP bool
 }
 
-func NewSocks5TCPServer(enableTCP, enableUDP bool) *Socks5TCPServer {
-	return &Socks5TCPServer{
-		enableTCP: enableTCP,
-		enableUDP: enableUDP,
-	}
-}
-
-// Info implements the zerocopy.TCPServer Info method.
-func (s *Socks5TCPServer) Info() zerocopy.TCPServerInfo {
+// Info implements [zerocopy.TCPServer.Info].
+func (*Socks5TCPServer) Info() zerocopy.TCPServerInfo {
 	return zerocopy.TCPServerInfo{
 		NativeInitialPayload: false,
 		DefaultTCPConnCloser: zerocopy.JustClose,
 	}
 }
 
-// Accept implements the zerocopy.TCPServer Accept method.
+// Accept implements [zerocopy.TCPServer.Accept].
 func (s *Socks5TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
 	rw, targetAddr, err = NewSocks5StreamServerReadWriter(rawRW, s.enableTCP, s.enableUDP)
+	if err == socks5.ErrUDPAssociateDone {
+		err = zerocopy.ErrAcceptDoneNoRelay
+	}
+	return
+}
+
+// Socks5AuthTCPServer is like [Socks5TCPServer], but uses username/password authentication.
+//
+// Socks5AuthTCPServer implements [zerocopy.TCPServer].
+type Socks5AuthTCPServer struct {
+	userInfoByUsername map[string]socks5.UserInfo
+	plainServer        Socks5TCPServer
+}
+
+// Info implements [zerocopy.TCPServer.Info].
+func (s *Socks5AuthTCPServer) Info() zerocopy.TCPServerInfo {
+	return s.plainServer.Info()
+}
+
+// Accept implements [zerocopy.TCPServer.Accept].
+func (s *Socks5AuthTCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
+	rw, targetAddr, username, err = NewSocks5AuthStreamServerReadWriter(rawRW, s.userInfoByUsername, s.plainServer.enableTCP, s.plainServer.enableUDP)
 	if err == socks5.ErrUDPAssociateDone {
 		err = zerocopy.ErrAcceptDoneNoRelay
 	}

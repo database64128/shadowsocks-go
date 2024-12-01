@@ -139,6 +139,37 @@
             "mtu": 1500
         },
         {
+            "name": "socks5-tcp-auth",
+            "protocol": "socks5",
+            "tcpListeners": [
+                {
+                    "network": "tcp",
+                    "address": ":1083",
+                    "fwmark": 52140,
+                    "trafficClass": 0,
+                    "reusePort": false,
+                    "fastOpen": true,
+                    "fastOpenBacklog": 0,
+                    "fastOpenFallback": false,
+                    "multipath": false,
+                    "deferAcceptSecs": 0,
+                    "userTimeoutMsecs": 0,
+                    "disableInitialPayloadWait": false,
+                    "initialPayloadWaitTimeout": "250ms",
+                    "initialPayloadWaitBufferSize": 1440
+                }
+            ],
+            "socks5": {
+                "users": [
+                    {
+                        "username": "username",
+                        "password": "password"
+                    }
+                ],
+                "enableUserPassAuth": true
+            }
+        },
+        {
             "name": "http",
             "protocol": "http",
             "listen": ":8080",
