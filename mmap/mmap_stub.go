@@ -8,16 +8,16 @@ import (
 	"unsafe"
 )
 
-type mmapUnsupportError struct{}
+type mmapUnsupportedError struct{}
 
-func (mmapUnsupportError) Error() string {
+func (mmapUnsupportedError) Error() string {
 	return "mmap is not supported on this platform"
 }
 
-func (mmapUnsupportError) Is(target error) bool {
+func (mmapUnsupportedError) Is(target error) bool {
 	return target == errors.ErrUnsupported
 }
 
 func readFile(_ *os.File, _ uintptr) (addr unsafe.Pointer, close func() error, err error) {
-	return nil, nil, mmapUnsupportError{}
+	return nil, nil, mmapUnsupportedError{}
 }
