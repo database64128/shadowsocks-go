@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -151,6 +152,23 @@ func (u UserInfo) Validate() error {
 	return nil
 }
 
+// AuthMsgLength returns the length of the authentication message for the username/password pair.
+func (u UserInfo) AuthMsgLength() int {
+	return 1 + 1 + len(u.Username) + 1 + len(u.Password)
+}
+
+// AppendAuthMsg appends the username/password pair as an authentication message to b.
+//
+// Call Validate first to ensure the username and password are valid.
+func (u UserInfo) AppendAuthMsg(b []byte) []byte {
+	b = slices.Grow(b, u.AuthMsgLength())
+	b = append(b, UsernamePasswordAuthVersion, byte(len(u.Username)))
+	b = append(b, u.Username...)
+	b = append(b, byte(len(u.Password)))
+	b = append(b, u.Password...)
+	return b
+}
+
 // replyWithStatus writes a reply to w with the REP field set to status.
 func replyWithStatus(w io.Writer, b []byte, status byte) error {
 	const replyLen = 3 + IPv4AddrLen
@@ -163,47 +181,92 @@ func replyWithStatus(w io.Writer, b []byte, status byte) error {
 	return err
 }
 
-// ClientRequest writes a request to targetAddr and returns the bound address in reply.
-func ClientRequest(rw io.ReadWriter, command byte, targetAddr conn.Addr) (addr conn.Addr, err error) {
-	b := make([]byte, 3+MaxAddrLen)
-	b[0] = Version
-	b[1] = 1
-	b[2] = MethodNoAuthenticationRequired
-
-	// Write VER NMETHDOS METHODS.
-	_, err = rw.Write(b[:3])
-	if err != nil {
-		return
+// clientNegotiateAuthMethod negotiates the authentication method with the server.
+//
+// len(b) must be at least 3.
+func clientNegotiateAuthMethod(rw io.ReadWriter, b []byte, method byte) error {
+	if len(b) < 3 {
+		panic("clientNegotiateAuthMethod: buffer too small")
 	}
 
-	// Read version selection message.
-	_, err = io.ReadFull(rw, b[:2])
-	if err != nil {
-		return
+	// Put and write VER, NMETHODS, METHOD.
+	b[0] = Version
+	b[1] = 1
+	b[2] = method
+	if _, err := rw.Write(b[:3]); err != nil {
+		return err
+	}
+
+	// Read VER, METHOD.
+	if _, err := io.ReadFull(rw, b[:2]); err != nil {
+		return err
 	}
 
 	// Check VER.
 	if b[0] != Version {
-		return conn.Addr{}, UnsupportedVersionError(b[0])
+		return UnsupportedVersionError(b[0])
 	}
 
 	// Check METHOD.
-	if b[1] != MethodNoAuthenticationRequired {
-		return conn.Addr{}, UnsupportedAuthMethodError(b[1])
+	if b[1] != method {
+		return UnsupportedAuthMethodError(b[1])
 	}
 
-	// Write VER, CMD, RSV, SOCKS address.
+	return nil
+}
+
+// clientDoUsernamePasswordAuth performs the username/password authentication.
+//
+// len(b) must be at least 2.
+func clientDoUsernamePasswordAuth(rw io.ReadWriter, b, authMsg []byte) error {
+	if len(b) < 2 {
+		panic("clientDoUsernamePasswordAuth: buffer too small")
+	}
+
+	// Write authMsg.
+	if _, err := rw.Write(authMsg); err != nil {
+		return err
+	}
+
+	// Read VER, STATUS.
+	if _, err := io.ReadFull(rw, b[:2]); err != nil {
+		return err
+	}
+
+	// Check VER.
+	if b[0] != UsernamePasswordAuthVersion {
+		return UnsupportedUsernamePasswordAuthVersionError(b[0])
+	}
+
+	// Check STATUS.
+	if b[1] != 0 {
+		return ErrIncorrectUsernamePassword
+	}
+
+	return nil
+}
+
+// clientDoRequest writes a request with the given command and target address to rw.
+// It returns the bound address in the reply.
+//
+// len(b) must be at least 3+MaxAddrLen.
+func clientDoRequest(rw io.ReadWriter, b []byte, command byte, targetAddr conn.Addr) (addr conn.Addr, err error) {
+	if len(b) < 3+MaxAddrLen {
+		panic("clientDoRequest: buffer too small")
+	}
+
+	// Put and write VER, CMD, RSV, SOCKS address.
+	b[0] = Version
 	b[1] = command
+	b[2] = 0
 	n := WriteAddrFromConnAddr(b[3:], targetAddr)
-	_, err = rw.Write(b[:3+n])
-	if err != nil {
-		return
+	if _, err = rw.Write(b[:3+n]); err != nil {
+		return conn.Addr{}, err
 	}
 
 	// Read VER, REP, RSV.
-	_, err = io.ReadFull(rw, b[:3])
-	if err != nil {
-		return
+	if _, err = io.ReadFull(rw, b[:3]); err != nil {
+		return conn.Addr{}, err
 	}
 
 	// Check VER.
@@ -219,10 +282,32 @@ func ClientRequest(rw io.ReadWriter, command byte, targetAddr conn.Addr) (addr c
 	// Read SOCKS address.
 	sa, err := AppendFromReader(b[3:3], rw)
 	if err != nil {
-		return
+		return conn.Addr{}, err
 	}
 	addr, _, err = ConnAddrFromSlice(sa)
-	return
+	return addr, err
+}
+
+// ClientRequest completes the handshake and writes a request with the given command and target address to rw.
+// It returns the bound address in the reply.
+func ClientRequest(rw io.ReadWriter, command byte, targetAddr conn.Addr) (addr conn.Addr, err error) {
+	b := make([]byte, 3+MaxAddrLen)
+	if err = clientNegotiateAuthMethod(rw, b, MethodNoAuthenticationRequired); err != nil {
+		return conn.Addr{}, err
+	}
+	return clientDoRequest(rw, b, command, targetAddr)
+}
+
+// ClientRequestUsernamePassword is like [ClientRequest], but uses username/password authentication.
+func ClientRequestUsernamePassword(rw io.ReadWriter, authMsg []byte, command byte, targetAddr conn.Addr) (addr conn.Addr, err error) {
+	b := make([]byte, 3+MaxAddrLen) // enough for clientNegotiateAuthMethod
+	if err = clientNegotiateAuthMethod(rw, b, MethodUsernamePassword); err != nil {
+		return conn.Addr{}, err
+	}
+	if err = clientDoUsernamePasswordAuth(rw, b, authMsg); err != nil {
+		return conn.Addr{}, err
+	}
+	return clientDoRequest(rw, b, command, targetAddr)
 }
 
 // ClientConnect writes a CONNECT request to targetAddr.
@@ -231,9 +316,20 @@ func ClientConnect(rw io.ReadWriter, targetAddr conn.Addr) error {
 	return err
 }
 
+// ClientConnectUsernamePassword is like [ClientConnect], but uses username/password authentication.
+func ClientConnectUsernamePassword(rw io.ReadWriter, authMsg []byte, targetAddr conn.Addr) error {
+	_, err := ClientRequestUsernamePassword(rw, authMsg, CmdConnect, targetAddr)
+	return err
+}
+
 // ClientUDPAssociate writes a UDP ASSOCIATE request to targetAddr.
 func ClientUDPAssociate(rw io.ReadWriter, targetAddr conn.Addr) (conn.Addr, error) {
 	return ClientRequest(rw, CmdUDPAssociate, targetAddr)
+}
+
+// ClientUDPAssociateUsernamePassword is like [ClientUDPAssociate], but uses username/password authentication.
+func ClientUDPAssociateUsernamePassword(rw io.ReadWriter, authMsg []byte, targetAddr conn.Addr) (conn.Addr, error) {
+	return ClientRequestUsernamePassword(rw, authMsg, CmdUDPAssociate, targetAddr)
 }
 
 // ServerAccept processes an incoming request from rw.

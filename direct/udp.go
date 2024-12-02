@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 
@@ -88,7 +89,73 @@ func (c *ShadowsocksNoneUDPClient) NewSession(ctx context.Context) (zerocopy.UDP
 	}, nil
 }
 
-// Socks5UDPClient implements the zerocopy UDPClient interface.
+// Socks5UDPClientConfig contains configuration options for a SOCKS5 UDP client.
+type Socks5UDPClientConfig struct {
+	// Logger is the logger used for logging.
+	Logger *zap.Logger
+
+	// Name is the name of the SOCKS5 client.
+	Name string
+
+	// Network controls the address family when resolving the server's TCP address.
+	//
+	// - "tcp": System default, likely dual-stack.
+	// - "tcp4": Resolve to IPv4 addresses.
+	// - "tcp6": Resolve to IPv6 addresses.
+	NetworkTCP string
+
+	// NetworkIP controls the address family when resolving the server's UDP bound address.
+	//
+	// - "ip": System default, likely dual-stack.
+	// - "ip4": Resolve to IPv4 addresses.
+	// - "ip6": Resolve to IPv6 addresses.
+	NetworkIP string
+
+	// Address is the SOCKS5 server's TCP address.
+	Address string
+
+	// Dialer is the dialer used to establish TCP connections.
+	Dialer conn.Dialer
+
+	// MTU is the MTU of the client's designated network path.
+	MTU int
+
+	// ListenConfig is the [conn.ListenConfig] for opening client sockets.
+	ListenConfig conn.ListenConfig
+
+	// AuthMsg is the serialized username/password authentication message.
+	AuthMsg []byte
+}
+
+// NewClient creates a new SOCKS5 UDP client.
+func (c *Socks5UDPClientConfig) NewClient() zerocopy.UDPClient {
+	client := Socks5UDPClient{
+		logger:     c.Logger,
+		networkTCP: c.NetworkTCP,
+		networkIP:  c.NetworkIP,
+		address:    c.Address,
+		dialer:     c.Dialer,
+		info: zerocopy.UDPClientInfo{
+			Name:           c.Name,
+			PackerHeadroom: Socks5PacketClientMessageHeadroom,
+			MTU:            c.MTU,
+			ListenConfig:   c.ListenConfig,
+		},
+	}
+
+	if len(c.AuthMsg) > 0 {
+		return &Socks5AuthUDPClient{
+			plainClient: client,
+			authMsg:     c.AuthMsg,
+		}
+	}
+
+	return &client
+}
+
+// Socks5UDPClient is a SOCKS5 UDP client.
+//
+// Socks5UDPClient implements [zerocopy.UDPClient].
 type Socks5UDPClient struct {
 	logger     *zap.Logger
 	networkTCP string
@@ -98,45 +165,33 @@ type Socks5UDPClient struct {
 	info       zerocopy.UDPClientInfo
 }
 
-// NewSocks5UDPClient creates a new SOCKS5 UDP client.
-func NewSocks5UDPClient(logger *zap.Logger, name, networkTCP, networkIP, address string, dialer conn.Dialer, mtu int, listenConfig conn.ListenConfig) *Socks5UDPClient {
-	return &Socks5UDPClient{
-		logger:     logger,
-		networkTCP: networkTCP,
-		networkIP:  networkIP,
-		address:    address,
-		dialer:     dialer,
-		info: zerocopy.UDPClientInfo{
-			Name:           name,
-			PackerHeadroom: Socks5PacketClientMessageHeadroom,
-			MTU:            mtu,
-			ListenConfig:   listenConfig,
-		},
-	}
-}
-
-// Info implements the zerocopy.UDPClient Info method.
+// Info implements [zerocopy.UDPClient.Info].
 func (c *Socks5UDPClient) Info() zerocopy.UDPClientInfo {
 	return c.info
 }
 
-// NewSession implements the zerocopy.UDPClient NewSession method.
+// NewSession implements [zerocopy.UDPClient.NewSession].
 func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
 	tc, err := c.dialer.DialTCP(ctx, c.networkTCP, c.address, nil)
 	if err != nil {
-		return c.info, zerocopy.UDPClientSession{}, err
+		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to dial SOCKS5 server: %w", err)
 	}
 
 	addr, err := socks5.ClientUDPAssociate(tc, conn.Addr{})
 	if err != nil {
-		tc.Close()
+		_ = tc.Close()
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to request UDP association: %w", err)
 	}
 
+	session, err := c.newSession(ctx, tc, addr)
+	return c.info, session, err
+}
+
+func (c *Socks5UDPClient) newSession(ctx context.Context, tc *net.TCPConn, addr conn.Addr) (zerocopy.UDPClientSession, error) {
 	addrPort, err := addr.ResolveIPPort(ctx, c.networkIP)
 	if err != nil {
-		tc.Close()
-		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
+		_ = tc.Close()
+		return zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
 	}
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(c.info.MTU, addrPort.Addr())
 
@@ -152,7 +207,7 @@ func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInf
 		}
 	}()
 
-	return c.info, zerocopy.UDPClientSession{
+	return zerocopy.UDPClientSession{
 		MaxPacketSize: maxPacketSize,
 		Packer:        NewSocks5PacketClientPacker(addrPort, maxPacketSize),
 		Unpacker:      NewSocks5PacketClientUnpacker(addrPort),
@@ -160,6 +215,36 @@ func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInf
 			return tc.SetReadDeadline(conn.ALongTimeAgo)
 		},
 	}, nil
+}
+
+// Socks5AuthUDPClient is like [Socks5UDPClient], but uses username/password authentication.
+//
+// Socks5AuthUDPClient implements [zerocopy.UDPClient].
+type Socks5AuthUDPClient struct {
+	plainClient Socks5UDPClient
+	authMsg     []byte
+}
+
+// Info implements [zerocopy.UDPClient.Info].
+func (c *Socks5AuthUDPClient) Info() zerocopy.UDPClientInfo {
+	return c.plainClient.Info()
+}
+
+// NewSession implements [zerocopy.UDPClient.NewSession].
+func (c *Socks5AuthUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
+	tc, err := c.plainClient.dialer.DialTCP(ctx, c.plainClient.networkTCP, c.plainClient.address, nil)
+	if err != nil {
+		return c.plainClient.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to dial SOCKS5 server: %w", err)
+	}
+
+	addr, err := socks5.ClientUDPAssociateUsernamePassword(tc, c.authMsg, conn.Addr{})
+	if err != nil {
+		_ = tc.Close()
+		return c.plainClient.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to request UDP association: %w", err)
+	}
+
+	session, err := c.plainClient.newSession(ctx, tc, addr)
+	return c.plainClient.info, session, err
 }
 
 // DirectUDPNATServer implements the zerocopy UDPNATServer interface.

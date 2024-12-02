@@ -104,6 +104,14 @@ func NewSocks5StreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAd
 	return &DirectStreamReadWriter{rw: rw}, nil
 }
 
+// NewSocks5AuthStreamClientReadWriter is like [NewSocks5StreamClientReadWriter], but uses username/password authentication.
+func NewSocks5AuthStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, authMsg []byte, targetAddr conn.Addr) (*DirectStreamReadWriter, error) {
+	if err := socks5.ClientConnectUsernamePassword(rw, authMsg, targetAddr); err != nil {
+		return nil, err
+	}
+	return &DirectStreamReadWriter{rw: rw}, nil
+}
+
 // NewSocks5StreamServerReadWriter handles a SOCKS5 request from rw and wraps rw into a ReadWriter ready for use.
 //
 // When UDP is enabled, rw must be a [*net.TCPConn].

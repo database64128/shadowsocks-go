@@ -116,7 +116,50 @@ func (ShadowsocksNoneTCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw
 	return
 }
 
-// Socks5TCPClient implements the zerocopy TCPClient interface.
+// Socks5TCPClientConfig contains configuration options for a SOCKS5 TCP client.
+type Socks5TCPClientConfig struct {
+	// Name is the name of the client.
+	Name string
+
+	// Network controls the address family when resolving the address.
+	//
+	// - "tcp": System default, likely dual-stack.
+	// - "tcp4": Resolve to IPv4 addresses.
+	// - "tcp6": Resolve to IPv6 addresses.
+	Network string
+
+	// Address is the address of the remote proxy server.
+	Address string
+
+	// Dialer is the dialer used to establish connections.
+	Dialer conn.Dialer
+
+	// AuthMsg is the serialized username/password authentication message.
+	AuthMsg []byte
+}
+
+// NewClient creates a new SOCKS5 TCP client.
+func (c *Socks5TCPClientConfig) NewClient() zerocopy.TCPClient {
+	client := Socks5TCPClient{
+		name:    c.Name,
+		network: c.Network,
+		address: c.Address,
+		dialer:  c.Dialer,
+	}
+
+	if len(c.AuthMsg) > 0 {
+		return &Socks5AuthTCPClient{
+			plainClient: client,
+			authMsg:     c.AuthMsg,
+		}
+	}
+
+	return &client
+}
+
+// Socks5TCPClient is an unauthenticated SOCKS5 TCP client.
+//
+// Socks5TCPClient implements [zerocopy.TCPClient].
 type Socks5TCPClient struct {
 	name    string
 	network string
@@ -133,7 +176,7 @@ func NewSocks5TCPClient(name, network, address string, dialer conn.Dialer) *Sock
 	}
 }
 
-// Info implements the zerocopy.TCPClient Info method.
+// Info implements [zerocopy.TCPClient.Info].
 func (c *Socks5TCPClient) Info() zerocopy.TCPClientInfo {
 	return zerocopy.TCPClientInfo{
 		Name:                 c.name,
@@ -141,25 +184,63 @@ func (c *Socks5TCPClient) Info() zerocopy.TCPClientInfo {
 	}
 }
 
-// Dial implements the zerocopy.TCPClient Dial method.
+// Dial implements [zerocopy.TCPClient.Dial].
 func (c *Socks5TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
 	rawRW, err = c.dialer.DialTCP(ctx, c.network, c.address, nil)
 	if err != nil {
-		return
+		return nil, nil, err
 	}
 
 	rw, err = NewSocks5StreamClientReadWriter(rawRW, targetAddr)
 	if err != nil {
-		rawRW.Close()
-		return
+		_ = rawRW.Close()
+		return nil, nil, err
 	}
 
 	if len(payload) > 0 {
-		if _, err = rw.WriteZeroCopy(payload, 0, len(payload)); err != nil {
-			rawRW.Close()
+		if _, err = rawRW.Write(payload); err != nil {
+			_ = rawRW.Close()
+			return nil, nil, err
 		}
 	}
-	return
+
+	return rawRW, rw, nil
+}
+
+// Socks5AuthTCPClient is like [Socks5TCPClient], but uses username/password authentication.
+//
+// Socks5AuthTCPClient implements [zerocopy.TCPClient].
+type Socks5AuthTCPClient struct {
+	plainClient Socks5TCPClient
+	authMsg     []byte
+}
+
+// Info implements [zerocopy.TCPClient.Info].
+func (c *Socks5AuthTCPClient) Info() zerocopy.TCPClientInfo {
+	return c.plainClient.Info()
+}
+
+// Dial implements [zerocopy.TCPClient.Dial].
+func (c *Socks5AuthTCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
+	rawRW, err = c.plainClient.dialer.DialTCP(ctx, c.plainClient.network, c.plainClient.address, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	rw, err = NewSocks5AuthStreamClientReadWriter(rawRW, c.authMsg, targetAddr)
+	if err != nil {
+		_ = rawRW.Close()
+		return nil, nil, err
+	}
+
+	if len(payload) > 0 {
+		if _, err = rawRW.Write(payload); err != nil {
+			_ = rawRW.Close()
+			return nil, nil, err
+		}
+	}
+
+	return rawRW, rw, nil
 }
 
 // Socks5TCPServerConfig contains configuration options for a SOCKS5 TCP server.

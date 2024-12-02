@@ -7,6 +7,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/httpproxy"
+	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"github.com/database64128/shadowsocks-go/tlscerts"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -90,6 +91,11 @@ type ClientConfig struct {
 	EnableUDP bool `json:"enableUDP"`
 	MTU       int  `json:"mtu"`
 
+	// Socks5 is the protocol-specific configuration for "socks5".
+	Socks5 Socks5ClientConfig `json:"socks5"`
+
+	socks5AuthMsg []byte
+
 	// HTTP is the protocol-specific configuration for "http".
 	HTTP HTTPProxyClientConfig `json:"http"`
 
@@ -117,6 +123,9 @@ type ClientConfig struct {
 	listenConfigCache conn.ListenConfigCache
 	dialerCache       conn.DialerCache
 	logger            *zap.Logger
+
+	networkTCP string
+	connDialer conn.Dialer
 }
 
 func (cc *ClientConfig) checkAddresses() error {
@@ -164,6 +173,14 @@ func (cc *ClientConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCac
 	}
 
 	switch cc.Protocol {
+	case "socks5":
+		if cc.Socks5.EnableUserPassAuth {
+			if err = cc.Socks5.Validate(); err != nil {
+				return fmt.Errorf("bad user credentials: %w", err)
+			}
+			cc.socks5AuthMsg = cc.Socks5.AppendAuthMsg(nil)
+		}
+
 	case "http":
 		if cc.HTTP.UseTLS && cc.HTTP.ServerName == "" {
 			cc.HTTP.ServerName = cc.TCPAddress.Host()
@@ -183,7 +200,13 @@ func (cc *ClientConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCac
 	cc.listenConfigCache = listenConfigCache
 	cc.dialerCache = dialerCache
 	cc.logger = logger
-	return
+
+	if cc.EnableTCP || cc.EnableUDP && cc.Protocol == "socks5" {
+		cc.networkTCP = cc.tcpNetwork()
+		cc.connDialer = cc.dialer()
+	}
+
+	return nil
 }
 
 func (cc *ClientConfig) tcpNetwork() string {
@@ -215,22 +238,26 @@ func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
 		return nil, errNetworkDisabled
 	}
 
-	network := cc.tcpNetwork()
-	dialer := cc.dialer()
-
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewTCPClient(cc.Name, network, dialer), nil
+		return direct.NewTCPClient(cc.Name, cc.networkTCP, cc.connDialer), nil
 	case "none", "plain":
-		return direct.NewShadowsocksNoneTCPClient(cc.Name, network, cc.TCPAddress.String(), dialer), nil
+		return direct.NewShadowsocksNoneTCPClient(cc.Name, cc.networkTCP, cc.TCPAddress.String(), cc.connDialer), nil
 	case "socks5":
-		return direct.NewSocks5TCPClient(cc.Name, network, cc.TCPAddress.String(), dialer), nil
+		s5tcc := direct.Socks5TCPClientConfig{
+			Name:    cc.Name,
+			Network: cc.networkTCP,
+			Address: cc.TCPAddress.String(),
+			Dialer:  cc.connDialer,
+			AuthMsg: cc.socks5AuthMsg,
+		}
+		return s5tcc.NewClient(), nil
 	case "http":
 		hpcc := httpproxy.ClientConfig{
 			Name:                           cc.Name,
-			Network:                        network,
+			Network:                        cc.networkTCP,
 			Address:                        cc.TCPAddress.String(),
-			Dialer:                         dialer,
+			Dialer:                         cc.connDialer,
 			ServerName:                     cc.HTTP.ServerName,
 			EncryptedClientHelloConfigList: cc.HTTP.ECHConfigList,
 			Username:                       cc.HTTP.Username,
@@ -261,7 +288,7 @@ func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
 		if len(cc.UnsafeRequestStreamPrefix) != 0 || len(cc.UnsafeResponseStreamPrefix) != 0 {
 			cc.logger.Warn("Unsafe stream prefix taints the client", zap.String("client", cc.Name))
 		}
-		return ss2022.NewTCPClient(cc.Name, network, cc.TCPAddress.String(), dialer, cc.AllowSegmentedFixedLengthHeader, cc.cipherConfig, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
+		return ss2022.NewTCPClient(cc.Name, cc.networkTCP, cc.TCPAddress.String(), cc.connDialer, cc.AllowSegmentedFixedLengthHeader, cc.cipherConfig, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}
@@ -290,9 +317,18 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 	case "none", "plain":
 		return direct.NewShadowsocksNoneUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.MTU, listenConfig), nil
 	case "socks5":
-		dialer := cc.dialer()
-		networkTCP := cc.tcpNetwork()
-		return direct.NewSocks5UDPClient(cc.logger, cc.Name, networkTCP, cc.Network, cc.UDPAddress.String(), dialer, cc.MTU, listenConfig), nil
+		s5ucc := direct.Socks5UDPClientConfig{
+			Logger:       cc.logger,
+			Name:         cc.Name,
+			NetworkTCP:   cc.networkTCP,
+			NetworkIP:    cc.Network,
+			Address:      cc.UDPAddress.String(),
+			Dialer:       cc.connDialer,
+			MTU:          cc.MTU,
+			ListenConfig: listenConfig,
+			AuthMsg:      cc.socks5AuthMsg,
+		}
+		return s5ucc.NewClient(), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		shouldPad, err := ss2022.ParsePaddingPolicy(cc.PaddingPolicy)
 		if err != nil {
@@ -310,6 +346,15 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}
+}
+
+// Socks5ClientConfig is the configuration for a SOCKS5 client.
+type Socks5ClientConfig struct {
+	// UserInfo is a username/password pair for authentication.
+	socks5.UserInfo
+
+	// EnableUserPassAuth controls whether to enable username/password authentication.
+	EnableUserPassAuth bool `json:"enableUserPassAuth"`
 }
 
 // HTTPProxyClientConfig is the configuration for an HTTP proxy client.

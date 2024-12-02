@@ -317,6 +317,22 @@
             "slidingWindowFilterSize": 256
         },
         {
+            "name": "socks5-user-pass",
+            "protocol": "socks5",
+            "endpoint": "[2001:db8:bb8e:4b40:56c5:a643:81a7:a587]:1080",
+            "dialerFwmark": 52140,
+            "dialerTrafficClass": 0,
+            "enableTCP": true,
+            "multipathTCP": false,
+            "enableUDP": true,
+            "mtu": 1500,
+            "socks5": {
+                "username": "username",
+                "password": "password",
+                "enableUserPassAuth": true
+            }
+        },
+        {
             "name": "http-connect",
             "protocol": "http",
             "tcpAddress": "[2001:db8:d698:8b7c:10d8:9ac4:c6f8:b188]:8080",
