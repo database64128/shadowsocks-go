@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/netip"
 	"os"
 
@@ -142,19 +141,15 @@ func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInf
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(c.info.MTU, addrPort.Addr())
 
 	go func() {
+		defer tc.Close()
 		b := make([]byte, 1)
 		_, err := tc.Read(b)
-		switch err {
-		case nil, io.EOF:
-		default:
-			if !errors.Is(err, os.ErrDeadlineExceeded) {
-				c.logger.Warn("Failed to keep TCP connection open for UDP association",
-					zap.String("client", c.info.Name),
-					zap.Error(err),
-				)
-			}
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			c.logger.Warn("Failed to keep SOCKS5 TCP connection open for UDP association",
+				zap.String("client", c.info.Name),
+				zap.Error(err),
+			)
 		}
-		tc.Close()
 	}()
 
 	return c.info, zerocopy.UDPClientSession{
