@@ -134,7 +134,7 @@ func testHttpStreamReadWriterBasicAuthBadCredentials(t *testing.T, logger *zap.L
 	for i, err := range clientErrors {
 		var respErr ConnectNonSuccessfulResponseError
 		if !errors.As(err, &respErr) {
-			t.Errorf("clientErrors[%d] = %v, want ConnectNonSuccessfulResponseError", i, err)
+			t.Fatalf("clientErrors[%d] = %v, want %T", i, err, respErr)
 		}
 		if respErr.StatusCode != http.StatusProxyAuthRequired {
 			t.Errorf("clientErrors[%d].StatusCode = %d, want %d", i, respErr.StatusCode, http.StatusProxyAuthRequired)
@@ -143,7 +143,7 @@ func testHttpStreamReadWriterBasicAuthBadCredentials(t *testing.T, logger *zap.L
 
 	var authErr FailedAuthAttemptsError
 	if !errors.As(serr, &authErr) {
-		t.Errorf("serr = %v, want FailedAuthAttemptsError", serr)
+		t.Fatalf("serr = %v, want %T", serr, authErr)
 	}
 	if authErr.Attempts != len(clientProxyAuthHeaders) {
 		t.Errorf("authErr.Attempts = %d, want %d", authErr.Attempts, len(clientProxyAuthHeaders))

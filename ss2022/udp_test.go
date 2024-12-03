@@ -196,16 +196,16 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, ctx context.Context
 	_, _, _, err = serverUnpacker.UnpackInPlace(pb, replayClientAddrPort, 0, pktl)
 	var sprErr *ShadowPacketReplayError
 	if !errors.As(err, &sprErr) {
-		t.Errorf("Expected ShadowPacketReplayError, got %T", err)
+		t.Fatalf("err = %v, want %T", err, sprErr)
 	}
 	if sprErr.srcAddr != replayClientAddrPort {
-		t.Errorf("Expected ShadowPacketReplayError srcAddr %s, got %s", replayClientAddrPort, sprErr.srcAddr)
+		t.Errorf("sprErr.srcAddr = %q, want %q", sprErr.srcAddr, replayClientAddrPort)
 	}
 	if sprErr.sid != csid {
-		t.Errorf("Expected ShadowPacketReplayError sid %d, got %d", csid, sprErr.sid)
+		t.Errorf("sprErr.sid = %d, want %d", sprErr.sid, csid)
 	}
 	if sprErr.pid != 0 {
-		t.Errorf("Expected ShadowPacketReplayError pid 0, got %d", sprErr.pid)
+		t.Errorf("sprErr.pid = %d, want 0", sprErr.pid)
 	}
 
 	// Server packs.
@@ -273,31 +273,31 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, ctx context.Context
 	// Client unpacks pb0.
 	_, _, _, err = clientSession.Unpacker.UnpackInPlace(pb0, replayServerAddrPort, 0, len(pb0))
 	if !errors.As(err, &sprErr) {
-		t.Errorf("Expected ShadowPacketReplayError, got %T", err)
+		t.Fatalf("err = %v, want %T", err, sprErr)
 	}
 	if sprErr.srcAddr != replayServerAddrPort {
-		t.Errorf("Expected ShadowPacketReplayError srcAddr %s, got %s", replayServerAddrPort, sprErr.srcAddr)
+		t.Errorf("sprErr.srcAddr = %q, want %q", sprErr.srcAddr, replayServerAddrPort)
 	}
 	if sprErr.sid != ssid0 {
-		t.Errorf("Expected ShadowPacketReplayError sid %d, got %d", ssid0, sprErr.sid)
+		t.Errorf("sprErr.sid = %d, want %d", sprErr.sid, ssid0)
 	}
 	if sprErr.pid != 0 {
-		t.Errorf("Expected ShadowPacketReplayError pid 0, got %d", sprErr.pid)
+		t.Errorf("sprErr.pid = %d, want 0", sprErr.pid)
 	}
 
 	// Client unpacks pb1.
 	_, _, _, err = clientSession.Unpacker.UnpackInPlace(pb1, replayServerAddrPort, 0, len(pb1))
 	if !errors.As(err, &sprErr) {
-		t.Errorf("Expected ShadowPacketReplayError, got %T", err)
+		t.Fatalf("err = %v, want %T", err, sprErr)
 	}
 	if sprErr.srcAddr != replayServerAddrPort {
-		t.Errorf("Expected ShadowPacketReplayError srcAddr %s, got %s", replayServerAddrPort, sprErr.srcAddr)
+		t.Errorf("sprErr.srcAddr = %q, want %q", sprErr.srcAddr, replayServerAddrPort)
 	}
 	if sprErr.sid != ssid1 {
-		t.Errorf("Expected ShadowPacketReplayError sid %d, got %d", ssid1, sprErr.sid)
+		t.Errorf("sprErr.sid = %d, want %d", sprErr.sid, ssid1)
 	}
 	if sprErr.pid != 0 {
-		t.Errorf("Expected ShadowPacketReplayError pid 0, got %d", sprErr.pid)
+		t.Errorf("sprErr.pid = %d, want 0", sprErr.pid)
 	}
 }
 
