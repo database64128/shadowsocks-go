@@ -7,24 +7,45 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 
+	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/bytestrings"
 	"github.com/database64128/shadowsocks-go/domainset"
 	"github.com/database64128/shadowsocks-go/mmap"
 )
 
 var (
-	inDlc   = flag.String("inDlc", "", "Path to input domain set file in v2fly/dlc format.")
-	inText  = flag.String("inText", "", "Path to input domain set file in plaintext format.")
-	inGob   = flag.String("inGob", "", "Path to input domain set file in gob format.")
-	outText = flag.String("outText", "", "Path to output domain set file in plaintext format.")
-	outGob  = flag.String("outGob", "", "Path to output domain set file in gob format.")
-	tag     = flag.String("tag", "", "Select lines with the specified tag. If empty, select all lines. Only applicable to v2fly/dlc format.")
+	version bool
+	inDlc   string
+	inText  string
+	inGob   string
+	outText string
+	outGob  string
+	tag     string
 )
+
+func init() {
+	flag.BoolVar(&version, "version", false, "Print the version and exit")
+	flag.StringVar(&inDlc, "inDlc", "", "Path to input domain set file in v2fly/dlc format")
+	flag.StringVar(&inText, "inText", "", "Path to input domain set file in plaintext format")
+	flag.StringVar(&inGob, "inGob", "", "Path to input domain set file in gob format")
+	flag.StringVar(&outText, "outText", "", "Path to output domain set file in plaintext format")
+	flag.StringVar(&outGob, "outGob", "", "Path to output domain set file in gob format")
+	flag.StringVar(&tag, "tag", "", "Select lines with the specified tag. If empty, select all lines. Only applicable to v2fly/dlc format.")
+}
 
 func main() {
 	flag.Parse()
+
+	if version {
+		os.Stdout.WriteString("shadowsocks-go-domain-set-converter " + shadowsocks.Version + "\n")
+		if info, ok := debug.ReadBuildInfo(); ok {
+			os.Stdout.WriteString(info.String())
+		}
+		return
+	}
 
 	var (
 		inCount int
@@ -32,21 +53,21 @@ func main() {
 		inFunc  func(string) (domainset.Builder, error)
 	)
 
-	if *inDlc != "" {
+	if inDlc != "" {
 		inCount++
-		inPath = *inDlc
+		inPath = inDlc
 		inFunc = DomainSetBuilderFromDlc
 	}
 
-	if *inText != "" {
+	if inText != "" {
 		inCount++
-		inPath = *inText
+		inPath = inText
 		inFunc = domainset.BuilderFromText
 	}
 
-	if *inGob != "" {
+	if inGob != "" {
 		inCount++
-		inPath = *inGob
+		inPath = inGob
 		inFunc = domainset.BuilderFromGobString
 	}
 
@@ -56,7 +77,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *outText == "" && *outGob == "" {
+	if outText == "" && outGob == "" {
 		fmt.Fprintln(os.Stderr, "Specify output file paths with -outText and/or -outGob.")
 		flag.Usage()
 		os.Exit(1)
@@ -75,8 +96,8 @@ func main() {
 		return
 	}
 
-	if *outText != "" {
-		fout, err := os.Create(*outText)
+	if outText != "" {
+		fout, err := os.Create(outText)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Failed to create output file:", err)
 			return
@@ -90,8 +111,8 @@ func main() {
 		}
 	}
 
-	if *outGob != "" {
-		fout, err := os.Create(*outGob)
+	if outGob != "" {
+		fout, err := os.Create(outGob)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Failed to create output file:", err)
 			return
@@ -135,14 +156,14 @@ func DomainSetBuilderFromDlc(text string) (domainset.Builder, error) {
 			return dsb, fmt.Errorf("invalid line: %q", line)
 		}
 
-		if *tag == "" { // select all lines
+		if tag == "" { // select all lines
 			if end == -1 {
 				end = len(line)
 			} else {
 				end--
 			}
 		} else { // select matched tag
-			if end == -1 || line[end+1:] != *tag { // no tag or different tag
+			if end == -1 || line[end+1:] != tag { // no tag or different tag
 				continue
 			} else {
 				end--
