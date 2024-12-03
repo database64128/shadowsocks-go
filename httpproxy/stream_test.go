@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/pipe"
@@ -155,7 +156,7 @@ func TestHttpStreamClientReadWriterServerSpeaksFirst(t *testing.T) {
 
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 80))
 	clientTargetAddrString := clientTargetAddr.String()
-	expectedRequest := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: shadowsocks-go/0.0.0\r\n\r\n", clientTargetAddrString, clientTargetAddrString)
+	expectedRequest := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: shadowsocks-go/"+shadowsocks.Version+"\r\n\r\n", clientTargetAddrString, clientTargetAddrString)
 
 	var (
 		wg        sync.WaitGroup

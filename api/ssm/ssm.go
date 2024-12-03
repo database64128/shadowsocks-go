@@ -4,6 +4,7 @@ package ssm
 import (
 	"errors"
 
+	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/gofiber/fiber/v2"
@@ -21,7 +22,7 @@ type ServerInfo struct {
 }
 
 var serverInfo = ServerInfo{
-	Name:       "shadowsocks-go",
+	Name:       "shadowsocks-go " + shadowsocks.Version,
 	APIVersion: "v1",
 }
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -33,7 +34,7 @@ func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr
 	//
 	// Some clients include Proxy-Connection: Keep-Alive in proxy requests.
 	// This is discouraged by RFC 9112 as stated in appendix C.2.2, so we don't include it.
-	_, err := fmt.Fprintf(rw, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: shadowsocks-go/0.0.0%s\r\n\r\n", targetAddress, targetAddress, proxyAuthHeader)
+	_, err := fmt.Fprintf(rw, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: shadowsocks-go/"+shadowsocks.Version+"%s\r\n\r\n", targetAddress, targetAddress, proxyAuthHeader)
 	if err != nil {
 		return nil, err
 	}
