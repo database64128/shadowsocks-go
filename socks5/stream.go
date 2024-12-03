@@ -264,8 +264,8 @@ func clientDoRequest(rw io.ReadWriter, b []byte, command byte, targetAddr conn.A
 		return conn.Addr{}, err
 	}
 
-	// Read VER, REP, RSV.
-	if _, err = io.ReadFull(rw, b[:3]); err != nil {
+	// Read VER, REP, RSV, ATYP, and an extra byte.
+	if _, err = io.ReadFull(rw, b[:5]); err != nil {
 		return conn.Addr{}, err
 	}
 
@@ -280,7 +280,7 @@ func clientDoRequest(rw io.ReadWriter, b []byte, command byte, targetAddr conn.A
 	}
 
 	// Read SOCKS address.
-	sa, err := AppendFromReader(b[3:3], rw)
+	sa, err := AppendFromReader(b[3:3], newPrefixedReader(b[3:5], rw))
 	if err != nil {
 		return conn.Addr{}, err
 	}
@@ -526,8 +526,8 @@ func serverHandleRequest(rw io.ReadWriter, b []byte, enableTCP, enableUDP bool) 
 		panic("serverHandleRequest: buffer too small")
 	}
 
-	// Read VER, CMD, RSV.
-	if _, err = io.ReadFull(rw, b[:3]); err != nil {
+	// Read VER, CMD, RSV, ATYP, and an extra byte.
+	if _, err = io.ReadFull(rw, b[:5]); err != nil {
 		return conn.Addr{}, err
 	}
 
@@ -537,25 +537,25 @@ func serverHandleRequest(rw io.ReadWriter, b []byte, enableTCP, enableUDP bool) 
 	}
 
 	// Read SOCKS address.
-	sa, err := AppendFromReader(b[3:3], rw)
+	sa, err := AppendFromReader(b[3:3], newPrefixedReader(b[3:5], rw))
 	if err != nil {
-		return
+		return conn.Addr{}, err
 	}
 	addr, _, err = ConnAddrFromSlice(sa)
 	if err != nil {
-		return
+		return conn.Addr{}, err
 	}
 
+	cmd := b[1]
 	switch {
-	case b[1] == CmdConnect && enableTCP:
-		err = replyWithStatus(rw, b, ReplySucceeded)
+	case cmd == CmdConnect && enableTCP:
+		return addr, replyWithStatus(rw, b, ReplySucceeded)
 
-	case b[1] == CmdUDPAssociate && enableUDP:
+	case cmd == CmdUDPAssociate && enableUDP:
 		// Use the connection's local address as the returned UDP bound address.
 		tc, ok := rw.(*net.TCPConn)
 		if !ok {
-			err = zerocopy.ErrAcceptRequiresTCPConn
-			return
+			return addr, zerocopy.ErrAcceptRequiresTCPConn
 		}
 		localAddrPort := tc.LocalAddr().(*net.TCPAddr).AddrPort()
 
@@ -564,21 +564,39 @@ func serverHandleRequest(rw io.ReadWriter, b []byte, enableTCP, enableUDP bool) 
 		reply := AppendAddrFromAddrPort(b[:3], localAddrPort)
 
 		// Write reply.
-		_, err = rw.Write(reply)
-		if err != nil {
-			return
+		if _, err = rw.Write(reply); err != nil {
+			return addr, err
 		}
 
 		// Hold the connection open.
-		_, err = rw.Read(b[:1])
-		if err == nil || err == io.EOF {
-			err = ErrUDPAssociateDone
+		if _, err = rw.Read(b[:1]); err != nil && err != io.EOF {
+			return addr, err
 		}
+		return addr, ErrUDPAssociateDone
 
 	default:
 		_ = replyWithStatus(rw, b, ReplyCommandNotSupported)
-		return addr, UnsupportedCommandError(b[1])
+		return addr, UnsupportedCommandError(cmd)
 	}
+}
 
-	return
+// prefixedReader is an [io.Reader] that reads from a prefix buffer first, then from an underlying reader.
+type prefixedReader struct {
+	prefix []byte
+	r      io.Reader
+}
+
+// newPrefixedReader returns a new prefixed reader.
+func newPrefixedReader(prefix []byte, r io.Reader) *prefixedReader {
+	return &prefixedReader{prefix: prefix, r: r}
+}
+
+// Read implements [io.Reader.Read].
+func (r *prefixedReader) Read(p []byte) (n int, err error) {
+	if len(r.prefix) > 0 {
+		n = copy(p, r.prefix)
+		r.prefix = r.prefix[n:]
+		return n, nil
+	}
+	return r.r.Read(p)
 }
