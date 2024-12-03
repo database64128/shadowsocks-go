@@ -109,7 +109,8 @@
                     "relayBatchSize": 0,
                     "serverRecvBatchSize": 0,
                     "sendChannelCapacity": 0,
-                    "natTimeout": "180s"
+                    "natTimeout": "180s",
+                    "allowFragmentation": false
                 },
                 {
                     "network": "udp4",
@@ -121,7 +122,8 @@
                     "relayBatchSize": 0,
                     "serverRecvBatchSize": 0,
                     "sendChannelCapacity": 0,
-                    "natTimeout": "180s"
+                    "natTimeout": "180s",
+                    "allowFragmentation": false
                 },
                 {
                     "network": "udp6",
@@ -133,7 +135,8 @@
                     "relayBatchSize": 0,
                     "serverRecvBatchSize": 0,
                     "sendChannelCapacity": 0,
-                    "natTimeout": "180s"
+                    "natTimeout": "180s",
+                    "allowFragmentation": false
                 }
             ],
             "mtu": 1500
@@ -287,6 +290,7 @@
             "multipathTCP": false,
             "allowSegmentedFixedLengthHeader": false,
             "enableUDP": true,
+            "allowFragmentation": false,
             "mtu": 1500,
             "psk": "oE/s2z9Q8EWORAB8B3UCxw==",
             "iPSKs": [
@@ -308,6 +312,7 @@
             "multipathTCP": false,
             "allowSegmentedFixedLengthHeader": false,
             "enableUDP": true,
+            "allowFragmentation": false,
             "mtu": 1500,
             "psk": "QzhDwx0lKZ+0Sustgwtjtw==",
             "iPSKs": [
@@ -325,6 +330,7 @@
             "enableTCP": true,
             "multipathTCP": false,
             "enableUDP": true,
+            "allowFragmentation": false,
             "mtu": 1500,
             "socks5": {
                 "username": "username",
@@ -364,6 +370,7 @@
             "tcpFastOpenFallback": false,
             "multipathTCP": false,
             "enableUDP": true,
+            "allowFragmentation": false,
             "mtu": 1500
         },
         {
@@ -377,6 +384,7 @@
             "tcpFastOpenFallback": false,
             "multipathTCP": false,
             "enableUDP": true,
+            "allowFragmentation": false,
             "mtu": 1500
         },
         {
@@ -390,6 +398,7 @@
             "tcpFastOpenFallback": false,
             "multipathTCP": false,
             "enableUDP": true,
+            "allowFragmentation": false,
             "mtu": 1500
         }
     ],

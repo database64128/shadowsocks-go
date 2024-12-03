@@ -165,6 +165,13 @@ type UDPListenerConfig struct {
 	//
 	// The default value is 5 minutes.
 	NATTimeout jsonhelper.Duration `json:"natTimeout"`
+
+	// AllowFragmentation controls whether to allow IP fragmentation.
+	//
+	// IP fragmentation does not reliably work over the Internet.
+	// Sending fragmented packets will significantly reduce throughput.
+	// Do not enable this option unless it is absolutely necessary.
+	AllowFragmentation bool `json:"allowFragmentation"`
 }
 
 // Configure returns a UDP server socket configuration.
@@ -196,7 +203,7 @@ func (lnc *UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 			TrafficClass:      lnc.TrafficClass,
 			ReusePort:         lnc.ReusePort,
 			Transparent:       transparent,
-			PathMTUDiscovery:  true,
+			PathMTUDiscovery:  !lnc.AllowFragmentation,
 			ReceivePacketInfo: true,
 		}),
 		network:             lnc.Network,

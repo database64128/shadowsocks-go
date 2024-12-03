@@ -89,7 +89,16 @@ type ClientConfig struct {
 	// UDP
 
 	EnableUDP bool `json:"enableUDP"`
-	MTU       int  `json:"mtu"`
+
+	// AllowFragmentation controls whether to allow fragmented UDP packets.
+	//
+	// IP fragmentation does not reliably work over the Internet.
+	// Sending fragmented packets will significantly reduce throughput.
+	// Do not enable this option unless it is absolutely necessary.
+	AllowFragmentation bool `json:"allowFragmentation"`
+
+	// MTU is the MTU of the client's designated network path.
+	MTU int `json:"mtu"`
 
 	// Socks5 is the protocol-specific configuration for "socks5".
 	Socks5 Socks5ClientConfig `json:"socks5"`
@@ -308,7 +317,7 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 		ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
 		Fwmark:            cc.DialerFwmark,
 		TrafficClass:      cc.DialerTrafficClass,
-		PathMTUDiscovery:  true,
+		PathMTUDiscovery:  !cc.AllowFragmentation,
 	})
 
 	switch cc.Protocol {
