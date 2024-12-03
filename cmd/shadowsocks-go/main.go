@@ -51,6 +51,8 @@ func main() {
 	}
 	defer logger.Sync()
 
+	logger.Info("shadowsocks-go", zap.String("version", shadowsocks.Version))
+
 	var sc service.Config
 	if err = jsonhelper.OpenAndDecodeDisallowUnknownFields(confPath, &sc); err != nil {
 		logger.Fatal("Failed to load config",
