@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/database64128/shadowsocks-go/api"
+	"github.com/database64128/shadowsocks-go/api/ssm"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/dns"
@@ -144,14 +145,17 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	}
 
 	credman := cred.NewManager(logger)
-	apiServer, apiSM, err := sc.API.Server(logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create API server: %w", err)
-	}
+	var apiSM *ssm.ServerManager
 
 	services := make([]Relay, 0, 2+2*len(sc.Servers))
 	services = append(services, credman)
-	if apiServer != nil {
+
+	if sc.API.Enabled {
+		var apiServer *api.Server
+		apiServer, apiSM, err = sc.API.NewServer(logger, listenConfigCache, tlsCertStore)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create API server: %w", err)
+		}
 		services = append(services, apiServer)
 	}
 

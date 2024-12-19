@@ -523,12 +523,27 @@
         "enableTrustedProxyCheck": false,
         "trustedProxies": [],
         "proxyHeader": "X-Forwarded-For",
-        "listen": ":20221",
-        "certFile": "",
-        "keyFile": "",
-        "clientCertFile": "",
-        "secretPath": "/4paZvyoK3dCjyQXU33md5huJMMYVD9o8",
-        "fiberConfigPath": ""
+        "staticPath": "",
+        "secretPath": "4paZvyoK3dCjyQXU33md5huJMMYVD9o8",
+        "listeners": [
+            {
+                "network": "tcp",
+                "address": ":20221",
+                "fwmark": 52140,
+                "trafficClass": 0,
+                "reusePort": false,
+                "fastOpen": true,
+                "fastOpenBacklog": 0,
+                "fastOpenFallback": true,
+                "multipath": false,
+                "deferAcceptSecs": 0,
+                "userTimeoutMsecs": 0,
+                "certList": "example.com",
+                "clientCAs": "my-root-ca",
+                "enableTLS": false,
+                "requireAndVerifyClientCert": false
+            }
+        ]
     },
     "certs": {
         "certLists": [

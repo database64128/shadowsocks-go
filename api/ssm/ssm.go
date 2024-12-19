@@ -3,32 +3,17 @@ package ssm
 
 import (
 	"errors"
+	"net/http"
 
 	"github.com/database64128/shadowsocks-go"
+	"github.com/database64128/shadowsocks-go/api/internal/restapi"
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/stats"
-	"github.com/gofiber/fiber/v2"
 )
 
 // StandardError is the standard error response.
 type StandardError struct {
 	Message string `json:"error"`
-}
-
-// ServerInfo contains information about the API server.
-type ServerInfo struct {
-	Name       string `json:"server"`
-	APIVersion string `json:"apiVersion"`
-}
-
-var serverInfo = ServerInfo{
-	Name:       "shadowsocks-go " + shadowsocks.Version,
-	APIVersion: "v1",
-}
-
-// GetServerInfo returns information about the API server.
-func GetServerInfo(c *fiber.Ctx) error {
-	return c.JSON(&serverInfo)
 }
 
 type managedServer struct {
@@ -58,131 +43,125 @@ func (sm *ServerManager) AddServer(name string, cms *cred.ManagedServer, sc stat
 	sm.managedServerNames = append(sm.managedServerNames, name)
 }
 
-// RegisterRoutes sets up routes for the /servers endpoint.
-func (sm *ServerManager) RegisterRoutes(v1 fiber.Router) {
-	v1.Get("/servers", sm.ListServers)
+// RegisterHandlers sets up handlers for the /servers endpoint.
+func (sm *ServerManager) RegisterHandlers(register func(method string, path string, handler restapi.HandlerFunc)) {
+	register(http.MethodGet, "/servers", sm.handleListServers)
 
-	server := v1.Group("/servers/:server", sm.ContextManagedServer)
-	server.Get("", GetServerInfo)
-	server.Get("/stats", sm.GetStats)
+	register(http.MethodGet, "/servers/{server}", sm.requireServerStats(handleGetServerInfo))
+	register(http.MethodGet, "/servers/{server}/stats", sm.requireServerStats(handleGetStats))
 
-	users := server.Group("/users", sm.CheckMultiUserSupport)
-	users.Get("", sm.ListUsers)
-	users.Post("", sm.AddUser)
-	users.Get("/:username", sm.GetUser)
-	users.Patch("/:username", sm.UpdateUser)
-	users.Delete("/:username", sm.DeleteUser)
+	register(http.MethodGet, "/servers/{server}/users", sm.requireServerUsers(handleListUsers))
+	register(http.MethodPost, "/servers/{server}/users", sm.requireServerUsers(handleAddUser))
+	register(http.MethodGet, "/servers/{server}/users/{username}", sm.requireServerUsers(handleGetUser))
+	register(http.MethodPatch, "/servers/{server}/users/{username}", sm.requireServerUsers(handleUpdateUser))
+	register(http.MethodDelete, "/servers/{server}/users/{username}", sm.requireServerUsers(handleDeleteUser))
 }
 
-// ListServers lists all managed servers.
-func (sm *ServerManager) ListServers(c *fiber.Ctx) error {
-	return c.JSON(&sm.managedServerNames)
+func (sm *ServerManager) handleListServers(w http.ResponseWriter, _ *http.Request) (int, error) {
+	return restapi.EncodeResponse(w, http.StatusOK, &sm.managedServerNames)
 }
 
-// ContextManagedServer is a middleware for the servers group.
-// It adds the server with the given name to the request context.
-func (sm *ServerManager) ContextManagedServer(c *fiber.Ctx) error {
-	name := c.Params("server")
-	ms := sm.managedServers[name]
-	if ms == nil {
-		return c.Status(fiber.StatusNotFound).JSON(&StandardError{Message: "server not found"})
+func (sm *ServerManager) requireServerStats(h func(http.ResponseWriter, *http.Request, stats.Collector) (int, error)) restapi.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) (int, error) {
+		name := r.PathValue("server")
+		ms := sm.managedServers[name]
+		if ms == nil {
+			return restapi.EncodeResponse(w, http.StatusNotFound, StandardError{Message: "server not found"})
+		}
+		return h(w, r, ms.sc)
 	}
-	c.Locals(0, ms)
-	return c.Next()
 }
 
-// managedServerFromContext returns the managed server from the request context.
-func managedServerFromContext(c *fiber.Ctx) *managedServer {
-	return c.Locals(0).(*managedServer)
+var serverInfoJSON = []byte(`{"server":"shadowsocks-go ` + shadowsocks.Version + `","apiVersion":"v1"}`)
+
+func handleGetServerInfo(w http.ResponseWriter, _ *http.Request, _ stats.Collector) (int, error) {
+	w.Header()["Content-Type"] = []string{"application/json"}
+	_, err := w.Write(serverInfoJSON)
+	return http.StatusOK, err
 }
 
-// GetStats returns server traffic statistics.
-func (sm *ServerManager) GetStats(c *fiber.Ctx) error {
-	ms := managedServerFromContext(c)
-	if c.QueryBool("clear") {
-		return c.JSON(ms.sc.SnapshotAndReset())
+func handleGetStats(w http.ResponseWriter, r *http.Request, sc stats.Collector) (int, error) {
+	var serverStats stats.Server
+	if v := r.URL.Query()["clear"]; len(v) == 1 && (v[0] == "" || v[0] == "true") {
+		serverStats = sc.SnapshotAndReset()
+	} else {
+		serverStats = sc.Snapshot()
 	}
-	return c.JSON(ms.sc.Snapshot())
+	return restapi.EncodeResponse(w, http.StatusOK, serverStats)
 }
 
-// CheckMultiUserSupport is a middleware for the users group.
-// It checks whether the selected server supports user management.
-func (sm *ServerManager) CheckMultiUserSupport(c *fiber.Ctx) error {
-	ms := managedServerFromContext(c)
-	if ms.cms == nil {
-		return c.Status(fiber.StatusNotFound).JSON(&StandardError{Message: "The server does not support user management."})
+func (sm *ServerManager) requireServerUsers(h func(http.ResponseWriter, *http.Request, *managedServer) (int, error)) func(http.ResponseWriter, *http.Request) (int, error) {
+	return func(w http.ResponseWriter, r *http.Request) (int, error) {
+		name := r.PathValue("server")
+		ms := sm.managedServers[name]
+		if ms == nil {
+			return restapi.EncodeResponse(w, http.StatusNotFound, StandardError{Message: "server not found"})
+		}
+		if ms.cms == nil {
+			return restapi.EncodeResponse(w, http.StatusNotFound, StandardError{Message: "The server does not support user management."})
+		}
+		return h(w, r, ms)
 	}
-	return c.Next()
 }
 
-// UserList contains a list of user credentials.
-type UserList struct {
-	Users []cred.UserCredential `json:"users"`
+func handleListUsers(w http.ResponseWriter, _ *http.Request, ms *managedServer) (int, error) {
+	type response struct {
+		Users []cred.UserCredential `json:"users"`
+	}
+	return restapi.EncodeResponse(w, http.StatusOK, response{Users: ms.cms.Credentials()})
 }
 
-// ListUsers lists server users.
-func (sm *ServerManager) ListUsers(c *fiber.Ctx) error {
-	ms := managedServerFromContext(c)
-	return c.JSON(&UserList{Users: ms.cms.Credentials()})
-}
-
-// AddUser adds a new user credential to the server.
-func (sm *ServerManager) AddUser(c *fiber.Ctx) error {
+func handleAddUser(w http.ResponseWriter, r *http.Request, ms *managedServer) (int, error) {
 	var uc cred.UserCredential
-	if err := c.BodyParser(&uc); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(&StandardError{Message: err.Error()})
+	if err := restapi.DecodeRequest(r, &uc); err != nil {
+		return restapi.EncodeResponse(w, http.StatusBadRequest, StandardError{Message: err.Error()})
 	}
 
-	ms := managedServerFromContext(c)
 	if err := ms.cms.AddCredential(uc.Name, uc.UPSK); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(&StandardError{Message: err.Error()})
+		return restapi.EncodeResponse(w, http.StatusBadRequest, StandardError{Message: err.Error()})
 	}
-	return c.JSON(&uc)
+
+	return restapi.EncodeResponse(w, http.StatusOK, &uc)
 }
 
-// UserInfo contains information about a user.
-type UserInfo struct {
-	cred.UserCredential
-	stats.Traffic
-}
+func handleGetUser(w http.ResponseWriter, r *http.Request, ms *managedServer) (int, error) {
+	type response struct {
+		cred.UserCredential
+		stats.Traffic
+	}
 
-// GetUser returns information about a user.
-func (sm *ServerManager) GetUser(c *fiber.Ctx) error {
-	ms := managedServerFromContext(c)
-	username := c.Params("username")
-	uc, ok := ms.cms.GetCredential(username)
+	username := r.PathValue("username")
+	userCred, ok := ms.cms.GetCredential(username)
 	if !ok {
-		return c.Status(fiber.StatusNotFound).JSON(&StandardError{Message: "user not found"})
+		return restapi.EncodeResponse(w, http.StatusNotFound, StandardError{Message: "user not found"})
 	}
-	return c.JSON(&UserInfo{uc, ms.sc.Snapshot().Traffic})
+
+	return restapi.EncodeResponse(w, http.StatusOK, response{userCred, ms.sc.Snapshot().Traffic})
 }
 
-// UpdateUser updates a user's credential.
-func (sm *ServerManager) UpdateUser(c *fiber.Ctx) error {
+func handleUpdateUser(w http.ResponseWriter, r *http.Request, ms *managedServer) (int, error) {
 	var update struct {
 		UPSK []byte `json:"uPSK"`
 	}
-	if err := c.BodyParser(&update); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(&StandardError{Message: err.Error()})
+	if err := restapi.DecodeRequest(r, &update); err != nil {
+		return restapi.EncodeResponse(w, http.StatusBadRequest, StandardError{Message: err.Error()})
 	}
 
-	ms := managedServerFromContext(c)
-	username := c.Params("username")
+	username := r.PathValue("username")
 	if err := ms.cms.UpdateCredential(username, update.UPSK); err != nil {
 		if errors.Is(err, cred.ErrNonexistentUser) {
-			return c.Status(fiber.StatusNotFound).JSON(&StandardError{Message: err.Error()})
+			return restapi.EncodeResponse(w, http.StatusNotFound, StandardError{Message: err.Error()})
 		}
-		return c.Status(fiber.StatusBadRequest).JSON(&StandardError{Message: err.Error()})
+		return restapi.EncodeResponse(w, http.StatusBadRequest, StandardError{Message: err.Error()})
 	}
-	return c.SendStatus(fiber.StatusNoContent)
+
+	return restapi.EncodeResponse(w, http.StatusNoContent, nil)
 }
 
-// DeleteUser deletes a user's credential.
-func (sm *ServerManager) DeleteUser(c *fiber.Ctx) error {
-	ms := managedServerFromContext(c)
-	username := c.Params("username")
+func handleDeleteUser(w http.ResponseWriter, r *http.Request, ms *managedServer) (int, error) {
+	username := r.PathValue("username")
 	if err := ms.cms.DeleteCredential(username); err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(&StandardError{Message: err.Error()})
+		return restapi.EncodeResponse(w, http.StatusNotFound, StandardError{Message: err.Error()})
 	}
-	return c.SendStatus(fiber.StatusNoContent)
+	return restapi.EncodeResponse(w, http.StatusNoContent, nil)
 }

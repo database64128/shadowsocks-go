@@ -70,6 +70,14 @@ type ListenConfig struct {
 	fns setFuncSlice
 }
 
+// Listen wraps [tfo.ListenConfig.Listen].
+func (lc *ListenConfig) Listen(ctx context.Context, network, address string) (ln net.Listener, info SocketInfo, err error) {
+	tlc := lc.tlc
+	tlc.Control = lc.fns.controlFunc(&info)
+	ln, err = tlc.Listen(ctx, network, address)
+	return
+}
+
 // ListenTCP wraps [tfo.ListenConfig.Listen] and returns a [*net.TCPListener] directly.
 func (lc *ListenConfig) ListenTCP(ctx context.Context, network, address string) (tln *net.TCPListener, info SocketInfo, err error) {
 	tlc := lc.tlc
