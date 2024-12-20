@@ -520,9 +520,11 @@
     "api": {
         "enabled": true,
         "debugPprof": false,
-        "enableTrustedProxyCheck": false,
-        "trustedProxies": [],
-        "proxyHeader": "X-Forwarded-For",
+        "trustedProxies": [
+            "127.0.0.1/32",
+            "::1/128"
+        ],
+        "realIPHeaderKey": "X-Forwarded-For",
         "staticPath": "",
         "secretPath": "4paZvyoK3dCjyQXU33md5huJMMYVD9o8",
         "listeners": [

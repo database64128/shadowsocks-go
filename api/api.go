@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/pprof"
+	"net/netip"
 	"path"
 	"strings"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/tlscerts"
 	"go.uber.org/zap"
+	"go4.org/netipx"
 )
 
 // Config stores the configuration for the RESTful API.
@@ -25,16 +27,13 @@ type Config struct {
 	// DebugPprof enables pprof endpoints for debugging and profiling.
 	DebugPprof bool `json:"debugPprof"`
 
-	// EnableTrustedProxyCheck enables trusted proxy checks.
-	EnableTrustedProxyCheck bool `json:"enableTrustedProxyCheck"`
+	// TrustedProxies specifies the IP address prefixes of trusted proxies.
+	TrustedProxies []netip.Prefix `json:"trustedProxies"`
 
-	// TrustedProxies is the list of trusted proxies.
-	// This only takes effect if EnableTrustedProxyCheck is true.
-	TrustedProxies []string `json:"trustedProxies"`
-
-	// ProxyHeader is the header used to determine the client's IP address.
-	// If empty, the remote peer's address is used.
-	ProxyHeader string `json:"proxyHeader"`
+	// RealIPHeaderKey specifies the header field to use for determining
+	// the client's real IP address when the request is from a trusted proxy.
+	// If empty, the real IP address is not appended to [http.Request.RemoteAddr].
+	RealIPHeaderKey string `json:"realIPHeaderKey"`
 
 	// StaticPath is the path where static files are served from.
 	// If empty, static file serving is disabled.
@@ -188,16 +187,21 @@ func (c *Config) NewServer(logger *zap.Logger, listenConfigCache conn.ListenConf
 		basePath = joinPatternPath(basePath, c.SecretPath)
 	}
 
+	realIP, err := newRealIPMiddleware(logger, c.TrustedProxies, c.RealIPHeaderKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create real IP middleware: %w", err)
+	}
+
 	if c.DebugPprof {
 		register := func(path string, handler http.HandlerFunc) {
 			pattern := "GET " + joinPatternPath(basePath, path)
-			mux.Handle(pattern, logPprofRequests(logger, handler))
+			mux.Handle(pattern, realIP(logPprofRequests(logger, handler)))
 		}
 
 		// [pprof.Index] requires the URL path to start with "/debug/pprof/".
 		indexPath := joinPatternPath(basePath, "/debug/pprof/")
 		prefix := strings.TrimSuffix(indexPath, "/debug/pprof/")
-		mux.Handle(indexPath, logPprofRequests(logger, http.StripPrefix(prefix, http.HandlerFunc(pprof.Index))))
+		mux.Handle(indexPath, realIP(logPprofRequests(logger, http.StripPrefix(prefix, http.HandlerFunc(pprof.Index)))))
 
 		register("/debug/pprof/cmdline", pprof.Cmdline)
 		register("/debug/pprof/profile", pprof.Profile)
@@ -210,11 +214,11 @@ func (c *Config) NewServer(logger *zap.Logger, listenConfigCache conn.ListenConf
 	sm := ssm.NewServerManager()
 	sm.RegisterHandlers(func(method, path string, handler restapi.HandlerFunc) {
 		pattern := method + " " + joinPatternPath(apiSSMv1Path, path)
-		mux.Handle(pattern, logAPIRequests(logger, handler))
+		mux.Handle(pattern, realIP(logAPIRequests(logger, handler)))
 	})
 
 	if c.StaticPath != "" {
-		mux.Handle("GET /", logFileServerRequests(logger, http.FileServer(http.Dir(c.StaticPath))))
+		mux.Handle("GET /", realIP(logFileServerRequests(logger, http.FileServer(http.Dir(c.StaticPath)))))
 	}
 
 	errorLog, err := zap.NewStdLogAt(logger, zap.ErrorLevel)
@@ -248,6 +252,49 @@ func joinPatternPath(elem ...string) string {
 		}
 	}
 	return p
+}
+
+// newRealIPMiddleware returns a middleware that appends the content of realIPHeaderKey
+// to [http.Request.RemoteAddr] if the request is from a trusted proxy.
+//
+// If realIPHeaderKey is empty, the middleware is a no-op.
+func newRealIPMiddleware(logger *zap.Logger, trustedProxies []netip.Prefix, realIPHeaderKey string) (func(http.Handler) http.Handler, error) {
+	if realIPHeaderKey == "" {
+		return func(h http.Handler) http.Handler {
+			return h
+		}, nil
+	}
+
+	var sb netipx.IPSetBuilder
+	for _, p := range trustedProxies {
+		sb.AddPrefix(p)
+	}
+
+	proxySet, err := sb.IPSet()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build trusted proxy prefix set: %w", err)
+	}
+
+	return func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if v := r.Header[realIPHeaderKey]; len(v) > 0 {
+				proxyAddrPort, err := netip.ParseAddrPort(r.RemoteAddr)
+				if err != nil {
+					logger.Warn("Failed to parse HTTP request remote address",
+						zap.String("remoteAddr", r.RemoteAddr),
+						zap.Error(err),
+					)
+					return
+				}
+
+				if proxySet.Contains(proxyAddrPort.Addr()) {
+					r.RemoteAddr = fmt.Sprintf("%s (%s: %v)", r.RemoteAddr, realIPHeaderKey, v)
+				}
+			}
+
+			h.ServeHTTP(w, r)
+		})
+	}, nil
 }
 
 // logPprofRequests is a middleware that logs pprof requests.
