@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"path"
+	"strings"
 
 	"github.com/database64128/shadowsocks-go/api/internal/restapi"
 	"github.com/database64128/shadowsocks-go/api/ssm"
@@ -193,7 +194,11 @@ func (c *Config) NewServer(logger *zap.Logger, listenConfigCache conn.ListenConf
 			mux.Handle(pattern, logPprofRequests(logger, handler))
 		}
 
-		register("/debug/pprof/", pprof.Index)
+		// [pprof.Index] requires the URL path to start with "/debug/pprof/".
+		indexPath := joinPatternPath(basePath, "/debug/pprof/")
+		prefix := strings.TrimSuffix(indexPath, "/debug/pprof/")
+		mux.Handle(indexPath, logPprofRequests(logger, http.StripPrefix(prefix, http.HandlerFunc(pprof.Index))))
+
 		register("/debug/pprof/cmdline", pprof.Cmdline)
 		register("/debug/pprof/profile", pprof.Profile)
 		register("/debug/pprof/symbol", pprof.Symbol)
@@ -229,6 +234,9 @@ func (c *Config) NewServer(logger *zap.Logger, listenConfigCache conn.ListenConf
 
 // joinPatternPath joins path elements into a pattern path.
 func joinPatternPath(elem ...string) string {
+	if len(elem) == 0 {
+		return ""
+	}
 	p := path.Join(elem...)
 	if p == "" {
 		return ""
@@ -243,9 +251,9 @@ func joinPatternPath(elem ...string) string {
 }
 
 // logPprofRequests is a middleware that logs pprof requests.
-func logPprofRequests(logger *zap.Logger, h http.HandlerFunc) http.Handler {
+func logPprofRequests(logger *zap.Logger, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h(w, r)
+		h.ServeHTTP(w, r)
 		logger.Info("Handled pprof request",
 			zap.String("proto", r.Proto),
 			zap.String("method", r.Method),
