@@ -6,6 +6,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/domainset"
+	"github.com/database64128/shadowsocks-go/mmap"
 	"github.com/database64128/shadowsocks-go/prefixset"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/oschwald/geoip2-golang"
@@ -57,18 +58,27 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, res
 		}
 	}
 
-	var geoip *geoip2.Reader
+	var (
+		geoip *geoip2.Reader
+		close = func() error { return nil }
+	)
 
 	if rc.GeoLite2CountryDbPath != "" {
-		geoip, err = geoip2.Open(rc.GeoLite2CountryDbPath)
+		var data []byte
+		data, close, err = mmap.ReadFile[[]byte](rc.GeoLite2CountryDbPath)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to read GeoLite2-Country database: %w", err)
 		}
 		defer func() {
 			if err != nil {
-				_ = geoip.Close()
+				_ = close()
 			}
 		}()
+
+		geoip, err = geoip2.FromBytes(data)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	domainSetMap := make(map[string]domainset.DomainSet, len(rc.DomainSets))
@@ -105,6 +115,7 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, res
 
 	return &Router{
 		geoip:  geoip,
+		close:  close,
 		logger: logger,
 		routes: routes,
 	}, nil
@@ -113,16 +124,14 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, res
 // Router looks up the destination client for requests received by servers.
 type Router struct {
 	geoip  *geoip2.Reader
+	close  func() error
 	logger *zap.Logger
 	routes []Route
 }
 
 // Close closes the router.
 func (r *Router) Close() error {
-	if r.geoip != nil {
-		return r.geoip.Close()
-	}
-	return nil
+	return r.close()
 }
 
 // GetTCPClient returns the zerocopy.TCPClient for a TCP request received by server
