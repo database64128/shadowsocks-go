@@ -39,7 +39,7 @@ func ReadFile[T ~[]byte | ~string](name string) (data T, close func() error, err
 		if errors.Is(err, errors.ErrUnsupported) {
 			return readFileFallback[T](f, size)
 		}
-		return
+		return data, nil, err
 	}
 
 	b := unsafe.Slice((*byte)(addr), size)
@@ -49,7 +49,7 @@ func ReadFile[T ~[]byte | ~string](name string) (data T, close func() error, err
 func readFileFallback[T ~[]byte | ~string](f *os.File, size int) (data T, close func() error, err error) {
 	b := make([]byte, size)
 	if _, err = io.ReadFull(f, b); err != nil {
-		return
+		return data, nil, err
 	}
 	return *(*T)(unsafe.Pointer(&b)), func() error { return nil }, nil
 }

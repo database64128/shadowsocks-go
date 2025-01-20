@@ -31,6 +31,9 @@ func readFile(f *os.File, size uintptr) (addr unsafe.Pointer, close func() error
 
 	return *(*unsafe.Pointer)(unsafe.Pointer(&addrUintptr)), // workaround for unsafeptr check in go vet, see https://github.com/golang/go/issues/58625
 		func() error {
-			return windows.UnmapViewOfFile(addrUintptr)
+			if err := windows.UnmapViewOfFile(addrUintptr); err != nil {
+				return os.NewSyscallError("UnmapViewOfFile", err)
+			}
+			return nil
 		}, nil
 }

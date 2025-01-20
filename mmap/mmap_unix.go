@@ -22,10 +22,13 @@ func readFile(f *os.File, size uintptr) (addr unsafe.Pointer, close func() error
 	}
 
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, os.NewSyscallError("mmap", err)
 	}
 
 	return addr, func() error {
-		return unix.MunmapPtr(addr, size)
+		if err := unix.MunmapPtr(addr, size); err != nil {
+			return os.NewSyscallError("munmap", err)
+		}
+		return nil
 	}, nil
 }
