@@ -17,7 +17,8 @@ import (
 //   - "console" (default): Reasonable defaults for production console environments.
 //   - "console-nocolor": Same as "console", but without color.
 //   - "console-notime": Same as "console", but without timestamps.
-//   - "systemd": Reasonable defaults for running as a systemd service. Same as "console", but without color and timestamps.
+//   - "console-nocolor-notime": Same as "console", but without color and timestamps.
+//   - "systemd": Reasonable defaults for running as a systemd service. Alias for "console-notime".
 //   - "production": Zap's built-in production preset.
 //   - "development": Zap's built-in development preset.
 //
@@ -30,9 +31,9 @@ func NewZapLogger(preset string, level zapcore.Level) (*zap.Logger, error) {
 		return NewProductionConsoleZapLogger(level, false, false, false), nil
 	case "console-nocolor":
 		return NewProductionConsoleZapLogger(level, true, false, false), nil
-	case "console-notime":
+	case "console-notime", "systemd":
 		return NewProductionConsoleZapLogger(level, false, true, false), nil
-	case "systemd":
+	case "console-nocolor-notime":
 		return NewProductionConsoleZapLogger(level, true, true, false), nil
 	}
 
