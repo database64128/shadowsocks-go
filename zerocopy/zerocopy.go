@@ -1,6 +1,8 @@
 // Package zerocopy defines interfaces and helper functions for zero-copy read/write operations.
 package zerocopy
 
+import "context"
+
 // Headroom reports the amount of extra space required in read/write buffers besides the payload.
 type Headroom struct {
 	// Front is the minimum space required at the beginning of the buffer before payload.
@@ -28,6 +30,7 @@ func UDPRelayHeadroom(packerHeadroom, unpackerHeadroom Headroom) Headroom {
 
 // tester allows us to write test functions outside _test.go files without importing the testing package.
 type tester interface {
+	Context() context.Context
 	Error(args ...any)
 	Fatal(args ...any)
 	Errorf(format string, args ...any)

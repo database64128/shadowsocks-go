@@ -68,10 +68,7 @@ func TestWriteAndParseTCPRequestFixedLengthHeader(t *testing.T) {
 func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 	payloadLen := 1 + int(mrand.Uint64()&1023)
 	payload := make([]byte, payloadLen)
-	_, err := rand.Read(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(payload)
 	targetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 443))
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	noPayloadLen := targetAddrLen + 2 + 1 + mrand.IntN(MaxPaddingLength)
@@ -157,10 +154,7 @@ func TestWriteAndParseTCPResponseHeader(t *testing.T) {
 	b := make([]byte, bufLen)
 	length := int(mrand.Uint64() & math.MaxUint16)
 	requestSalt := make([]byte, saltLen)
-	_, err := rand.Read(requestSalt)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(requestSalt)
 
 	// 1. Good header
 	WriteTCPResponseHeader(b, requestSalt, uint16(length))
@@ -174,10 +168,7 @@ func TestWriteAndParseTCPResponseHeader(t *testing.T) {
 	}
 
 	// 2. Bad request salt
-	_, err = rand.Read(b[1+8 : 1+8+saltLen])
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(b[1+8 : 1+8+saltLen])
 
 	_, err = ParseTCPResponseHeader(b, requestSalt)
 	if !errors.Is(err, ErrClientSaltMismatch) {
@@ -240,10 +231,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	headerBuf := b[:headerLen]
 	headerNoPaddingBuf := bNoPadding[:noPaddingLen]
 	payload := b[headerLen:]
-	_, err := rand.Read(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(payload)
 
 	// 1. Good header (no padding)
 	WriteUDPClientMessageHeader(headerNoPaddingBuf, 0, targetAddr)
@@ -347,10 +335,7 @@ func TestWriteAndParseUDPServerMessageHeader(t *testing.T) {
 	headerBuf := b[:headerLen]
 	headerNoPaddingBuf := bNoPadding[:noPaddingLen]
 	payload := b[headerLen:]
-	_, err := rand.Read(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(payload)
 
 	// 1. Good header (no padding)
 	WriteUDPServerMessageHeader(headerNoPaddingBuf, csid, 0, sourceAddrPort)

@@ -15,13 +15,10 @@ type testReader struct {
 	r *bytes.Reader
 }
 
-func newTestReader(t *testing.T) (*testReader, []byte) {
+func newTestReader() (*testReader, []byte) {
 	b := make([]byte, 1024)
-	_, err := rand.Read(b)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &testReader{r: bytes.NewReader(b)}, append([]byte{}, b...)
+	rand.Read(b)
+	return &testReader{r: bytes.NewReader(b)}, b
 }
 
 func (r *testReader) ReaderInfo() ReaderInfo {
@@ -36,8 +33,8 @@ type testBigReader struct {
 	*testReader
 }
 
-func newTestBigReader(t *testing.T) (*testBigReader, []byte) {
-	r, b := newTestReader(t)
+func newTestBigReader() (*testBigReader, []byte) {
+	r, b := newTestReader()
 	return &testBigReader{r}, b
 }
 
@@ -56,8 +53,8 @@ type testDirectReader struct {
 	*testReader
 }
 
-func newTestDirectReadCloser(t *testing.T) (*testDirectReader, []byte) {
-	r, b := newTestReader(t)
+func newTestDirectReadCloser() (*testDirectReader, []byte) {
+	r, b := newTestReader()
 	return &testDirectReader{r}, b
 }
 
@@ -151,16 +148,16 @@ func (rw *testReadWriterImpl) Close() error {
 	return nil
 }
 
-func newTestTypicalReadWriter(t *testing.T) (*testReadWriterImpl, []byte) {
-	r, b := newTestReader(t)
+func newTestTypicalReadWriter() (*testReadWriterImpl, []byte) {
+	r, b := newTestReader()
 	return &testReadWriterImpl{
 		Reader:          r,
 		testWriterBytes: &testWriter{},
 	}, b
 }
 
-func newTestBigReaderSmallWriter(t *testing.T) (*testReadWriterImpl, []byte) {
-	r, b := newTestBigReader(t)
+func newTestBigReaderSmallWriter() (*testReadWriterImpl, []byte) {
+	r, b := newTestBigReader()
 	return &testReadWriterImpl{
 		Reader:          r,
 		testWriterBytes: &testSmallWriter{},
@@ -196,8 +193,8 @@ func (rw *testDirectReadWriter) Bytes() []byte {
 	return rw.w.Bytes()
 }
 
-func newTestDirectReadWriter(t *testing.T) (*testDirectReadWriter, []byte) {
-	r, b := newTestDirectReadCloser(t)
+func newTestDirectReadWriter() (*testDirectReadWriter, []byte) {
+	r, b := newTestDirectReadCloser()
 	return &testDirectReadWriter{
 		testDirectReader: r,
 		testDirectWriter: &testDirectWriter{},
@@ -228,19 +225,19 @@ func testTwoWayRelay(t *testing.T, l, r testReadWriter, ldata, rdata []byte) {
 }
 
 func TestTwoWayRelayBuffered(t *testing.T) {
-	l, ldata := newTestTypicalReadWriter(t)
-	r, rdata := newTestTypicalReadWriter(t)
+	l, ldata := newTestTypicalReadWriter()
+	r, rdata := newTestTypicalReadWriter()
 	testTwoWayRelay(t, l, r, ldata, rdata)
 }
 
 func TestTwoWayRelayFallback(t *testing.T) {
-	l, ldata := newTestBigReaderSmallWriter(t)
-	r, rdata := newTestBigReaderSmallWriter(t)
+	l, ldata := newTestBigReaderSmallWriter()
+	r, rdata := newTestBigReaderSmallWriter()
 	testTwoWayRelay(t, l, r, ldata, rdata)
 }
 
 func TestTwoWayRelayDirect(t *testing.T) {
-	l, ldata := newTestDirectReadWriter(t)
-	r, rdata := newTestDirectReadWriter(t)
+	l, ldata := newTestDirectReadWriter()
+	r, rdata := newTestDirectReadWriter()
 	testTwoWayRelay(t, l, r, ldata, rdata)
 }

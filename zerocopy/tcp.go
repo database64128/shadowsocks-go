@@ -137,6 +137,7 @@ func ReplyWithGibberish(conn *net.TCPConn, logger *zap.Logger) {
 	const (
 		bufBaseSize    = 1 << 14
 		bufVarSizeMask = bufBaseSize - 1
+		bufMaxSize     = bufBaseSize + bufVarSizeMask
 	)
 
 	var (
@@ -146,7 +147,8 @@ func ReplyWithGibberish(conn *net.TCPConn, logger *zap.Logger) {
 		err          error
 	)
 
-	b := make([]byte, bufBaseSize+mrand.Uint64()&bufVarSizeMask) // [16k, 32k)
+	b := make([]byte, bufMaxSize)
+	b = b[:bufBaseSize+mrand.Uint64()&bufVarSizeMask] // [16k, 32k)
 
 	for {
 		n, err = conn.Read(b)
@@ -166,11 +168,7 @@ func ReplyWithGibberish(conn *net.TCPConn, logger *zap.Logger) {
 		remaining--
 
 		garbage := b[:n]
-		_, err = rand.Read(garbage)
-		if err != nil {
-			logger.Error("Failed to generate random garbage", zap.Error(err))
-			break
-		}
+		rand.Read(garbage)
 
 		n, err = conn.Write(garbage)
 		bytesWritten += int64(n)

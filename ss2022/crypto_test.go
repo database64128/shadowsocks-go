@@ -11,9 +11,7 @@ func newRandomCipherConfigTupleNoEIH(method string, enableUDP bool) (clientCiphe
 		return
 	}
 	psk := make([]byte, keySize)
-	if _, err = rand.Read(psk); err != nil {
-		return
-	}
+	rand.Read(psk)
 	clientCipherConfig, err = NewClientCipherConfig(psk, nil, enableUDP)
 	if err != nil {
 		return
@@ -29,18 +27,14 @@ func newRandomCipherConfigTupleWithEIH(method string, enableUDP bool) (clientCip
 	}
 
 	iPSK := make([]byte, keySize)
-	if _, err = rand.Read(iPSK); err != nil {
-		return
-	}
+	rand.Read(iPSK)
 	iPSKs := [][]byte{iPSK}
 
 	var uPSK []byte
 	userLookupMap = make(UserLookupMap, 7)
 	for i := range 7 {
 		uPSK = make([]byte, keySize)
-		if _, err = rand.Read(uPSK); err != nil {
-			return
-		}
+		rand.Read(uPSK)
 
 		uPSKHash := PSKHash(uPSK)
 		var c *ServerUserCipherConfig

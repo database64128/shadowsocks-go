@@ -475,10 +475,7 @@ func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, sourceAddr netip.Ad
 func (p *ShadowPacketServerUnpacker) NewPacker() (zerocopy.ServerPacker, error) {
 	// Random server session ID.
 	salt := make([]byte, 8)
-	_, err := rand.Read(salt)
-	if err != nil {
-		return nil, err
-	}
+	rand.Read(salt)
 	ssid := binary.BigEndian.Uint64(salt)
 
 	aead, err := p.userCipherConfig.AEAD(salt)

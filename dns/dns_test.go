@@ -1,7 +1,6 @@
 package dns
 
 import (
-	"context"
 	"net/netip"
 	"testing"
 
@@ -12,8 +11,9 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-func testResolver(t *testing.T, ctx context.Context, name string, serverAddrPort netip.AddrPort, tcpClient zerocopy.TCPClient, udpClient zerocopy.UDPClient, logger *zap.Logger) {
+func testResolver(t *testing.T, name string, serverAddrPort netip.AddrPort, tcpClient zerocopy.TCPClient, udpClient zerocopy.UDPClient, logger *zap.Logger) {
 	r := NewResolver(name, serverAddrPort, tcpClient, udpClient, logger)
+	ctx := t.Context()
 
 	// Uncached lookup.
 	uncachedResult, err := r.Lookup(ctx, "example.com")
@@ -42,16 +42,15 @@ func TestResolver(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 	defer logger.Sync()
 
-	ctx := context.Background()
 	serverAddrPort := netip.AddrPortFrom(netip.AddrFrom4([4]byte{1, 1, 1, 1}), 53)
 	tcpClient := direct.NewTCPClient("direct", "tcp", conn.DefaultTCPDialer)
 	udpClient := direct.NewDirectUDPClient("direct", "ip", 1500, conn.DefaultUDPClientListenConfig)
 
 	t.Run("UDP", func(t *testing.T) {
-		testResolver(t, ctx, "UDP", serverAddrPort, nil, udpClient, logger)
+		testResolver(t, "UDP", serverAddrPort, nil, udpClient, logger)
 	})
 
 	t.Run("TCP", func(t *testing.T) {
-		testResolver(t, ctx, "TCP", serverAddrPort, tcpClient, nil, logger)
+		testResolver(t, "TCP", serverAddrPort, tcpClient, nil, logger)
 	})
 }

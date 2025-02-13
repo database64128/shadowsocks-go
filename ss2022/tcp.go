@@ -88,10 +88,7 @@ func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []by
 	copy(ursp, c.unsafeRequestStreamPrefix)
 
 	// Random salt.
-	_, err = rand.Read(salt)
-	if err != nil {
-		return
-	}
+	rand.Read(salt)
 
 	// Write and encrypt identity headers.
 	eihCiphers, err := c.cipherConfig.TCPIdentityHeaderCiphers(salt)

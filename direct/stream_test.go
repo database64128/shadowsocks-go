@@ -2,7 +2,6 @@ package direct
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"net/netip"
 	"sync"
@@ -27,7 +26,7 @@ func TestDirectStreamReadWriter(t *testing.T) {
 	zerocopy.ReadWriterTestFunc(t, &l, &r)
 }
 
-func testShadowsocksNoneStreamReadWriter(t *testing.T, ctx context.Context, clientInitialPayload []byte) {
+func testShadowsocksNoneStreamReadWriter(t *testing.T, clientInitialPayload []byte) {
 	pl, pr := pipe.NewDuplexPipe()
 	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
 
@@ -47,7 +46,7 @@ func testShadowsocksNoneStreamReadWriter(t *testing.T, ctx context.Context, clie
 
 	go func() {
 		defer wg.Done()
-		c, _, cerr = NewShadowsocksNoneStreamClientReadWriter(ctx, &plo, clientTargetAddr, clientInitialPayload)
+		c, _, cerr = NewShadowsocksNoneStreamClientReadWriter(t.Context(), &plo, clientTargetAddr, clientInitialPayload)
 	}()
 
 	go func() {
@@ -83,27 +82,21 @@ func testShadowsocksNoneStreamReadWriter(t *testing.T, ctx context.Context, clie
 }
 
 func TestShadowsocksNoneStreamReadWriter(t *testing.T) {
-	ctx := context.Background()
 	initialPayload := make([]byte, 1024)
-	_, err := rand.Read(initialPayload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(initialPayload)
 
 	t.Run("NoInitialPayload", func(t *testing.T) {
-		testShadowsocksNoneStreamReadWriter(t, ctx, nil)
+		testShadowsocksNoneStreamReadWriter(t, nil)
 	})
 
 	t.Run("WithInitialPayload", func(t *testing.T) {
-		testShadowsocksNoneStreamReadWriter(t, ctx, initialPayload)
+		testShadowsocksNoneStreamReadWriter(t, initialPayload)
 	})
 }
 
 func TestSocks5StreamReadWriter(t *testing.T) {
 	b := make([]byte, 255+255)
-	if _, err := rand.Read(b); err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(b)
 	userInfo255 := socks5.UserInfo{
 		Username: string(b[:255]),
 		Password: string(b[255:]),

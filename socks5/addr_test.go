@@ -54,10 +54,7 @@ var (
 func testAddrFromReader(t *testing.T, addr []byte) {
 	b := make([]byte, 512)
 	n := copy(b, addr)
-	_, err := rand.Read(b[n:])
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(b[n:])
 	expectedTail := make([]byte, 512-n)
 	copy(expectedTail, b[n:])
 
@@ -88,10 +85,7 @@ func TestAddrFromReader(t *testing.T) {
 func testAddrPortFromSlice(t *testing.T, sa []byte, expectedAddrPort netip.AddrPort, expectedN int, expectedErr error) {
 	b := make([]byte, 512)
 	n := copy(b, sa)
-	_, err := rand.Read(b[n:])
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(b[n:])
 	expectedTail := make([]byte, 512-n)
 	copy(expectedTail, b[n:])
 
@@ -120,10 +114,7 @@ func TestAddrPortFromSlice(t *testing.T) {
 func testConnAddrFromSliceAndReader(t *testing.T, sa []byte, expectedAddr conn.Addr) {
 	b := make([]byte, 512)
 	n := copy(b, sa)
-	_, err := rand.Read(b[n:])
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(b[n:])
 	expectedTail := make([]byte, 512-n)
 	copy(expectedTail, b[n:])
 
@@ -168,10 +159,7 @@ func TestConnAddrFromSliceAndReader(t *testing.T) {
 func testConnAddrFromSliceWithDomainCache(t *testing.T, sa []byte, cachedDomain string, expectedAddr conn.Addr) string {
 	b := make([]byte, 512)
 	n := copy(b, sa)
-	_, err := rand.Read(b[n:])
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(b[n:])
 	expectedTail := make([]byte, 512-n)
 	copy(expectedTail, b[n:])
 
@@ -218,10 +206,7 @@ func TestConnAddrFromSliceWithDomainCache(t *testing.T) {
 
 func testAppendAddrFromConnAddr(t *testing.T, addr conn.Addr, expectedSA []byte) {
 	head := make([]byte, 64)
-	_, err := rand.Read(head)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(head)
 
 	b := make([]byte, 0, 512)
 	b = append(b, head...)
@@ -250,10 +235,7 @@ func testLengthOfAndWriteAddrFromConnAddr(t *testing.T, addr conn.Addr, expected
 	}
 
 	b := make([]byte, 512)
-	_, err := rand.Read(b[addrLen:])
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(b[addrLen:])
 	tail := make([]byte, 512-addrLen)
 	copy(tail, b[addrLen:])
 

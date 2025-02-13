@@ -129,17 +129,14 @@ func ClientServerPackerUnpackerTestFunc(t tester, clientPacker ClientPacker, cli
 	targetAddr := conn.AddrFromIPPort(targetAddrPort)
 
 	// Fill random payload.
-	_, err := rand.Read(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(payload)
 
 	// Backup payload.
 	payloadBackup := make([]byte, len(payload))
 	copy(payloadBackup, payload)
 
 	// Client packs.
-	destAddr, pkts, pktl, err := clientPacker.PackInPlace(context.Background(), b, targetAddr, headroom.Front, payloadLen)
+	destAddr, pkts, pktl, err := clientPacker.PackInPlace(t.Context(), b, targetAddr, headroom.Front, payloadLen)
 	if err != nil {
 		t.Fatal(err)
 	}

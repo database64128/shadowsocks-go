@@ -70,10 +70,7 @@ func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, pa
 		copy(ursp, rw.unsafeResponseStreamPrefix)
 
 		// Random salt.
-		_, err := rand.Read(salt)
-		if err != nil {
-			return 0, err
-		}
+		rand.Read(salt)
 
 		// Write response header.
 		WriteTCPResponseHeader(responseHeader, rw.requestSalt, uint16(payloadLen))

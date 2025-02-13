@@ -9,10 +9,7 @@ import (
 func TestSaltPoolAddDuplicateSalts(t *testing.T) {
 	const retention = 100 * time.Millisecond
 	var salt [32]byte
-	_, err := rand.Read(salt[:])
-	if err != nil {
-		t.Fatal(err)
-	}
+	rand.Read(salt[:])
 
 	pool := NewSaltPool[[32]byte](retention)
 

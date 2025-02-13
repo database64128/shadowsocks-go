@@ -55,9 +55,7 @@ func (c *UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zer
 	maxPacketSize := zerocopy.MaxPacketSizeForAddr(c.info.MTU, addrPort.Addr())
 
 	salt := make([]byte, 8)
-	if _, err = rand.Read(salt); err != nil {
-		return c.info, zerocopy.UDPClientSession{}, err
-	}
+	rand.Read(salt)
 	csid := binary.BigEndian.Uint64(salt)
 	aead, err := c.cipherConfig.AEAD(salt)
 	if err != nil {
