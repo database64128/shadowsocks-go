@@ -435,6 +435,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		hpsc := httpproxy.ServerConfig{
 			Logger:                     sc.logger,
 			Users:                      sc.HTTP.Users,
+			EncryptedClientHelloKeys:   sc.HTTP.EncryptedClientHelloKeys,
 			EnableBasicAuth:            sc.HTTP.EnableBasicAuth,
 			EnableTLS:                  sc.HTTP.EnableTLS,
 			RequireAndVerifyClientCert: sc.HTTP.RequireAndVerifyClientCert,
@@ -645,6 +646,9 @@ type HTTPProxyServerConfig struct {
 	// ClientCAs is the name of the X.509 certificate pool in the certificate store,
 	// used as the root CA set for verifying client certificates.
 	ClientCAs string `json:"clientCAs"`
+
+	// EncryptedClientHelloKeys are the ECH keys to use when a client attempts ECH.
+	EncryptedClientHelloKeys []httpproxy.EncryptedClientHelloKey `json:"encryptedClientHelloKeys"`
 
 	// EnableBasicAuth controls whether to enable HTTP Basic Authentication.
 	EnableBasicAuth bool `json:"enableBasicAuth"`

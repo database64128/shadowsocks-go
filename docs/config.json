@@ -212,6 +212,13 @@
                 ],
                 "certList": "example.com",
                 "clientCAs": "my-root-ca",
+                "encryptedClientHelloKeys": [
+                    {
+                        "config": "",
+                        "privateKey": "",
+                        "sendAsRetry": false
+                    }
+                ],
                 "enableBasicAuth": true,
                 "enableTLS": false,
                 "requireAndVerifyClientCert": false
@@ -542,6 +549,13 @@
                 "userTimeoutMsecs": 0,
                 "certList": "example.com",
                 "clientCAs": "my-root-ca",
+                "encryptedClientHelloKeys": [
+                    {
+                        "config": "",
+                        "privateKey": "",
+                        "sendAsRetry": false
+                    }
+                ],
                 "enableTLS": false,
                 "requireAndVerifyClientCert": false
             }

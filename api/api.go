@@ -91,6 +91,9 @@ type ListenerConfig struct {
 	// used as the root CA set for verifying client certificates.
 	ClientCAs string `json:"clientCAs"`
 
+	// EncryptedClientHelloKeys are the ECH keys to use when a client attempts ECH.
+	EncryptedClientHelloKeys []EncryptedClientHelloKey `json:"encryptedClientHelloKeys"`
+
 	// EnableTLS controls whether to enable TLS.
 	EnableTLS bool `json:"enableTLS"`
 
@@ -125,6 +128,26 @@ type ListenerConfig struct {
 	//
 	// Available on platforms supported by Go std's MPTCP implementation.
 	Multipath bool `json:"multipath"`
+}
+
+// EncryptedClientHelloKey holds a private key that is associated
+// with a specific ECH config known to a client.
+type EncryptedClientHelloKey struct {
+	// Config should be a marshalled ECHConfig associated with PrivateKey. This
+	// must match the config provided to clients byte-for-byte. The config
+	// should only specify the DHKEM(X25519, HKDF-SHA256) KEM ID (0x0020), the
+	// HKDF-SHA256 KDF ID (0x0001), and a subset of the following AEAD IDs:
+	// AES-128-GCM (0x0000), AES-256-GCM (0x0001), ChaCha20Poly1305 (0x0002).
+	Config []byte `json:"config"`
+
+	// PrivateKey should be a marshalled private key. Currently, we expect
+	// this to be the output of [ecdh.PrivateKey.Bytes].
+	PrivateKey []byte `json:"privateKey"`
+
+	// SendAsRetry indicates if Config should be sent as part of the list of
+	// retry configs when ECH is requested by the client but rejected by the
+	// server.
+	SendAsRetry bool `json:"sendAsRetry"`
 }
 
 // NewServer returns a new API server from the config.
@@ -170,6 +193,15 @@ func (c *Config) NewServer(logger *zap.Logger, listenConfigCache conn.ListenConf
 					return nil, nil, fmt.Errorf("client CA X.509 certificate pool %q not found", lnc.ClientCAs)
 				}
 				tlsConfig.ClientCAs = pool
+			}
+
+			tlsConfig.EncryptedClientHelloKeys = make([]tls.EncryptedClientHelloKey, len(lnc.EncryptedClientHelloKeys))
+			for j, key := range lnc.EncryptedClientHelloKeys {
+				tlsConfig.EncryptedClientHelloKeys[j] = tls.EncryptedClientHelloKey{
+					Config:      key.Config,
+					PrivateKey:  key.PrivateKey,
+					SendAsRetry: key.SendAsRetry,
+				}
 			}
 
 			if lnc.RequireAndVerifyClientCert {
