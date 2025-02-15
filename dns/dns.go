@@ -60,8 +60,8 @@ type ResolverConfig struct {
 	UDPClientName string `json:"udpClientName"`
 }
 
-// SimpleResolver creates a new [SimpleResolver] from the config.
-func (rc *ResolverConfig) SimpleResolver(tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, logger *zap.Logger) (SimpleResolver, error) {
+// NewSimpleResolver creates a new [NewSimpleResolver] from the config.
+func (rc *ResolverConfig) NewSimpleResolver(tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, logger *zap.Logger) (SimpleResolver, error) {
 	switch rc.Type {
 	case "plain", "":
 	case "system":
@@ -70,11 +70,15 @@ func (rc *ResolverConfig) SimpleResolver(tcpClientMap map[string]zerocopy.TCPCli
 		}
 		return NewSystemResolver(rc.Name, logger), nil
 	default:
-		return nil, fmt.Errorf("unknown resolver type: %s", rc.Type)
+		return nil, fmt.Errorf("unknown resolver type: %q", rc.Type)
 	}
 
 	if !rc.AddrPort.IsValid() {
 		return nil, errors.New("missing resolver address")
+	}
+
+	if rc.TCPClientName == "" && rc.UDPClientName == "" {
+		return nil, errors.New("neither TCP nor UDP client specified")
 	}
 
 	var (
@@ -85,14 +89,14 @@ func (rc *ResolverConfig) SimpleResolver(tcpClientMap map[string]zerocopy.TCPCli
 	if rc.TCPClientName != "" {
 		tcpClient = tcpClientMap[rc.TCPClientName]
 		if tcpClient == nil {
-			return nil, fmt.Errorf("unknown TCP client: %s", rc.TCPClientName)
+			return nil, fmt.Errorf("unknown TCP client: %q", rc.TCPClientName)
 		}
 	}
 
 	if rc.UDPClientName != "" {
 		udpClient = udpClientMap[rc.UDPClientName]
 		if udpClient == nil {
-			return nil, fmt.Errorf("unknown UDP client: %s", rc.UDPClientName)
+			return nil, fmt.Errorf("unknown UDP client: %q", rc.UDPClientName)
 		}
 	}
 

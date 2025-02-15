@@ -120,7 +120,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 			return nil, fmt.Errorf("duplicate DNS resolver name: %q", resolverConfig.Name)
 		}
 
-		resolver, err := resolverConfig.SimpleResolver(tcpClientMap, udpClientMap, logger)
+		resolver, err := resolverConfig.NewSimpleResolver(tcpClientMap, udpClientMap, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create DNS resolver %q: %w", resolverConfig.Name, err)
 		}
