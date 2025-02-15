@@ -409,6 +409,34 @@
             "mtu": 1500
         }
     ],
+    "clientGroups": [
+        {
+            "name": "ss-2022-round-robin",
+            "tcpPolicy": "round-robin",
+            "udpPolicy": "round-robin",
+            "tcpClients": [
+                "ss-2022-a",
+                "ss-2022-b"
+            ],
+            "udpClients": [
+                "ss-2022-a",
+                "ss-2022-b"
+            ]
+        },
+        {
+            "name": "ss-2022-random",
+            "tcpPolicy": "random",
+            "udpPolicy": "random",
+            "tcpClients": [
+                "ss-2022-a",
+                "ss-2022-b"
+            ],
+            "udpClients": [
+                "ss-2022-a",
+                "ss-2022-b"
+            ]
+        }
+    ],
     "dns": [
         {
             "name": "cf-v6",

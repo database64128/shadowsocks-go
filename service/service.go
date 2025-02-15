@@ -7,6 +7,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/api"
 	"github.com/database64128/shadowsocks-go/api/ssm"
+	"github.com/database64128/shadowsocks-go/clientgroups"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/dns"
@@ -35,13 +36,14 @@ type Relay interface {
 // Config is the main configuration structure.
 // It may be marshaled as or unmarshaled from JSON.
 type Config struct {
-	Servers  []ServerConfig       `json:"servers"`
-	Clients  []ClientConfig       `json:"clients"`
-	DNS      []dns.ResolverConfig `json:"dns"`
-	Router   router.Config        `json:"router"`
-	Stats    stats.Config         `json:"stats"`
-	API      api.Config           `json:"api"`
-	TLSCerts tlscerts.Config      `json:"certs"`
+	Servers      []ServerConfig                   `json:"servers"`
+	Clients      []ClientConfig                   `json:"clients"`
+	ClientGroups []clientgroups.ClientGroupConfig `json:"clientGroups"`
+	DNS          []dns.ResolverConfig             `json:"dns"`
+	Router       router.Config                    `json:"router"`
+	Stats        stats.Config                     `json:"stats"`
+	API          api.Config                       `json:"api"`
+	TLSCerts     tlscerts.Config                  `json:"certs"`
 }
 
 // Manager initializes the service manager.
@@ -107,6 +109,24 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 			maxClientPackerHeadroom = zerocopy.MaxHeadroom(maxClientPackerHeadroom, udpClient.Info().PackerHeadroom)
 		default:
 			return nil, fmt.Errorf("failed to create UDP client for %q: %w", clientConfig.Name, err)
+		}
+	}
+
+	clientGroupIndexByName := make(map[string]int, len(sc.ClientGroups))
+
+	for i := range sc.ClientGroups {
+		clientGroupConfig := &sc.ClientGroups[i]
+
+		if dupIndex, ok := clientIndexByName[clientGroupConfig.Name]; ok {
+			return nil, fmt.Errorf("client group %q (index %d) has the same name as a client (index %d)", clientGroupConfig.Name, i, dupIndex)
+		}
+		if dupIndex, ok := clientGroupIndexByName[clientGroupConfig.Name]; ok {
+			return nil, fmt.Errorf("duplicate client group name: %q (index %d and %d)", clientGroupConfig.Name, dupIndex, i)
+		}
+		clientGroupIndexByName[clientGroupConfig.Name] = i
+
+		if err := clientGroupConfig.AddClientGroup(tcpClientMap, udpClientMap); err != nil {
+			return nil, fmt.Errorf("failed to add client group %q: %w", clientGroupConfig.Name, err)
 		}
 	}
 
