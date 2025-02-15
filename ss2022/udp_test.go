@@ -42,17 +42,15 @@ func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, u
 	s.ReplaceUserLookupMap(userLookupMap)
 	ctx := t.Context()
 
-	clientInfo := c.Info()
-	if clientInfo.Name != name {
-		t.Errorf("Fixed name mismatch: in: %s, out: %s", name, clientInfo.Name)
-	}
-
-	_, clientSession, err := c.NewSession(ctx)
+	clientInfo, clientSession, err := c.NewSession(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer clientSession.Close()
 
+	if clientInfo.Name != name {
+		t.Errorf("Fixed name mismatch: in: %s, out: %s", name, clientInfo.Name)
+	}
 	if clientSession.MaxPacketSize != packetSize {
 		t.Errorf("Fixed MTU mismatch: in: %d, out: %d", mtu, clientSession.MaxPacketSize)
 	}

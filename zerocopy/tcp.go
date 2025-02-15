@@ -31,11 +31,14 @@ type TCPClientInfo struct {
 
 // TCPClient is a protocol's TCP client.
 type TCPClient interface {
-	// ClientInfo returns information about the TCP client.
-	Info() TCPClientInfo
+	// NewDialer creates a new [TCPDialer] for opening connections.
+	NewDialer() (TCPDialer, TCPClientInfo)
+}
 
-	// Dial creates a connection to the target address under the protocol's
-	// encapsulation and returns the established connection and a ReadWriter for read-write access.
+// TCPDialer is a TCP client's dialer.
+type TCPDialer interface {
+	// Dial creates a connection to the target address under the protocol's encapsulation
+	// and returns the established connection as rawRW and the encapsulated stream as rw.
 	Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW DirectReadWriteCloser, rw ReadWriter, err error)
 }
 

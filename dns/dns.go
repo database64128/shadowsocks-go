@@ -305,6 +305,8 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 	if err != nil {
 		r.logger.Warn("Failed to create new UDP client session",
 			zap.String("resolver", r.name),
+			zap.String("client", clientInfo.Name),
+			zap.String("name", nameString),
 			zap.Error(err),
 		)
 		return
@@ -315,6 +317,8 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 	if err != nil {
 		r.logger.Warn("Failed to create UDP socket for DNS lookup",
 			zap.String("resolver", r.name),
+			zap.String("client", clientInfo.Name),
+			zap.String("name", nameString),
 			zap.Error(err),
 		)
 		return
@@ -338,6 +342,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 			if err != nil {
 				r.logger.Warn("Failed to pack UDP DNS query packet",
 					zap.String("resolver", r.name),
+					zap.String("client", clientInfo.Name),
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
 					zap.Error(err),
@@ -350,6 +355,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 			if err != nil {
 				r.logger.Warn("Failed to write UDP DNS query packet",
 					zap.String("resolver", r.name),
+					zap.String("client", clientInfo.Name),
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
 					zap.Stringer("destAddrPort", destAddrPort),
@@ -383,6 +389,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				r.logger.Warn("DNS lookup via UDP timed out",
 					zap.String("resolver", r.name),
+					zap.String("client", clientInfo.Name),
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
 				)
@@ -390,6 +397,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 			}
 			r.logger.Warn("Failed to read UDP DNS response",
 				zap.String("resolver", r.name),
+				zap.String("client", clientInfo.Name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Stringer("packetSourceAddress", packetSourceAddress),
@@ -401,6 +409,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 		if err = conn.ParseFlagsForError(flags); err != nil {
 			r.logger.Warn("Failed to read UDP DNS response",
 				zap.String("resolver", r.name),
+				zap.String("client", clientInfo.Name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Stringer("packetSourceAddress", packetSourceAddress),
@@ -414,6 +423,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 		if err != nil {
 			r.logger.Warn("Failed to unpack UDP DNS response packet",
 				zap.String("resolver", r.name),
+				zap.String("client", clientInfo.Name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Stringer("packetSourceAddress", packetSourceAddress),
@@ -425,6 +435,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 		if !conn.AddrPortMappedEqual(payloadSourceAddrPort, r.serverAddrPort) {
 			r.logger.Warn("Ignoring UDP DNS response packet from unknown server",
 				zap.String("resolver", r.name),
+				zap.String("client", clientInfo.Name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Stringer("payloadSourceAddrPort", payloadSourceAddrPort),
@@ -437,6 +448,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 		if err != nil {
 			r.logger.Warn("Failed to parse UDP DNS response",
 				zap.String("resolver", r.name),
+				zap.String("client", clientInfo.Name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Error(err),
@@ -447,6 +459,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 			if ce := r.logger.Check(zap.DebugLevel, "Received truncated UDP DNS response"); ce != nil {
 				ce.Write(
 					zap.String("resolver", r.name),
+					zap.String("client", clientInfo.Name),
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
 					zap.Uint16("transactionID", header.ID),
@@ -478,11 +491,14 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()
 
+	dialer, clientInfo := r.tcpClient.NewDialer()
+
 	// Write.
-	rawRW, rw, err := r.tcpClient.Dial(ctx, r.serverAddr, queries)
+	rawRW, rw, err := dialer.Dial(ctx, r.serverAddr, queries)
 	if err != nil {
 		r.logger.Warn("Failed to dial TCP DNS server",
 			zap.String("resolver", r.name),
+			zap.String("client", clientInfo.Name),
 			zap.String("name", nameString),
 			zap.Stringer("serverAddrPort", r.serverAddrPort),
 			zap.Error(err),
@@ -509,6 +525,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 		if err != nil {
 			r.logger.Warn("Failed to read TCP DNS response length",
 				zap.String("resolver", r.name),
+				zap.String("client", clientInfo.Name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Error(err),
@@ -520,6 +537,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 		if msgLen == 0 {
 			r.logger.Warn("TCP DNS response length is zero",
 				zap.String("resolver", r.name),
+				zap.String("client", clientInfo.Name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 			)
@@ -532,6 +550,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 		if err != nil {
 			r.logger.Warn("Failed to read TCP DNS response",
 				zap.String("resolver", r.name),
+				zap.String("client", clientInfo.Name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Error(err),
@@ -543,6 +562,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 		if err != nil {
 			r.logger.Warn("Failed to parse TCP DNS response",
 				zap.String("resolver", r.name),
+				zap.String("client", clientInfo.Name),
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Error(err),
@@ -553,6 +573,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 			if ce := r.logger.Check(zap.DebugLevel, "Received truncated TCP DNS response"); ce != nil {
 				ce.Write(
 					zap.String("resolver", r.name),
+					zap.String("client", clientInfo.Name),
 					zap.String("name", nameString),
 					zap.Stringer("serverAddrPort", r.serverAddrPort),
 					zap.Uint16("transactionID", header.ID),

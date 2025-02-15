@@ -13,7 +13,9 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-// TCPClient implements the zerocopy TCPClient interface.
+// TCPClient is a Shadowsocks 2022 TCP client.
+//
+// TCPClient implements [zerocopy.TCPClient] and [zerocopy.TCPDialer].
 type TCPClient struct {
 	name                       string
 	rwo                        zerocopy.DirectReadWriteCloserOpener
@@ -23,6 +25,7 @@ type TCPClient struct {
 	unsafeResponseStreamPrefix []byte
 }
 
+// NewTCPClient creates a new Shadowsocks 2022 TCP client.
 func NewTCPClient(name, network, address string, dialer conn.Dialer, allowSegmentedFixedLengthHeader bool, cipherConfig *ClientCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPClient {
 	return &TCPClient{
 		name:                       name,
@@ -34,15 +37,15 @@ func NewTCPClient(name, network, address string, dialer conn.Dialer, allowSegmen
 	}
 }
 
-// Info implements the zerocopy.TCPClient Info method.
-func (c *TCPClient) Info() zerocopy.TCPClientInfo {
-	return zerocopy.TCPClientInfo{
+// NewDialer implements [zerocopy.TCPClient.NewDialer].
+func (c *TCPClient) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
+	return c, zerocopy.TCPClientInfo{
 		Name:                 c.name,
 		NativeInitialPayload: true,
 	}
 }
 
-// Dial implements the zerocopy.TCPClient Dial method.
+// Dial implements [zerocopy.TCPDialer.Dial].
 func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
 	var (
 		paddingPayloadLen int
@@ -152,7 +155,9 @@ func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []by
 	return
 }
 
-// TCPServer implements the zerocopy TCPServer interface.
+// TCPServer is a Shadowsocks 2022 TCP server.
+//
+// TCPServer implements [zerocopy.TCPServer].
 type TCPServer struct {
 	CredStore
 	saltPool                   *SaltPool[string]
@@ -163,6 +168,7 @@ type TCPServer struct {
 	unsafeResponseStreamPrefix []byte
 }
 
+// NewTCPServer creates a new Shadowsocks 2022 TCP server.
 func NewTCPServer(allowSegmentedFixedLengthHeader bool, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPServer {
 	return &TCPServer{
 		saltPool:                   NewSaltPool[string](ReplayWindowDuration),
@@ -174,7 +180,7 @@ func NewTCPServer(allowSegmentedFixedLengthHeader bool, userCipherConfig UserCip
 	}
 }
 
-// Info implements the zerocopy.TCPServer Info method.
+// Info implements [zerocopy.TCPServer.Info].
 func (s *TCPServer) Info() zerocopy.TCPServerInfo {
 	return zerocopy.TCPServerInfo{
 		NativeInitialPayload: true,
@@ -182,7 +188,7 @@ func (s *TCPServer) Info() zerocopy.TCPServerInfo {
 	}
 }
 
-// Accept implements the zerocopy.TCPServer Accept method.
+// Accept implements [zerocopy.TCPServer.Accept].
 func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
 	var identityHeaderLen int
 	userCipherConfig := s.userCipherConfig

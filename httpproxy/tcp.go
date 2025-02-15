@@ -72,7 +72,7 @@ type ClientConfig struct {
 
 // ProxyClient is an HTTP proxy client.
 //
-// ProxyClient implements [zerocopy.TCPClient].
+// ProxyClient implements [zerocopy.TCPClient] and [zerocopy.TCPDialer].
 type ProxyClient struct {
 	name    string
 	network string
@@ -119,15 +119,15 @@ func (c *ClientConfig) NewProxyClient() (*ProxyClient, error) {
 	return &client, nil
 }
 
-// Info implements [zerocopy.TCPClient.Info].
-func (c *ProxyClient) Info() zerocopy.TCPClientInfo {
-	return zerocopy.TCPClientInfo{
+// NewDialer implements [zerocopy.TCPClient.NewDialer].
+func (c *ProxyClient) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
+	return c, zerocopy.TCPClientInfo{
 		Name:                 c.name,
 		NativeInitialPayload: false,
 	}
 }
 
-// Dial implements [zerocopy.TCPClient.Dial].
+// Dial implements [zerocopy.TCPDialer.Dial].
 func (c *ProxyClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
 	tcpConn, err := c.dialer.DialTCP(ctx, c.network, c.address, nil)
 	if err != nil {

@@ -9,13 +9,16 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-// TCPClient implements the zerocopy TCPClient interface.
+// TCPClient opens TCP connections and uses them directly.
+//
+// TCPClient implements [zerocopy.TCPClient] and [zerocopy.TCPDialer].
 type TCPClient struct {
 	name    string
 	network string
 	dialer  conn.Dialer
 }
 
+// NewTCPClient creates a new TCP client.
 func NewTCPClient(name, network string, dialer conn.Dialer) *TCPClient {
 	return &TCPClient{
 		name:    name,
@@ -24,15 +27,15 @@ func NewTCPClient(name, network string, dialer conn.Dialer) *TCPClient {
 	}
 }
 
-// Info implements the zerocopy.TCPClient Info method.
-func (c *TCPClient) Info() zerocopy.TCPClientInfo {
-	return zerocopy.TCPClientInfo{
+// NewDialer implements [zerocopy.TCPClient.NewDialer].
+func (c *TCPClient) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
+	return c, zerocopy.TCPClientInfo{
 		Name:                 c.name,
 		NativeInitialPayload: !c.dialer.DisableTFO,
 	}
 }
 
-// Dial implements the zerocopy.TCPClient Dial method.
+// Dial implements [zerocopy.TCPDialer.Dial].
 func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
 	rawRW, err = c.dialer.DialTCP(ctx, c.network, targetAddr.String(), payload)
 	if err != nil {
@@ -44,18 +47,19 @@ func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []by
 
 // TCPServer is the client-side tunnel server.
 //
-// TCPServer implements the zerocopy TCPServer interface.
+// TCPServer implements [zerocopy.TCPServer].
 type TCPServer struct {
 	targetAddr conn.Addr
 }
 
+// NewTCPServer creates a new TCP server.
 func NewTCPServer(targetAddr conn.Addr) *TCPServer {
 	return &TCPServer{
 		targetAddr: targetAddr,
 	}
 }
 
-// Info implements the zerocopy.TCPServer Info method.
+// Info implements [zerocopy.TCPServer.Info].
 func (s *TCPServer) Info() zerocopy.TCPServerInfo {
 	return zerocopy.TCPServerInfo{
 		NativeInitialPayload: false,
@@ -63,17 +67,18 @@ func (s *TCPServer) Info() zerocopy.TCPServerInfo {
 	}
 }
 
-// Accept implements the zerocopy.TCPServer Accept method.
+// Accept implements [zerocopy.TCPServer.Accept].
 func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
 	return &DirectStreamReadWriter{rw: rawRW}, s.targetAddr, nil, "", nil
 }
 
-// ShadowsocksNoneTCPClient implements the zerocopy TCPClient interface.
+// ShadowsocksNoneTCPClient implements [zerocopy.TCPClient] and [zerocopy.TCPDialer].
 type ShadowsocksNoneTCPClient struct {
 	name string
 	tco  *zerocopy.TCPConnOpener
 }
 
+// NewShadowsocksNoneTCPClient creates a new Shadowsocks "none" TCP client.
 func NewShadowsocksNoneTCPClient(name, network, address string, dialer conn.Dialer) *ShadowsocksNoneTCPClient {
 	return &ShadowsocksNoneTCPClient{
 		name: name,
@@ -81,28 +86,29 @@ func NewShadowsocksNoneTCPClient(name, network, address string, dialer conn.Dial
 	}
 }
 
-// Info implements the zerocopy.TCPClient Info method.
-func (c *ShadowsocksNoneTCPClient) Info() zerocopy.TCPClientInfo {
-	return zerocopy.TCPClientInfo{
+// NewDialer implements [zerocopy.TCPClient.NewDialer].
+func (c *ShadowsocksNoneTCPClient) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
+	return c, zerocopy.TCPClientInfo{
 		Name:                 c.name,
 		NativeInitialPayload: true,
 	}
 }
 
-// Dial implements the zerocopy.TCPClient Dial method.
+// Dial implements [zerocopy.TCPDialer.Dial].
 func (c *ShadowsocksNoneTCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
 	rw, rawRW, err = NewShadowsocksNoneStreamClientReadWriter(ctx, c.tco, targetAddr, payload)
 	return
 }
 
-// ShadowsocksNoneTCPServer implements the zerocopy TCPServer interface.
+// ShadowsocksNoneTCPServer implements [zerocopy.TCPServer].
 type ShadowsocksNoneTCPServer struct{}
 
+// NewShadowsocksNoneTCPServer creates a new Shadowsocks "none" TCP server.
 func NewShadowsocksNoneTCPServer() ShadowsocksNoneTCPServer {
 	return ShadowsocksNoneTCPServer{}
 }
 
-// Info implements the zerocopy.TCPServer Info method.
+// Info implements [zerocopy.TCPServer.Info].
 func (ShadowsocksNoneTCPServer) Info() zerocopy.TCPServerInfo {
 	return zerocopy.TCPServerInfo{
 		NativeInitialPayload: false,
@@ -110,7 +116,7 @@ func (ShadowsocksNoneTCPServer) Info() zerocopy.TCPServerInfo {
 	}
 }
 
-// Accept implements the zerocopy.TCPServer Accept method.
+// Accept implements [zerocopy.TCPServer.Accept].
 func (ShadowsocksNoneTCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
 	rw, targetAddr, err = NewShadowsocksNoneStreamServerReadWriter(rawRW)
 	return
@@ -159,7 +165,7 @@ func (c *Socks5TCPClientConfig) NewClient() zerocopy.TCPClient {
 
 // Socks5TCPClient is an unauthenticated SOCKS5 TCP client.
 //
-// Socks5TCPClient implements [zerocopy.TCPClient].
+// Socks5TCPClient implements [zerocopy.TCPClient] and [zerocopy.TCPDialer].
 type Socks5TCPClient struct {
 	name    string
 	network string
@@ -167,24 +173,15 @@ type Socks5TCPClient struct {
 	dialer  conn.Dialer
 }
 
-func NewSocks5TCPClient(name, network, address string, dialer conn.Dialer) *Socks5TCPClient {
-	return &Socks5TCPClient{
-		name:    name,
-		network: network,
-		address: address,
-		dialer:  dialer,
-	}
-}
-
-// Info implements [zerocopy.TCPClient.Info].
-func (c *Socks5TCPClient) Info() zerocopy.TCPClientInfo {
-	return zerocopy.TCPClientInfo{
+// NewDialer implements [zerocopy.TCPClient.NewDialer].
+func (c *Socks5TCPClient) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
+	return c, zerocopy.TCPClientInfo{
 		Name:                 c.name,
 		NativeInitialPayload: false,
 	}
 }
 
-// Dial implements [zerocopy.TCPClient.Dial].
+// Dial implements [zerocopy.TCPDialer.Dial].
 func (c *Socks5TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
 	rawRW, err = c.dialer.DialTCP(ctx, c.network, c.address, nil)
 	if err != nil {
@@ -209,18 +206,21 @@ func (c *Socks5TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payloa
 
 // Socks5AuthTCPClient is like [Socks5TCPClient], but uses username/password authentication.
 //
-// Socks5AuthTCPClient implements [zerocopy.TCPClient].
+// Socks5AuthTCPClient implements [zerocopy.TCPClient] and [zerocopy.TCPDialer].
 type Socks5AuthTCPClient struct {
 	plainClient Socks5TCPClient
 	authMsg     []byte
 }
 
-// Info implements [zerocopy.TCPClient.Info].
-func (c *Socks5AuthTCPClient) Info() zerocopy.TCPClientInfo {
-	return c.plainClient.Info()
+// NewDialer implements [zerocopy.TCPClient.NewDialer].
+func (c *Socks5AuthTCPClient) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
+	return c, zerocopy.TCPClientInfo{
+		Name:                 c.plainClient.name,
+		NativeInitialPayload: false,
+	}
 }
 
-// Dial implements [zerocopy.TCPClient.Dial].
+// Dial implements [zerocopy.TCPDialer.Dial].
 func (c *Socks5AuthTCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
 	rawRW, err = c.plainClient.dialer.DialTCP(ctx, c.plainClient.network, c.plainClient.address, nil)
 	if err != nil {

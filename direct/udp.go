@@ -14,16 +14,18 @@ import (
 	"go.uber.org/zap"
 )
 
-// DirectUDPClient implements the zerocopy UDPClient interface.
+// DirectUDPClient is a UDP client that makes no changes to the packets.
+//
+// DirectUDPClient implements [zerocopy.UDPClient].
 type DirectUDPClient struct {
-	info    zerocopy.UDPClientInfo
+	info    zerocopy.UDPClientSessionInfo
 	session zerocopy.UDPClientSession
 }
 
-// NewDirectUDPClient creates a new UDP client that sends packets directly.
+// NewDirectUDPClient creates a new UDP client that makes no changes to the packets.
 func NewDirectUDPClient(name, network string, mtu int, listenConfig conn.ListenConfig) *DirectUDPClient {
 	return &DirectUDPClient{
-		info: zerocopy.UDPClientInfo{
+		info: zerocopy.UDPClientSessionInfo{
 			Name:         name,
 			MTU:          mtu,
 			ListenConfig: listenConfig,
@@ -37,21 +39,23 @@ func NewDirectUDPClient(name, network string, mtu int, listenConfig conn.ListenC
 	}
 }
 
-// Info implements the zerocopy.UDPClient Info method.
+// Info implements [zerocopy.UDPClient.Info].
 func (c *DirectUDPClient) Info() zerocopy.UDPClientInfo {
-	return c.info
+	return zerocopy.UDPClientInfo{}
 }
 
-// NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *DirectUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
+// NewSession implements [zerocopy.UDPClient.NewSession].
+func (c *DirectUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
 	return c.info, c.session, nil
 }
 
-// ShadowsocksNoneUDPClient implements the zerocopy UDPClient interface.
+// ShadowsocksNoneUDPClient is a Shadowsocks none UDP client.
+//
+// ShadowsocksNoneUDPClient implements [zerocopy.UDPClient].
 type ShadowsocksNoneUDPClient struct {
 	network string
 	addr    conn.Addr
-	info    zerocopy.UDPClientInfo
+	info    zerocopy.UDPClientSessionInfo
 }
 
 // NewShadowsocksNoneUDPClient creates a new Shadowsocks none UDP client.
@@ -59,7 +63,7 @@ func NewShadowsocksNoneUDPClient(name, network string, addr conn.Addr, mtu int, 
 	return &ShadowsocksNoneUDPClient{
 		network: network,
 		addr:    addr,
-		info: zerocopy.UDPClientInfo{
+		info: zerocopy.UDPClientSessionInfo{
 			Name:           name,
 			PackerHeadroom: ShadowsocksNonePacketClientMessageHeadroom,
 			MTU:            mtu,
@@ -68,13 +72,15 @@ func NewShadowsocksNoneUDPClient(name, network string, addr conn.Addr, mtu int, 
 	}
 }
 
-// Info implements the zerocopy.UDPClient Info method.
+// Info implements [zerocopy.UDPClient.Info].
 func (c *ShadowsocksNoneUDPClient) Info() zerocopy.UDPClientInfo {
-	return c.info
+	return zerocopy.UDPClientInfo{
+		PackerHeadroom: ShadowsocksNonePacketClientMessageHeadroom,
+	}
 }
 
-// NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *ShadowsocksNoneUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
+// NewSession implements [zerocopy.UDPClient.NewSession].
+func (c *ShadowsocksNoneUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
 	addrPort, err := c.addr.ResolveIPPort(ctx, c.network)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
@@ -135,7 +141,7 @@ func (c *Socks5UDPClientConfig) NewClient() zerocopy.UDPClient {
 		networkIP:  c.NetworkIP,
 		address:    c.Address,
 		dialer:     c.Dialer,
-		info: zerocopy.UDPClientInfo{
+		info: zerocopy.UDPClientSessionInfo{
 			Name:           c.Name,
 			PackerHeadroom: Socks5PacketClientMessageHeadroom,
 			MTU:            c.MTU,
@@ -162,16 +168,18 @@ type Socks5UDPClient struct {
 	networkIP  string
 	address    string
 	dialer     conn.Dialer
-	info       zerocopy.UDPClientInfo
+	info       zerocopy.UDPClientSessionInfo
 }
 
 // Info implements [zerocopy.UDPClient.Info].
 func (c *Socks5UDPClient) Info() zerocopy.UDPClientInfo {
-	return c.info
+	return zerocopy.UDPClientInfo{
+		PackerHeadroom: Socks5PacketClientMessageHeadroom,
+	}
 }
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
-func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
+func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
 	tc, err := c.dialer.DialTCP(ctx, c.networkTCP, c.address, nil)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to dial SOCKS5 server: %w", err)
@@ -231,7 +239,7 @@ func (c *Socks5AuthUDPClient) Info() zerocopy.UDPClientInfo {
 }
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
-func (c *Socks5AuthUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
+func (c *Socks5AuthUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
 	tc, err := c.plainClient.dialer.DialTCP(ctx, c.plainClient.networkTCP, c.plainClient.address, nil)
 	if err != nil {
 		return c.plainClient.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to dial SOCKS5 server: %w", err)
@@ -247,53 +255,60 @@ func (c *Socks5AuthUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClien
 	return c.plainClient.info, session, err
 }
 
-// DirectUDPNATServer implements the zerocopy UDPNATServer interface.
+// DirectUDPNATServer is a UDP NAT server that makes no changes to the packets.
+//
+// DirectUDPNATServer implements [zerocopy.UDPNATServer].
 type DirectUDPNATServer struct {
 	p *DirectPacketServerPackUnpacker
 }
 
+// NewDirectUDPNATServer creates a new UDP NAT server that makes no changes to the packets.
 func NewDirectUDPNATServer(targetAddr conn.Addr, targetAddrOnly bool) *DirectUDPNATServer {
 	return &DirectUDPNATServer{
 		p: NewDirectPacketServerPackUnpacker(targetAddr, targetAddrOnly),
 	}
 }
 
-// Info implements the zerocopy.UDPNATServer Info method.
+// Info implements [zerocopy.UDPNATServer.Info].
 func (s *DirectUDPNATServer) Info() zerocopy.UDPNATServerInfo {
 	return zerocopy.UDPNATServerInfo{}
 }
 
-// NewUnpacker implements the zerocopy.UDPNATServer NewUnpacker method.
+// NewUnpacker implements [zerocopy.UDPNATServer.NewUnpacker].
 func (s *DirectUDPNATServer) NewUnpacker() (zerocopy.ServerUnpacker, error) {
 	return s.p, nil
 }
 
-// ShadowsocksNoneUDPNATServer implements the zerocopy UDPNATServer interface.
+// ShadowsocksNoneUDPNATServer is a Shadowsocks none UDP NAT server.
+//
+// ShadowsocksNoneUDPNATServer implements [zerocopy.UDPNATServer].
 type ShadowsocksNoneUDPNATServer struct{}
 
-// Info implements the zerocopy.UDPNATServer Info method.
+// Info implements [zerocopy.UDPNATServer.Info].
 func (ShadowsocksNoneUDPNATServer) Info() zerocopy.UDPNATServerInfo {
 	return zerocopy.UDPNATServerInfo{
 		UnpackerHeadroom: ShadowsocksNonePacketClientMessageHeadroom,
 	}
 }
 
-// NewUnpacker implements the zerocopy.UDPNATServer NewUnpacker method.
+// NewUnpacker implements [zerocopy.UDPNATServer.NewUnpacker].
 func (ShadowsocksNoneUDPNATServer) NewUnpacker() (zerocopy.ServerUnpacker, error) {
 	return &ShadowsocksNonePacketServerUnpacker{}, nil
 }
 
-// Socks5UDPNATServer implements the zerocopy UDPNATServer interface.
+// Socks5UDPNATServer is a SOCKS5 UDP NAT server.
+//
+// Socks5UDPNATServer implements [zerocopy.UDPNATServer].
 type Socks5UDPNATServer struct{}
 
-// Info implements the zerocopy.UDPNATServer Info method.
+// Info implements [zerocopy.UDPNATServer.Info].
 func (Socks5UDPNATServer) Info() zerocopy.UDPNATServerInfo {
 	return zerocopy.UDPNATServerInfo{
 		UnpackerHeadroom: Socks5PacketClientMessageHeadroom,
 	}
 }
 
-// NewUnpacker implements the zerocopy.UDPNATServer NewUnpacker method.
+// NewUnpacker implements [zerocopy.UDPNATServer.NewUnpacker].
 func (Socks5UDPNATServer) NewUnpacker() (zerocopy.ServerUnpacker, error) {
 	return &Socks5PacketServerUnpacker{}, nil
 }

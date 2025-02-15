@@ -180,8 +180,8 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 		return
 	}
 
-	// Get client info.
-	clientInfo := c.Info()
+	// Create dialer.
+	dialer, clientInfo := c.NewDialer()
 
 	// Create logger with new fields.
 	logger := lnc.logger.With(
@@ -242,7 +242,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 	}
 
 	// Create remote connection.
-	remoteRawRW, remoteRW, err := c.Dial(ctx, targetAddr, payload)
+	remoteRawRW, remoteRW, err := dialer.Dial(ctx, targetAddr, payload)
 	if err != nil {
 		logger.Warn("Failed to create remote connection",
 			zap.Int("initialPayloadLength", len(payload)),

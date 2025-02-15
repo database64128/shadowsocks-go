@@ -10,6 +10,12 @@ import (
 
 // UDPClientInfo contains information about a UDP client.
 type UDPClientInfo struct {
+	// PackerHeadroom is the headroom required by the packet packer.
+	PackerHeadroom Headroom
+}
+
+// UDPClientSessionInfo contains information about a UDP client session.
+type UDPClientSessionInfo struct {
 	// Name is the name of the UDP client.
 	Name string
 
@@ -23,7 +29,7 @@ type UDPClientInfo struct {
 	ListenConfig conn.ListenConfig
 }
 
-// UDPClientSession contains information about a UDP client session.
+// UDPClientSession is a client session for handling UDP packets.
 type UDPClientSession struct {
 	// MaxPacketSize is the maximum size of outgoing packets.
 	MaxPacketSize int
@@ -48,9 +54,9 @@ type UDPClient interface {
 	// Info returns information about the client.
 	Info() UDPClientInfo
 
-	// NewSession creates a new client session, and returns the session info or an error.
-	// The returned [UDPClientInfo] is always valid, even when session creation fails.
-	NewSession(ctx context.Context) (UDPClientInfo, UDPClientSession, error)
+	// NewSession creates a new client session, and returns the created session or an error.
+	// The returned [UDPClientSessionInfo] is always valid, even when session creation fails.
+	NewSession(ctx context.Context) (UDPClientSessionInfo, UDPClientSession, error)
 }
 
 // UDPNATServerInfo contains information about a UDP NAT server.

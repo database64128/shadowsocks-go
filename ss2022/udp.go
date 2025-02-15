@@ -12,23 +12,27 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-// UDPClient implements the zerocopy UDPClient interface.
+// UDPClient is a Shadowsocks 2022 UDP client.
+//
+// UDPClient implements [zerocopy.UDPClient].
 type UDPClient struct {
 	network          string
 	addr             conn.Addr
-	info             zerocopy.UDPClientInfo
+	info             zerocopy.UDPClientSessionInfo
 	nonAEADHeaderLen int
 	filterSize       uint64
 	cipherConfig     *ClientCipherConfig
 	shouldPad        PaddingPolicy
 }
 
+// NewUDPClient creates a new Shadowsocks 2022 UDP client.
 func NewUDPClient(name, network string, addr conn.Addr, mtu int, listenConfig conn.ListenConfig, filterSize uint64, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
 	identityHeadersLen := IdentityHeaderLength * len(cipherConfig.iPSKs)
+
 	return &UDPClient{
 		network: network,
 		addr:    addr,
-		info: zerocopy.UDPClientInfo{
+		info: zerocopy.UDPClientSessionInfo{
 			Name:           name,
 			PackerHeadroom: ShadowPacketClientMessageHeadroom(identityHeadersLen),
 			MTU:            mtu,
@@ -41,13 +45,15 @@ func NewUDPClient(name, network string, addr conn.Addr, mtu int, listenConfig co
 	}
 }
 
-// Info implements the zerocopy.UDPClient Info method.
+// Info implements [zerocopy.UDPClient.Info].
 func (c *UDPClient) Info() zerocopy.UDPClientInfo {
-	return c.info
+	return zerocopy.UDPClientInfo{
+		PackerHeadroom: c.info.PackerHeadroom,
+	}
 }
 
-// NewSession implements the zerocopy.UDPClient NewSession method.
-func (c *UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zerocopy.UDPClientSession, error) {
+// NewSession implements [zerocopy.UDPClient.NewSession].
+func (c *UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
 	addrPort, err := c.addr.ResolveIPPort(ctx, c.network)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
@@ -87,7 +93,9 @@ func (c *UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientInfo, zer
 	}, nil
 }
 
-// UDPServer implements the zerocopy UDPSessionServer interface.
+// UDPServer is a Shadowsocks 2022 UDP server.
+//
+// UDPServer implements [zerocopy.UDPSessionServer].
 type UDPServer struct {
 	CredStore
 	info                 zerocopy.UDPSessionServerInfo
@@ -99,6 +107,7 @@ type UDPServer struct {
 	userCipherConfig     UserCipherConfig
 }
 
+// NewUDPServer creates a new Shadowsocks 2022 UDP server.
 func NewUDPServer(filterSize uint64, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, shouldPad PaddingPolicy) *UDPServer {
 	var identityHeaderLen int
 	block := userCipherConfig.Block()
@@ -121,12 +130,12 @@ func NewUDPServer(filterSize uint64, userCipherConfig UserCipherConfig, identity
 	}
 }
 
-// Info implements the zerocopy.UDPSessionServer Info method.
+// Info implements [zerocopy.UDPSessionServer.Info].
 func (s *UDPServer) Info() zerocopy.UDPSessionServerInfo {
 	return s.info
 }
 
-// SessionInfo implements the zerocopy.UDPSessionServer SessionInfo method.
+// SessionInfo implements [zerocopy.UDPSessionServer.SessionInfo].
 func (s *UDPServer) SessionInfo(b []byte) (csid uint64, err error) {
 	if len(b) < UDPSeparateHeaderLength {
 		err = fmt.Errorf("%w: %d", zerocopy.ErrPacketTooSmall, len(b))
@@ -139,7 +148,7 @@ func (s *UDPServer) SessionInfo(b []byte) (csid uint64, err error) {
 	return
 }
 
-// NewUnpacker implements the zerocopy.UDPSessionServer NewUnpacker method.
+// NewUnpacker implements [zerocopy.UDPSessionServer.NewUnpacker].
 func (s *UDPServer) NewUnpacker(b []byte, csid uint64) (zerocopy.ServerUnpacker, string, error) {
 	nonAEADHeaderLen := UDPSeparateHeaderLength + s.identityHeaderLen
 
