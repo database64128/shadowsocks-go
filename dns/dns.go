@@ -749,11 +749,7 @@ func (r *Resolver) LookupIPs(ctx context.Context, name string) ([]netip.Addr, er
 	if err != nil {
 		return nil, err
 	}
-
-	ips := make([]netip.Addr, 0, len(result.IPv6)+len(result.IPv4))
-	ips = append(ips, result.IPv6...)
-	ips = append(ips, result.IPv4...)
-	return ips, nil
+	return slices.Concat(result.IPv6, result.IPv4), nil
 }
 
 // SystemResolver resolves names using [net.DefaultResolver].
