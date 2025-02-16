@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
+	"errors"
 	"fmt"
 
 	"lukechampine.com/blake3"
@@ -14,20 +15,19 @@ const (
 	subkeyCtxIdentity = "shadowsocks 2022 identity subkey"
 )
 
-func deriveSubkey(psk, salt []byte, ctx string) []byte {
-	if len(psk) == 0 || len(salt) == 0 {
-		panic("empty psk or salt")
-	}
-	keyMaterial := make([]byte, len(psk)+len(salt))
-	copy(keyMaterial, psk)
-	copy(keyMaterial[len(psk):], salt)
-	key := make([]byte, len(psk))
+func deriveSubkey(key, psk, salt []byte, ctx string) {
+	keyMaterial := make([]byte, 0, 32+32) // allocate on the stack
+	keyMaterial = append(keyMaterial, psk...)
+	keyMaterial = append(keyMaterial, salt...)
 	blake3.DeriveKey(key, ctx, keyMaterial)
-	return key
 }
 
 func newAES(psk, salt []byte, ctx string) (cipher.Block, error) {
-	key := deriveSubkey(psk, salt, ctx)
+	if len(psk) == 0 || len(salt) == 0 {
+		return nil, errors.New("empty psk or salt")
+	}
+	key := make([]byte, len(psk), 32) // allocate on the stack
+	deriveSubkey(key, psk, salt, ctx)
 	return aes.NewCipher(key)
 }
 
