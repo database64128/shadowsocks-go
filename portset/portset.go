@@ -19,8 +19,8 @@ type PortSet struct {
 
 // Count returns the number of ports in the set.
 func (s *PortSet) Count() (count uint) {
-	for i := range s.blocks {
-		count += uint(bits.OnesCount(s.blocks[i]))
+	for _, block := range s.blocks {
+		count += uint(bits.OnesCount(block))
 	}
 	return
 }
