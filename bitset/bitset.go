@@ -40,47 +40,47 @@ func (s BitSet) checkIndex(index uint) {
 	}
 }
 
-func (s BitSet) blockIndex(index uint) uint {
+func blockIndex(index uint) uint {
 	return index / blockBits
 }
 
-func (s BitSet) bitIndex(index uint) uint {
+func bitIndex(index uint) uint {
 	return index % blockBits
 }
 
 // IsSet returns whether the bit at the given index is set to 1.
 func (s BitSet) IsSet(index uint) bool {
 	s.checkIndex(index)
-	return s.blocks[s.blockIndex(index)]&(1<<s.bitIndex(index)) != 0
+	return s.blocks[blockIndex(index)]&(1<<bitIndex(index)) != 0
 }
 
 // Set sets the bit at the given index to 1.
 func (s BitSet) Set(index uint) {
 	s.checkIndex(index)
-	s.blocks[s.blockIndex(index)] |= 1 << s.bitIndex(index)
+	s.blocks[blockIndex(index)] |= 1 << bitIndex(index)
 }
 
 // Unset sets the bit at the given index to 0.
 func (s BitSet) Unset(index uint) {
 	s.checkIndex(index)
-	s.blocks[s.blockIndex(index)] &^= 1 << s.bitIndex(index)
+	s.blocks[blockIndex(index)] &^= 1 << bitIndex(index)
 }
 
 // Flip flips the bit at the given index.
 func (s BitSet) Flip(index uint) {
 	s.checkIndex(index)
-	s.blocks[s.blockIndex(index)] ^= 1 << s.bitIndex(index)
+	s.blocks[blockIndex(index)] ^= 1 << bitIndex(index)
 }
 
 // SetAll sets all bits to 1.
 func (s BitSet) SetAll() {
-	fullBlockCount := s.blockIndex(s.capacity)
+	fullBlockCount := blockIndex(s.capacity)
 	fullBlocks := s.blocks[:fullBlockCount]
 	for i := range fullBlocks {
 		fullBlocks[i] = ^uint(0)
 	}
 	if fullBlockCount < uint(len(s.blocks)) {
-		s.blocks[fullBlockCount] = ^(^uint(0) << s.bitIndex(s.capacity))
+		s.blocks[fullBlockCount] = ^(^uint(0) << bitIndex(s.capacity))
 	}
 }
 
@@ -91,12 +91,12 @@ func (s BitSet) UnsetAll() {
 
 // FlipAll flips all bits.
 func (s BitSet) FlipAll() {
-	fullBlockCount := s.blockIndex(s.capacity)
+	fullBlockCount := blockIndex(s.capacity)
 	fullBlocks := s.blocks[:fullBlockCount]
 	for i := range fullBlocks {
 		fullBlocks[i] = ^fullBlocks[i]
 	}
 	if fullBlockCount < uint(len(s.blocks)) {
-		s.blocks[fullBlockCount] ^= ^(^uint(0) << s.bitIndex(s.capacity))
+		s.blocks[fullBlockCount] ^= ^(^uint(0) << bitIndex(s.capacity))
 	}
 }
