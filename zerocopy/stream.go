@@ -486,7 +486,7 @@ func NewCopyReadWriter(rw ReadWriter) *CopyReadWriter {
 		ReadWriter:    rw,
 		readHeadroom:  ri.Headroom,
 		writeHeadroom: wi.Headroom,
-		readBuf:       make([]byte, ri.Headroom.Front+readBufSize+ri.Headroom.Front),
+		readBuf:       make([]byte, ri.Headroom.Front+readBufSize+ri.Headroom.Rear),
 		writeBuf:      make([]byte, wi.Headroom.Front+writeBufSize+wi.Headroom.Rear),
 	}
 }
