@@ -49,8 +49,8 @@ func testShadowStreamReadWriter(t *testing.T, allowSegmentedFixedLengthHeader bo
 			// Read excess payload.
 			b := make([]byte, len(clientInitialPayload))
 			copy(b, serverInitialPayload)
-			scrw := zerocopy.NewCopyReadWriter(srw)
-			_, serr = io.ReadFull(scrw, b[len(serverInitialPayload):])
+			scr := zerocopy.NewCopyReader(srw)
+			_, serr = io.ReadFull(scr, b[len(serverInitialPayload):])
 			serverInitialPayload = b
 		}
 		wg.Done()

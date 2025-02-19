@@ -451,122 +451,140 @@ func ReadWriterTestFunc(t tester, l, r ReadWriter) {
 	wg.Wait()
 }
 
-// CopyReadWriter wraps a ReadWriter and provides the io.ReadWriter Read and Write methods
-// by copying from and to internal buffers and using the zerocopy methods on them.
-//
-// The io.ReaderFrom ReadFrom method is implemented using the internal write buffer without copying.
-type CopyReadWriter struct {
-	ReadWriter
-
-	readHeadroom  Headroom
-	writeHeadroom Headroom
-
-	readBuf       []byte
-	readBufStart  int
-	readBufLength int
-
-	writeBuf []byte
+// CopyReader implements [io.Reader] for a [Reader] by copying in and out of an internal buffer.
+// [io.WriterTo] is implemented using the same buffer.
+type CopyReader struct {
+	Reader
+	buf             []byte
+	payloadBufStart int
+	payloadBufLen   int
+	copyStart       int
+	copyEnd         int
 }
 
-func NewCopyReadWriter(rw ReadWriter) *CopyReadWriter {
-	ri := rw.ReaderInfo()
-	wi := rw.WriterInfo()
-
-	readBufSize := ri.MinPayloadBufferSizePerRead
-	if readBufSize == 0 {
-		readBufSize = defaultBufferSize
+// NewCopyReader returns a new [CopyReader] for the given [Reader].
+func NewCopyReader(r Reader) *CopyReader {
+	ri := r.ReaderInfo()
+	payloadBufLen := ri.MinPayloadBufferSizePerRead
+	if payloadBufLen == 0 {
+		payloadBufLen = defaultBufferSize
 	}
-
-	writeBufSize := wi.MaxPayloadSizePerWrite
-	if writeBufSize == 0 {
-		writeBufSize = defaultBufferSize
-	}
-
-	return &CopyReadWriter{
-		ReadWriter:    rw,
-		readHeadroom:  ri.Headroom,
-		writeHeadroom: wi.Headroom,
-		readBuf:       make([]byte, ri.Headroom.Front+readBufSize+ri.Headroom.Rear),
-		writeBuf:      make([]byte, wi.Headroom.Front+writeBufSize+wi.Headroom.Rear),
+	return &CopyReader{
+		Reader:          r,
+		buf:             make([]byte, ri.Headroom.Front+payloadBufLen+ri.Headroom.Rear),
+		payloadBufStart: ri.Headroom.Front,
+		payloadBufLen:   payloadBufLen,
 	}
 }
 
-// Read implements the io.Reader Read method.
-func (rw *CopyReadWriter) Read(b []byte) (n int, err error) {
-	if rw.readBufLength == 0 {
-		rw.readBufStart = rw.readHeadroom.Front
-		rw.readBufLength = len(rw.readBuf) - rw.readHeadroom.Front - rw.readHeadroom.Rear
-		rw.readBufLength, err = rw.ReadWriter.ReadZeroCopy(rw.readBuf, rw.readBufStart, rw.readBufLength)
-		if err != nil {
-			return
+// Read implements [io.Reader].
+func (r *CopyReader) Read(b []byte) (n int, err error) {
+	if r.copyStart == r.copyEnd {
+		n, err = r.Reader.ReadZeroCopy(r.buf, r.payloadBufStart, r.payloadBufLen)
+		if n == 0 {
+			return 0, err
+		}
+		r.copyStart = r.payloadBufStart
+		r.copyEnd = r.payloadBufStart + n
+	}
+	n = copy(b, r.buf[r.copyStart:r.copyEnd])
+	r.copyStart += n
+	return n, err
+}
+
+// WriteTo implements [io.WriterTo].
+func (r *CopyReader) WriteTo(w io.Writer) (n int64, err error) {
+	for {
+		if r.copyStart == r.copyEnd {
+			pl, err := r.Reader.ReadZeroCopy(r.buf, r.payloadBufStart, r.payloadBufLen)
+			if pl == 0 {
+				if err == io.EOF {
+					return n, nil
+				}
+				return n, err
+			}
+			r.copyStart = r.payloadBufStart
+			r.copyEnd = r.payloadBufStart + pl
+		}
+
+		wn, werr := w.Write(r.buf[r.copyStart:r.copyEnd])
+		n += int64(wn)
+		r.copyStart += wn
+		if werr != nil {
+			return n, werr
 		}
 	}
+}
 
-	n = copy(b, rw.readBuf[rw.readBufStart:rw.readBufStart+rw.readBufLength])
-	rw.readBufStart += n
-	rw.readBufLength -= n
+// CopyWriter implements [io.Writer] for a [Writer] by copying in and out of an internal buffer.
+// [io.ReaderFrom] is implemented using the same buffer.
+type CopyWriter struct {
+	Writer
+	buf          []byte
+	payloadStart int
+	payloadEnd   int
+}
+
+// NewCopyWriter returns a new [CopyWriter] for the given [Writer].
+func NewCopyWriter(w Writer) *CopyWriter {
+	wi := w.WriterInfo()
+	payloadBufLen := wi.MaxPayloadSizePerWrite
+	if payloadBufLen == 0 {
+		payloadBufLen = defaultBufferSize
+	}
+	payloadEnd := wi.Headroom.Front + payloadBufLen
+	return &CopyWriter{
+		Writer:       w,
+		buf:          make([]byte, payloadEnd+wi.Headroom.Rear),
+		payloadStart: wi.Headroom.Front,
+		payloadEnd:   payloadEnd,
+	}
+}
+
+// Write implements [io.Writer].
+func (w *CopyWriter) Write(b []byte) (n int, err error) {
+	payloadBuf := w.buf[w.payloadStart:w.payloadEnd]
+	for n < len(b) {
+		payloadLen := copy(payloadBuf, b[n:])
+		payloadWritten, err := w.Writer.WriteZeroCopy(w.buf, w.payloadStart, payloadLen)
+		n += payloadWritten
+		if err != nil {
+			return n, err
+		}
+	}
 	return n, nil
 }
 
-// Write implements the io.Writer Write method.
-func (rw *CopyReadWriter) Write(b []byte) (n int, err error) {
-	payloadBuf := rw.writeBuf[rw.writeHeadroom.Front : len(rw.writeBuf)-rw.writeHeadroom.Rear]
-
-	for n < len(b) {
-		payloadLength := copy(payloadBuf, b[n:])
-		var payloadWritten int
-		payloadWritten, err = rw.ReadWriter.WriteZeroCopy(rw.writeBuf, rw.writeHeadroom.Front, payloadLength)
-		n += payloadWritten
-		if err != nil {
-			return
-		}
-	}
-
-	return
-}
-
-// ReadFrom implements the io.ReaderFrom ReadFrom method.
-func (rw *CopyReadWriter) ReadFrom(r io.Reader) (n int64, err error) {
+// ReadFrom implements [io.ReaderFrom].
+func (w *CopyWriter) ReadFrom(r io.Reader) (n int64, err error) {
+	payloadBuf := w.buf[w.payloadStart:w.payloadEnd]
 	for {
-		nr, err := r.Read(rw.writeBuf[rw.writeHeadroom.Front : len(rw.writeBuf)-rw.writeHeadroom.Rear])
-		n += int64(nr)
-		switch err {
-		case nil:
-		case io.EOF:
-			return n, nil
-		default:
-			return n, err
+		nr, err := r.Read(payloadBuf)
+		if nr > 0 {
+			n += int64(nr)
+			if _, err := w.Writer.WriteZeroCopy(w.buf, w.payloadStart, nr); err != nil {
+				return n, err
+			}
 		}
-
-		_, err = rw.ReadWriter.WriteZeroCopy(rw.writeBuf, rw.writeHeadroom.Front, nr)
 		if err != nil {
+			if err == io.EOF {
+				return n, nil
+			}
 			return n, err
 		}
 	}
 }
 
-func CopyWriteOnce(w Writer, b []byte) (n int, err error) {
-	wi := w.WriterInfo()
-	writeBufSize := wi.MaxPayloadSizePerWrite
-	if writeBufSize == 0 {
-		writeBufSize = defaultBufferSize
-	}
-	if writeBufSize > len(b) {
-		writeBufSize = len(b)
-	}
+// CopyReadWriter joins a [CopyReader] and a [CopyWriter] into a single [ReadWriter].
+type CopyReadWriter struct {
+	CopyReader
+	CopyWriter
+}
 
-	writeBuf := make([]byte, wi.Headroom.Front+writeBufSize+wi.Headroom.Rear)
-	payloadBuf := writeBuf[wi.Headroom.Front : wi.Headroom.Front+writeBufSize]
-
-	for n < len(b) {
-		payloadLength := copy(payloadBuf, b[n:])
-		var payloadWritten int
-		payloadWritten, err = w.WriteZeroCopy(writeBuf, wi.Headroom.Front, payloadLength)
-		n += payloadWritten
-		if err != nil {
-			return
-		}
+// NewCopyReadWriter returns a new [CopyReadWriter] for the given [ReadWriter].
+func NewCopyReadWriter(rw ReadWriter) *CopyReadWriter {
+	return &CopyReadWriter{
+		CopyReader: *NewCopyReader(rw),
+		CopyWriter: *NewCopyWriter(rw),
 	}
-
-	return
 }

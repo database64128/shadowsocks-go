@@ -520,12 +520,12 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 	}
 
 	// Read.
-	crw := zerocopy.NewCopyReadWriter(rw)
+	cr := zerocopy.NewCopyReader(rw)
 	lengthBuf := make([]byte, 2)
 
 	for range 2 {
 		// Read length field.
-		_, err = io.ReadFull(crw, lengthBuf)
+		_, err = io.ReadFull(cr, lengthBuf)
 		if err != nil {
 			r.logger.Warn("Failed to read TCP DNS response length",
 				zap.String("resolver", r.name),
@@ -550,7 +550,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 
 		// Read message.
 		msg := make([]byte, msgLen)
-		_, err = io.ReadFull(crw, msg)
+		_, err = io.ReadFull(cr, msg)
 		if err != nil {
 			r.logger.Warn("Failed to read TCP DNS response",
 				zap.String("resolver", r.name),
