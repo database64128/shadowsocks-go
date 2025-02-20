@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -40,13 +41,23 @@ type TCPProbe struct {
 
 // Probe runs the connectivity test.
 func (p TCPProbe) Probe(ctx context.Context, client zerocopy.TCPClient) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	dialer, _ := client.NewDialer()
 
-	_, rw, err := dialer.Dial(ctx, p.addr, p.req)
+	rawRW, rw, err := dialer.Dial(ctx, p.addr, p.req)
 	if err != nil {
 		return fmt.Errorf("failed to create remote connection: %w", err)
 	}
 	defer rw.Close()
+
+	if tc, ok := rawRW.(*net.TCPConn); ok {
+		go func() {
+			<-ctx.Done()
+			_ = tc.SetReadDeadline(conn.ALongTimeAgo)
+		}()
+	}
 
 	cr := zerocopy.NewCopyReader(rw)
 	br := bufio.NewReader(cr)
