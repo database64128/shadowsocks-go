@@ -10,6 +10,9 @@ import (
 
 // UDPClientInfo contains information about a UDP client.
 type UDPClientInfo struct {
+	// Name is the name of the UDP client.
+	Name string
+
 	// PackerHeadroom is the headroom required by the packet packer.
 	PackerHeadroom Headroom
 }

@@ -41,7 +41,9 @@ func NewDirectUDPClient(name, network string, mtu int, listenConfig conn.ListenC
 
 // Info implements [zerocopy.UDPClient.Info].
 func (c *DirectUDPClient) Info() zerocopy.UDPClientInfo {
-	return zerocopy.UDPClientInfo{}
+	return zerocopy.UDPClientInfo{
+		Name: c.info.Name,
+	}
 }
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
@@ -75,6 +77,7 @@ func NewShadowsocksNoneUDPClient(name, network string, addr conn.Addr, mtu int, 
 // Info implements [zerocopy.UDPClient.Info].
 func (c *ShadowsocksNoneUDPClient) Info() zerocopy.UDPClientInfo {
 	return zerocopy.UDPClientInfo{
+		Name:           c.info.Name,
 		PackerHeadroom: ShadowsocksNonePacketClientMessageHeadroom,
 	}
 }
@@ -174,6 +177,7 @@ type Socks5UDPClient struct {
 // Info implements [zerocopy.UDPClient.Info].
 func (c *Socks5UDPClient) Info() zerocopy.UDPClientInfo {
 	return zerocopy.UDPClientInfo{
+		Name:           c.info.Name,
 		PackerHeadroom: Socks5PacketClientMessageHeadroom,
 	}
 }

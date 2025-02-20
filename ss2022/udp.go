@@ -48,6 +48,7 @@ func NewUDPClient(name, network string, addr conn.Addr, mtu int, listenConfig co
 // Info implements [zerocopy.UDPClient.Info].
 func (c *UDPClient) Info() zerocopy.UDPClientInfo {
 	return zerocopy.UDPClientInfo{
+		Name:           c.info.Name,
 		PackerHeadroom: c.info.PackerHeadroom,
 	}
 }
