@@ -112,6 +112,8 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		}
 	}
 
+	services := make([]Relay, 0, len(sc.ClientGroups)+2+2*len(sc.Servers))
+
 	clientGroupIndexByName := make(map[string]int, len(sc.ClientGroups))
 
 	for i := range sc.ClientGroups {
@@ -125,7 +127,9 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		}
 		clientGroupIndexByName[clientGroupConfig.Name] = i
 
-		if err := clientGroupConfig.AddClientGroup(tcpClientMap, udpClientMap); err != nil {
+		if err := clientGroupConfig.AddClientGroup(logger, tcpClientMap, udpClientMap, func(ps *clientgroups.ProbeService) {
+			services = append(services, ps)
+		}); err != nil {
 			return nil, fmt.Errorf("failed to add client group %q: %w", clientGroupConfig.Name, err)
 		}
 	}
@@ -167,7 +171,6 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	credman := cred.NewManager(logger)
 	var apiSM *ssm.ServerManager
 
-	services := make([]Relay, 0, 2+2*len(sc.Servers))
 	services = append(services, credman)
 
 	if sc.API.Enabled {
