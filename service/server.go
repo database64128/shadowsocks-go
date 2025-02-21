@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/api/ssm"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/cred"
@@ -503,7 +504,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
-func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (Relay, error) {
+func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (shadowsocks.Service, error) {
 	if len(sc.UDPListeners) == 0 {
 		return nil, errNetworkDisabled
 	}

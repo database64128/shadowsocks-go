@@ -5,6 +5,7 @@ package service
 import (
 	"errors"
 
+	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
@@ -19,6 +20,6 @@ func NewUDPTransparentRelay(
 	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
-) (Relay, error) {
+) (shadowsocks.Service, error) {
 	return nil, errors.New("transparent proxy is not implemented for this platform")
 }

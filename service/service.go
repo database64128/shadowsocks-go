@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/api"
 	"github.com/database64128/shadowsocks-go/api/ssm"
 	"github.com/database64128/shadowsocks-go/clientgroups"
@@ -19,19 +20,6 @@ import (
 )
 
 var errNetworkDisabled = errors.New("this network (tcp or udp) is disabled")
-
-// Relay is a relay service that accepts incoming connections/sessions on a server
-// and dispatches them to a client selected by the router.
-type Relay interface {
-	// String returns the relay service's name.
-	String() string
-
-	// Start starts the relay service.
-	Start(ctx context.Context) error
-
-	// Stop stops the relay service.
-	Stop() error
-}
 
 // Config is the main configuration structure.
 // It may be marshaled as or unmarshaled from JSON.
@@ -112,7 +100,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		}
 	}
 
-	services := make([]Relay, 0, len(sc.ClientGroups)+2+2*len(sc.Servers))
+	services := make([]shadowsocks.Service, 0, len(sc.ClientGroups)+2+2*len(sc.Servers))
 
 	clientGroupIndexByName := make(map[string]int, len(sc.ClientGroups))
 
@@ -217,7 +205,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 
 // Manager manages the services.
 type Manager struct {
-	services []Relay
+	services []shadowsocks.Service
 	router   *router.Router
 	logger   *zap.Logger
 }
