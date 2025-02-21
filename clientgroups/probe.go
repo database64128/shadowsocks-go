@@ -512,9 +512,9 @@ type latencyProbeJob[C any] struct {
 
 func (j *latencyProbeJob[C]) Run(ctx context.Context) {
 	defer j.wg.Done()
-	ctx, cancel := context.WithTimeout(ctx, j.timeout)
-	defer cancel()
 	start := time.Now()
+	ctx, cancel := context.WithDeadline(ctx, start.Add(j.timeout))
+	defer cancel()
 	if err := j.probe(ctx, j.client); err == nil {
 		j.result[j.count%32] = time.Since(start)
 	} else {

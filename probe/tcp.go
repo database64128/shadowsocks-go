@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -73,11 +72,4 @@ func (p TCPProbe) Probe(ctx context.Context, client zerocopy.TCPClient) error {
 	}
 
 	return nil
-}
-
-// ProbeRTT runs the connectivity test and returns the round-trip time.
-func (p TCPProbe) ProbeRTT(ctx context.Context, client zerocopy.TCPClient) (rtt time.Duration, err error) {
-	start := time.Now()
-	err = p.Probe(ctx, client)
-	return time.Since(start), err
 }

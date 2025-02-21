@@ -7,7 +7,6 @@ import (
 	"math/rand/v2"
 	"os"
 	"slices"
-	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -242,11 +241,4 @@ func (p UDPProbe) Probe(ctx context.Context, client zerocopy.UDPClient) error {
 
 		return nil
 	}
-}
-
-// ProbeRTT runs the connectivity test and returns the round-trip time.
-func (p UDPProbe) ProbeRTT(ctx context.Context, client zerocopy.UDPClient) (rtt time.Duration, err error) {
-	start := time.Now()
-	err = p.Probe(ctx, client)
-	return time.Since(start), err
 }
