@@ -78,13 +78,40 @@ type TCPConnectivityProbeConfig struct {
 	Host string `json:"host"`
 }
 
+// newAvailabilityClientGroup returns a new availability client group for the given TCP clients.
+// It tests the internet connectivity of each client and selects the one with the highest success rate.
 func (c TCPConnectivityProbeConfig) newAvailabilityClientGroup(
 	name string,
 	logger *zap.Logger,
 	clients []tcpClient,
-) (*availabilityTCPClientGroup, *ProbeService) {
-	g := &availabilityTCPClientGroup{
-		selector: *newAvailabilityClientSelector(&clients[0]),
+) (*atomicTCPClientGroup, *ProbeService[tcpClient]) {
+	return c.newAtomicClientGroup(name, logger, clients, func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[tcpClient], pc probeConfig[tcpClient]) error {
+		go selector.probeAvailability(ctx, logger, pc)
+		return nil
+	})
+}
+
+// newLatencyClientGroup returns a new latency client group for the given TCP clients.
+// It tests the internet connectivity of each client and selects the one with the lowest average latency.
+func (c TCPConnectivityProbeConfig) newLatencyClientGroup(
+	name string,
+	logger *zap.Logger,
+	clients []tcpClient,
+) (*atomicTCPClientGroup, *ProbeService[tcpClient]) {
+	return c.newAtomicClientGroup(name, logger, clients, func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[tcpClient], pc probeConfig[tcpClient]) error {
+		go selector.probeLatency(ctx, logger, pc)
+		return nil
+	})
+}
+
+func (c TCPConnectivityProbeConfig) newAtomicClientGroup(
+	name string,
+	logger *zap.Logger,
+	clients []tcpClient,
+	start func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[tcpClient], pc probeConfig[tcpClient]) error,
+) (*atomicTCPClientGroup, *ProbeService[tcpClient]) {
+	g := &atomicTCPClientGroup{
+		selector: *newAtomicClientSelector(&clients[0]),
 	}
 	pc := c.newProbeConfig(clients)
 	logger = logger.With(
@@ -97,13 +124,7 @@ func (c TCPConnectivityProbeConfig) newAvailabilityClientGroup(
 		zap.Int("concurrency", pc.concurrency),
 		zap.Int("clients", len(pc.clients)),
 	)
-	return g, NewProbeService(
-		fmt.Sprintf("TCP connectivity probe for %s", name),
-		func(ctx context.Context) error {
-			go g.selector.probe(ctx, logger, pc)
-			return nil
-		},
-	)
+	return g, NewProbeService(fmt.Sprintf("TCP connectivity probe for %s", name), logger, &g.selector, pc, start)
 }
 
 func (c TCPConnectivityProbeConfig) newProbeConfig(clients []tcpClient) probeConfig[tcpClient] {
@@ -147,14 +168,43 @@ type UDPConnectivityProbeConfig struct {
 	Address conn.Addr `json:"address"`
 }
 
+// newAvailabilityClientGroup returns a new availability client group for the given UDP clients.
+// It tests the internet connectivity of each client and selects the one with the highest success rate.
 func (c UDPConnectivityProbeConfig) newAvailabilityClientGroup(
 	name string,
 	logger *zap.Logger,
 	clients []zerocopy.UDPClient,
 	info zerocopy.UDPClientInfo,
-) (*availabilityUDPClientGroup, *ProbeService) {
-	g := &availabilityUDPClientGroup{
-		selector: *newAvailabilityClientSelector(&clients[0]),
+) (*atomicUDPClientGroup, *ProbeService[zerocopy.UDPClient]) {
+	return c.newAtomicClientGroup(name, logger, clients, info, func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error {
+		go selector.probeAvailability(ctx, logger, pc)
+		return nil
+	})
+}
+
+// newLatencyClientGroup returns a new latency client group for the given UDP clients.
+// It tests the internet connectivity of each client and selects the one with the lowest average latency.
+func (c UDPConnectivityProbeConfig) newLatencyClientGroup(
+	name string,
+	logger *zap.Logger,
+	clients []zerocopy.UDPClient,
+	info zerocopy.UDPClientInfo,
+) (*atomicUDPClientGroup, *ProbeService[zerocopy.UDPClient]) {
+	return c.newAtomicClientGroup(name, logger, clients, info, func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error {
+		go selector.probeLatency(ctx, logger, pc)
+		return nil
+	})
+}
+
+func (c UDPConnectivityProbeConfig) newAtomicClientGroup(
+	name string,
+	logger *zap.Logger,
+	clients []zerocopy.UDPClient,
+	info zerocopy.UDPClientInfo,
+	start func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error,
+) (*atomicUDPClientGroup, *ProbeService[zerocopy.UDPClient]) {
+	g := &atomicUDPClientGroup{
+		selector: *newAtomicClientSelector(&clients[0]),
 		info:     info,
 	}
 	pc := c.newProbeConfig(logger, clients)
@@ -166,13 +216,7 @@ func (c UDPConnectivityProbeConfig) newAvailabilityClientGroup(
 		zap.Int("concurrency", pc.concurrency),
 		zap.Int("clients", len(pc.clients)),
 	)
-	return g, NewProbeService(
-		fmt.Sprintf("UDP connectivity probe for %s", name),
-		func(ctx context.Context) error {
-			go g.selector.probe(ctx, logger, pc)
-			return nil
-		},
-	)
+	return g, NewProbeService(fmt.Sprintf("UDP connectivity probe for %s", name), logger, &g.selector, pc, start)
 }
 
 func (c UDPConnectivityProbeConfig) newProbeConfig(logger *zap.Logger, clients []zerocopy.UDPClient) probeConfig[zerocopy.UDPClient] {
@@ -208,54 +252,65 @@ type probeConfig[C any] struct {
 // ProbeService runs the probe loop.
 //
 // ProbeService implements [service.Service].
-type ProbeService struct {
-	name  string
-	start func(ctx context.Context) error
+type ProbeService[C any] struct {
+	name     string
+	logger   *zap.Logger
+	selector *atomicClientSelector[C]
+	pc       probeConfig[C]
+	start    func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[C], pc probeConfig[C]) error
 }
 
 // NewProbeService returns a new probe service.
-func NewProbeService(name string, start func(ctx context.Context) error) *ProbeService {
-	return &ProbeService{
-		name:  name,
-		start: start,
+func NewProbeService[C any](
+	name string,
+	logger *zap.Logger,
+	selector *atomicClientSelector[C],
+	pc probeConfig[C],
+	start func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[C], pc probeConfig[C]) error,
+) *ProbeService[C] {
+	return &ProbeService[C]{
+		name:     name,
+		logger:   logger,
+		selector: selector,
+		pc:       pc,
+		start:    start,
 	}
 }
 
 // String implements [service.Service.String].
-func (s *ProbeService) String() string {
+func (s *ProbeService[C]) String() string {
 	return s.name
 }
 
 // Start implements [service.Service.Start].
-func (s *ProbeService) Start(ctx context.Context) error {
-	return s.start(ctx)
+func (s *ProbeService[C]) Start(ctx context.Context) error {
+	return s.start(ctx, s.logger, s.selector, s.pc)
 }
 
 // Stop implements [service.Service.Stop].
-func (*ProbeService) Stop() error {
+func (*ProbeService[C]) Stop() error {
 	return nil
 }
 
-// availabilityClientSelector is a client selector that selects clients based on availability.
-// It tests the internet connectivity of each client and selects the one with the highest success rate.
-type availabilityClientSelector[C any] struct {
+// atomicClientSelector is a client selector that allows the selected client to be atomically changed.
+type atomicClientSelector[C any] struct {
 	selected atomic.Pointer[C]
 }
 
-// newAvailabilityClientSelector returns a new availability client selector.
-func newAvailabilityClientSelector[C any](initialClient *C) *availabilityClientSelector[C] {
-	var s availabilityClientSelector[C]
+// newAtomicClientSelector returns a new atomic client selector.
+func newAtomicClientSelector[C any](initialClient *C) *atomicClientSelector[C] {
+	var s atomicClientSelector[C]
 	s.selected.Store(initialClient)
 	return &s
 }
 
-// Select selects the best available client.
-func (s *availabilityClientSelector[C]) Select() C {
+// Select returns the selected client.
+func (s *atomicClientSelector[C]) Select() C {
 	return *s.selected.Load()
 }
 
-// probe runs the availability probe loop.
-func (s *availabilityClientSelector[C]) probe(
+// probeAvailability runs the availability probe loop.
+func (s *atomicClientSelector[C]) probeAvailability(
 	ctx context.Context,
 	logger *zap.Logger,
 	pc probeConfig[C],
@@ -358,32 +413,141 @@ func (j *availabilityProbeJob[C]) Run(ctx context.Context) {
 	}
 }
 
-// availabilityTCPClientGroup is a TCP client group that selects clients based on availability.
+// probeLatency runs the latency probe loop.
+func (s *atomicClientSelector[C]) probeLatency(
+	ctx context.Context,
+	logger *zap.Logger,
+	pc probeConfig[C],
+) {
+	// Start probe workers.
+	jobCh := make(chan latencyProbeJob[C])
+	defer close(jobCh)
+	for range pc.concurrency {
+		go func() {
+			for job := range jobCh {
+				job.Run(ctx)
+			}
+		}()
+	}
+
+	// Send probe jobs.
+	done := ctx.Done()
+	ticker := time.NewTicker(pc.interval) // Should we use a timer instead and add some random jitter?
+	defer ticker.Stop()
+	var (
+		wg          sync.WaitGroup
+		probeResult = make([][32]time.Duration, len(pc.clients))
+		probeCount  uint
+		clientIndex int
+	)
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			if ce := logger.Check(zap.DebugLevel, "Started latency probe"); ce != nil {
+				ce.Write(
+					zap.Uint("probeCount", probeCount),
+				)
+			}
+
+			wg.Add(len(pc.clients))
+			for i, client := range pc.clients {
+				jobCh <- latencyProbeJob[C]{
+					wg:      &wg,
+					probe:   pc.probe,
+					timeout: pc.timeout,
+					client:  client,
+					result:  &probeResult[i],
+					count:   probeCount,
+				}
+			}
+			wg.Wait()
+			probeCount++
+
+			var (
+				bestIndex      int
+				bestAvgLatency = pc.timeout
+			)
+			for i, result := range probeResult {
+				var avgLatency time.Duration
+				for _, latency := range result {
+					avgLatency += latency
+				}
+				avgLatency /= time.Duration(len(result))
+				if avgLatency < bestAvgLatency {
+					bestIndex = i
+					bestAvgLatency = avgLatency
+				}
+				if ce := logger.Check(zap.DebugLevel, "Latency probe result"); ce != nil {
+					ce.Write(
+						zap.Int("client", i),
+						zap.Duration("avgLatency", avgLatency),
+					)
+				}
+			}
+			if ce := logger.Check(zap.DebugLevel, "Finished latency probe"); ce != nil {
+				ce.Write(
+					zap.Int("oldClient", clientIndex),
+					zap.Int("newClient", bestIndex),
+					zap.Duration("avgLatency", bestAvgLatency),
+				)
+			}
+			if clientIndex != bestIndex {
+				clientIndex = bestIndex
+				s.selected.Store(&pc.clients[clientIndex])
+			}
+		}
+	}
+}
+
+type latencyProbeJob[C any] struct {
+	wg      *sync.WaitGroup
+	probe   func(ctx context.Context, client C) error
+	timeout time.Duration
+	client  C
+	result  *[32]time.Duration
+	count   uint
+}
+
+func (j *latencyProbeJob[C]) Run(ctx context.Context) {
+	defer j.wg.Done()
+	ctx, cancel := context.WithTimeout(ctx, j.timeout)
+	defer cancel()
+	start := time.Now()
+	if err := j.probe(ctx, j.client); err == nil {
+		j.result[j.count%32] = time.Since(start)
+	} else {
+		j.result[j.count%32] = j.timeout
+	}
+}
+
+// atomicTCPClientGroup is a TCP client group that wraps an atomic client selector.
 //
-// availabilityTCPClientGroup implements [zerocopy.TCPClient].
-type availabilityTCPClientGroup struct {
-	selector availabilityClientSelector[tcpClient]
+// atomicTCPClientGroup implements [zerocopy.TCPClient].
+type atomicTCPClientGroup struct {
+	selector atomicClientSelector[tcpClient]
 }
 
 // NewDialer implements [zerocopy.TCPClient.NewDialer].
-func (g *availabilityTCPClientGroup) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
+func (g *atomicTCPClientGroup) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
 	return g.selector.Select().NewDialer()
 }
 
-// availabilityUDPClientGroup is a UDP client group that selects clients based on availability.
+// atomicUDPClientGroup is a UDP client group that wraps an atomic client selector.
 //
-// availabilityUDPClientGroup implements [zerocopy.UDPClient].
-type availabilityUDPClientGroup struct {
-	selector availabilityClientSelector[zerocopy.UDPClient]
+// atomicUDPClientGroup implements [zerocopy.UDPClient].
+type atomicUDPClientGroup struct {
+	selector atomicClientSelector[zerocopy.UDPClient]
 	info     zerocopy.UDPClientInfo
 }
 
 // Info implements [zerocopy.UDPClient.Info].
-func (g *availabilityUDPClientGroup) Info() zerocopy.UDPClientInfo {
+func (g *atomicUDPClientGroup) Info() zerocopy.UDPClientInfo {
 	return g.info
 }
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
-func (g *availabilityUDPClientGroup) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
+func (g *atomicUDPClientGroup) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
 	return g.selector.Select().NewSession(ctx)
 }

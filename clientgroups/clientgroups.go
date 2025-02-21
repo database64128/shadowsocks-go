@@ -10,6 +10,7 @@ import (
 	"math/rand/v2"
 	"sync/atomic"
 
+	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
@@ -65,7 +66,7 @@ func (c *ClientGroupConfig) AddClientGroup(
 	logger *zap.Logger,
 	tcpClientByName map[string]zerocopy.TCPClient,
 	udpClientByName map[string]zerocopy.UDPClient,
-	addProbeService func(*ProbeService),
+	addProbeService func(shadowsocks.Service),
 ) error {
 	if len(c.TCPClients) == 0 && len(c.UDPClients) == 0 {
 		return errors.New("empty client group")
@@ -81,15 +82,20 @@ func (c *ClientGroupConfig) AddClientGroup(
 			clients[i] = newTCPClient(client)
 		}
 
-		var group zerocopy.TCPClient
+		var (
+			group   zerocopy.TCPClient
+			service *ProbeService[tcpClient]
+		)
 		switch c.TCPPolicy {
 		case PolicyRoundRobin:
 			group = newRoundRobinTCPClientGroup(clients)
 		case PolicyRandom:
 			group = newRandomTCPClientGroup(clients)
 		case PolicyAvailability:
-			var service *ProbeService
 			group, service = c.TCPConnectivityProbe.newAvailabilityClientGroup(c.Name, logger, clients)
+			addProbeService(service)
+		case PolicyLatency:
+			group, service = c.TCPConnectivityProbe.newLatencyClientGroup(c.Name, logger, clients)
 			addProbeService(service)
 		default:
 			return fmt.Errorf("unknown TCP client selection policy: %q", c.TCPPolicy)
@@ -109,15 +115,20 @@ func (c *ClientGroupConfig) AddClientGroup(
 			info.PackerHeadroom = zerocopy.MaxHeadroom(info.PackerHeadroom, client.Info().PackerHeadroom)
 		}
 
-		var group zerocopy.UDPClient
+		var (
+			group   zerocopy.UDPClient
+			service *ProbeService[zerocopy.UDPClient]
+		)
 		switch c.UDPPolicy {
 		case PolicyRoundRobin:
 			group = newRoundRobinUDPClientGroup(clients, info)
 		case PolicyRandom:
 			group = newRandomUDPClientGroup(clients, info)
 		case PolicyAvailability:
-			var service *ProbeService
 			group, service = c.UDPConnectivityProbe.newAvailabilityClientGroup(c.Name, logger, clients, info)
+			addProbeService(service)
+		case PolicyLatency:
+			group, service = c.UDPConnectivityProbe.newLatencyClientGroup(c.Name, logger, clients, info)
 			addProbeService(service)
 		default:
 			return fmt.Errorf("unknown UDP client selection policy: %q", c.UDPPolicy)

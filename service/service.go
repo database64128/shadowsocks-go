@@ -115,7 +115,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		}
 		clientGroupIndexByName[clientGroupConfig.Name] = i
 
-		if err := clientGroupConfig.AddClientGroup(logger, tcpClientMap, udpClientMap, func(ps *clientgroups.ProbeService) {
+		if err := clientGroupConfig.AddClientGroup(logger, tcpClientMap, udpClientMap, func(ps shadowsocks.Service) {
 			services = append(services, ps)
 		}); err != nil {
 			return nil, fmt.Errorf("failed to add client group %q: %w", clientGroupConfig.Name, err)
