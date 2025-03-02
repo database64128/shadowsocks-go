@@ -198,14 +198,15 @@ func (lnc *UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 
 	return udpRelayServerConn{
 		listenConfig: listenConfigCache.Get(conn.ListenerSocketOptions{
-			SendBufferSize:    conn.DefaultUDPSocketBufferSize,
-			ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
-			Fwmark:            lnc.Fwmark,
-			TrafficClass:      lnc.TrafficClass,
-			ReusePort:         lnc.ReusePort,
-			Transparent:       transparent,
-			PathMTUDiscovery:  !lnc.AllowFragmentation,
-			ReceivePacketInfo: true,
+			SendBufferSize:          conn.DefaultUDPSocketBufferSize,
+			ReceiveBufferSize:       conn.DefaultUDPSocketBufferSize,
+			Fwmark:                  lnc.Fwmark,
+			TrafficClass:            lnc.TrafficClass,
+			ReusePort:               lnc.ReusePort,
+			Transparent:             transparent,
+			PathMTUDiscovery:        !lnc.AllowFragmentation,
+			ReceivePacketInfo:       !transparent,
+			ReceiveOriginalDestAddr: transparent,
 		}),
 		network:             lnc.Network,
 		address:             lnc.Address,
