@@ -87,7 +87,7 @@ type TCPConnectivityProbeConfig struct {
 
 // newAvailabilityClientGroup returns a new availability client group for the given TCP clients.
 // It tests the internet connectivity of each client and selects the one with the highest success rate.
-func (c TCPConnectivityProbeConfig) newAvailabilityClientGroup(
+func (c *TCPConnectivityProbeConfig) newAvailabilityClientGroup(
 	name string,
 	logger *zap.Logger,
 	clients []tcpClient,
@@ -100,7 +100,7 @@ func (c TCPConnectivityProbeConfig) newAvailabilityClientGroup(
 
 // newLatencyClientGroup returns a new latency client group for the given TCP clients.
 // It tests the internet connectivity of each client and selects the one with the lowest average latency.
-func (c TCPConnectivityProbeConfig) newLatencyClientGroup(
+func (c *TCPConnectivityProbeConfig) newLatencyClientGroup(
 	name string,
 	logger *zap.Logger,
 	clients []tcpClient,
@@ -113,7 +113,7 @@ func (c TCPConnectivityProbeConfig) newLatencyClientGroup(
 
 // newMinMaxLatencyClientGroup returns a new minimum maximum latency client group for the given TCP clients.
 // It tests the internet connectivity of each client and selects the one with the lowest worst latency.
-func (c TCPConnectivityProbeConfig) newMinMaxLatencyClientGroup(
+func (c *TCPConnectivityProbeConfig) newMinMaxLatencyClientGroup(
 	name string,
 	logger *zap.Logger,
 	clients []tcpClient,
@@ -124,7 +124,7 @@ func (c TCPConnectivityProbeConfig) newMinMaxLatencyClientGroup(
 	})
 }
 
-func (c TCPConnectivityProbeConfig) newAtomicClientGroup(
+func (c *TCPConnectivityProbeConfig) newAtomicClientGroup(
 	name string,
 	logger *zap.Logger,
 	clients []tcpClient,
@@ -147,7 +147,7 @@ func (c TCPConnectivityProbeConfig) newAtomicClientGroup(
 	return g, NewProbeService(zap.String("clientGroupTCPProbe", name), logger, &g.selector, pc, start)
 }
 
-func (c TCPConnectivityProbeConfig) newProbeConfig(clients []tcpClient) probeConfig[tcpClient] {
+func (c *TCPConnectivityProbeConfig) newProbeConfig(clients []tcpClient) probeConfig[tcpClient] {
 	c.applyDefaults()
 	tpc := probe.TCPProbeConfig{
 		Addr:        c.Address,
@@ -192,7 +192,7 @@ type UDPConnectivityProbeConfig struct {
 
 // newAvailabilityClientGroup returns a new availability client group for the given UDP clients.
 // It tests the internet connectivity of each client and selects the one with the highest success rate.
-func (c UDPConnectivityProbeConfig) newAvailabilityClientGroup(
+func (c *UDPConnectivityProbeConfig) newAvailabilityClientGroup(
 	name string,
 	logger *zap.Logger,
 	clients []zerocopy.UDPClient,
@@ -206,7 +206,7 @@ func (c UDPConnectivityProbeConfig) newAvailabilityClientGroup(
 
 // newLatencyClientGroup returns a new latency client group for the given UDP clients.
 // It tests the internet connectivity of each client and selects the one with the lowest average latency.
-func (c UDPConnectivityProbeConfig) newLatencyClientGroup(
+func (c *UDPConnectivityProbeConfig) newLatencyClientGroup(
 	name string,
 	logger *zap.Logger,
 	clients []zerocopy.UDPClient,
@@ -220,7 +220,7 @@ func (c UDPConnectivityProbeConfig) newLatencyClientGroup(
 
 // newMinMaxLatencyClientGroup returns a new minimum maximum latency client group for the given UDP clients.
 // It tests the internet connectivity of each client and selects the one with the lowest worst latency.
-func (c UDPConnectivityProbeConfig) newMinMaxLatencyClientGroup(
+func (c *UDPConnectivityProbeConfig) newMinMaxLatencyClientGroup(
 	name string,
 	logger *zap.Logger,
 	clients []zerocopy.UDPClient,
@@ -232,7 +232,7 @@ func (c UDPConnectivityProbeConfig) newMinMaxLatencyClientGroup(
 	})
 }
 
-func (c UDPConnectivityProbeConfig) newAtomicClientGroup(
+func (c *UDPConnectivityProbeConfig) newAtomicClientGroup(
 	name string,
 	logger *zap.Logger,
 	clients []zerocopy.UDPClient,
@@ -255,7 +255,7 @@ func (c UDPConnectivityProbeConfig) newAtomicClientGroup(
 	return g, NewProbeService(zap.String("clientGroupUDPProbe", name), logger, &g.selector, pc, start)
 }
 
-func (c UDPConnectivityProbeConfig) newProbeConfig(logger *zap.Logger, clients []zerocopy.UDPClient) probeConfig[zerocopy.UDPClient] {
+func (c *UDPConnectivityProbeConfig) newProbeConfig(logger *zap.Logger, clients []zerocopy.UDPClient) probeConfig[zerocopy.UDPClient] {
 	c.applyDefaults()
 	upc := probe.UDPProbeConfig{
 		Addr:   c.Address,
