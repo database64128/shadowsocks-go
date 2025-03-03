@@ -69,12 +69,18 @@ type TCPConnectivityProbeConfig struct {
 	ConnectivityProbeConfig
 
 	// Address is the address of the HTTP test endpoint.
+	//
+	// Default is "clients3.google.com:80".
 	Address conn.Addr `json:"address"`
 
 	// EscapedPath is the escaped URL path of the HTTP test endpoint.
+	//
+	// Default is "/generate_204".
 	EscapedPath string `json:"escapedPath"`
 
 	// Host specifies the value of the Host header field in the HTTP request.
+	//
+	// Default is "clients3.google.com".
 	Host string `json:"host"`
 }
 
@@ -165,6 +171,8 @@ type UDPConnectivityProbeConfig struct {
 	ConnectivityProbeConfig
 
 	// Address is the address of the UDP DNS server.
+	//
+	// Default is "[2606:4700:4700::1111]:53".
 	Address conn.Addr `json:"address"`
 }
 
@@ -413,6 +421,8 @@ func (j *availabilityProbeJob[C]) Run(ctx context.Context) {
 	}
 }
 
+const latencyProbeResultSize = 32
+
 // probeLatency runs the latency probe loop.
 func (s *atomicClientSelector[C]) probeLatency(
 	ctx context.Context,
@@ -436,7 +446,7 @@ func (s *atomicClientSelector[C]) probeLatency(
 	defer ticker.Stop()
 	var (
 		wg          sync.WaitGroup
-		probeResult = make([][32]time.Duration, len(pc.clients))
+		probeResult = make([][latencyProbeResultSize]time.Duration, len(pc.clients))
 		probeCount  uint
 		clientIndex int
 	)
@@ -506,7 +516,7 @@ type latencyProbeJob[C any] struct {
 	probe   func(ctx context.Context, client C) error
 	timeout time.Duration
 	client  C
-	result  *[32]time.Duration
+	result  *[latencyProbeResultSize]time.Duration
 	count   uint
 }
 
@@ -516,9 +526,9 @@ func (j *latencyProbeJob[C]) Run(ctx context.Context) {
 	ctx, cancel := context.WithDeadline(ctx, start.Add(j.timeout))
 	defer cancel()
 	if err := j.probe(ctx, j.client); err == nil {
-		j.result[j.count%32] = time.Since(start)
+		j.result[j.count%latencyProbeResultSize] = time.Since(start)
 	} else {
-		j.result[j.count%32] = j.timeout
+		j.result[j.count%latencyProbeResultSize] = j.timeout
 	}
 }
 
