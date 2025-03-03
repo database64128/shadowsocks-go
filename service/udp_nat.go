@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
@@ -123,12 +124,14 @@ func NewUDPNATRelay(
 	}
 }
 
-// String implements the Service String method.
-func (s *UDPNATRelay) String() string {
-	return "UDP NAT relay service for " + s.serverName
+var _ shadowsocks.Service = (*UDPNATRelay)(nil)
+
+// ZapField implements [shadowsocks.Service.ZapField].
+func (s *UDPNATRelay) ZapField() zap.Field {
+	return zap.String("serverUDPNATRelay", s.serverName)
 }
 
-// Start implements the Service Start method.
+// Start implements [shadowsocks.Service.Start].
 func (s *UDPNATRelay) Start(ctx context.Context) error {
 	for i := range s.listeners {
 		if err := s.start(ctx, i, &s.listeners[i]); err != nil {
@@ -609,7 +612,7 @@ func (s *UDPNATRelay) putQueuedPacket(queuedPacket *natQueuedPacket) {
 	s.queuedPacketPool.Put(queuedPacket)
 }
 
-// Stop implements the Service Stop method.
+// Stop implements [shadowsocks.Service.Stop].
 func (s *UDPNATRelay) Stop() error {
 	for i := range s.listeners {
 		lnc := &s.listeners[i]

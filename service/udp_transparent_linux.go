@@ -118,12 +118,14 @@ func NewUDPTransparentRelay(
 	}, nil
 }
 
-// String implements the Relay String method.
-func (s *UDPTransparentRelay) String() string {
-	return "UDP transparent relay service for " + s.serverName
+var _ shadowsocks.Service = (*UDPTransparentRelay)(nil)
+
+// ZapField implements [shadowsocks.Service.ZapField].
+func (s *UDPTransparentRelay) ZapField() zap.Field {
+	return zap.String("serverUDPTransparentRelay", s.serverName)
 }
 
-// Start implements the Relay Start method.
+// Start implements [shadowsocks.Service.Start].
 func (s *UDPTransparentRelay) Start(ctx context.Context) error {
 	for i := range s.listeners {
 		index := i
@@ -755,7 +757,7 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(ctx context.
 	s.collector.CollectUDPSessionDownlink("", packetsSent, payloadBytesSent)
 }
 
-// Stop implements the Relay Stop method.
+// Stop implements [shadowsocks.Service.Stop].
 func (s *UDPTransparentRelay) Stop() error {
 	for i := range s.listeners {
 		lnc := &s.listeners[i]

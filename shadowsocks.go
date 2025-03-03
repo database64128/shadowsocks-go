@@ -3,6 +3,8 @@ package shadowsocks
 
 import (
 	"context"
+
+	"go.uber.org/zap"
 )
 
 // Version is the current version of shadowsocks-go.
@@ -11,9 +13,7 @@ const Version = "1.12.0"
 // Service is the common service abstraction in this module.
 type Service interface {
 	// ZapField returns a [zap.Field] that identifies the service.
-	// ZapField() zap.Field
-
-	String() string
+	ZapField() zap.Field
 
 	// Start starts the service.
 	Start(ctx context.Context) error

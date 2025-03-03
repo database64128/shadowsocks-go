@@ -2,7 +2,6 @@ package clientgroups
 
 import (
 	"context"
-	"fmt"
 	"math/bits"
 	"net/netip"
 	"slices"
@@ -10,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/jsonhelper"
 	"github.com/database64128/shadowsocks-go/probe"
@@ -144,7 +144,7 @@ func (c TCPConnectivityProbeConfig) newAtomicClientGroup(
 		zap.Int("concurrency", pc.concurrency),
 		zap.Int("clients", len(pc.clients)),
 	)
-	return g, NewProbeService(fmt.Sprintf("TCP connectivity probe for %s", name), logger, &g.selector, pc, start)
+	return g, NewProbeService(zap.String("clientGroupTCPProbe", name), logger, &g.selector, pc, start)
 }
 
 func (c TCPConnectivityProbeConfig) newProbeConfig(clients []tcpClient) probeConfig[tcpClient] {
@@ -252,7 +252,7 @@ func (c UDPConnectivityProbeConfig) newAtomicClientGroup(
 		zap.Int("concurrency", pc.concurrency),
 		zap.Int("clients", len(pc.clients)),
 	)
-	return g, NewProbeService(fmt.Sprintf("UDP connectivity probe for %s", name), logger, &g.selector, pc, start)
+	return g, NewProbeService(zap.String("clientGroupUDPProbe", name), logger, &g.selector, pc, start)
 }
 
 func (c UDPConnectivityProbeConfig) newProbeConfig(logger *zap.Logger, clients []zerocopy.UDPClient) probeConfig[zerocopy.UDPClient] {
@@ -287,9 +287,9 @@ type probeConfig[C any] struct {
 
 // ProbeService runs the probe loop.
 //
-// ProbeService implements [service.Service].
+// ProbeService implements [shadowsocks.Service].
 type ProbeService[C any] struct {
-	name     string
+	zapField zap.Field
 	logger   *zap.Logger
 	selector *atomicClientSelector[C]
 	pc       probeConfig[C]
@@ -298,14 +298,14 @@ type ProbeService[C any] struct {
 
 // NewProbeService returns a new probe service.
 func NewProbeService[C any](
-	name string,
+	zapField zap.Field,
 	logger *zap.Logger,
 	selector *atomicClientSelector[C],
 	pc probeConfig[C],
 	start func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[C], pc probeConfig[C]) error,
 ) *ProbeService[C] {
 	return &ProbeService[C]{
-		name:     name,
+		zapField: zapField,
 		logger:   logger,
 		selector: selector,
 		pc:       pc,
@@ -313,17 +313,19 @@ func NewProbeService[C any](
 	}
 }
 
-// String implements [service.Service.String].
-func (s *ProbeService[C]) String() string {
-	return s.name
+var _ shadowsocks.Service = (*ProbeService[any])(nil)
+
+// ZapField implements [shadowsocks.Service.ZapField].
+func (s *ProbeService[C]) ZapField() zap.Field {
+	return s.zapField
 }
 
-// Start implements [service.Service.Start].
+// Start implements [shadowsocks.Service.Start].
 func (s *ProbeService[C]) Start(ctx context.Context) error {
 	return s.start(ctx, s.logger, s.selector, s.pc)
 }
 
-// Stop implements [service.Service.Stop].
+// Stop implements [shadowsocks.Service.Stop].
 func (*ProbeService[C]) Stop() error {
 	return nil
 }

@@ -214,7 +214,8 @@ type Manager struct {
 func (m *Manager) Start(ctx context.Context) error {
 	for _, s := range m.services {
 		if err := s.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start %q: %w", s.String(), err)
+			kv := s.ZapField()
+			return fmt.Errorf("failed to start %s=%q: %w", kv.Key, kv.String, err)
 		}
 	}
 	return nil
@@ -223,13 +224,12 @@ func (m *Manager) Start(ctx context.Context) error {
 // Stop stops all running services.
 func (m *Manager) Stop() {
 	for _, s := range m.services {
+		kv := s.ZapField()
 		if err := s.Stop(); err != nil {
-			m.logger.Warn("Failed to stop service",
-				zap.Stringer("service", s),
-				zap.Error(err),
-			)
+			m.logger.Warn("Failed to stop service", kv, zap.Error(err))
+			continue
 		}
-		m.logger.Info("Stopped service", zap.Stringer("service", s))
+		m.logger.Info("Stopped service", kv)
 	}
 }
 

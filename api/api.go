@@ -11,6 +11,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/api/internal/restapi"
 	"github.com/database64128/shadowsocks-go/api/ssm"
 	"github.com/database64128/shadowsocks-go/conn"
@@ -387,12 +388,16 @@ type Server struct {
 	server http.Server
 }
 
-// String implements [service.Service.String].
-func (s *Server) String() string {
-	return "API server"
+var _ shadowsocks.Service = (*Server)(nil)
+
+// ZapField implements [shadowsocks.Service.ZapField].
+func (*Server) ZapField() zap.Field {
+	return zap.String("service", "api")
 }
 
 // Start starts the API server.
+//
+// Start implements [shadowsocks.Service.Start].
 func (s *Server) Start(ctx context.Context) error {
 	for i := range s.lcs {
 		lc := &s.lcs[i]
@@ -417,6 +422,8 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 // Stop stops the API server.
+//
+// Stop implements [shadowsocks.Service.Stop].
 func (s *Server) Stop() error {
 	return s.server.Close()
 }

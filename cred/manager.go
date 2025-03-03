@@ -15,6 +15,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/mmap"
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"go.uber.org/zap"
@@ -351,12 +352,16 @@ func (m *Manager) LoadAll() error {
 	return nil
 }
 
-// String implements the service.Service String method.
-func (m *Manager) String() string {
-	return "credential manager"
+var _ shadowsocks.Service = (*Manager)(nil)
+
+// ZapField implements [shadowsocks.Service.ZapField].
+func (*Manager) ZapField() zap.Field {
+	return zap.String("service", "credential manager")
 }
 
 // Start starts all managed servers and registers to reload on SIGUSR1.
+//
+// Start implements [shadowsocks.Service.Start].
 func (m *Manager) Start(ctx context.Context) error {
 	for _, s := range m.servers {
 		s.Start(ctx)
@@ -366,6 +371,8 @@ func (m *Manager) Start(ctx context.Context) error {
 }
 
 // Stop gracefully stops all managed servers.
+//
+// Stop implements [shadowsocks.Service.Stop].
 func (m *Manager) Stop() error {
 	for _, s := range m.servers {
 		s.Stop()

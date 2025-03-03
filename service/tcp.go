@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/router"
@@ -77,12 +78,14 @@ func NewTCPRelay(
 	}
 }
 
-// String implements the Service String method.
-func (s *TCPRelay) String() string {
-	return "TCP relay service for " + s.serverName
+var _ shadowsocks.Service = (*TCPRelay)(nil)
+
+// ZapField implements [shadowsocks.Service.ZapField].
+func (s *TCPRelay) ZapField() zap.Field {
+	return zap.String("serverTCPRelay", s.serverName)
 }
 
-// Start implements the Service Start method.
+// Start implements [shadowsocks.Service.Start].
 func (s *TCPRelay) Start(ctx context.Context) error {
 	for i := range s.listeners {
 		index := i
@@ -275,7 +278,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 	)
 }
 
-// Stop implements the Service Stop method.
+// Stop implements [shadowsocks.Service.Stop].
 func (s *TCPRelay) Stop() error {
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
