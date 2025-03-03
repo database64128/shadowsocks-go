@@ -412,55 +412,67 @@
     "clientGroups": [
         {
             "name": "ss-2022-round-robin",
-            "tcpPolicy": "round-robin",
-            "udpPolicy": "round-robin",
-            "tcpClients": [
-                "ss-2022-a",
-                "ss-2022-b"
-            ],
-            "udpClients": [
-                "ss-2022-a",
-                "ss-2022-b"
-            ]
+            "tcp": {
+                "policy": "round-robin",
+                "clients": [
+                    "ss-2022-a",
+                    "ss-2022-b"
+                ]
+            },
+            "udp": {
+                "policy": "round-robin",
+                "clients": [
+                    "ss-2022-a",
+                    "ss-2022-b"
+                ]
+            }
         },
         {
             "name": "ss-2022-random",
-            "tcpPolicy": "random",
-            "udpPolicy": "random",
-            "tcpClients": [
-                "ss-2022-a",
-                "ss-2022-b"
-            ],
-            "udpClients": [
-                "ss-2022-a",
-                "ss-2022-b"
-            ]
+            "tcp": {
+                "policy": "random",
+                "clients": [
+                    "ss-2022-a",
+                    "ss-2022-b"
+                ]
+            },
+            "udp": {
+                "policy": "random",
+                "clients": [
+                    "ss-2022-a",
+                    "ss-2022-b"
+                ]
+            }
         },
         {
             "name": "ss-2022-availability",
-            "tcpPolicy": "availability",
-            "udpPolicy": "availability",
-            "tcpClients": [
-                "ss-2022-a",
-                "ss-2022-b"
-            ],
-            "udpClients": [
-                "ss-2022-a",
-                "ss-2022-b"
-            ],
-            "tcpConnectivityProbe": {
-                "timeout": "5s",
-                "interval": "30s",
-                "concurrency": 32,
-                "address": "clients3.google.com:80",
-                "escapedPath": "/generate_204",
-                "host": "clients3.google.com"
+            "tcp": {
+                "policy": "availability",
+                "clients": [
+                    "ss-2022-a",
+                    "ss-2022-b"
+                ],
+                "probe": {
+                    "timeout": "5s",
+                    "interval": "30s",
+                    "concurrency": 32,
+                    "address": "clients3.google.com:80",
+                    "escapedPath": "/generate_204",
+                    "host": "clients3.google.com"
+                }
             },
-            "udpConnectivityProbe": {
-                "timeout": "5s",
-                "interval": "30s",
-                "concurrency": 32,
-                "address": "[2606:4700:4700::1111]:53"
+            "udp": {
+                "policy": "availability",
+                "clients": [
+                    "ss-2022-a",
+                    "ss-2022-b"
+                ],
+                "probe": {
+                    "timeout": "5s",
+                    "interval": "30s",
+                    "concurrency": 32,
+                    "address": "[2606:4700:4700::1111]:53"
+                }
             }
         }
     ],

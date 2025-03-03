@@ -35,30 +35,29 @@ const (
 	PolicyMinMaxLatency ClientSelectionPolicy = "min-max-latency"
 )
 
+// ClientSelectionConfig is the configuration for client selection.
+type ClientSelectionConfig[PC TCPConnectivityProbeConfig | UDPConnectivityProbeConfig] struct {
+	// Policy is the client selection policy.
+	// See [ClientSelectionPolicy] for available policies.
+	Policy ClientSelectionPolicy `json:"policy"`
+
+	// Clients is the list of clients in the group, represented by their names.
+	Clients []string `json:"clients"`
+
+	// Probe is the configuration for connectivity probes.
+	Probe PC `json:"probe"`
+}
+
 // ClientGroupConfig is the configuration for a client group.
 type ClientGroupConfig struct {
 	// Name is the name of the client group.
 	Name string `json:"name"`
 
-	// TCPPolicy is the client selection policy for TCP clients.
-	// See [ClientSelectionPolicy] for available policies.
-	TCPPolicy ClientSelectionPolicy `json:"tcpPolicy"`
+	// TCP is the client selection configuration for TCP clients.
+	TCP ClientSelectionConfig[TCPConnectivityProbeConfig] `json:"tcp"`
 
-	// UDPPolicy is the client selection policy for UDP clients.
-	// See [ClientSelectionPolicy] for available policies.
-	UDPPolicy ClientSelectionPolicy `json:"udpPolicy"`
-
-	// TCPClients is the list of TCP clients in the group, represented by their names.
-	TCPClients []string `json:"tcpClients"`
-
-	// UDPClients is the list of UDP clients in the group, represented by their names.
-	UDPClients []string `json:"udpClients"`
-
-	// TCPConnectivityProbe is the configuration for TCP connectivity probes.
-	TCPConnectivityProbe TCPConnectivityProbeConfig `json:"tcpConnectivityProbe"`
-
-	// UDPConnectivityProbe is the configuration for UDP connectivity probes.
-	UDPConnectivityProbe UDPConnectivityProbeConfig `json:"udpConnectivityProbe"`
+	// UDP is the client selection configuration for UDP clients.
+	UDP ClientSelectionConfig[UDPConnectivityProbeConfig] `json:"udp"`
 }
 
 // AddClientGroup creates a client group from the configuration and adds it to the client maps.
@@ -68,13 +67,13 @@ func (c *ClientGroupConfig) AddClientGroup(
 	udpClientByName map[string]zerocopy.UDPClient,
 	addProbeService func(shadowsocks.Service),
 ) error {
-	if len(c.TCPClients) == 0 && len(c.UDPClients) == 0 {
+	if len(c.TCP.Clients) == 0 && len(c.UDP.Clients) == 0 {
 		return errors.New("empty client group")
 	}
 
-	if len(c.TCPClients) > 0 {
-		clients := make([]tcpClient, len(c.TCPClients))
-		for i, name := range c.TCPClients {
+	if len(c.TCP.Clients) > 0 {
+		clients := make([]tcpClient, len(c.TCP.Clients))
+		for i, name := range c.TCP.Clients {
 			client, ok := tcpClientByName[name]
 			if !ok {
 				return fmt.Errorf("TCP client not found: %q", name)
@@ -86,30 +85,30 @@ func (c *ClientGroupConfig) AddClientGroup(
 			group   zerocopy.TCPClient
 			service *ProbeService[tcpClient]
 		)
-		switch c.TCPPolicy {
+		switch c.TCP.Policy {
 		case PolicyRoundRobin:
 			group = newRoundRobinTCPClientGroup(clients)
 		case PolicyRandom:
 			group = newRandomTCPClientGroup(clients)
 		case PolicyAvailability:
-			group, service = c.TCPConnectivityProbe.newAvailabilityClientGroup(c.Name, logger, clients)
+			group, service = c.TCP.Probe.newAvailabilityClientGroup(c.Name, logger, clients)
 			addProbeService(service)
 		case PolicyLatency:
-			group, service = c.TCPConnectivityProbe.newLatencyClientGroup(c.Name, logger, clients)
+			group, service = c.TCP.Probe.newLatencyClientGroup(c.Name, logger, clients)
 			addProbeService(service)
 		case PolicyMinMaxLatency:
-			group, service = c.TCPConnectivityProbe.newMinMaxLatencyClientGroup(c.Name, logger, clients)
+			group, service = c.TCP.Probe.newMinMaxLatencyClientGroup(c.Name, logger, clients)
 			addProbeService(service)
 		default:
-			return fmt.Errorf("unknown TCP client selection policy: %q", c.TCPPolicy)
+			return fmt.Errorf("unknown TCP client selection policy: %q", c.TCP.Policy)
 		}
 		tcpClientByName[c.Name] = group
 	}
 
-	if len(c.UDPClients) > 0 {
-		clients := make([]zerocopy.UDPClient, len(c.UDPClients))
+	if len(c.UDP.Clients) > 0 {
+		clients := make([]zerocopy.UDPClient, len(c.UDP.Clients))
 		var info zerocopy.UDPClientInfo
-		for i, name := range c.UDPClients {
+		for i, name := range c.UDP.Clients {
 			client, ok := udpClientByName[name]
 			if !ok {
 				return fmt.Errorf("UDP client not found: %q", name)
@@ -122,22 +121,22 @@ func (c *ClientGroupConfig) AddClientGroup(
 			group   zerocopy.UDPClient
 			service *ProbeService[zerocopy.UDPClient]
 		)
-		switch c.UDPPolicy {
+		switch c.UDP.Policy {
 		case PolicyRoundRobin:
 			group = newRoundRobinUDPClientGroup(clients, info)
 		case PolicyRandom:
 			group = newRandomUDPClientGroup(clients, info)
 		case PolicyAvailability:
-			group, service = c.UDPConnectivityProbe.newAvailabilityClientGroup(c.Name, logger, clients, info)
+			group, service = c.UDP.Probe.newAvailabilityClientGroup(c.Name, logger, clients, info)
 			addProbeService(service)
 		case PolicyLatency:
-			group, service = c.UDPConnectivityProbe.newLatencyClientGroup(c.Name, logger, clients, info)
+			group, service = c.UDP.Probe.newLatencyClientGroup(c.Name, logger, clients, info)
 			addProbeService(service)
 		case PolicyMinMaxLatency:
-			group, service = c.UDPConnectivityProbe.newMinMaxLatencyClientGroup(c.Name, logger, clients, info)
+			group, service = c.UDP.Probe.newMinMaxLatencyClientGroup(c.Name, logger, clients, info)
 			addProbeService(service)
 		default:
-			return fmt.Errorf("unknown UDP client selection policy: %q", c.UDPPolicy)
+			return fmt.Errorf("unknown UDP client selection policy: %q", c.UDP.Policy)
 		}
 		udpClientByName[c.Name] = group
 	}
