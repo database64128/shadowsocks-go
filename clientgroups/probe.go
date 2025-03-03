@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/bits"
 	"net/netip"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -110,6 +111,19 @@ func (c TCPConnectivityProbeConfig) newLatencyClientGroup(
 	})
 }
 
+// newMinMaxLatencyClientGroup returns a new minimum maximum latency client group for the given TCP clients.
+// It tests the internet connectivity of each client and selects the one with the lowest worst latency.
+func (c TCPConnectivityProbeConfig) newMinMaxLatencyClientGroup(
+	name string,
+	logger *zap.Logger,
+	clients []tcpClient,
+) (*atomicTCPClientGroup, *ProbeService[tcpClient]) {
+	return c.newAtomicClientGroup(name, logger, clients, func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[tcpClient], pc probeConfig[tcpClient]) error {
+		go selector.probeMinMaxLatency(ctx, logger, pc)
+		return nil
+	})
+}
+
 func (c TCPConnectivityProbeConfig) newAtomicClientGroup(
 	name string,
 	logger *zap.Logger,
@@ -200,6 +214,20 @@ func (c UDPConnectivityProbeConfig) newLatencyClientGroup(
 ) (*atomicUDPClientGroup, *ProbeService[zerocopy.UDPClient]) {
 	return c.newAtomicClientGroup(name, logger, clients, info, func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error {
 		go selector.probeLatency(ctx, logger, pc)
+		return nil
+	})
+}
+
+// newMinMaxLatencyClientGroup returns a new minimum maximum latency client group for the given UDP clients.
+// It tests the internet connectivity of each client and selects the one with the lowest worst latency.
+func (c UDPConnectivityProbeConfig) newMinMaxLatencyClientGroup(
+	name string,
+	logger *zap.Logger,
+	clients []zerocopy.UDPClient,
+	info zerocopy.UDPClientInfo,
+) (*atomicUDPClientGroup, *ProbeService[zerocopy.UDPClient]) {
+	return c.newAtomicClientGroup(name, logger, clients, info, func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error {
+		go selector.probeMinMaxLatency(ctx, logger, pc)
 		return nil
 	})
 }
@@ -501,6 +529,90 @@ func (s *atomicClientSelector[C]) probeLatency(
 					zap.Int("oldClient", clientIndex),
 					zap.Int("newClient", bestIndex),
 					zap.Duration("avgLatency", bestAvgLatency),
+				)
+			}
+			if clientIndex != bestIndex {
+				clientIndex = bestIndex
+				s.selected.Store(&pc.clients[clientIndex])
+			}
+		}
+	}
+}
+
+// probeMinMaxLatency runs the minimum maximum latency probe loop.
+func (s *atomicClientSelector[C]) probeMinMaxLatency(
+	ctx context.Context,
+	logger *zap.Logger,
+	pc probeConfig[C],
+) {
+	// Start probe workers.
+	jobCh := make(chan latencyProbeJob[C])
+	defer close(jobCh)
+	for range pc.concurrency {
+		go func() {
+			for job := range jobCh {
+				job.Run(ctx)
+			}
+		}()
+	}
+
+	// Send probe jobs.
+	done := ctx.Done()
+	ticker := time.NewTicker(pc.interval) // Should we use a timer instead and add some random jitter?
+	defer ticker.Stop()
+	var (
+		wg          sync.WaitGroup
+		probeResult = make([][latencyProbeResultSize]time.Duration, len(pc.clients))
+		probeCount  uint
+		clientIndex int
+	)
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			if ce := logger.Check(zap.DebugLevel, "Started latency probe"); ce != nil {
+				ce.Write(
+					zap.Uint("probeCount", probeCount),
+				)
+			}
+
+			wg.Add(len(pc.clients))
+			for i, client := range pc.clients {
+				jobCh <- latencyProbeJob[C]{
+					wg:      &wg,
+					probe:   pc.probe,
+					timeout: pc.timeout,
+					client:  client,
+					result:  &probeResult[i],
+					count:   probeCount,
+				}
+			}
+			wg.Wait()
+			probeCount++
+
+			var (
+				bestIndex      int
+				bestMaxLatency = pc.timeout
+			)
+			for i, result := range probeResult {
+				maxLatency := slices.Max(result[:])
+				if maxLatency < bestMaxLatency {
+					bestIndex = i
+					bestMaxLatency = maxLatency
+				}
+				if ce := logger.Check(zap.DebugLevel, "Latency probe result"); ce != nil {
+					ce.Write(
+						zap.Int("client", i),
+						zap.Duration("maxLatency", maxLatency),
+					)
+				}
+			}
+			if ce := logger.Check(zap.DebugLevel, "Finished latency probe"); ce != nil {
+				ce.Write(
+					zap.Int("oldClient", clientIndex),
+					zap.Int("newClient", bestIndex),
+					zap.Duration("maxLatency", bestMaxLatency),
 				)
 			}
 			if clientIndex != bestIndex {

@@ -97,6 +97,9 @@ func (c *ClientGroupConfig) AddClientGroup(
 		case PolicyLatency:
 			group, service = c.TCPConnectivityProbe.newLatencyClientGroup(c.Name, logger, clients)
 			addProbeService(service)
+		case PolicyMinMaxLatency:
+			group, service = c.TCPConnectivityProbe.newMinMaxLatencyClientGroup(c.Name, logger, clients)
+			addProbeService(service)
 		default:
 			return fmt.Errorf("unknown TCP client selection policy: %q", c.TCPPolicy)
 		}
@@ -129,6 +132,9 @@ func (c *ClientGroupConfig) AddClientGroup(
 			addProbeService(service)
 		case PolicyLatency:
 			group, service = c.UDPConnectivityProbe.newLatencyClientGroup(c.Name, logger, clients, info)
+			addProbeService(service)
+		case PolicyMinMaxLatency:
+			group, service = c.UDPConnectivityProbe.newMinMaxLatencyClientGroup(c.Name, logger, clients, info)
 			addProbeService(service)
 		default:
 			return fmt.Errorf("unknown UDP client selection policy: %q", c.UDPPolicy)
