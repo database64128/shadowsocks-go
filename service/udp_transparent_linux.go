@@ -364,6 +364,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 						natConnRecvBufSize: clientSession.MaxPacketSize,
 						natConnUnpacker:    clientSession.Unpacker,
 						relayBatchSize:     lnc.relayBatchSize,
+						logger:             lnc.logger,
 					})
 				}()
 
