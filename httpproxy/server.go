@@ -115,7 +115,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, usernameBy
 	pl, pr := pipe.NewDuplexPipe()
 
 	// Spin up separate request and response forwarding goroutines.
-	// This is necessary for handling 100 Continue responses, and allows pipelining.
+	// This is necessary for handling 1xx informational responses, and allows pipelining.
 	go func() {
 		defer func() {
 			_ = pl.Close()
@@ -190,7 +190,7 @@ func serverForwardRequests(
 		delete(req.Header, "Upgrade")
 
 		// Notify the response forwarding routine about the request before writing it out,
-		// so that a received 100 Continue response can be forwarded back to the client
+		// so that a received 1xx informational response can be forwarded back to the client
 		// in time, unblocking the write.
 		reqCh <- req
 
@@ -408,8 +408,8 @@ func serverForwardResponses(reqCh <-chan *http.Request, plbr *bufio.Reader, rw z
 				return
 			}
 
-			// 100 Continue is not the final response.
-			if resp.StatusCode != http.StatusContinue {
+			// If the response is final (not 1xx informational), we are done.
+			if resp.StatusCode >= http.StatusOK {
 				break
 			}
 		}
