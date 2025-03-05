@@ -127,17 +127,19 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, usernameBy
 		rwbw := bufio.NewWriter(rw)
 		rwbwpcw := newPipeClosingWriter(rwbw, pl)
 		reqCh := make(chan *http.Request, 16) // allow pipelining up to 16 requests
+		respDone := make(chan struct{})
 
 		var wg sync.WaitGroup
 		wg.Add(1)
 
 		go func() {
 			defer wg.Done()
-			err := serverForwardRequests(targetAddr, req, reqCh, pl, plbw, rw, rwbr, logger)
+			err := serverForwardRequests(targetAddr, req, reqCh, respDone, pl, plbw, rw, rwbr, logger)
 			pl.CloseWriteWithError(err)
 		}()
 
 		serverForwardResponses(reqCh, plbr, rw, rwbw, rwbwpcw, logger)
+		close(respDone)
 
 		wg.Wait()
 	}()
@@ -168,6 +170,7 @@ func serverForwardRequests(
 	targetAddr conn.Addr,
 	req *http.Request,
 	reqCh chan<- *http.Request,
+	respDone <-chan struct{},
 	pl *pipe.DuplexPipeEnd,
 	plbw *bufio.Writer,
 	rw zerocopy.DirectReadWriteCloser,
@@ -192,7 +195,10 @@ func serverForwardRequests(
 		// Notify the response forwarding routine about the request before writing it out,
 		// so that a received 1xx informational response can be forwarded back to the client
 		// in time, unblocking the write.
-		reqCh <- req
+		select {
+		case reqCh <- req:
+		case <-respDone:
+		}
 
 		// Write request.
 		if err = req.Write(plbw); err != nil {
