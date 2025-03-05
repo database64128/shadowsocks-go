@@ -286,10 +286,35 @@ func serverForwardRequests(
 	}
 }
 
-func serverForwardResponses(reqCh <-chan *http.Request, plbr *bufio.Reader, rw zerocopy.DirectReadWriteCloser, rwbw *bufio.Writer, rwbwpcw *pipeClosingWriter, logger *zap.Logger) {
+func serverForwardResponses(
+	reqCh <-chan *http.Request,
+	plbr *bufio.Reader,
+	rw zerocopy.DirectReadWriteCloser,
+	rwbw *bufio.Writer,
+	rwbwpcw *pipeClosingWriter,
+	logger *zap.Logger,
+) {
 	defer rw.CloseWrite()
 
-	for req := range reqCh {
+	for {
+		// Use Peek to monitor the remote connection, so that we can close the proxy connection
+		// as soon as the remote server closes the connection.
+		//
+		// If the client sees EOF right after sending a request, it will retry the request.
+		// Do not send a 502 Bad Gateway response. It will only confuse the client.
+		if _, err := plbr.Peek(1); err != nil {
+			if err == io.EOF {
+				return
+			}
+			logger.Warn("Failed to peek HTTP response", zap.Error(err))
+			return
+		}
+
+		req, ok := <-reqCh
+		if !ok {
+			return
+		}
+
 		for {
 			// Read response.
 			resp, err := http.ReadResponse(plbr, req)
