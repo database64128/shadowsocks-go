@@ -117,10 +117,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, usernameBy
 	// Spin up separate request and response forwarding goroutines.
 	// This is necessary for handling 1xx informational responses, and allows pipelining.
 	go func() {
-		defer func() {
-			_ = pl.Close()
-			_ = rw.Close()
-		}()
+		defer rw.Close()
 
 		plbr := bufio.NewReader(pl)
 		plbw := bufio.NewWriter(pl)
@@ -136,9 +133,12 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, usernameBy
 			defer wg.Done()
 			err := serverForwardRequests(targetAddr, req, reqCh, respDone, pl, plbw, rw, rwbr, logger)
 			pl.CloseWriteWithError(err)
+			close(reqCh)
 		}()
 
-		serverForwardResponses(reqCh, plbr, rw, rwbw, rwbwpcw, logger)
+		err := serverForwardResponses(reqCh, plbr, rw, rwbw, rwbwpcw, logger)
+		pl.CloseReadWithError(err)
+		_ = rw.CloseWrite()
 		close(respDone)
 
 		wg.Wait()
@@ -177,8 +177,6 @@ func serverForwardRequests(
 	rwbr *bufio.Reader,
 	logger *zap.Logger,
 ) (err error) {
-	defer close(reqCh)
-
 	// The current implementation only supports a fixed destination host.
 	fixedHost := req.Host
 
@@ -286,6 +284,8 @@ func serverForwardRequests(
 	}
 }
 
+var errPayloadAfterFinalResponse = errors.New("payload after final response")
+
 func serverForwardResponses(
 	reqCh <-chan *http.Request,
 	plbr *bufio.Reader,
@@ -293,9 +293,7 @@ func serverForwardResponses(
 	rwbw *bufio.Writer,
 	rwbwpcw *pipeClosingWriter,
 	logger *zap.Logger,
-) {
-	defer rw.CloseWrite()
-
+) error {
 	for {
 		// Use Peek to monitor the remote connection, so that we can close the proxy connection
 		// as soon as the remote server closes the connection.
@@ -304,15 +302,15 @@ func serverForwardResponses(
 		// Do not send a 502 Bad Gateway response. It will only confuse the client.
 		if _, err := plbr.Peek(1); err != nil {
 			if err == io.EOF {
-				return
+				return nil
 			}
 			logger.Warn("Failed to peek HTTP response", zap.Error(err))
-			return
+			return fmt.Errorf("failed to peek HTTP response: %w", err)
 		}
 
 		req, ok := <-reqCh
 		if !ok {
-			return
+			return errPayloadAfterFinalResponse
 		}
 
 		for {
@@ -329,7 +327,7 @@ func serverForwardResponses(
 					zap.Error(err),
 				)
 				_ = send502(rw)
-				return
+				return fmt.Errorf("failed to read HTTP response: %w", err)
 			}
 
 			if ce := logger.Check(zap.DebugLevel, "Received HTTP response"); ce != nil {
@@ -407,7 +405,7 @@ func serverForwardResponses(
 					zap.Bool("respClose", resp.Close),
 					zap.Error(err),
 				)
-				return
+				return fmt.Errorf("failed to write HTTP response: %w", err)
 			}
 
 			// Flush response.
@@ -425,7 +423,7 @@ func serverForwardResponses(
 					zap.Bool("respClose", resp.Close),
 					zap.Error(err),
 				)
-				return
+				return fmt.Errorf("failed to flush HTTP response: %w", err)
 			}
 
 			// Stop forwarding if either the client or server indicates that the connection should be closed.
@@ -436,7 +434,7 @@ func serverForwardResponses(
 			//
 			// It's not a "MUST", so we check both.
 			if req.Close || resp.Close {
-				return
+				return errPayloadAfterFinalResponse
 			}
 
 			// If the response is final (not 1xx informational), we are done.
