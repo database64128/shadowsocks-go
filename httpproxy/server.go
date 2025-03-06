@@ -531,25 +531,71 @@ func removeConnectionSpecificFields(header, trailer http.Header) {
 	delete(header, "Proxy-Authentication-Info")
 }
 
-// pipeClosingWriter passes writes to the underlying [io.Writer] and closes the [*pipe.DuplexPipeEnd] on error.
+// pipeClosingWriter passes writes to the underlying [*bufio.Writer] and closes the [*pipe.DuplexPipeEnd] on error.
 type pipeClosingWriter struct {
-	w io.Writer
+	w *bufio.Writer
 	p *pipe.DuplexPipeEnd
 }
 
 // newPipeClosingWriter returns a new [pipeClosingWriter].
-func newPipeClosingWriter(w io.Writer, p *pipe.DuplexPipeEnd) *pipeClosingWriter {
+func newPipeClosingWriter(w *bufio.Writer, p *pipe.DuplexPipeEnd) *pipeClosingWriter {
 	return &pipeClosingWriter{
 		w: w,
 		p: p,
 	}
 }
 
-// Write implements [io.Writer.Write].
+// Write implements [io.Writer].
 func (w *pipeClosingWriter) Write(b []byte) (int, error) {
 	n, err := w.w.Write(b)
 	if err != nil {
-		w.p.CloseWithError(err)
+		w.p.CloseReadWithError(err)
 	}
 	return n, err
+}
+
+// WriteByte implements [io.ByteWriter].
+func (w *pipeClosingWriter) WriteByte(c byte) error {
+	err := w.w.WriteByte(c)
+	if err != nil {
+		w.p.CloseReadWithError(err)
+	}
+	return err
+}
+
+// WriteRune writes a single Unicode code point, returning
+// the number of bytes written and any error.
+func (w *pipeClosingWriter) WriteRune(r rune) (int, error) {
+	n, err := w.w.WriteRune(r)
+	if err != nil {
+		w.p.CloseReadWithError(err)
+	}
+	return n, err
+}
+
+// WriteString implements [io.StringWriter].
+func (w *pipeClosingWriter) WriteString(s string) (int, error) {
+	n, err := w.w.WriteString(s)
+	if err != nil {
+		w.p.CloseReadWithError(err)
+	}
+	return n, err
+}
+
+// ReadFrom implements [io.ReaderFrom].
+func (w *pipeClosingWriter) ReadFrom(r io.Reader) (int64, error) {
+	n, err := w.w.ReadFrom(r)
+	if err != nil {
+		w.p.CloseReadWithError(err)
+	}
+	return n, err
+}
+
+// Flush writes any buffered data to the underlying [io.Writer].
+func (w *pipeClosingWriter) Flush() error {
+	err := w.w.Flush()
+	if err != nil {
+		w.p.CloseReadWithError(err)
+	}
+	return err
 }
