@@ -3,7 +3,7 @@ module github.com/database64128/shadowsocks-go
 go 1.24.0
 
 require (
-	github.com/database64128/netx-go v0.0.0-20250213080439-14898d51f6aa
+	github.com/database64128/netx-go v0.0.0-20250306235753-cadc9cd97ae4
 	github.com/database64128/tfo-go/v2 v2.2.2
 	github.com/oschwald/geoip2-golang v1.11.0
 	go.uber.org/zap v1.27.0
