@@ -245,29 +245,6 @@ type DirectReadWriteCloser interface {
 	CloseWrite
 }
 
-// DirectTwoWayRelay relays data between left and right using [io.Copy].
-// It returns the number of bytes sent from left to right, from right to left,
-// and any error occurred during transfer.
-func DirectTwoWayRelay(left, right DirectReadWriteCloser) (nl2r, nr2l int64, err error) {
-	var (
-		wg     sync.WaitGroup
-		l2rErr error
-	)
-
-	wg.Add(1)
-	go func() {
-		nl2r, l2rErr = io.Copy(right, left)
-		_ = right.CloseWrite()
-		wg.Done()
-	}()
-
-	nr2l, err = io.Copy(left, right)
-	_ = left.CloseWrite()
-	wg.Wait()
-
-	return nl2r, nr2l, errors.Join(l2rErr, err)
-}
-
 // DirectReadWriteCloserOpener provides the Open method to open a [DirectReadWriteCloser].
 type DirectReadWriteCloserOpener interface {
 	// Open opens a [DirectReadWriteCloser] with the specified initial payload.

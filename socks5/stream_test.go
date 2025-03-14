@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/pipe"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
@@ -131,7 +131,7 @@ func testStreamClientError(
 	serverMsgs [][]byte,
 	checkClientErr func(*testing.T, error),
 ) {
-	pl, pr := pipe.NewDuplexPipe()
+	pl, pr := netio.NewPipe()
 
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 
@@ -504,7 +504,7 @@ func testStreamServerError(
 	serverEnableTCP, serverEnableUDP bool,
 	checkServerErr func(*testing.T, error),
 ) {
-	pl, pr := pipe.NewDuplexPipe()
+	pl, pr := netio.NewPipe()
 
 	var (
 		wg         sync.WaitGroup

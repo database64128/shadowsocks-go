@@ -8,13 +8,13 @@ import (
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/pipe"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
 func TestDirectStreamReadWriter(t *testing.T) {
-	pl, pr := pipe.NewDuplexPipe()
+	pl, pr := netio.NewPipe()
 
 	l := DirectStreamReadWriter{
 		rw: pl,
@@ -27,7 +27,7 @@ func TestDirectStreamReadWriter(t *testing.T) {
 }
 
 func testShadowsocksNoneStreamReadWriter(t *testing.T, clientInitialPayload []byte) {
-	pl, pr := pipe.NewDuplexPipe()
+	pl, pr := netio.NewPipe()
 	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
 
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
@@ -152,7 +152,7 @@ func TestSocks5StreamReadWriter(t *testing.T) {
 }
 
 func testSocks5StreamReadWriter(t *testing.T, clientAuthMsg []byte, serverUserInfoByUsername map[string]socks5.UserInfo, expectedUsername string) {
-	pl, pr := pipe.NewDuplexPipe()
+	pl, pr := netio.NewPipe()
 
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
 

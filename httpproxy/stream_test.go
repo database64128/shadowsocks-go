@@ -13,7 +13,7 @@ import (
 	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
-	"github.com/database64128/shadowsocks-go/pipe"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
@@ -53,7 +53,7 @@ func TestHttpStreamReadWriter(t *testing.T) {
 }
 
 func testHttpStreamReadWriter(t *testing.T, expectedUsername, clientProxyAuthHeader string, serverUsernameByToken map[string]string, logger *zap.Logger) {
-	pl, pr := pipe.NewDuplexPipe()
+	pl, pr := netio.NewPipe()
 
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 80))
 
@@ -97,7 +97,7 @@ func testHttpStreamReadWriter(t *testing.T, expectedUsername, clientProxyAuthHea
 }
 
 func testHttpStreamReadWriterBasicAuthBadCredentials(t *testing.T, logger *zap.Logger) {
-	pl, pr := pipe.NewDuplexPipe()
+	pl, pr := netio.NewPipe()
 
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 80))
 	clientProxyAuthHeaders := [...]string{
@@ -152,7 +152,7 @@ func testHttpStreamReadWriterBasicAuthBadCredentials(t *testing.T, logger *zap.L
 }
 
 func TestHttpStreamClientReadWriterServerSpeaksFirst(t *testing.T) {
-	pl, pr := pipe.NewDuplexPipe()
+	pl, pr := netio.NewPipe()
 
 	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 80))
 	clientTargetAddrString := clientTargetAddr.String()

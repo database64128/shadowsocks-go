@@ -12,7 +12,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
-	"github.com/database64128/shadowsocks-go/pipe"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
@@ -112,7 +112,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, usernameBy
 	}
 
 	// Set up pipes.
-	pl, pr := pipe.NewDuplexPipe()
+	pl, pr := netio.NewPipe()
 
 	// Spin up separate request and response forwarding goroutines.
 	// This is necessary for handling 1xx informational responses, and allows pipelining.
@@ -171,9 +171,9 @@ func serverForwardRequests(
 	req *http.Request,
 	reqCh chan<- *http.Request,
 	respDone <-chan struct{},
-	pl *pipe.DuplexPipeEnd,
+	pl *netio.PipeConn,
 	plbw *bufio.Writer,
-	rw zerocopy.DirectReadWriteCloser,
+	rw netio.ReadWriter,
 	rwbr *bufio.Reader,
 	logger *zap.Logger,
 ) (err error) {
@@ -268,7 +268,7 @@ func serverForwardRequests(
 				return fmt.Errorf("failed to send 200 OK response: %w", err)
 			}
 
-			_, _, err = zerocopy.DirectTwoWayRelay(rw, pl)
+			_, _, err = netio.BidirectionalCopy(rw, pl)
 			return err
 		}
 
@@ -289,7 +289,7 @@ var errPayloadAfterFinalResponse = errors.New("payload after final response")
 func serverForwardResponses(
 	reqCh <-chan *http.Request,
 	plbr *bufio.Reader,
-	rw zerocopy.DirectReadWriteCloser,
+	rw netio.ReadWriter,
 	rwbw *bufio.Writer,
 	rwbwpcw *pipeClosingWriter,
 	logger *zap.Logger,
@@ -531,14 +531,14 @@ func removeConnectionSpecificFields(header, trailer http.Header) {
 	delete(header, "Proxy-Authentication-Info")
 }
 
-// pipeClosingWriter passes writes to the underlying [*bufio.Writer] and closes the [*pipe.DuplexPipeEnd] on error.
+// pipeClosingWriter passes writes to the underlying [*bufio.Writer] and closes the [*netio.PipeConn] on error.
 type pipeClosingWriter struct {
 	w *bufio.Writer
-	p *pipe.DuplexPipeEnd
+	p *netio.PipeConn
 }
 
 // newPipeClosingWriter returns a new [pipeClosingWriter].
-func newPipeClosingWriter(w *bufio.Writer, p *pipe.DuplexPipeEnd) *pipeClosingWriter {
+func newPipeClosingWriter(w *bufio.Writer, p *netio.PipeConn) *pipeClosingWriter {
 	return &pipeClosingWriter{
 		w: w,
 		p: p,
