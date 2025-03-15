@@ -29,30 +29,55 @@ func parseSocketControlMessage(cmsg []byte) (m SocketControlMessage, err error) 
 			return m, fmt.Errorf("invalid control message length %d", cmsghdr.Len)
 		}
 
-		switch {
-		case cmsghdr.Level == unix.IPPROTO_IP && cmsghdr.Type == unix.IP_PKTINFO:
-			if len(cmsg) < unix.SizeofCmsghdr+unix.SizeofInet4Pktinfo {
-				return m, fmt.Errorf("invalid IP_PKTINFO control message length %d", cmsghdr.Len)
-			}
-			var pktinfo unix.Inet4Pktinfo
-			_ = copy(unsafe.Slice((*byte)(unsafe.Pointer(&pktinfo)), unix.SizeofInet4Pktinfo), cmsg[unix.SizeofCmsghdr:])
-			m.PktinfoAddr = netip.AddrFrom4(pktinfo.Spec_dst)
-			m.PktinfoIfindex = uint32(pktinfo.Ifindex)
+		switch cmsghdr.Level {
+		case unix.IPPROTO_IP:
+			switch cmsghdr.Type {
+			case unix.IP_PKTINFO:
+				if len(cmsg) < unix.SizeofCmsghdr+unix.SizeofInet4Pktinfo {
+					return m, fmt.Errorf("invalid IP_PKTINFO control message length %d", cmsghdr.Len)
+				}
+				var pktinfo unix.Inet4Pktinfo
+				_ = copy(unsafe.Slice((*byte)(unsafe.Pointer(&pktinfo)), unix.SizeofInet4Pktinfo), cmsg[unix.SizeofCmsghdr:])
+				m.PktinfoAddr = netip.AddrFrom4(pktinfo.Spec_dst)
+				m.PktinfoIfindex = uint32(pktinfo.Ifindex)
 
-		case cmsghdr.Level == unix.IPPROTO_IPV6 && cmsghdr.Type == unix.IPV6_PKTINFO:
-			if len(cmsg) < unix.SizeofCmsghdr+unix.SizeofInet6Pktinfo {
-				return m, fmt.Errorf("invalid IPV6_PKTINFO control message length %d", cmsghdr.Len)
+			case unix.IP_ORIGDSTADDR:
+				if len(cmsg) < unix.SizeofCmsghdr+unix.SizeofSockaddrInet4 {
+					return m, fmt.Errorf("invalid IP_ORIGDSTADDR control message length %d", cmsghdr.Len)
+				}
+				var rsa4 unix.RawSockaddrInet4
+				_ = copy(unsafe.Slice((*byte)(unsafe.Pointer(&rsa4)), unix.SizeofSockaddrInet4), cmsg[unix.SizeofCmsghdr:])
+				m.OriginalDestinationAddrPort = netip.AddrPortFrom(netip.AddrFrom4(rsa4.Addr), rsa4.Port)
 			}
-			var pktinfo unix.Inet6Pktinfo
-			_ = copy(unsafe.Slice((*byte)(unsafe.Pointer(&pktinfo)), unix.SizeofInet6Pktinfo), cmsg[unix.SizeofCmsghdr:])
-			m.PktinfoAddr = netip.AddrFrom16(pktinfo.Addr)
-			m.PktinfoIfindex = pktinfo.Ifindex
 
-		case cmsghdr.Level == unix.IPPROTO_UDP && cmsghdr.Type == unix.UDP_GRO:
-			if len(cmsg) < unix.SizeofCmsghdr+sizeofGROSegmentSize {
-				return m, fmt.Errorf("invalid UDP_GRO control message length %d", cmsghdr.Len)
+		case unix.IPPROTO_IPV6:
+			switch cmsghdr.Type {
+			case unix.IPV6_PKTINFO:
+				if len(cmsg) < unix.SizeofCmsghdr+unix.SizeofInet6Pktinfo {
+					return m, fmt.Errorf("invalid IPV6_PKTINFO control message length %d", cmsghdr.Len)
+				}
+				var pktinfo unix.Inet6Pktinfo
+				_ = copy(unsafe.Slice((*byte)(unsafe.Pointer(&pktinfo)), unix.SizeofInet6Pktinfo), cmsg[unix.SizeofCmsghdr:])
+				m.PktinfoAddr = netip.AddrFrom16(pktinfo.Addr)
+				m.PktinfoIfindex = pktinfo.Ifindex
+
+			case unix.IPV6_ORIGDSTADDR:
+				if len(cmsg) < unix.SizeofCmsghdr+unix.SizeofSockaddrInet6 {
+					return m, fmt.Errorf("invalid IPV6_ORIGDSTADDR control message length %d", cmsghdr.Len)
+				}
+				var rsa6 unix.RawSockaddrInet6
+				_ = copy(unsafe.Slice((*byte)(unsafe.Pointer(&rsa6)), unix.SizeofSockaddrInet6), cmsg[unix.SizeofCmsghdr:])
+				m.OriginalDestinationAddrPort = netip.AddrPortFrom(netip.AddrFrom16(rsa6.Addr), rsa6.Port)
 			}
-			_ = copy(unsafe.Slice((*byte)(unsafe.Pointer(&m.SegmentSize)), sizeofGROSegmentSize), cmsg[unix.SizeofCmsghdr:])
+
+		case unix.IPPROTO_UDP:
+			switch cmsghdr.Type {
+			case unix.UDP_GRO:
+				if len(cmsg) < unix.SizeofCmsghdr+sizeofGROSegmentSize {
+					return m, fmt.Errorf("invalid UDP_GRO control message length %d", cmsghdr.Len)
+				}
+				_ = copy(unsafe.Slice((*byte)(unsafe.Pointer(&m.SegmentSize)), sizeofGROSegmentSize), cmsg[unix.SizeofCmsghdr:])
+			}
 		}
 
 		cmsg = cmsg[msgSize:]

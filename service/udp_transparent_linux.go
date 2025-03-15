@@ -213,6 +213,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 
 		for i := range msgvecn {
 			msg := &msgvecn[i]
+			cmsg := cmsgvec[i][:msg.Msghdr.Controllen]
 			queuedPacket := qpvec[i]
 
 			clientAddrPort, err := conn.SockaddrToAddrPort(msg.Msghdr.Name, msg.Msghdr.Namelen)
@@ -233,16 +234,26 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 				continue
 			}
 
-			queuedPacket.targetAddrPort, err = conn.ParseOrigDstAddrCmsg(cmsgvec[i][:msg.Msghdr.Controllen])
+			rscm, err := conn.ParseSocketControlMessage(cmsg)
 			if err != nil {
-				lnc.logger.Warn("Failed to parse original destination address control message from serverConn",
+				lnc.logger.Warn("Failed to parse socket control message from serverConn",
 					zap.Stringer("clientAddress", clientAddrPort),
+					zap.Int("cmsgLength", len(cmsg)),
 					zap.Error(err),
 				)
 				s.putQueuedPacket(queuedPacket)
 				continue
 			}
+			if !rscm.OriginalDestinationAddrPort.IsValid() {
+				lnc.logger.Warn("Discarded packet from serverConn due to missing original destination address",
+					zap.Stringer("clientAddress", clientAddrPort),
+					zap.Int("cmsgLength", len(cmsg)),
+				)
+				s.putQueuedPacket(queuedPacket)
+				continue
+			}
 
+			queuedPacket.targetAddrPort = rscm.OriginalDestinationAddrPort
 			queuedPacket.msglen = msg.Msglen
 			payloadBytesReceived += uint64(msg.Msglen)
 

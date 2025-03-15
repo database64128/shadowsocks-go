@@ -15,6 +15,9 @@ type SocketControlMessage struct {
 
 	// SegmentSize is the UDP GRO/GSO segment size.
 	SegmentSize uint32
+
+	// OriginalDestinationAddrPort is the original destination address of the packet.
+	OriginalDestinationAddrPort netip.AddrPort
 }
 
 // ParseSocketControlMessage parses a sequence of socket control messages and returns the parsed information.

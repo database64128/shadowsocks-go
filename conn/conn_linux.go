@@ -2,8 +2,6 @@ package conn
 
 import (
 	"fmt"
-	"net/netip"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -203,25 +201,4 @@ func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
 		appendSetUDPGenericReceiveOffloadFunc(lso.UDPGenericReceiveOffload).
 		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo).
 		appendSetRecvOrigDstAddrFunc(lso.ReceiveOriginalDestAddr)
-}
-
-func ParseOrigDstAddrCmsg(cmsg []byte) (netip.AddrPort, error) {
-	if len(cmsg) < unix.SizeofCmsghdr {
-		return netip.AddrPort{}, fmt.Errorf("control message length %d is shorter than cmsghdr length", len(cmsg))
-	}
-
-	cmsghdr := (*unix.Cmsghdr)(unsafe.Pointer(&cmsg[0]))
-
-	switch {
-	case cmsghdr.Level == unix.IPPROTO_IP && cmsghdr.Type == unix.IP_ORIGDSTADDR && len(cmsg) >= unix.SizeofCmsghdr+unix.SizeofSockaddrInet4:
-		sa := (*unix.RawSockaddrInet4)(unsafe.Pointer(&cmsg[unix.SizeofCmsghdr]))
-		return SockaddrInet4ToAddrPort(sa), nil
-
-	case cmsghdr.Level == unix.IPPROTO_IPV6 && cmsghdr.Type == unix.IPV6_ORIGDSTADDR && len(cmsg) >= unix.SizeofCmsghdr+unix.SizeofSockaddrInet6:
-		sa := (*unix.RawSockaddrInet6)(unsafe.Pointer(&cmsg[unix.SizeofCmsghdr]))
-		return SockaddrInet6ToAddrPort(sa), nil
-
-	default:
-		return netip.AddrPort{}, fmt.Errorf("unknown control message level %d type %d", cmsghdr.Level, cmsghdr.Type)
-	}
 }
