@@ -62,9 +62,50 @@ type Conn interface {
 	CloseWrite() error
 }
 
-// StreamClient creates dialers for stream connections.
+// ConnWriteContextFunc calls f on c to execute any arbitrary write operation.
+// If ctx can be canceled, an interruptor goroutine is spun up to cancel the write operation
+// when ctx is done.
+func ConnWriteContextFunc(ctx context.Context, c Conn, f func(Conn) error) (err error) {
+	if ctxDone := ctx.Done(); ctxDone != nil {
+		done := make(chan struct{})
+		interruptRes := make(chan error)
+
+		defer func() {
+			close(done)
+			if ctxErr := <-interruptRes; ctxErr != nil && err == nil {
+				err = ctxErr
+			}
+		}()
+
+		go func() {
+			select {
+			case <-ctxDone:
+				c.SetWriteDeadline(conn.ALongTimeAgo)
+				interruptRes <- ctx.Err()
+			case <-done:
+				interruptRes <- nil
+			}
+		}()
+	}
+
+	return f(c)
+}
+
+// ConnWriteContext is a convenience wrapper around [ConnWriteContextFunc] that writes b to c.
+func ConnWriteContext(ctx context.Context, c Conn, b []byte) (n int, err error) {
+	return n, ConnWriteContextFunc(ctx, c, func(c Conn) (err error) {
+		n, err = c.Write(b)
+		return err
+	})
+}
+
+// StreamClient establishes stream connections to servers.
+//
+// Use it directly, or create a dedicated dialer if detailed information is needed.
 type StreamClient interface {
-	// NewStreamDialer returns a new stream dialer and its information.
+	StreamDialer
+
+	// NewStreamDialer returns a new dedicated stream dialer and its information.
 	NewStreamDialer() (StreamDialer, StreamDialerInfo)
 }
 

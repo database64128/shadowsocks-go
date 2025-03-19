@@ -63,30 +63,10 @@ func (c *PipeStreamClient) DialStream(ctx context.Context, addr conn.Addr, paylo
 	}:
 	}
 
-	if ctxDone != nil {
-		done := make(chan struct{})
-		interruptRes := make(chan error)
-
-		defer func() {
-			close(done)
-			if ctxErr := <-interruptRes; ctxErr != nil && err == nil {
-				err = ctxErr
-			}
-		}()
-
-		go func() {
-			select {
-			case <-ctxDone:
-				pl.SetWriteDeadline(aLongTimeAgo)
-				interruptRes <- ctx.Err()
-			case <-done:
-				interruptRes <- nil
-			}
-		}()
-	}
-
-	if _, err := pl.Write(payload); err != nil {
-		return nil, err
+	if len(payload) > 0 {
+		if _, err = netio.ConnWriteContext(ctx, pl, payload); err != nil {
+			return nil, err
+		}
 	}
 
 	return &PipeConn{
@@ -259,9 +239,8 @@ func testPreambleStreamClientServerProceed(
 	}()
 
 	client := newClient(psc)
-	dialer, _ := client.NewStreamDialer()
 
-	clientConn, err := dialer.DialStream(ctx, addr, initialPayload)
+	clientConn, err := client.DialStream(ctx, addr, initialPayload)
 	if err != nil {
 		t.Fatalf("DialStream failed: %v", err)
 	}
@@ -399,9 +378,8 @@ func testWrapConnStreamClientServerProceed(
 	}()
 
 	client := newClient(psc)
-	dialer, _ := client.NewStreamDialer()
 
-	clientConn, err := dialer.DialStream(ctx, addr, initialPayload)
+	clientConn, err := client.DialStream(ctx, addr, initialPayload)
 	if err != nil {
 		t.Fatalf("DialStream failed: %v", err)
 	}
