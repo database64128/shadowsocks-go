@@ -2,14 +2,18 @@ package socks5
 
 import (
 	"bytes"
+	"crypto/rand"
 	"errors"
+	"io"
 	"net/netip"
 	"sync"
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
-	"github.com/database64128/shadowsocks-go/zerocopy"
+	"github.com/database64128/shadowsocks-go/netiotest"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 )
 
 func TestStreamClientError(t *testing.T) {
@@ -105,7 +109,7 @@ func TestStreamClientError(t *testing.T) {
 			},
 			serverMsgs: [][]byte{
 				{Version, MethodNoAuthenticationRequired},
-				{Version, ReplyConnectionRefused, 0, AtypIPv4, 0},
+				{Version, ReplyConnectionRefused, 0, AtypIPv4, 0, 0, 0, 0, 0, 0},
 			},
 			checkClientErr: func(t *testing.T, err error) {
 				var e ReplyError
@@ -199,6 +203,8 @@ func testStreamClientError(
 }
 
 func TestStreamServerError(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+
 	for _, c := range []struct {
 		name                     string
 		clientMsgs               [][]byte
@@ -472,7 +478,7 @@ func TestStreamServerError(t *testing.T) {
 			},
 		},
 		{
-			name: "AcceptRequiresTCPConn",
+			name: "LocalAddrNotTCPAddr",
 			clientMsgs: [][]byte{
 				{Version, 1, MethodNoAuthenticationRequired},
 				{Version, CmdUDPAssociate, 0, AtypIPv4, 0, 0, 0, 0, 0, 0},
@@ -484,20 +490,21 @@ func TestStreamServerError(t *testing.T) {
 			serverEnableTCP:          false,
 			serverEnableUDP:          true,
 			checkServerErr: func(t *testing.T, err error) {
-				if err != zerocopy.ErrAcceptRequiresTCPConn {
-					t.Errorf("err = %v, want %v", err, zerocopy.ErrAcceptRequiresTCPConn)
+				if !errors.Is(err, errLocalAddrNotTCPAddr) {
+					t.Errorf("err = %v, want %v", err, errLocalAddrNotTCPAddr)
 				}
 			},
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			testStreamServerError(t, c.clientMsgs, c.expectedResponses, c.serverUserInfoByUsername, c.serverEnableTCP, c.serverEnableUDP, c.checkServerErr)
+			testStreamServerError(t, logger, c.clientMsgs, c.expectedResponses, c.serverUserInfoByUsername, c.serverEnableTCP, c.serverEnableUDP, c.checkServerErr)
 		})
 	}
 }
 
 func testStreamServerError(
 	t *testing.T,
+	logger *zap.Logger,
 	clientMsgs [][]byte,
 	expectedResponses [][]byte,
 	serverUserInfoByUsername map[string]UserInfo,
@@ -555,9 +562,9 @@ func testStreamServerError(
 		}()
 
 		if serverUserInfoByUsername == nil {
-			_, serr = ServerAccept(pr, serverEnableTCP, serverEnableUDP)
+			_, _, serr = ServerAccept(pr, logger, serverEnableTCP, serverEnableUDP)
 		} else {
-			_, _, serr = ServerAcceptUsernamePassword(pr, serverUserInfoByUsername, serverEnableTCP, serverEnableUDP)
+			_, _, _, serr = ServerAcceptUsernamePassword(pr, logger, serverUserInfoByUsername, serverEnableTCP, serverEnableUDP)
 		}
 	}()
 
@@ -567,4 +574,230 @@ func testStreamServerError(
 		t.Fatalf("cerr = %v", cerr)
 	}
 	checkServerErr(t, serr)
+}
+
+func TestStreamServerConfigValidation(t *testing.T) {
+	b := make([]byte, 256)
+	rand.Read(b)
+	longString := string(b)
+
+	for _, c := range []struct {
+		name        string
+		config      StreamServerConfig
+		expectedErr error
+	}{
+		{
+			name: "NoUsers",
+			config: StreamServerConfig{
+				EnableUserPassAuth: true,
+				EnableTCP:          true,
+				EnableUDP:          true,
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "ValidUsers",
+			config: StreamServerConfig{
+				Users: []UserInfo{
+					{
+						Username: "hello",
+						Password: "world",
+					},
+				},
+				EnableUserPassAuth: true,
+				EnableTCP:          true,
+				EnableUDP:          true,
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "EmptyUsername",
+			config: StreamServerConfig{
+				Users: []UserInfo{
+					{
+						Username: "",
+						Password: "world",
+					},
+				},
+				EnableUserPassAuth: true,
+				EnableTCP:          true,
+				EnableUDP:          true,
+			},
+			expectedErr: ErrUsernameLengthOutOfRange,
+		},
+		{
+			name: "LongUsername",
+			config: StreamServerConfig{
+				Users: []UserInfo{
+					{
+						Username: longString,
+						Password: "world",
+					},
+				},
+				EnableUserPassAuth: true,
+				EnableTCP:          true,
+				EnableUDP:          true,
+			},
+			expectedErr: ErrUsernameLengthOutOfRange,
+		},
+		{
+			name: "EmptyPassword",
+			config: StreamServerConfig{
+				Users: []UserInfo{
+					{
+						Username: "hello",
+						Password: "",
+					},
+				},
+				EnableUserPassAuth: true,
+				EnableTCP:          true,
+				EnableUDP:          true,
+			},
+			expectedErr: ErrPasswordLengthOutOfRange,
+		},
+		{
+			name: "LongPassword",
+			config: StreamServerConfig{
+				Users: []UserInfo{
+					{
+						Username: "hello",
+						Password: longString,
+					},
+				},
+				EnableUserPassAuth: true,
+				EnableTCP:          true,
+				EnableUDP:          true,
+			},
+			expectedErr: ErrPasswordLengthOutOfRange,
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := c.config.NewStreamServer(); !errors.Is(err, c.expectedErr) {
+				t.Errorf("err = %v, want %v", err, c.expectedErr)
+			}
+		})
+	}
+}
+
+func TestStreamClientServer(t *testing.T) {
+	b := make([]byte, 255+255)
+	rand.Read(b)
+	userInfo255 := UserInfo{
+		Username: string(b[:255]),
+		Password: string(b[255:]),
+	}
+
+	for _, authCase := range []struct {
+		name             string
+		clientAuthMsg    []byte
+		serverUsers      []UserInfo
+		expectedUsername string
+	}{
+		{
+			name:             "NoAuth",
+			clientAuthMsg:    nil,
+			serverUsers:      nil,
+			expectedUsername: "",
+		},
+		{
+			name:          "UserPassAuth/1",
+			clientAuthMsg: []byte{UsernamePasswordAuthVersion, 1, 'h', 1, 'w'},
+			serverUsers: []UserInfo{
+				{
+					Username: "h",
+					Password: "w",
+				},
+			},
+			expectedUsername: "h",
+		},
+		{
+			name:          "UserPassAuth/5",
+			clientAuthMsg: []byte{UsernamePasswordAuthVersion, 5, 'h', 'e', 'l', 'l', 'o', 5, 'w', 'o', 'r', 'l', 'd'},
+			serverUsers: []UserInfo{
+				{
+					Username: "hello",
+					Password: "world",
+				},
+			},
+			expectedUsername: "hello",
+		},
+		{
+			name:          "UserPassAuth/255",
+			clientAuthMsg: userInfo255.AppendAuthMsg(nil),
+			serverUsers: []UserInfo{
+				userInfo255,
+			},
+			expectedUsername: userInfo255.Username,
+		},
+	} {
+		t.Run(authCase.name, func(t *testing.T) {
+			for _, udpCase := range []struct {
+				name      string
+				enableUDP bool
+			}{
+				{"EnableUDP", true},
+				{"DisableUDP", false},
+			} {
+				t.Run(udpCase.name, func(t *testing.T) {
+					addr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 1080))
+
+					newClient := func(psc *netiotest.PipeStreamClient) netio.StreamClient {
+						clientConfig := StreamClientConfig{
+							InnerClient: psc,
+							Addr:        addr,
+							AuthMsg:     authCase.clientAuthMsg,
+						}
+						return clientConfig.NewStreamClient()
+					}
+
+					serverConfig := StreamServerConfig{
+						Users:              authCase.serverUsers,
+						EnableUserPassAuth: len(authCase.clientAuthMsg) > 0,
+						EnableTCP:          true,
+						EnableUDP:          udpCase.enableUDP,
+					}
+					server, err := serverConfig.NewStreamServer()
+					if err != nil {
+						t.Fatalf("Failed to create server: %v", err)
+					}
+
+					t.Run("Proceed", func(t *testing.T) {
+						netiotest.TestPreambleStreamClientServerProceed(
+							t,
+							newClient,
+							server,
+							addr,
+							authCase.expectedUsername,
+						)
+					})
+
+					t.Run("Abort", func(t *testing.T) {
+						netiotest.TestStreamClientServerAbort(
+							t,
+							newClient,
+							server,
+							func(t *testing.T, dialResult conn.DialResult, err error) {
+								reply := ReplyFromDialResultCode(dialResult.Code)
+								if reply == ReplySucceeded {
+									if err != nil && err != io.ErrClosedPipe {
+										t.Errorf("err = %v, want nil or io.ErrClosedPipe", err)
+									}
+									return
+								}
+
+								var e ReplyError
+								if !errors.As(err, &e) {
+									t.Errorf("err = %v, want %T", err, e)
+									return
+								}
+								if byte(e) != reply {
+									t.Errorf("e = %d, want %d", e, reply)
+								}
+							},
+						)
+					})
+				})
+			}
+		})
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
@@ -304,7 +305,7 @@ func (*Socks5TCPServer) Info() zerocopy.TCPServerInfo {
 // Accept implements [zerocopy.TCPServer.Accept].
 func (s *Socks5TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
 	rw, targetAddr, err = NewSocks5StreamServerReadWriter(rawRW, s.enableTCP, s.enableUDP)
-	if err == socks5.ErrUDPAssociateDone {
+	if err == netio.ErrHandleStreamDone {
 		err = zerocopy.ErrAcceptDoneNoRelay
 	}
 	return
@@ -326,7 +327,7 @@ func (s *Socks5AuthTCPServer) Info() zerocopy.TCPServerInfo {
 // Accept implements [zerocopy.TCPServer.Accept].
 func (s *Socks5AuthTCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
 	rw, targetAddr, username, err = NewSocks5AuthStreamServerReadWriter(rawRW, s.userInfoByUsername, s.plainServer.enableTCP, s.plainServer.enableUDP)
-	if err == socks5.ErrUDPAssociateDone {
+	if err == netio.ErrHandleStreamDone {
 		err = zerocopy.ErrAcceptDoneNoRelay
 	}
 	return

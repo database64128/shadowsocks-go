@@ -2,6 +2,7 @@ package socks5
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,7 +10,8 @@ import (
 	"slices"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/zerocopy"
+	"github.com/database64128/shadowsocks-go/netio"
+	"go.uber.org/zap"
 )
 
 // SOCKS version 5.
@@ -76,6 +78,24 @@ const (
 	ReplyAddressTypeNotSupported       = 8
 )
 
+// ReplyFromDialResultCode returns the SOCKS5 reply field value corresponding to the dial result code.
+func ReplyFromDialResultCode(code conn.DialResultCode) byte {
+	switch code {
+	case conn.DialResultCodeSuccess:
+		return ReplySucceeded
+	case conn.DialResultCodeEACCES:
+		return ReplyConnectionNotAllowedByRuleset
+	case conn.DialResultCodeENETDOWN, conn.DialResultCodeENETUNREACH, conn.DialResultCodeENETRESET:
+		return ReplyNetworkUnreachable
+	case conn.DialResultCodeEHOSTDOWN, conn.DialResultCodeEHOSTUNREACH:
+		return ReplyHostUnreachable
+	case conn.DialResultCodeECONNREFUSED:
+		return ReplyConnectionRefused
+	default:
+		return ReplyGeneralSocksServerFailure
+	}
+}
+
 // ReplyError is an error type for SOCKS5 reply errors.
 type ReplyError byte
 
@@ -124,10 +144,10 @@ var (
 	ErrPasswordLengthOutOfRange  = errors.New("password length out of range [1, 255]")
 	ErrNoAcceptableAuthMethod    = errors.New("no acceptable authentication method")
 	ErrIncorrectUsernamePassword = errors.New("incorrect username or password")
-	ErrUDPAssociateDone          = errors.New("UDP ASSOCIATE done")
 	errZeroNMETHODS              = errors.New("NMETHODS is 0")
 	errZeroULEN                  = errors.New("ULEN is 0")
 	errZeroPLEN                  = errors.New("PLEN is 0")
+	errLocalAddrNotTCPAddr       = errors.New("LocalAddr is not a *net.TCPAddr")
 )
 
 // UserInfo is a username/password pair.
@@ -274,18 +294,22 @@ func clientDoRequest(rw io.ReadWriter, b []byte, command byte, targetAddr conn.A
 		return conn.Addr{}, UnsupportedVersionError(b[0])
 	}
 
-	// Check REP.
-	if b[1] != ReplySucceeded {
-		return conn.Addr{}, ReplyError(b[1])
-	}
-
 	// Read SOCKS address.
 	sa, err := AppendFromReader(b[3:3], newPrefixedReader(b[3:5], rw))
 	if err != nil {
 		return conn.Addr{}, err
 	}
 	addr, _, err = ConnAddrFromSlice(sa)
-	return addr, err
+	if err != nil {
+		return conn.Addr{}, err
+	}
+
+	// Check REP after reading the whole reply.
+	if b[1] != ReplySucceeded {
+		return conn.Addr{}, ReplyError(b[1])
+	}
+
+	return addr, nil
 }
 
 // ClientRequest completes the handshake and writes a request with the given command and target address to rw.
@@ -332,32 +356,245 @@ func ClientUDPAssociateUsernamePassword(rw io.ReadWriter, authMsg []byte, target
 	return ClientRequestUsernamePassword(rw, authMsg, CmdUDPAssociate, targetAddr)
 }
 
+// StreamClientConfig is the configuration for a SOCKS5 stream client.
+type StreamClientConfig struct {
+	// Name is the name of the client.
+	Name string
+
+	// InnerClient is the underlying stream client.
+	InnerClient netio.StreamClient
+
+	// Addr is the address of the SOCKS5 server.
+	Addr conn.Addr
+
+	// AuthMsg is the serialized username/password authentication message.
+	AuthMsg []byte
+}
+
+// NewStreamClient returns a new SOCKS5 stream client.
+func (c *StreamClientConfig) NewStreamClient() netio.StreamClient {
+	if len(c.AuthMsg) > 0 {
+		return &AuthStreamClient{
+			name:        c.Name,
+			innerClient: c.InnerClient,
+			addr:        c.Addr,
+			authMsg:     c.AuthMsg,
+		}
+	}
+
+	return &StreamClient{
+		name:        c.Name,
+		innerClient: c.InnerClient,
+		addr:        c.Addr,
+	}
+}
+
+// StreamClient is an unauthenticated SOCKS5 stream client.
+//
+// StreamClient implements [netio.StreamClient] and [netio.StreamDialer].
+type StreamClient struct {
+	name        string
+	innerClient netio.StreamClient
+	addr        conn.Addr
+}
+
+// NewStreamDialer implements [netio.StreamClient.NewStreamDialer].
+func (c *StreamClient) NewStreamDialer() (netio.StreamDialer, netio.StreamDialerInfo) {
+	return c, netio.StreamDialerInfo{
+		Name:                 c.name,
+		NativeInitialPayload: false,
+	}
+}
+
+// DialStream implements [netio.StreamDialer.DialStream].
+func (c *StreamClient) DialStream(ctx context.Context, addr conn.Addr, payload []byte) (netio.Conn, error) {
+	rw, err := c.innerClient.DialStream(ctx, c.addr, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = netio.ConnWriteContextFunc(ctx, rw, func(rw netio.Conn) (err error) {
+		if err = ClientConnect(rw, addr); err != nil {
+			return err
+		}
+
+		if len(payload) > 0 {
+			if _, err = rw.Write(payload); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
+		_ = rw.Close()
+		return nil, err
+	}
+
+	return rw, nil
+}
+
+// AuthStreamClient is like [StreamClient], but uses username/password authentication.
+//
+// AuthStreamClient implements [netio.StreamClient] and [netio.StreamDialer].
+type AuthStreamClient struct {
+	name        string
+	innerClient netio.StreamClient
+	addr        conn.Addr
+	authMsg     []byte
+}
+
+// NewStreamDialer implements [netio.StreamClient.NewStreamDialer].
+func (c *AuthStreamClient) NewStreamDialer() (netio.StreamDialer, netio.StreamDialerInfo) {
+	return c, netio.StreamDialerInfo{
+		Name:                 c.name,
+		NativeInitialPayload: false,
+	}
+}
+
+// DialStream implements [netio.StreamDialer.DialStream].
+func (c *AuthStreamClient) DialStream(ctx context.Context, addr conn.Addr, payload []byte) (netio.Conn, error) {
+	rw, err := c.innerClient.DialStream(ctx, c.addr, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = netio.ConnWriteContextFunc(ctx, rw, func(rw netio.Conn) (err error) {
+		if err = ClientConnectUsernamePassword(rw, c.authMsg, addr); err != nil {
+			return err
+		}
+
+		if len(payload) > 0 {
+			if _, err = rw.Write(payload); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
+		_ = rw.Close()
+		return nil, err
+	}
+
+	return rw, nil
+}
+
+// StreamServerConfig is the configuration for a SOCKS5 stream server.
+type StreamServerConfig struct {
+	// Users is a list of users allowed to connect to the server.
+	// It is ignored if none of the authentication methods are enabled.
+	Users []UserInfo
+
+	// EnableUserPassAuth controls whether to enable username/password authentication.
+	EnableUserPassAuth bool
+
+	// EnableTCP controls whether to accept CONNECT requests.
+	EnableTCP bool
+
+	// EnableUDP controls whether to accept UDP ASSOCIATE requests.
+	EnableUDP bool
+}
+
+// NewStreamServer returns a new SOCKS5 stream server.
+func (c *StreamServerConfig) NewStreamServer() (netio.StreamServer, error) {
+	if c.EnableUserPassAuth {
+		userInfoByUsername := make(map[string]UserInfo, len(c.Users))
+
+		for i, u := range c.Users {
+			if err := u.Validate(); err != nil {
+				return nil, fmt.Errorf("bad user credentials at index %d: %w", i, err)
+			}
+			userInfoByUsername[u.Username] = u
+		}
+
+		return AuthStreamServer{
+			userInfoByUsername: userInfoByUsername,
+			enableTCP:          c.EnableTCP,
+			enableUDP:          c.EnableUDP,
+		}, nil
+	}
+
+	return StreamServer{
+		enableTCP: c.EnableTCP,
+		enableUDP: c.EnableUDP,
+	}, nil
+}
+
+// StreamServer is an unauthenticated SOCKS5 stream server.
+//
+// StreamServer implements [netio.StreamServer].
+type StreamServer struct {
+	enableTCP bool
+	enableUDP bool
+}
+
+// StreamServerInfo implements [netio.StreamServer.StreamServerInfo].
+func (StreamServer) StreamServerInfo() netio.StreamServerInfo {
+	return netio.StreamServerInfo{
+		NativeInitialPayload: false,
+	}
+}
+
+// HandleStream implements [netio.StreamServer.HandleStream].
+func (s StreamServer) HandleStream(c netio.Conn, logger *zap.Logger) (netio.ConnRequest, error) {
+	pc, addr, err := ServerAccept(c, logger, s.enableTCP, s.enableUDP)
+	return netio.ConnRequest{
+		PendingConn: pc,
+		Addr:        addr,
+	}, err
+}
+
+// AuthStreamServer is like [StreamServer], but uses username/password authentication.
+//
+// AuthStreamServer implements [netio.StreamServer].
+type AuthStreamServer struct {
+	userInfoByUsername map[string]UserInfo
+	enableTCP          bool
+	enableUDP          bool
+}
+
+// StreamServerInfo implements [netio.StreamServer.StreamServerInfo].
+func (AuthStreamServer) StreamServerInfo() netio.StreamServerInfo {
+	return netio.StreamServerInfo{
+		NativeInitialPayload: false,
+	}
+}
+
+// HandleStream implements [netio.StreamServer.HandleStream].
+func (s AuthStreamServer) HandleStream(c netio.Conn, logger *zap.Logger) (netio.ConnRequest, error) {
+	pc, addr, username, err := ServerAcceptUsernamePassword(c, logger, s.userInfoByUsername, s.enableTCP, s.enableUDP)
+	return netio.ConnRequest{
+		PendingConn: pc,
+		Addr:        addr,
+		Username:    username,
+	}, err
+}
+
 // ServerAccept processes an incoming request from rw.
 //
 // enableTCP enables the CONNECT command.
 // enableUDP enables the UDP ASSOCIATE command.
 //
-// When UDP is enabled, rw must be a [*net.TCPConn].
-func ServerAccept(rw io.ReadWriter, enableTCP, enableUDP bool) (addr conn.Addr, err error) {
+// When UDP is enabled, rw.LocalAddr must return a [*net.TCPAddr].
+func ServerAccept(rw netio.Conn, logger *zap.Logger, enableTCP, enableUDP bool) (pc netio.PendingConn, addr conn.Addr, err error) {
 	b := make([]byte, 3+MaxAddrLen)
 	if err = serverHandleMethodSelection(rw, b, MethodNoAuthenticationRequired); err != nil {
-		return conn.Addr{}, err
+		return nil, conn.Addr{}, err
 	}
-	return serverHandleRequest(rw, b, enableTCP, enableUDP)
+	return serverHandleRequest(rw, logger, b, enableTCP, enableUDP)
 }
 
 // ServerAcceptUsernamePassword is like [ServerAccept], but uses username/password authentication.
-func ServerAcceptUsernamePassword(rw io.ReadWriter, userInfoByUsername map[string]UserInfo, enableTCP, enableUDP bool) (addr conn.Addr, username string, err error) {
+func ServerAcceptUsernamePassword(rw netio.Conn, logger *zap.Logger, userInfoByUsername map[string]UserInfo, enableTCP, enableUDP bool) (pc netio.PendingConn, addr conn.Addr, username string, err error) {
 	b := make([]byte, 3+MaxAddrLen) // enough for serverHandleUsernamePassword
 	if err = serverHandleMethodSelection(rw, b, MethodUsernamePassword); err != nil {
-		return conn.Addr{}, "", err
+		return nil, conn.Addr{}, "", err
 	}
 	username, err = serverHandleUsernamePassword(rw, b, userInfoByUsername)
 	if err != nil {
-		return conn.Addr{}, username, err
+		return nil, conn.Addr{}, username, err
 	}
-	addr, err = serverHandleRequest(rw, b, enableTCP, enableUDP)
-	return addr, username, err
+	pc, addr, err = serverHandleRequest(rw, logger, b, enableTCP, enableUDP)
+	return pc, addr, username, err
 }
 
 // serverHandleMethodSelection processes an incoming version identifier and method selection message from rw.
@@ -521,63 +758,97 @@ func serverHandleUsernamePassword(rw io.ReadWriter, b []byte, userInfoByUsername
 //	+----+-----+-------+------+----------+----------+
 //	| 1  |  1  | X'00' |  1   | Variable |    2     |
 //	+----+-----+-------+------+----------+----------+
-func serverHandleRequest(rw io.ReadWriter, b []byte, enableTCP, enableUDP bool) (addr conn.Addr, err error) {
+func serverHandleRequest(rw netio.Conn, logger *zap.Logger, b []byte, enableTCP, enableUDP bool) (pc netio.PendingConn, addr conn.Addr, err error) {
 	if len(b) < 3+MaxAddrLen {
 		panic("serverHandleRequest: buffer too small")
 	}
 
 	// Read VER, CMD, RSV, ATYP, and an extra byte.
 	if _, err = io.ReadFull(rw, b[:5]); err != nil {
-		return conn.Addr{}, err
+		return nil, conn.Addr{}, err
 	}
 
 	// Check VER.
 	if b[0] != Version {
-		return conn.Addr{}, UnsupportedVersionError(b[0])
+		return nil, conn.Addr{}, UnsupportedVersionError(b[0])
 	}
 
 	// Read SOCKS address.
 	sa, err := AppendFromReader(b[3:3], newPrefixedReader(b[3:5], rw))
 	if err != nil {
-		return conn.Addr{}, err
+		return nil, conn.Addr{}, err
 	}
 	addr, _, err = ConnAddrFromSlice(sa)
 	if err != nil {
-		return conn.Addr{}, err
+		return nil, conn.Addr{}, err
 	}
 
 	cmd := b[1]
 	switch {
 	case cmd == CmdConnect && enableTCP:
-		return addr, replyWithStatus(rw, b, ReplySucceeded)
+		return newServerPendingConn(rw, b), addr, nil
 
 	case cmd == CmdUDPAssociate && enableUDP:
 		// Use the connection's local address as the returned UDP bound address.
-		tc, ok := rw.(*net.TCPConn)
+		netAddr := rw.LocalAddr()
+		tcpAddr, ok := netAddr.(*net.TCPAddr)
 		if !ok {
-			return addr, zerocopy.ErrAcceptRequiresTCPConn
+			return nil, addr, fmt.Errorf("%w: %T", errLocalAddrNotTCPAddr, netAddr)
 		}
-		localAddrPort := tc.LocalAddr().(*net.TCPAddr).AddrPort()
+		addrPort := tcpAddr.AddrPort()
+
+		if ce := logger.Check(zap.DebugLevel, "Handling UDP ASSOCIATE request"); ce != nil {
+			ce.Write(
+				zap.String("destAddr", addr.String()),
+				zap.String("boundAddrPort", addrPort.String()),
+			)
+		}
 
 		// Construct reply.
 		b[1] = ReplySucceeded
-		reply := AppendAddrFromAddrPort(b[:3], localAddrPort)
+		reply := AppendAddrFromAddrPort(b[:3], addrPort)
 
 		// Write reply.
 		if _, err = rw.Write(reply); err != nil {
-			return addr, err
+			return nil, addr, err
 		}
 
 		// Hold the connection open.
 		if _, err = rw.Read(b[:1]); err != nil && err != io.EOF {
-			return addr, err
+			return nil, addr, err
 		}
-		return addr, ErrUDPAssociateDone
+		return nil, addr, netio.ErrHandleStreamDone
 
 	default:
 		_ = replyWithStatus(rw, b, ReplyCommandNotSupported)
-		return addr, UnsupportedCommandError(cmd)
+		return nil, addr, UnsupportedCommandError(cmd)
 	}
+}
+
+// serverPendingConn is an accepted server connection, pending reply.
+//
+// serverPendingConn implements [netio.PendingConn].
+type serverPendingConn struct {
+	inner netio.Conn
+	buf   []byte
+}
+
+// newServerPendingConn returns the connection wrapped as a [netio.PendingConn].
+func newServerPendingConn(c netio.Conn, buf []byte) netio.PendingConn {
+	return serverPendingConn{inner: c, buf: buf}
+}
+
+// Proceed implements [netio.PendingConn.Proceed].
+func (c serverPendingConn) Proceed() (netio.Conn, error) {
+	if err := replyWithStatus(c.inner, c.buf, ReplySucceeded); err != nil {
+		return nil, err
+	}
+	return c.inner, nil
+}
+
+// Abort implements [netio.PendingConn.Abort].
+func (c serverPendingConn) Abort(dialResult conn.DialResult) error {
+	return replyWithStatus(c.inner, c.buf, ReplyFromDialResultCode(dialResult.Code))
 }
 
 // prefixedReader is an [io.Reader] that reads from a prefix buffer first, then from an underlying reader.

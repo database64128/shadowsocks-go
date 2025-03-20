@@ -5,8 +5,10 @@ import (
 	"io"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
+	"go.uber.org/zap"
 )
 
 var (
@@ -116,18 +118,28 @@ func NewSocks5AuthStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, auth
 //
 // When UDP is enabled, rw must be a [*net.TCPConn].
 func NewSocks5StreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, enableTCP, enableUDP bool) (dsrw *DirectStreamReadWriter, addr conn.Addr, err error) {
-	addr, err = socks5.ServerAccept(rw, enableTCP, enableUDP)
+	pc, addr, err := socks5.ServerAccept(rw.(netio.Conn), zap.L(), enableTCP, enableUDP)
 	if err != nil {
 		return nil, addr, err
+	}
+	if pc != nil {
+		if _, err = pc.Proceed(); err != nil {
+			return nil, addr, err
+		}
 	}
 	return &DirectStreamReadWriter{rw: rw}, addr, nil
 }
 
 // NewSocks5AuthStreamServerReadWriter is like [NewSocks5StreamServerReadWriter], but uses username/password authentication.
 func NewSocks5AuthStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, userInfoByUsername map[string]socks5.UserInfo, enableTCP, enableUDP bool) (dsrw *DirectStreamReadWriter, addr conn.Addr, username string, err error) {
-	addr, username, err = socks5.ServerAcceptUsernamePassword(rw, userInfoByUsername, enableTCP, enableUDP)
+	pc, addr, username, err := socks5.ServerAcceptUsernamePassword(rw.(netio.Conn), zap.L(), userInfoByUsername, enableTCP, enableUDP)
 	if err != nil {
 		return nil, addr, username, err
+	}
+	if pc != nil {
+		if _, err = pc.Proceed(); err != nil {
+			return nil, addr, username, err
+		}
 	}
 	return &DirectStreamReadWriter{rw: rw}, addr, username, nil
 }
