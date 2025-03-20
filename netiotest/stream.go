@@ -10,7 +10,6 @@ import (
 	"slices"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
@@ -45,9 +44,6 @@ func (c *PipeStreamClient) Close() error {
 func (c *PipeStreamClient) NewStreamDialer() (netio.StreamDialer, netio.StreamDialerInfo) {
 	return c, c.info
 }
-
-// aLongTimeAgo is a non-zero time, far in the past, used for immediate deadlines.
-var aLongTimeAgo = time.Unix(0, 0)
 
 // DialStream implements [netio.StreamDialer.DialStream].
 func (c *PipeStreamClient) DialStream(ctx context.Context, addr conn.Addr, payload []byte) (plc netio.Conn, err error) {
@@ -152,6 +148,7 @@ func TestPreambleStreamClientServerProceed(
 	newClient func(psc *PipeStreamClient) netio.StreamClient,
 	server netio.StreamServer,
 	expectedServerAddr conn.Addr,
+	expectedUsername string,
 ) {
 	for _, addrCase := range testAddrCases {
 		t.Run(addrCase.name, func(t *testing.T) {
@@ -164,6 +161,7 @@ func TestPreambleStreamClientServerProceed(
 						payloadCase.payload(),
 						server,
 						expectedServerAddr,
+						expectedUsername,
 					)
 				})
 			}
@@ -178,6 +176,7 @@ func testPreambleStreamClientServerProceed(
 	initialPayload []byte,
 	server netio.StreamServer,
 	expectedServerAddr conn.Addr,
+	expectedUsername string,
 ) {
 	ctx := t.Context()
 	logger := zaptest.NewLogger(t)
@@ -213,6 +212,9 @@ func testPreambleStreamClientServerProceed(
 			}
 			if len(req.Payload) > len(expectedInitialPayload) {
 				t.Errorf("req.Payload = %v, want %v", req.Payload, expectedInitialPayload)
+			}
+			if req.Username != expectedUsername {
+				t.Errorf("req.Username = %q, want %q", req.Username, expectedUsername)
 			}
 
 			serverConn, err := req.Proceed()
@@ -295,6 +297,7 @@ func TestWrapConnStreamClientServerProceed(
 	newClient func(psc *PipeStreamClient) netio.StreamClient,
 	server netio.StreamServer,
 	expectedServerAddr conn.Addr,
+	expectedUsername string,
 ) {
 	for _, addrCase := range testAddrCases {
 		t.Run(addrCase.name, func(t *testing.T) {
@@ -307,6 +310,7 @@ func TestWrapConnStreamClientServerProceed(
 						payloadCase.payload(),
 						server,
 						expectedServerAddr,
+						expectedUsername,
 					)
 				})
 			}
@@ -321,6 +325,7 @@ func testWrapConnStreamClientServerProceed(
 	initialPayload []byte,
 	server netio.StreamServer,
 	expectedServerAddr conn.Addr,
+	expectedUsername string,
 ) {
 	ctx := t.Context()
 	logger := zaptest.NewLogger(t)
@@ -357,6 +362,9 @@ func testWrapConnStreamClientServerProceed(
 			}
 			if len(req.Payload) > len(expectedInitialPayload) {
 				t.Errorf("req.Payload = %v, want %v", req.Payload, expectedInitialPayload)
+			}
+			if req.Username != expectedUsername {
+				t.Errorf("req.Username = %q, want %q", req.Username, expectedUsername)
 			}
 
 			serverConn, err = req.Proceed()
@@ -403,4 +411,171 @@ func testWrapConnStreamClientServerProceed(
 		}
 		return
 	})
+}
+
+// TestStreamClientServerAbort tests a pair of stream client and server
+// implementations for handling aborted connection requests.
+func TestStreamClientServerAbort(
+	t *testing.T,
+	newClient func(psc *PipeStreamClient) netio.StreamClient,
+	server netio.StreamServer,
+	checkDialErr func(t *testing.T, dialResult conn.DialResult, err error),
+) {
+	for _, dialResultCase := range [...]struct {
+		name       string
+		dialResult conn.DialResult
+	}{
+		{
+			name: "Success",
+			dialResult: conn.DialResult{
+				Code: conn.DialResultCodeSuccess,
+			},
+		},
+		{
+			name: "EACCES",
+			dialResult: conn.DialResult{
+				Code: conn.DialResultCodeEACCES,
+			},
+		},
+		{
+			name: "ENETDOWN",
+			dialResult: conn.DialResult{
+				Code: conn.DialResultCodeENETDOWN,
+			},
+		},
+		{
+			name: "ENETUNREACH",
+			dialResult: conn.DialResult{
+				Code: conn.DialResultCodeENETUNREACH,
+			},
+		},
+		{
+			name: "ENETRESET",
+			dialResult: conn.DialResult{
+				Code: conn.DialResultCodeENETRESET,
+			},
+		},
+		{
+			name: "ECONNABORTED",
+			dialResult: conn.DialResult{
+				Code: conn.DialResultCodeECONNABORTED,
+			},
+		},
+		{
+			name: "ECONNRESET",
+			dialResult: conn.DialResult{
+				Code: conn.DialResultCodeECONNRESET,
+			},
+		},
+		{
+			name: "ETIMEDOUT",
+			dialResult: conn.DialResult{
+				Code: conn.DialResultCodeETIMEDOUT,
+			},
+		},
+		{
+			name: "ECONNREFUSED",
+			dialResult: conn.DialResult{
+				Code: conn.DialResultCodeECONNREFUSED,
+			},
+		},
+		{
+			name: "EHOSTDOWN",
+			dialResult: conn.DialResult{
+				Code: conn.DialResultCodeEHOSTDOWN,
+			},
+		},
+		{
+			name: "EHOSTUNREACH",
+			dialResult: conn.DialResult{
+				Code: conn.DialResultCodeEHOSTUNREACH,
+			},
+		},
+		{
+			name: "ErrDomainNameLookup",
+			dialResult: conn.DialResult{
+				Code: conn.DialResultCodeErrDomainNameLookup,
+				Err:  &net.OpError{Op: "dial", Net: "tcp", Source: nil, Addr: nil, Err: &net.DNSError{Err: "no such host"}},
+			},
+		},
+		{
+			name: "ErrOther",
+			dialResult: conn.DialResult{
+				Code: conn.DialResultCodeErrOther,
+				Err:  &net.OpError{Op: "dial", Net: "tcp", Source: nil, Addr: nil, Err: &net.AddrError{Err: "mismatched local address type"}},
+			},
+		},
+	} {
+		t.Run(dialResultCase.name, func(t *testing.T) {
+			for _, addrCase := range testAddrCases {
+				t.Run(addrCase.name, func(t *testing.T) {
+					for _, payloadCase := range testInitialPayloadCases {
+						t.Run(payloadCase.name, func(t *testing.T) {
+							testStreamClientServerAbort(
+								t,
+								newClient,
+								addrCase.addr,
+								payloadCase.payload(),
+								server,
+								dialResultCase.dialResult,
+								checkDialErr,
+							)
+						})
+					}
+				})
+			}
+		})
+	}
+}
+
+func testStreamClientServerAbort(
+	t *testing.T,
+	newClient func(psc *PipeStreamClient) netio.StreamClient,
+	addr conn.Addr,
+	initialPayload []byte,
+	server netio.StreamServer,
+	dialResult conn.DialResult,
+	checkDialErr func(t *testing.T, dialResult conn.DialResult, err error),
+) {
+	ctx := t.Context()
+	logger := zaptest.NewLogger(t)
+	defer logger.Sync()
+
+	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
+		Name:                 "test",
+		NativeInitialPayload: true,
+	})
+
+	go func() {
+		defer psc.Close()
+
+		select {
+		case <-ctx.Done():
+			t.Error("DialStream not called")
+			return
+
+		case pc := <-ch:
+			defer pc.Close()
+
+			req, err := server.HandleStream(pc, logger)
+			if err != nil {
+				t.Errorf("server.HandleStream failed: %v", err)
+				return
+			}
+
+			if err = req.Abort(dialResult); err != nil {
+				t.Errorf("req.Abort failed: %v", err)
+			}
+		}
+	}()
+
+	client := newClient(psc)
+
+	_, err := client.DialStream(ctx, addr, initialPayload)
+	checkDialErr(t, dialResult, err)
+
+	// This also synchronizes the exit of the server goroutine.
+	if _, ok := <-ch; ok {
+		t.Error("DialStream called more than once")
+	}
 }
