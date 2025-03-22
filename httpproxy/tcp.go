@@ -12,6 +12,8 @@ import (
 	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/direct"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
@@ -23,18 +25,11 @@ type ClientConfig struct {
 	// Name is the name of the client.
 	Name string
 
-	// Network controls the address family when resolving the address.
-	//
-	// - "tcp": System default, likely dual-stack.
-	// - "tcp4": Resolve to IPv4 addresses.
-	// - "tcp6": Resolve to IPv6 addresses.
-	Network string
+	// InnerClient is the underlying stream client.
+	InnerClient netio.StreamClient
 
-	// Address is the address of the remote proxy server.
-	Address string
-
-	// Dialer is the dialer used to establish connections.
-	Dialer conn.Dialer
+	// Addr is the address of the HTTP proxy server.
+	Addr conn.Addr
 
 	// Certificates is an optional list of client certificates for mutual TLS.
 	// See [tls.Config.Certificates].
@@ -74,10 +69,9 @@ type ClientConfig struct {
 //
 // ProxyClient implements [zerocopy.TCPClient] and [zerocopy.TCPDialer].
 type ProxyClient struct {
-	name    string
-	network string
-	address string
-	dialer  conn.Dialer
+	name        string
+	innerClient netio.StreamClient
+	serverAddr  conn.Addr
 
 	tlsConfig *tls.Config
 
@@ -87,10 +81,9 @@ type ProxyClient struct {
 // NewProxyClient creates a new HTTP proxy client.
 func (c *ClientConfig) NewProxyClient() (*ProxyClient, error) {
 	client := ProxyClient{
-		name:    c.Name,
-		network: c.Network,
-		address: c.Address,
-		dialer:  c.Dialer,
+		name:        c.Name,
+		innerClient: c.InnerClient,
+		serverAddr:  c.Addr,
 	}
 
 	if c.UseTLS {
@@ -129,32 +122,36 @@ func (c *ProxyClient) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
 
 // Dial implements [zerocopy.TCPDialer.Dial].
 func (c *ProxyClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
-	tcpConn, err := c.dialer.DialTCP(ctx, c.network, c.address, nil)
+	innerConn, err := c.innerClient.DialStream(ctx, c.serverAddr, nil)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	if c.tlsConfig != nil {
-		tlsConn := tls.Client(tcpConn, c.tlsConfig)
-		rawRW = directReadWriteCloserFromTLSConn(tlsConn)
-	} else {
-		rawRW = tcpConn
+		innerConn = tls.Client(innerConn, c.tlsConfig)
 	}
 
-	rw, err = NewHttpStreamClientReadWriter(rawRW, targetAddr, c.proxyAuthHeader)
-	if err != nil {
-		_ = rawRW.Close()
+	var clientConn netio.Conn
+
+	if err = netio.ConnWriteContextFunc(ctx, innerConn, func(innerConn netio.Conn) (err error) {
+		clientConn, err = ClientConnect(innerConn, targetAddr, c.proxyAuthHeader)
+		if err != nil {
+			return err
+		}
+
+		if len(payload) > 0 {
+			if _, err = clientConn.Write(payload); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
+		_ = innerConn.Close()
 		return nil, nil, err
 	}
 
-	if len(payload) > 0 {
-		if _, err = rw.WriteZeroCopy(payload, 0, len(payload)); err != nil {
-			_ = rawRW.Close()
-			return nil, nil, err
-		}
-	}
-
-	return rawRW, rw, nil
+	return innerConn, direct.NewDirectStreamReadWriter(clientConn), nil
 }
 
 // ServerConfig contains configuration options for an HTTP proxy server.
@@ -290,8 +287,15 @@ func (s *ProxyServer) Info() zerocopy.TCPServerInfo {
 
 // Accept implements [zerocopy.TCPServer.Accept].
 func (s *ProxyServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
-	rw, targetAddr, username, err = NewHttpStreamServerReadWriter(rawRW, s.usernameByToken, s.logger)
-	return
+	pc, targetAddr, username, err := ServerHandle(rawRW.(netio.Conn), s.logger, s.usernameByToken)
+	if err != nil {
+		return nil, conn.Addr{}, nil, "", err
+	}
+	c, err := pc.Proceed()
+	if err != nil {
+		return nil, conn.Addr{}, nil, "", err
+	}
+	return direct.NewDirectStreamReadWriter(c), targetAddr, nil, username, nil
 }
 
 // TLSProxyServer is an HTTP proxy server that uses TLS.
@@ -315,8 +319,7 @@ func (s *TLSProxyServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zeroco
 	}
 
 	tlsConn := tls.Server(netConn, s.tlsConfig)
-	rawRW = directReadWriteCloserFromTLSConn(tlsConn)
-	rw, targetAddr, payload, username, err = s.plainServer.Accept(rawRW)
+	rw, targetAddr, payload, username, err = s.plainServer.Accept(tlsConn)
 	if err != nil {
 		return
 	}
@@ -327,23 +330,4 @@ func (s *TLSProxyServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zeroco
 	}
 
 	return
-}
-
-// tlsConnDirectReadWriteCloser wraps a [*tls.Conn] as a [zerocopy.DirectReadWriteCloser]
-// by adding a no-op [CloseRead] method.
-//
-// [tls.Conn.CloseWrite] does not call the underlying connection's CloseWrite method.
-// Nevertheless, it sends an alertCloseNotify record, which causes Read on the other end to return [io.EOF].
-type tlsConnDirectReadWriteCloser struct {
-	*tls.Conn
-}
-
-// directReadWriteCloserFromTLSConn creates a [zerocopy.DirectReadWriteCloser] from a [*tls.Conn].
-func directReadWriteCloserFromTLSConn(c *tls.Conn) zerocopy.DirectReadWriteCloser {
-	return tlsConnDirectReadWriteCloser{c}
-}
-
-// CloseRead implements [zerocopy.DirectReadWriteCloser.CloseRead].
-func (tlsConnDirectReadWriteCloser) CloseRead() error {
-	return nil
 }

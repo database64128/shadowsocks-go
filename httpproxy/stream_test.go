@@ -59,8 +59,8 @@ func testHttpStreamReadWriter(t *testing.T, expectedUsername, clientProxyAuthHea
 
 	var (
 		wg               sync.WaitGroup
-		c                zerocopy.ReadWriter
-		s                *direct.DirectStreamReadWriter
+		clientConn       netio.Conn
+		serverConn       netio.Conn
 		serverTargetAddr conn.Addr
 		username         string
 		cerr, serr       error
@@ -70,12 +70,16 @@ func testHttpStreamReadWriter(t *testing.T, expectedUsername, clientProxyAuthHea
 
 	go func() {
 		defer wg.Done()
-		c, cerr = NewHttpStreamClientReadWriter(pl, clientTargetAddr, clientProxyAuthHeader)
+		clientConn, cerr = ClientConnect(pl, clientTargetAddr, clientProxyAuthHeader)
 	}()
 
 	go func() {
 		defer wg.Done()
-		s, serverTargetAddr, username, serr = NewHttpStreamServerReadWriter(pr, serverUsernameByToken, logger)
+		var serverPendingConn netio.PendingConn
+		serverPendingConn, serverTargetAddr, username, serr = ServerHandle(pr, logger, serverUsernameByToken)
+		if serr == nil {
+			serverConn, serr = serverPendingConn.Proceed()
+		}
 	}()
 
 	wg.Wait()
@@ -93,7 +97,7 @@ func testHttpStreamReadWriter(t *testing.T, expectedUsername, clientProxyAuthHea
 		t.Errorf("username = %q, want %q", username, expectedUsername)
 	}
 
-	zerocopy.ReadWriterTestFunc(t, c, s)
+	zerocopy.ReadWriterTestFunc(t, direct.NewDirectStreamReadWriter(clientConn), direct.NewDirectStreamReadWriter(serverConn))
 }
 
 func testHttpStreamReadWriterBasicAuthBadCredentials(t *testing.T, logger *zap.Logger) {
@@ -120,14 +124,18 @@ func testHttpStreamReadWriterBasicAuthBadCredentials(t *testing.T, logger *zap.L
 	go func() {
 		defer wg.Done()
 		for i, clientProxyAuthHeader := range clientProxyAuthHeaders {
-			_, clientErrors[i] = NewHttpStreamClientReadWriter(pl, clientTargetAddr, clientProxyAuthHeader)
+			_, clientErrors[i] = ClientConnect(pl, clientTargetAddr, clientProxyAuthHeader)
 		}
 		_ = pl.CloseWrite()
 	}()
 
 	go func() {
 		defer wg.Done()
-		_, _, _, serr = NewHttpStreamServerReadWriter(pr, map[string]string{"QWxhZGRpbjpvcGVuIHNlc2FtZQ==": "Aladdin"}, logger)
+		var serverPendingConn netio.PendingConn
+		serverPendingConn, _, _, serr = ServerHandle(pr, logger, map[string]string{"QWxhZGRpbjpvcGVuIHNlc2FtZQ==": "Aladdin"})
+		if serr == nil {
+			_, serr = serverPendingConn.Proceed()
+		}
 	}()
 
 	wg.Wait()
@@ -159,16 +167,16 @@ func TestHttpStreamClientReadWriterServerSpeaksFirst(t *testing.T) {
 	expectedRequest := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: shadowsocks-go/"+shadowsocks.Version+"\r\n\r\n", clientTargetAddrString, clientTargetAddrString)
 
 	var (
-		wg        sync.WaitGroup
-		client    zerocopy.ReadWriter
-		clientErr error
+		wg         sync.WaitGroup
+		clientConn netio.Conn
+		clientErr  error
 	)
 
 	// Start client.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		client, clientErr = NewHttpStreamClientReadWriter(pl, clientTargetAddr, "")
+		clientConn, clientErr = ClientConnect(pl, clientTargetAddr, "")
 	}()
 
 	// Read and verify client request.
@@ -197,7 +205,7 @@ func TestHttpStreamClientReadWriterServerSpeaksFirst(t *testing.T) {
 
 	// Read from client and verify.
 	b = b[:1024]
-	n, err = client.ReadZeroCopy(b, 0, len(b))
+	n, err = clientConn.Read(b)
 	if err != nil {
 		t.Fatalf("Failed to read from client: %s", err)
 	}
@@ -213,8 +221,8 @@ func TestHttpStreamClientReadWriterServerSpeaksFirst(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, clientErr = client.WriteZeroCopy([]byte(clientPayload), 0, len(clientPayload))
-		_ = client.CloseWrite()
+		_, clientErr = clientConn.Write([]byte(clientPayload))
+		_ = clientConn.CloseWrite()
 	}()
 
 	// Read from server and verify.

@@ -11,9 +11,7 @@ import (
 	"sync"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/netio"
-	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
 
@@ -32,13 +30,10 @@ func (e FailedAuthAttemptsError) Error() string {
 	return fmt.Sprintf("%d failed authentication attempt(s)", e.Attempts)
 }
 
-// NewHttpStreamServerReadWriter handles a HTTP request from rw and wraps rw into a ReadWriter ready for use.
-func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, usernameByToken map[string]string, logger *zap.Logger) (*direct.DirectStreamReadWriter, conn.Addr, string, error) {
+// ServerHandle handles an HTTP request from rw.
+func ServerHandle(rw netio.Conn, logger *zap.Logger, usernameByToken map[string]string) (pc netio.PendingConn, targetAddr conn.Addr, username string, err error) {
 	var (
 		req                *http.Request
-		err                error
-		username           string
-		ok                 bool
 		failedAuthAttempts int
 	)
 
@@ -57,6 +52,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, usernameBy
 			break
 		}
 
+		var ok bool
 		username, ok = serverHandleBasicAuth(req.Header, usernameByToken)
 		if ok {
 			break
@@ -97,7 +93,7 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, usernameBy
 	}
 
 	// Host -> targetAddr
-	targetAddr, err := hostHeaderToAddr(req.Host)
+	targetAddr, err = hostHeaderToAddr(req.Host)
 	if err != nil {
 		_ = send400(rw)
 		return nil, conn.Addr{}, username, fmt.Errorf("failed to parse host header: %w", err)
@@ -105,23 +101,75 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, usernameBy
 
 	// Fast-track CONNECT.
 	if req.Method == http.MethodConnect {
-		if err = send200(rw); err != nil {
-			return nil, conn.Addr{}, username, fmt.Errorf("failed to send 200 OK response: %w", err)
-		}
-		return direct.NewDirectStreamReadWriter(rw), targetAddr, username, nil
+		return newServerConnectPendingConn(rw), targetAddr, username, nil
 	}
 
+	return newServerNonConnectPendingConn(rw, logger, rwbr, req, targetAddr), targetAddr, username, nil
+}
+
+// serverConnectPendingConn wraps a [netio.Conn] from which a CONNECT request was received.
+//
+// serverConnectPendingConn implements [netio.PendingConn].
+type serverConnectPendingConn struct {
+	inner netio.Conn
+}
+
+// newServerConnectPendingConn returns the connection wrapped as a [netio.PendingConn].
+func newServerConnectPendingConn(c netio.Conn) netio.PendingConn {
+	return serverConnectPendingConn{inner: c}
+}
+
+// Proceed implements [netio.PendingConn.Proceed].
+func (c serverConnectPendingConn) Proceed() (netio.Conn, error) {
+	if err := send200(c.inner); err != nil {
+		return nil, fmt.Errorf("failed to send 200 OK response: %w", err)
+	}
+	return c.inner, nil
+}
+
+// Abort implements [netio.PendingConn.Abort].
+func (c serverConnectPendingConn) Abort(_ conn.DialResult) error {
+	if err := send502(c.inner); err != nil {
+		return fmt.Errorf("failed to send 502 Bad Gateway response: %w", err)
+	}
+	return nil
+}
+
+// serverNonConnectPendingConn wraps a [netio.Conn] from which a non-CONNECT request was received.
+//
+// serverNonConnectPendingConn implements [netio.PendingConn].
+type serverNonConnectPendingConn struct {
+	rw         netio.Conn
+	logger     *zap.Logger
+	rwbr       *bufio.Reader
+	req        *http.Request
+	targetAddr conn.Addr
+}
+
+// newServerNonConnectPendingConn returns the connection wrapped as a [netio.PendingConn].
+func newServerNonConnectPendingConn(rw netio.Conn, logger *zap.Logger, rwbr *bufio.Reader, req *http.Request, targetAddr conn.Addr) netio.PendingConn {
+	return serverNonConnectPendingConn{
+		rw:         rw,
+		logger:     logger,
+		rwbr:       rwbr,
+		req:        req,
+		targetAddr: targetAddr,
+	}
+}
+
+// Proceed implements [netio.PendingConn.Proceed].
+func (c serverNonConnectPendingConn) Proceed() (netio.Conn, error) {
 	// Set up pipes.
 	pl, pr := netio.NewPipe()
 
 	// Spin up separate request and response forwarding goroutines.
 	// This is necessary for handling 1xx informational responses, and allows pipelining.
 	go func() {
-		defer rw.Close()
+		defer c.rw.Close()
 
 		plbr := bufio.NewReader(pl)
 		plbw := bufio.NewWriter(pl)
-		rwbw := bufio.NewWriter(rw)
+		rwbw := bufio.NewWriter(c.rw)
 		rwbwpcw := newPipeClosingWriter(rwbw, pl)
 		reqCh := make(chan *http.Request, 16) // allow pipelining up to 16 requests
 		respDone := make(chan struct{})
@@ -131,21 +179,28 @@ func NewHttpStreamServerReadWriter(rw zerocopy.DirectReadWriteCloser, usernameBy
 
 		go func() {
 			defer wg.Done()
-			err := serverForwardRequests(targetAddr, req, reqCh, respDone, pl, plbw, rw, rwbr, logger)
+			err := serverForwardRequests(c.targetAddr, c.req, reqCh, respDone, pl, plbw, c.rw, c.rwbr, c.logger)
 			pl.CloseWriteWithError(err)
 			close(reqCh)
 		}()
 
-		err := serverForwardResponses(reqCh, plbr, rw, rwbw, rwbwpcw, logger)
+		err := serverForwardResponses(reqCh, plbr, c.rw, rwbw, rwbwpcw, c.logger)
 		pl.CloseReadWithError(err)
-		_ = rw.CloseWrite()
+		_ = c.rw.CloseWrite()
 		close(respDone)
 
 		wg.Wait()
 	}()
 
-	// Wrap pr into a direct stream ReadWriter.
-	return direct.NewDirectStreamReadWriter(pr), targetAddr, username, nil
+	return pr, nil
+}
+
+// Abort implements [netio.PendingConn.Abort].
+func (c serverNonConnectPendingConn) Abort(_ conn.DialResult) error {
+	if err := send502(c.rw); err != nil {
+		return fmt.Errorf("failed to send 502 Bad Gateway response: %w", err)
+	}
+	return nil
 }
 
 func serverHandleBasicAuth(header http.Header, usernameByToken map[string]string) (string, bool) {

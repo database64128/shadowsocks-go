@@ -7,6 +7,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/httpproxy"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"github.com/database64128/shadowsocks-go/tlscerts"
@@ -133,8 +134,9 @@ type ClientConfig struct {
 	dialerCache       conn.DialerCache
 	logger            *zap.Logger
 
-	networkTCP string
-	connDialer conn.Dialer
+	networkTCP  string
+	connDialer  conn.Dialer
+	innerClient *netio.TCPClient
 }
 
 func (cc *ClientConfig) checkAddresses() error {
@@ -213,6 +215,7 @@ func (cc *ClientConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCac
 	if cc.EnableTCP || cc.EnableUDP && cc.Protocol == "socks5" {
 		cc.networkTCP = cc.tcpNetwork()
 		cc.connDialer = cc.dialer()
+		cc.innerClient = cc.newInnerClient()
 	}
 
 	return nil
@@ -241,6 +244,15 @@ func (cc *ClientConfig) dialer() conn.Dialer {
 	})
 }
 
+func (cc *ClientConfig) newInnerClient() *netio.TCPClient {
+	tcc := netio.TCPClientConfig{
+		Name:    cc.Name,
+		Network: cc.networkTCP,
+		Dialer:  cc.connDialer,
+	}
+	return tcc.NewTCPClient()
+}
+
 // TCPClient creates a zerocopy.TCPClient from the ClientConfig.
 func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
 	if !cc.EnableTCP {
@@ -264,9 +276,8 @@ func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
 	case "http":
 		hpcc := httpproxy.ClientConfig{
 			Name:                           cc.Name,
-			Network:                        cc.networkTCP,
-			Address:                        cc.TCPAddress.String(),
-			Dialer:                         cc.connDialer,
+			InnerClient:                    cc.innerClient,
+			Addr:                           cc.TCPAddress,
 			ServerName:                     cc.HTTP.ServerName,
 			EncryptedClientHelloConfigList: cc.HTTP.ECHConfigList,
 			Username:                       cc.HTTP.Username,

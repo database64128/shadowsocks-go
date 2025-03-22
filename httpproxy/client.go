@@ -8,8 +8,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/direct"
-	"github.com/database64128/shadowsocks-go/zerocopy"
+	"github.com/database64128/shadowsocks-go/netio"
 )
 
 // ConnectNonSuccessfulResponseError is returned when the HTTP CONNECT response status code is not 2xx (Successful).
@@ -26,8 +25,8 @@ func (e ConnectNonSuccessfulResponseError) Error() string {
 	return fmt.Sprintf("HTTP CONNECT failed with status code %d", e.StatusCode)
 }
 
-// NewHttpStreamClientReadWriter writes a HTTP/1.1 CONNECT request to rw and wraps rw into a [zerocopy.ReadWriter] ready for use.
-func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr conn.Addr, proxyAuthHeader string) (zerocopy.ReadWriter, error) {
+// ClientConnect writes a HTTP/1.1 CONNECT request to rw and returns the encapsulated stream or an error.
+func ClientConnect(rw netio.Conn, targetAddr conn.Addr, proxyAuthHeader string) (netio.Conn, error) {
 	targetAddress := targetAddr.String()
 
 	// Write CONNECT.
@@ -53,59 +52,50 @@ func NewHttpStreamClientReadWriter(rw zerocopy.DirectReadWriteCloser, targetAddr
 
 	// Check if server spoke first.
 	if br.Buffered() > 0 {
-		return newDirectReadBufferedStreamReadWriter(rw, br), nil
+		return newReadBufferedNetioConn(rw, br), nil
 	}
 
-	return direct.NewDirectStreamReadWriter(rw), nil
+	return rw, nil
 }
 
-// directReadBufferedStreamReadWriter is like [direct.DirectStreamReadWriter], but uses a [*bufio.Reader] for reads.
-type directReadBufferedStreamReadWriter struct {
-	rw zerocopy.DirectReadWriteCloser
+// readBufferedNetioConn embeds a [netio.Conn], but redirects reads to a paired [*bufio.Reader].
+type readBufferedNetioConn struct {
+	netio.Conn
 	br *bufio.Reader
 }
 
-// newDirectReadBufferedStreamReadWriter creates a new [directReadBufferedStreamReadWriter].
-func newDirectReadBufferedStreamReadWriter(rw zerocopy.DirectReadWriteCloser, br *bufio.Reader) *directReadBufferedStreamReadWriter {
-	return &directReadBufferedStreamReadWriter{rw: rw, br: br}
+// Read implements [netio.Conn.Read].
+func (c readBufferedNetioConn) Read(b []byte) (int, error) {
+	// Only read from the buffered reader if it has unread data.
+	// This prevents the buffered reader from seeing and remembering [os.ErrDeadlineExceeded] errors.
+	if c.br.Buffered() > 0 {
+		return c.br.Read(b)
+	}
+	return c.Conn.Read(b)
 }
 
-// WriterInfo implements [zerocopy.Writer.WriterInfo].
-func (rw *directReadBufferedStreamReadWriter) WriterInfo() zerocopy.WriterInfo {
-	return zerocopy.WriterInfo{}
+// WriteTo implements [io.WriterTo].
+func (c readBufferedNetioConn) WriteTo(w io.Writer) (int64, error) {
+	// No need to worry about [os.ErrDeadlineExceeded] here, as
+	// the implementation does not care about previous read errors.
+	return c.br.WriteTo(w)
 }
 
-// WriteZeroCopy implements [zerocopy.Writer.WriteZeroCopy].
-func (rw *directReadBufferedStreamReadWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
-	return rw.rw.Write(b[payloadStart : payloadStart+payloadLen])
+// readBufferedNetioConnReaderFrom is a [readBufferedNetioConn] that implements [io.ReaderFrom].
+type readBufferedNetioConnReaderFrom struct {
+	readBufferedNetioConn
 }
 
-// DirectWriter implements [zerocopy.DirectWriter.DirectWriter].
-func (rw *directReadBufferedStreamReadWriter) DirectWriter() io.Writer {
-	return rw.rw
+// ReadFrom implements [io.ReaderFrom].
+func (c readBufferedNetioConnReaderFrom) ReadFrom(r io.Reader) (int64, error) {
+	return c.Conn.(io.ReaderFrom).ReadFrom(r)
 }
 
-// ReaderInfo implements [zerocopy.Reader.ReaderInfo].
-func (rw *directReadBufferedStreamReadWriter) ReaderInfo() zerocopy.ReaderInfo {
-	return zerocopy.ReaderInfo{}
-}
-
-// ReadZeroCopy implements [zerocopy.Reader.ReadZeroCopy].
-func (rw *directReadBufferedStreamReadWriter) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
-	return rw.br.Read(b[payloadBufStart : payloadBufStart+payloadBufLen])
-}
-
-// DirectReader implements [zerocopy.DirectReader.DirectReader].
-func (rw *directReadBufferedStreamReadWriter) DirectReader() io.Reader {
-	return rw.br
-}
-
-// CloseWrite implements [zerocopy.ReadWriter.CloseWrite].
-func (rw *directReadBufferedStreamReadWriter) CloseWrite() error {
-	return rw.rw.CloseWrite()
-}
-
-// Close implements [zerocopy.ReadWriter.Close].
-func (rw *directReadBufferedStreamReadWriter) Close() error {
-	return rw.rw.Close()
+// newReadBufferedNetioConn returns c with reads redirected to br.
+func newReadBufferedNetioConn(c netio.Conn, br *bufio.Reader) netio.Conn {
+	bc := readBufferedNetioConn{Conn: c, br: br}
+	if _, ok := c.(io.ReaderFrom); ok {
+		return readBufferedNetioConnReaderFrom{bc}
+	}
+	return bc
 }
