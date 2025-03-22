@@ -59,11 +59,6 @@ func (rw *DirectStreamReadWriter) CloseWrite() error {
 	return rw.rw.CloseWrite()
 }
 
-// CloseRead implements the ReadWriter CloseRead method.
-func (rw *DirectStreamReadWriter) CloseRead() error {
-	return rw.rw.CloseRead()
-}
-
 // Close implements the ReadWriter Close method.
 func (rw *DirectStreamReadWriter) Close() error {
 	return rw.rw.Close()

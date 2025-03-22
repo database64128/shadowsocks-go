@@ -105,11 +105,6 @@ func (rw *directReadBufferedStreamReadWriter) CloseWrite() error {
 	return rw.rw.CloseWrite()
 }
 
-// CloseRead implements [zerocopy.ReadWriter.CloseRead].
-func (rw *directReadBufferedStreamReadWriter) CloseRead() error {
-	return rw.rw.CloseRead()
-}
-
 // Close implements [zerocopy.ReadWriter.Close].
 func (rw *directReadBufferedStreamReadWriter) Close() error {
 	return rw.rw.Close()

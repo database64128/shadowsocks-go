@@ -194,12 +194,6 @@ func relayFallback(w Writer, r Reader, frontHeadroom, rearHeadroom, readMaxPaylo
 	}
 }
 
-// CloseRead provides the CloseRead method.
-type CloseRead interface {
-	// CloseRead indicates to the underlying reader that no further reads will happen.
-	CloseRead() error
-}
-
 // CloseWrite provides the CloseWrite method.
 type CloseWrite interface {
 	// CloseWrite indicates to the underlying writer that no further writes will happen.
@@ -210,7 +204,6 @@ type CloseWrite interface {
 type ReadWriter interface {
 	Reader
 	Writer
-	CloseRead
 	CloseWrite
 	io.Closer
 }
@@ -241,7 +234,6 @@ func TwoWayRelay(left, right ReadWriter) (nl2r, nr2l int64, err error) {
 // DirectReadWriteCloser extends io.ReadWriteCloser with CloseRead and CloseWrite.
 type DirectReadWriteCloser interface {
 	io.ReadWriteCloser
-	CloseRead
 	CloseWrite
 }
 

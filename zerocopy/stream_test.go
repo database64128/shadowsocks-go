@@ -136,10 +136,6 @@ func (rw *testReadWriterImpl) RearHeadroom() int {
 	return 0
 }
 
-func (rw *testReadWriterImpl) CloseRead() error {
-	return nil
-}
-
 func (rw *testReadWriterImpl) CloseWrite() error {
 	return nil
 }
@@ -175,10 +171,6 @@ func (rw *testDirectReadWriter) FrontHeadroom() int {
 
 func (rw *testDirectReadWriter) RearHeadroom() int {
 	return 0
-}
-
-func (rw *testDirectReadWriter) CloseRead() error {
-	return nil
 }
 
 func (rw *testDirectReadWriter) CloseWrite() error {

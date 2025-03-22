@@ -107,11 +107,6 @@ func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, pa
 	return rw.ShadowStreamWriter.WriteZeroCopy(b, payloadStart, payloadLen)
 }
 
-// CloseRead implements the ReadWriter CloseRead method.
-func (rw *ShadowStreamServerReadWriter) CloseRead() error {
-	return rw.rawRW.CloseRead()
-}
-
 // CloseWrite implements the ReadWriter CloseWrite method.
 func (rw *ShadowStreamServerReadWriter) CloseWrite() error {
 	return rw.rawRW.CloseWrite()
@@ -198,11 +193,6 @@ func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, 
 	}
 
 	return rw.ShadowStreamReader.ReadZeroCopy(b, payloadBufStart, payloadBufLen)
-}
-
-// CloseRead implements the ReadWriter CloseRead method.
-func (rw *ShadowStreamClientReadWriter) CloseRead() error {
-	return rw.rawRW.CloseRead()
 }
 
 // CloseWrite implements the ReadWriter CloseWrite method.
