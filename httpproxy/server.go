@@ -92,16 +92,30 @@ func ServerHandle(rw netio.Conn, logger *zap.Logger, usernameByToken map[string]
 		)
 	}
 
+	// Fast-track CONNECT.
+	if req.Method == http.MethodConnect {
+		// RFC 9110 section 9.3.6 says:
+		//
+		//	CONNECT uses a special form of request target, unique to this method, consisting of only
+		//	the host and port number of the tunnel destination, separated by a colon. There is no
+		//	default port; a client MUST send the port number even if the CONNECT request is based on
+		//	a URI reference that contains an authority component with an elided port (Section 4.1).
+		//
+		//	A server MUST reject a CONNECT request that targets an empty or invalid port number,
+		//	typically by responding with a 400 (Bad Request) status code.
+		targetAddr, err = conn.ParseAddr(req.RequestURI)
+		if err != nil {
+			_ = send400(rw)
+			return nil, conn.Addr{}, username, fmt.Errorf("failed to parse request target: %w", err)
+		}
+		return newServerConnectPendingConn(rw), targetAddr, username, nil
+	}
+
 	// Host -> targetAddr
 	targetAddr, err = hostHeaderToAddr(req.Host)
 	if err != nil {
 		_ = send400(rw)
 		return nil, conn.Addr{}, username, fmt.Errorf("failed to parse host header: %w", err)
-	}
-
-	// Fast-track CONNECT.
-	if req.Method == http.MethodConnect {
-		return newServerConnectPendingConn(rw), targetAddr, username, nil
 	}
 
 	return newServerNonConnectPendingConn(rw, logger, rwbr, req), targetAddr, username, nil
