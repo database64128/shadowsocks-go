@@ -55,7 +55,7 @@ func TestHttpStreamReadWriter(t *testing.T) {
 func testHttpStreamReadWriter(t *testing.T, expectedUsername, clientProxyAuthHeader string, serverUsernameByToken map[string]string, logger *zap.Logger) {
 	pl, pr := netio.NewPipe()
 
-	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 80))
+	clientTargetAddr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 80)
 
 	var (
 		wg               sync.WaitGroup
@@ -103,7 +103,7 @@ func testHttpStreamReadWriter(t *testing.T, expectedUsername, clientProxyAuthHea
 func testHttpStreamReadWriterBasicAuthBadCredentials(t *testing.T, logger *zap.Logger) {
 	pl, pr := netio.NewPipe()
 
-	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 80))
+	clientTargetAddr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 80)
 	clientProxyAuthHeaders := [...]string{
 		"",
 		"\r\nProxy-Authorization: Basic aGVsbG86d29ybGQ=",
@@ -162,7 +162,7 @@ func testHttpStreamReadWriterBasicAuthBadCredentials(t *testing.T, logger *zap.L
 func TestHttpStreamClientReadWriterServerSpeaksFirst(t *testing.T) {
 	pl, pr := netio.NewPipe()
 
-	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 80))
+	clientTargetAddr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 80)
 	clientTargetAddrString := clientTargetAddr.String()
 	expectedRequest := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: shadowsocks-go/"+shadowsocks.Version+"\r\n\r\n", clientTargetAddrString, clientTargetAddrString)
 

@@ -31,7 +31,7 @@ var (
 	defaultTCPProbeAddress = conn.MustAddrFromDomainPort("clients3.google.com", 80)
 
 	// [2606:4700:4700::1111]:53
-	defaultUDPProbeAddress = conn.AddrFromIPPort(netip.AddrPortFrom(netip.AddrFrom16([16]byte{0x26, 0x06, 0x47, 0x00, 0x47, 0x00, 14: 0x11, 0x11}), 53))
+	defaultUDPProbeAddress = conn.AddrFromIPAndPort(netip.AddrFrom16([16]byte{0x26, 0x06, 0x47, 0x00, 0x47, 0x00, 14: 0x11, 0x11}), 53)
 )
 
 // ConnectivityProbeConfig is the shared part of the configuration for TCP and UDP connectivity probes.

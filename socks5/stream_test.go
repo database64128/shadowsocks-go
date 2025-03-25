@@ -137,7 +137,7 @@ func testStreamClientError(
 ) {
 	pl, pr := netio.NewPipe()
 
-	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+	clientTargetAddr := conn.AddrFromIPAndPort(netip.IPv6Unspecified(), 53)
 
 	var (
 		wg         sync.WaitGroup
@@ -739,7 +739,7 @@ func TestStreamClientServer(t *testing.T) {
 				{"DisableUDP", false},
 			} {
 				t.Run(udpCase.name, func(t *testing.T) {
-					addr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 1080))
+					addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 1080)
 
 					newClient := func(psc *netiotest.PipeStreamClient) netio.StreamClient {
 						clientConfig := StreamClientConfig{

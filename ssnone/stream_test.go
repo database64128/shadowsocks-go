@@ -11,7 +11,7 @@ import (
 )
 
 func TestStreamClientServer(t *testing.T) {
-	addr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 8388))
+	addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 8388)
 
 	newClient := func(psc *netiotest.PipeStreamClient) netio.StreamClient {
 		clientConfig := ssnone.StreamClientConfig{

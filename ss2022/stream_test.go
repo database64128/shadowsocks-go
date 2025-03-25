@@ -16,7 +16,7 @@ import (
 func testShadowStreamReadWriter(t *testing.T, allowSegmentedFixedLengthHeader bool, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, clientInitialPayload, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) {
 	pl, pr := netio.NewPipe()
 	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
-	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+	clientTargetAddr := conn.AddrFromIPAndPort(netip.IPv6Unspecified(), 53)
 	c := TCPClient{
 		rwo:                        &plo,
 		readOnceOrFull:             readOnceOrFullFunc(allowSegmentedFixedLengthHeader),
@@ -77,7 +77,7 @@ func testShadowStreamReadWriter(t *testing.T, allowSegmentedFixedLengthHeader bo
 func testShadowStreamReadWriterReplay(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap) {
 	pl, pr := netio.NewPipe()
 	plo := zerocopy.SimpleDirectReadWriteCloserOpener{DirectReadWriteCloser: pl}
-	clientTargetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+	clientTargetAddr := conn.AddrFromIPAndPort(netip.IPv6Unspecified(), 53)
 	c := TCPClient{
 		rwo:            &plo,
 		readOnceOrFull: readOnceExpectFull,

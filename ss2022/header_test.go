@@ -69,7 +69,7 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 	payloadLen := 1 + int(mrand.Uint64()&1023)
 	payload := make([]byte, payloadLen)
 	rand.Read(payload)
-	targetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 443))
+	targetAddr := conn.AddrFromIPAndPort(netip.IPv6Unspecified(), 443)
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	noPayloadLen := targetAddrLen + 2 + 1 + mrand.IntN(MaxPaddingLength)
 	noPaddingLen := targetAddrLen + 2 + payloadLen
@@ -219,7 +219,7 @@ func TestWriteAndParseSessionIDAndPacketID(t *testing.T) {
 
 func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	var cachedDomain string
-	targetAddr := conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Unspecified(), 53))
+	targetAddr := conn.AddrFromIPAndPort(netip.IPv6Unspecified(), 53)
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	noPaddingLen := UDPClientMessageHeaderFixedLength + targetAddrLen
 	paddingLen := 1 + mrand.IntN(MaxPaddingLength)

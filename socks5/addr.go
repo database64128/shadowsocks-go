@@ -224,7 +224,7 @@ func ConnAddrFromReader(r io.Reader) (conn.Addr, error) {
 		}
 		ip := netip.AddrFrom4(*(*[4]byte)(b1))
 		port := binary.BigEndian.Uint16(b1[4:])
-		return conn.AddrFromIPPort(netip.AddrPortFrom(ip, port)), nil
+		return conn.AddrFromIPAndPort(ip, port), nil
 
 	case AtypIPv6:
 		b1 := make([]byte, 16+2)
@@ -235,7 +235,7 @@ func ConnAddrFromReader(r io.Reader) (conn.Addr, error) {
 		}
 		ip := netip.AddrFrom16(*(*[16]byte)(b1))
 		port := binary.BigEndian.Uint16(b1[16:])
-		return conn.AddrFromIPPort(netip.AddrPortFrom(ip, port)), nil
+		return conn.AddrFromIPAndPort(ip, port), nil
 
 	default:
 		return conn.Addr{}, fmt.Errorf("invalid ATYP: %d", b[0])
@@ -296,7 +296,7 @@ func ConnAddrFromSlice(b []byte) (conn.Addr, int, error) {
 		}
 		ip := netip.AddrFrom4(*(*[4]byte)(b[1:]))
 		port := binary.BigEndian.Uint16(b[1+4:])
-		return conn.AddrFromIPPort(netip.AddrPortFrom(ip, port)), 1 + 4 + 2, nil
+		return conn.AddrFromIPAndPort(ip, port), 1 + 4 + 2, nil
 
 	case AtypIPv6:
 		if len(b) < 1+16+2 {
@@ -304,7 +304,7 @@ func ConnAddrFromSlice(b []byte) (conn.Addr, int, error) {
 		}
 		ip := netip.AddrFrom16(*(*[16]byte)(b[1:]))
 		port := binary.BigEndian.Uint16(b[1+16:])
-		return conn.AddrFromIPPort(netip.AddrPortFrom(ip, port)), 1 + 16 + 2, nil
+		return conn.AddrFromIPAndPort(ip, port), 1 + 16 + 2, nil
 
 	default:
 		return conn.Addr{}, 0, fmt.Errorf("invalid ATYP: %d", b[0])
@@ -337,7 +337,7 @@ func ConnAddrFromSliceWithDomainCache(b []byte, cachedDomain string) (conn.Addr,
 		}
 		ip := netip.AddrFrom4(*(*[4]byte)(b[1 : 1+4]))
 		port := binary.BigEndian.Uint16(b[1+4:])
-		return conn.AddrFromIPPort(netip.AddrPortFrom(ip, port)), 1 + 4 + 2, cachedDomain, nil
+		return conn.AddrFromIPAndPort(ip, port), 1 + 4 + 2, cachedDomain, nil
 
 	case AtypIPv6:
 		if len(b) < 1+16+2 {
@@ -345,7 +345,7 @@ func ConnAddrFromSliceWithDomainCache(b []byte, cachedDomain string) (conn.Addr,
 		}
 		ip := netip.AddrFrom16(*(*[16]byte)(b[1 : 1+16]))
 		port := binary.BigEndian.Uint16(b[1+16:])
-		return conn.AddrFromIPPort(netip.AddrPortFrom(ip, port)), 1 + 16 + 2, cachedDomain, nil
+		return conn.AddrFromIPAndPort(ip, port), 1 + 16 + 2, cachedDomain, nil
 
 	default:
 		return conn.Addr{}, 0, cachedDomain, fmt.Errorf("invalid ATYP: %d", b[0])

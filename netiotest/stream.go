@@ -94,11 +94,11 @@ var testAddrCases = [...]struct {
 }{
 	{
 		name: "IPv4",
-		addr: conn.AddrFromIPPort(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 10004)),
+		addr: conn.AddrFromIPAndPort(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 10004),
 	},
 	{
 		name: "IPv6",
-		addr: conn.AddrFromIPPort(netip.AddrPortFrom(netip.IPv6Loopback(), 16666)),
+		addr: conn.AddrFromIPAndPort(netip.IPv6Loopback(), 16666),
 	},
 	{
 		name: "Domain",
