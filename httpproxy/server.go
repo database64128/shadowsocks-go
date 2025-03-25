@@ -104,7 +104,7 @@ func ServerHandle(rw netio.Conn, logger *zap.Logger, usernameByToken map[string]
 		return newServerConnectPendingConn(rw), targetAddr, username, nil
 	}
 
-	return newServerNonConnectPendingConn(rw, logger, rwbr, req, targetAddr), targetAddr, username, nil
+	return newServerNonConnectPendingConn(rw, logger, rwbr, req), targetAddr, username, nil
 }
 
 // serverConnectPendingConn wraps a [netio.Conn] from which a CONNECT request was received.
@@ -139,21 +139,19 @@ func (c serverConnectPendingConn) Abort(_ conn.DialResult) error {
 //
 // serverNonConnectPendingConn implements [netio.PendingConn].
 type serverNonConnectPendingConn struct {
-	rw         netio.Conn
-	logger     *zap.Logger
-	rwbr       *bufio.Reader
-	req        *http.Request
-	targetAddr conn.Addr
+	rw     netio.Conn
+	logger *zap.Logger
+	rwbr   *bufio.Reader
+	req    *http.Request
 }
 
 // newServerNonConnectPendingConn returns the connection wrapped as a [netio.PendingConn].
-func newServerNonConnectPendingConn(rw netio.Conn, logger *zap.Logger, rwbr *bufio.Reader, req *http.Request, targetAddr conn.Addr) netio.PendingConn {
+func newServerNonConnectPendingConn(rw netio.Conn, logger *zap.Logger, rwbr *bufio.Reader, req *http.Request) netio.PendingConn {
 	return serverNonConnectPendingConn{
-		rw:         rw,
-		logger:     logger,
-		rwbr:       rwbr,
-		req:        req,
-		targetAddr: targetAddr,
+		rw:     rw,
+		logger: logger,
+		rwbr:   rwbr,
+		req:    req,
 	}
 }
 
@@ -179,7 +177,7 @@ func (c serverNonConnectPendingConn) Proceed() (netio.Conn, error) {
 
 		go func() {
 			defer wg.Done()
-			err := serverForwardRequests(c.targetAddr, c.req, reqCh, respDone, pl, plbw, c.rw, c.rwbr, c.logger)
+			err := serverForwardRequests(c.req, reqCh, respDone, plbw, c.rwbr, c.logger)
 			pl.CloseWriteWithError(err)
 			close(reqCh)
 		}()
@@ -222,13 +220,10 @@ func serverHandleBasicAuth(header http.Header, usernameByToken map[string]string
 }
 
 func serverForwardRequests(
-	targetAddr conn.Addr,
 	req *http.Request,
 	reqCh chan<- *http.Request,
 	respDone <-chan struct{},
-	pl *netio.PipeConn,
 	plbw *bufio.Writer,
-	rw netio.ReadWriter,
 	rwbr *bufio.Reader,
 	logger *zap.Logger,
 ) (err error) {
@@ -297,34 +292,14 @@ func serverForwardRequests(
 		//	but from the client's point of view, a request is in progress.
 
 		// According to RFC 9110 section 3.3, a CONNECT request can occur at any time,
-		// not just in the first message on a connection. Although no client is known to
-		// do this, we handle it with best effort.
+		// not just in the first message on a connection.
+		//
+		// In practice, no client is known to do this. And a hypothetical client doing
+		// it would likely be doing so to establish a tunnel to a different host,
+		// which we cannot handle and have to close the connection anyway.
 		if req.Method == http.MethodConnect {
-			// The Host header in a CONNECT request includes the port number,
-			// whereas in other requests the port number is usually omitted if it's 80.
-			// Therefore, parse and compare as a socket address.
-			newTargetAddr, err := hostHeaderToAddr(req.Host)
-			if err != nil {
-				_ = send400(pl)
-				return err
-			}
-
-			if !newTargetAddr.Equals(targetAddr) {
-				if ce := logger.Check(zap.DebugLevel, "CONNECT request to different host, closing connection"); ce != nil {
-					ce.Write(
-						zap.String("oldHost", fixedHost),
-						zap.String("newHost", req.Host),
-					)
-				}
-				return nil
-			}
-
-			if err = send200(pl); err != nil {
-				return fmt.Errorf("failed to send 200 OK response: %w", err)
-			}
-
-			_, _, err = netio.BidirectionalCopy(rw, pl)
-			return err
+			logger.Debug("Subsequent HTTP request method is CONNECT, closing connection")
+			return nil
 		}
 
 		if req.Host != fixedHost {
