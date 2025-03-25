@@ -240,49 +240,34 @@ func TestHttpStreamClientReadWriterServerSpeaksFirst(t *testing.T) {
 	wg.Wait()
 }
 
-func testHostHeaderToDomainPort(t *testing.T, host, expectedDomain string, expectedPort uint16) {
-	addr, err := hostHeaderToAddr(host)
-	if err != nil {
-		t.Errorf("Failed to parse %s: %s", host, err)
-	}
-	if domain := addr.Domain(); domain != expectedDomain {
-		t.Errorf("Expected domain %s, got %s", expectedDomain, domain)
-	}
-	if port := addr.Port(); port != expectedPort {
-		t.Errorf("Expected port %d, got %d", expectedPort, port)
-	}
-}
-
-func testHostHeaderToIPPort(t *testing.T, host string, expectedAddrPort netip.AddrPort) {
-	addr, err := hostHeaderToAddr(host)
-	if err != nil {
-		t.Errorf("Failed to parse %s: %s", host, err)
-	}
-	if addrPort := addr.IPPort(); addrPort != expectedAddrPort {
-		t.Errorf("Expected addrPort %s, got %s", expectedAddrPort, addrPort)
-	}
-}
-
-func testHostHeaderToError(t *testing.T, host string, expectedErr error) {
-	_, err := hostHeaderToAddr(host)
-	if err != expectedErr {
-		t.Errorf("Expected error %s, got %s", expectedErr, err)
-	}
-}
-
 func TestHostHeaderToAddr(t *testing.T) {
-	testHostHeaderToDomainPort(t, "example.com", "example.com", 80)
-	testHostHeaderToDomainPort(t, "example.com:443", "example.com", 443)
-
 	addr4 := netip.AddrFrom4([4]byte{1, 1, 1, 1})
-	testHostHeaderToIPPort(t, "1.1.1.1", netip.AddrPortFrom(addr4, 80))
-	testHostHeaderToIPPort(t, "1.1.1.1:443", netip.AddrPortFrom(addr4, 443))
-
 	addr6 := netip.AddrFrom16([16]byte{0x26, 0x06, 0x47, 0x00, 0x47, 0x00, 14: 0x11, 15: 0x11})
-	testHostHeaderToIPPort(t, "[2606:4700:4700::1111]", netip.AddrPortFrom(addr6, 80))
-	testHostHeaderToIPPort(t, "[2606:4700:4700::1111]:443", netip.AddrPortFrom(addr6, 443))
 
-	testHostHeaderToError(t, "", errEmptyHostHeader)
+	for _, c := range []struct {
+		name         string
+		host         string
+		expectedAddr conn.Addr
+		expectedErr  error
+	}{
+		{"Domain", "example.com", conn.MustAddrFromDomainPort("example.com", 80), nil},
+		{"DomainPort", "example.com:443", conn.MustAddrFromDomainPort("example.com", 443), nil},
+		{"IPv4", "1.1.1.1", conn.AddrFromIPAndPort(addr4, 80), nil},
+		{"IPv4Port", "1.1.1.1:443", conn.AddrFromIPAndPort(addr4, 443), nil},
+		{"IPv6", "[2606:4700:4700::1111]", conn.AddrFromIPAndPort(addr6, 80), nil},
+		{"IPv6Port", "[2606:4700:4700::1111]:443", conn.AddrFromIPAndPort(addr6, 443), nil},
+		{"Empty", "", conn.Addr{}, errEmptyHostHeader},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			addr, err := hostHeaderToAddr(c.host)
+			if !addr.Equals(c.expectedAddr) {
+				t.Errorf("addr = %v, want %v", addr, c.expectedAddr)
+			}
+			if !errors.Is(err, c.expectedErr) {
+				t.Errorf("err = %v, want %v", err, c.expectedErr)
+			}
+		})
+	}
 }
 
 func TestRemoveConnectionSpecificFields(t *testing.T) {
@@ -317,10 +302,10 @@ func TestRemoveConnectionSpecificFields(t *testing.T) {
 	removeConnectionSpecificFields(header, trailer)
 
 	if !maps.EqualFunc(header, expectedHeader, slices.Equal) {
-		t.Errorf("header = %v, expected %v", header, expectedHeader)
+		t.Errorf("header = %v, want %v", header, expectedHeader)
 	}
 
 	if !maps.EqualFunc(trailer, expectedTrailer, slices.Equal) {
-		t.Errorf("trailer = %v, expected %v", trailer, expectedTrailer)
+		t.Errorf("trailer = %v, want %v", trailer, expectedTrailer)
 	}
 }
