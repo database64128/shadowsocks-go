@@ -65,6 +65,7 @@ const (
 var (
 	ErrIncompleteHeaderInFirstChunk  = errors.New("header in first chunk is missing or incomplete")
 	ErrPaddingExceedChunkBorder      = errors.New("padding in first chunk is shorter than advertised")
+	ErrZeroResponsePayloadLength     = errors.New("payload length in response header is zero")
 	ErrBadTimestamp                  = errors.New("time diff is over 30 seconds")
 	ErrTypeMismatch                  = errors.New("header type mismatch")
 	ErrClientSaltMismatch            = errors.New("client salt in response header does not match request")
@@ -254,6 +255,9 @@ func ParseTCPResponseHeader(b []byte, requestSalt []byte) (n int, err error) {
 
 	// Length
 	n = int(binary.BigEndian.Uint16(b[1+8+len(requestSalt):]))
+	if n == 0 {
+		return 0, ErrZeroResponsePayloadLength
+	}
 
 	return
 }
