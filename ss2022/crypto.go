@@ -11,6 +11,11 @@ import (
 )
 
 const (
+	nonceSize = 12
+	tagSize   = 16
+)
+
+const (
 	subkeyCtxSession  = "shadowsocks 2022 session subkey"
 	subkeyCtxIdentity = "shadowsocks 2022 identity subkey"
 )

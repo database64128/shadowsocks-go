@@ -206,7 +206,7 @@ func ParseTCPRequestVariableLengthHeader(b []byte) (targetAddr conn.Addr, payloa
 //
 //	socks5.LengthOfAddrFromConnAddr(targetAddr) + 2 + len(payload) + paddingLen
 //
-// The buffer size must not exceed [MaxPayloadSize].
+// The buffer size must not exceed [streamMaxPayloadSize].
 // The excess space in the buffer must not be larger than [MaxPaddingLength] bytes.
 func WriteTCPRequestVariableLengthHeader(b []byte, targetAddr conn.Addr, payload []byte) {
 	// SOCKS address
@@ -277,6 +277,23 @@ func WriteTCPResponseHeader(b []byte, requestSalt []byte, length uint16) {
 
 	// Length
 	binary.BigEndian.PutUint16(b[1+8+len(requestSalt):], length)
+}
+
+// AppendTCPResponseHeader appends a TCP response fixed-length header to the buffer.
+//
+// To avoid allocations, the buffer must have 1 + 8 + len(requestSalt) + 2 bytes of extra capacity.
+func AppendTCPResponseHeader(b, requestSalt []byte, length uint16) []byte {
+	// Type
+	b = append(b, HeaderTypeServerStream)
+
+	// Timestamp
+	b = binary.BigEndian.AppendUint64(b, uint64(time.Now().Unix()))
+
+	// Request salt
+	b = append(b, requestSalt...)
+
+	// Length
+	return binary.BigEndian.AppendUint16(b, length)
 }
 
 // ParseSessionIDAndPacketID parses the session ID and packet ID segment of a decrypted UDP packet.

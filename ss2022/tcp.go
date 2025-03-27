@@ -9,6 +9,7 @@ import (
 	mrand "math/rand/v2"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
@@ -54,7 +55,7 @@ func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []by
 
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	payloadLen := len(payload)
-	roomForPayload := MaxPayloadSize - targetAddrLen - 2
+	roomForPayload := streamMaxPayloadSize - targetAddrLen - 2
 
 	switch {
 	case payloadLen > roomForPayload:
@@ -76,10 +77,10 @@ func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []by
 	identityHeadersStart := urspLen + saltLen
 	fixedLengthHeaderStart := identityHeadersStart + identityHeadersLen
 	fixedLengthHeaderEnd := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength
-	variableLengthHeaderStart := fixedLengthHeaderEnd + 16
+	variableLengthHeaderStart := fixedLengthHeaderEnd + tagSize
 	variableLengthHeaderLen := targetAddrLen + 2 + paddingPayloadLen
 	variableLengthHeaderEnd := variableLengthHeaderStart + variableLengthHeaderLen
-	bufferLen := variableLengthHeaderEnd + 16
+	bufferLen := variableLengthHeaderEnd + tagSize
 	b := make([]byte, bufferLen)
 	ursp := b[:urspLen]
 	salt := b[urspLen:identityHeadersStart]
@@ -128,9 +129,9 @@ func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []by
 		return
 	}
 
-	w := ShadowStreamWriter{
-		writer: rawRW,
-		ssc:    shadowStreamCipher,
+	w := ShadowStreamConn{
+		Conn:        rawRW.(netio.Conn),
+		writeCipher: shadowStreamCipher,
 	}
 
 	// Write excess payload, reusing the variable-length header buffer.
@@ -143,9 +144,8 @@ func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []by
 		}
 	}
 
-	rw = &ShadowStreamClientReadWriter{
-		ShadowStreamWriter:         &w,
-		rawRW:                      rawRW,
+	rw = &ShadowStreamClientConn{
+		ShadowStreamConn:           w,
 		readOnceOrFull:             c.readOnceOrFull,
 		cipherConfig:               c.cipherConfig,
 		requestSalt:                salt,
@@ -201,7 +201,7 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 	urspLen := len(s.unsafeRequestStreamPrefix)
 	identityHeaderStart := urspLen + saltLen
 	fixedLengthHeaderStart := identityHeaderStart + identityHeaderLen
-	bufferLen := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength + 16
+	bufferLen := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength + tagSize
 	b := make([]byte, bufferLen)
 
 	// Read unsafe request stream prefix, salt, identity header, fixed-length header.
@@ -284,7 +284,7 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 
 	s.Unlock()
 
-	b = make([]byte, vhlen+16)
+	b = make([]byte, vhlen+tagSize)
 
 	// Read variable-length header.
 	_, err = io.ReadFull(rawRW, b)
@@ -304,13 +304,11 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 		return
 	}
 
-	r := ShadowStreamReader{
-		reader: rawRW,
-		ssc:    shadowStreamCipher,
-	}
-	rw = &ShadowStreamServerReadWriter{
-		ShadowStreamReader:         &r,
-		rawRW:                      rawRW,
+	rw = &ShadowStreamServerConn{
+		ShadowStreamConn: ShadowStreamConn{
+			Conn:       rawRW.(netio.Conn),
+			readCipher: shadowStreamCipher,
+		},
 		cipherConfig:               userCipherConfig,
 		requestSalt:                salt,
 		unsafeResponseStreamPrefix: s.unsafeResponseStreamPrefix,

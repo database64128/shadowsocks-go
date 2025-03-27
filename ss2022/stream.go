@@ -6,33 +6,19 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
+	"slices"
 
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-const MaxPayloadSize = 0xFFFF
-
-// ShadowStreamHeadroom is the headroom required by an encrypted Shadowsocks stream.
-//
-// Front is the size of an encrypted length chunk.
-// Rear is the size of an AEAD tag.
-var ShadowStreamHeadroom = zerocopy.Headroom{
-	Front: 2 + 16,
-	Rear:  16,
-}
-
-// ShadowStreamReaderInfo contains information about a [ShadowStreamReader].
-var ShadowStreamReaderInfo = zerocopy.ReaderInfo{
-	Headroom:                    ShadowStreamHeadroom,
-	MinPayloadBufferSizePerRead: MaxPayloadSize,
-}
-
-// ShadowStreamWriterInfo contains information about a [ShadowStreamWriter].
-var ShadowStreamWriterInfo = zerocopy.WriterInfo{
-	Headroom:               ShadowStreamHeadroom,
-	MaxPayloadSizePerWrite: MaxPayloadSize,
-}
+const (
+	streamMaxPayloadSize    = 0xFFFF
+	streamReadMinBufferSize = streamMaxPayloadSize + tagSize
+	streamWriteBufferSize   = 2 + tagSize + streamMaxPayloadSize + tagSize
+)
 
 var (
 	ErrZeroLengthChunk = errors.New("length in length chunk is zero")
@@ -42,170 +28,281 @@ var (
 
 var ErrUnsafeStreamPrefixMismatch = errors.New("unsafe stream prefix mismatch")
 
-// ShadowStreamServerReadWriter implements Shadowsocks stream server.
-type ShadowStreamServerReadWriter struct {
-	*ShadowStreamReader
-	*ShadowStreamWriter
-	rawRW                      zerocopy.DirectReadWriteCloser
+// ShadowStreamServerConn is a server stream connection.
+type ShadowStreamServerConn struct {
+	ShadowStreamConn
 	cipherConfig               UserCipherConfig
 	requestSalt                []byte
 	unsafeResponseStreamPrefix []byte
 }
 
+// Write implements [netio.Conn.Write].
+func (c *ShadowStreamServerConn) Write(b []byte) (n int, err error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
+
+	if c.ShadowStreamConn.writeCipher == nil { // first write
+		hb, payloadBuf := c.prepareInitWriteBufs()
+		payloadLen := min(len(payloadBuf), len(b))
+		if err = c.initWrite(hb, b[:payloadLen]); err != nil {
+			return 0, err
+		}
+		n += payloadLen
+		if payloadLen < len(b) {
+			var nn int
+			nn, err = c.ShadowStreamConn.Write(b[payloadLen:])
+			n += nn
+		}
+		return n, err
+	}
+
+	return c.ShadowStreamConn.Write(b)
+}
+
+// ReadFrom implements [io.ReaderFrom].
+func (c *ShadowStreamServerConn) ReadFrom(r io.Reader) (n int64, err error) {
+	if c.ShadowStreamConn.writeCipher == nil { // first write
+		hb, payloadBuf := c.prepareInitWriteBufs()
+
+		nr, err := r.Read(payloadBuf)
+		if nr > 0 {
+			n += int64(nr)
+			if err = c.initWrite(hb, payloadBuf[:nr]); err != nil {
+				return n, err
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				return n, nil
+			}
+			return n, err
+		}
+		if nr <= 0 {
+			return 0, io.ErrNoProgress
+		}
+
+		n, err = c.ShadowStreamConn.ReadFrom(r)
+		n += int64(nr)
+		return n, err
+	}
+
+	return c.ShadowStreamConn.ReadFrom(r)
+}
+
+func (c *ShadowStreamServerConn) prepareInitWriteBufs() (hb, payloadBuf []byte) {
+	urspLen := len(c.unsafeResponseStreamPrefix)
+	saltLen := len(c.cipherConfig.PSK)
+	responseHeaderStart := urspLen + saltLen
+	responseHeaderEnd := responseHeaderStart + TCPRequestFixedLengthHeaderLength + saltLen
+	payloadBufStart := responseHeaderEnd + tagSize
+	// When ursp is unusually large, guarantee enough buffer space for at least 4096 bytes of payload.
+	minBufferLen := payloadBufStart + 4096 + tagSize
+	if minBufferLen <= streamWriteBufferSize {
+		hb = c.ShadowStreamConn.getWriteBuf()
+	} else {
+		hb = slices.Grow(hb, minBufferLen)
+	}
+	// Ensure payloadBuf is no larger than streamMaxPayloadSize.
+	payloadBufEnd := min(payloadBufStart+streamMaxPayloadSize, cap(hb)-tagSize)
+	return hb, hb[payloadBufStart:payloadBufEnd]
+}
+
+func (c *ShadowStreamServerConn) initWrite(hb, payload []byte) error {
+	// Append unsafe response stream prefix.
+	hb = append(hb, c.unsafeResponseStreamPrefix...)
+
+	// Append random salt.
+	dst := hb[:len(hb)+len(c.cipherConfig.PSK)]
+	salt := dst[len(hb):]
+	rand.Read(salt)
+
+	// Append response header.
+	hb = AppendTCPResponseHeader(dst, c.requestSalt, uint16(len(payload)))
+
+	// Create AEAD cipher.
+	shadowStreamCipher, err := c.cipherConfig.ShadowStreamCipher(salt)
+	if err != nil {
+		return err
+	}
+	c.ShadowStreamConn.writeCipher = shadowStreamCipher
+
+	// Seal response header.
+	hb = shadowStreamCipher.EncryptAppend(dst, hb[len(dst):])
+
+	// Seal payload chunk.
+	hb = shadowStreamCipher.EncryptAppend(hb, payload)
+
+	// Write to inner connection.
+	_, err = c.ShadowStreamConn.Conn.Write(hb)
+	return err
+}
+
 // WriteZeroCopy implements the Writer WriteZeroCopy method.
-func (rw *ShadowStreamServerReadWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (int, error) {
-	if rw.ShadowStreamWriter == nil { // first write
-		urspLen := len(rw.unsafeResponseStreamPrefix)
-		saltLen := len(rw.cipherConfig.PSK)
-		responseHeaderStart := urspLen + saltLen
-		responseHeaderEnd := responseHeaderStart + TCPRequestFixedLengthHeaderLength + saltLen
-		payloadBufStart := responseHeaderEnd + 16
-		bufferLen := payloadBufStart + payloadLen + 16
-		hb := make([]byte, bufferLen)
-		ursp := hb[:urspLen]
-		salt := hb[urspLen:responseHeaderStart]
-		responseHeader := hb[responseHeaderStart:responseHeaderEnd]
+func (c *ShadowStreamServerConn) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (int, error) {
+	if payloadLen == 0 {
+		return 0, nil
+	}
 
-		// Write unsafe response stream prefix.
-		copy(ursp, rw.unsafeResponseStreamPrefix)
-
-		// Random salt.
-		rand.Read(salt)
-
-		// Write response header.
-		WriteTCPResponseHeader(responseHeader, rw.requestSalt, uint16(payloadLen))
-
-		// Create AEAD cipher.
-		shadowStreamCipher, err := rw.cipherConfig.ShadowStreamCipher(salt)
-		if err != nil {
+	if c.ShadowStreamConn.writeCipher == nil { // first write
+		hb, _ := c.prepareInitWriteBufs()
+		if err := c.initWrite(hb, b[payloadStart:payloadStart+payloadLen]); err != nil {
 			return 0, err
 		}
-
-		// Create writer.
-		rw.ShadowStreamWriter = &ShadowStreamWriter{
-			writer: rw.rawRW,
-			ssc:    shadowStreamCipher,
-		}
-
-		// Seal response header.
-		shadowStreamCipher.EncryptInPlace(responseHeader)
-
-		// Seal payload.
-		dst := hb[payloadBufStart:]
-		plaintext := b[payloadStart : payloadStart+payloadLen]
-		shadowStreamCipher.EncryptTo(dst, plaintext)
-
-		// Write out.
-		_, err = rw.rawRW.Write(hb)
-		if err != nil {
-			return 0, err
-		}
-
 		return payloadLen, nil
 	}
 
-	return rw.ShadowStreamWriter.WriteZeroCopy(b, payloadStart, payloadLen)
+	return c.ShadowStreamConn.WriteZeroCopy(b, payloadStart, payloadLen)
 }
 
-// CloseWrite implements the ReadWriter CloseWrite method.
-func (rw *ShadowStreamServerReadWriter) CloseWrite() error {
-	return rw.rawRW.CloseWrite()
-}
-
-// Close implements the ReadWriter Close method.
-func (rw *ShadowStreamServerReadWriter) Close() error {
-	return rw.rawRW.Close()
-}
-
-// ShadowStreamClientReadWriter implements Shadowsocks stream client.
-type ShadowStreamClientReadWriter struct {
-	*ShadowStreamReader
-	*ShadowStreamWriter
-	rawRW                      zerocopy.DirectReadWriteCloser
+// ShadowStreamClientConn is a client stream connection.
+type ShadowStreamClientConn struct {
+	ShadowStreamConn
 	readOnceOrFull             func(io.Reader, []byte) (int, error)
 	cipherConfig               *ClientCipherConfig
 	requestSalt                []byte
 	unsafeResponseStreamPrefix []byte
 }
 
-// ReadZeroCopy implements the Reader ReadZeroCopy method.
-func (rw *ShadowStreamClientReadWriter) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (int, error) {
-	if rw.ShadowStreamReader == nil { // first read
-		urspLen := len(rw.unsafeResponseStreamPrefix)
-		saltLen := len(rw.cipherConfig.PSK)
-		fixedLengthHeaderStart := urspLen + saltLen
-		bufferLen := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength + saltLen + 16
-		hb := make([]byte, bufferLen)
-
-		// Read response header.
-		_, err := rw.readOnceOrFull(rw.rawRW, hb)
+// Read implements [netio.Conn.Read].
+func (c *ShadowStreamClientConn) Read(b []byte) (n int, err error) {
+	if c.ShadowStreamConn.readCipher == nil { // first read
+		payloadLen, err := c.initRead(b)
 		if err != nil {
 			return 0, err
 		}
+		bufLen := payloadLen + tagSize
 
-		// Check unsafe response stream prefix.
-		ursp := hb[:urspLen]
-		if !bytes.Equal(ursp, rw.unsafeResponseStreamPrefix) {
-			return 0, &HeaderError[[]byte]{ErrUnsafeStreamPrefixMismatch, rw.unsafeResponseStreamPrefix, ursp}
+		// Happy path: b is large enough for the read.
+		if bufLen <= len(b) {
+			if err = c.readFirstPayloadChunk(b[:bufLen]); err != nil {
+				return 0, err
+			}
+			return payloadLen, nil
 		}
 
-		// Derive key and create cipher.
-		salt := hb[urspLen:fixedLengthHeaderStart]
-		ciphertext := hb[fixedLengthHeaderStart:]
-		shadowStreamCipher, err := rw.cipherConfig.ShadowStreamCipher(salt)
-		if err != nil {
+		readBuf := c.ShadowStreamConn.getReadBuf()
+		if err = c.readFirstPayloadChunk(readBuf[:bufLen]); err != nil {
 			return 0, err
 		}
+		readBuf = readBuf[:payloadLen]
 
-		// Create reader.
-		rw.ShadowStreamReader = &ShadowStreamReader{
-			reader: rw.rawRW,
-			ssc:    shadowStreamCipher,
+		n = copy(b, readBuf)
+		if n < payloadLen {
+			c.ShadowStreamConn.readBuf = readBuf
+			c.ShadowStreamConn.readStart = n
 		}
-
-		// AEAD open.
-		plaintext, err := shadowStreamCipher.DecryptInPlace(ciphertext)
-		if err != nil {
-			return 0, err
-		}
-
-		// Parse response header.
-		n, err := ParseTCPResponseHeader(plaintext, rw.requestSalt)
-		if err != nil {
-			return 0, err
-		}
-
-		payloadBuf := b[payloadBufStart : payloadBufStart+n+16]
-
-		// Read payload chunk.
-		_, err = io.ReadFull(rw.rawRW, payloadBuf)
-		if err != nil {
-			return 0, err
-		}
-
-		// AEAD open.
-		_, err = shadowStreamCipher.DecryptInPlace(payloadBuf)
-		if err != nil {
-			return 0, err
-		}
-
 		return n, nil
 	}
 
-	return rw.ShadowStreamReader.ReadZeroCopy(b, payloadBufStart, payloadBufLen)
+	return c.ShadowStreamConn.Read(b)
 }
 
-// CloseWrite implements the ReadWriter CloseWrite method.
-func (rw *ShadowStreamClientReadWriter) CloseWrite() error {
-	return rw.rawRW.CloseWrite()
+// WriteTo implements [io.WriterTo].
+func (c *ShadowStreamClientConn) WriteTo(w io.Writer) (n int64, err error) {
+	if c.ShadowStreamConn.readCipher == nil { // first read
+		payloadLen, err := c.initRead(nil)
+		if err != nil {
+			return 0, err
+		}
+
+		readBuf := c.ShadowStreamConn.getReadBuf()
+		if err = c.readFirstPayloadChunk(readBuf[:payloadLen+tagSize]); err != nil {
+			return 0, err
+		}
+		if _, err = w.Write(readBuf[:payloadLen]); err != nil {
+			return 0, err
+		}
+
+		n, err = c.ShadowStreamConn.WriteTo(w)
+		n += int64(payloadLen)
+		return n, err
+	}
+
+	return c.ShadowStreamConn.WriteTo(w)
 }
 
-// Close implements the ReadWriter Close method.
-func (rw *ShadowStreamClientReadWriter) Close() error {
-	return rw.rawRW.Close()
+func (c *ShadowStreamClientConn) initRead(b []byte) (payloadLen int, err error) {
+	urspLen := len(c.unsafeResponseStreamPrefix)
+	saltLen := len(c.cipherConfig.PSK)
+	fixedLengthHeaderStart := urspLen + saltLen
+	bufferLen := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength + saltLen + tagSize
+
+	var hb []byte
+	switch {
+	case bufferLen <= len(b):
+		hb = b[:bufferLen]
+	case bufferLen <= streamReadMinBufferSize:
+		hb = c.ShadowStreamConn.getReadBuf()[:bufferLen]
+	default:
+		hb = make([]byte, bufferLen)
+	}
+
+	// Read sealed response header.
+	if _, err = c.readOnceOrFull(c.ShadowStreamConn.Conn, hb); err != nil {
+		return 0, err
+	}
+
+	// Check unsafe response stream prefix.
+	ursp := hb[:urspLen]
+	if !bytes.Equal(ursp, c.unsafeResponseStreamPrefix) {
+		return 0, &HeaderError[[]byte]{ErrUnsafeStreamPrefixMismatch, c.unsafeResponseStreamPrefix, ursp}
+	}
+
+	// Derive key and create cipher.
+	salt := hb[urspLen:fixedLengthHeaderStart]
+	ciphertext := hb[fixedLengthHeaderStart:]
+	shadowStreamCipher, err := c.cipherConfig.ShadowStreamCipher(salt)
+	if err != nil {
+		return 0, err
+	}
+	c.ShadowStreamConn.readCipher = shadowStreamCipher
+
+	// Open sealed response header.
+	plaintext, err := shadowStreamCipher.DecryptInPlace(ciphertext)
+	if err != nil {
+		return 0, err
+	}
+
+	// Parse response header.
+	payloadLen, err = ParseTCPResponseHeader(plaintext, c.requestSalt)
+	if err != nil {
+		return 0, err
+	}
+
+	return payloadLen, nil
 }
 
-// ShadowStreamWriter wraps an io.WriteCloser and feeds an encrypted Shadowsocks stream to it.
+func (c *ShadowStreamClientConn) readFirstPayloadChunk(b []byte) error {
+	// Read sealed payload chunk.
+	if _, err := io.ReadFull(c.ShadowStreamConn.Conn, b); err != nil {
+		return err
+	}
+
+	// Open sealed payload chunk.
+	_, err := c.ShadowStreamConn.readCipher.DecryptInPlace(b)
+	return err
+}
+
+// ReadZeroCopy implements the Reader ReadZeroCopy method.
+func (c *ShadowStreamClientConn) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
+	if c.ShadowStreamConn.readCipher == nil { // first read
+		payloadLen, err = c.initRead(b)
+		if err != nil {
+			return 0, err
+		}
+
+		if err = c.readFirstPayloadChunk(b[payloadBufStart : payloadBufStart+payloadLen+tagSize]); err != nil {
+			return 0, err
+		}
+
+		return payloadLen, nil
+	}
+
+	return c.ShadowStreamConn.ReadZeroCopy(b, payloadBufStart, payloadBufLen)
+}
+
+// ShadowStreamConn wraps a [netio.Conn] and provides an encrypted Shadowsocks stream over it.
 //
 // Wire format:
 //
@@ -214,144 +311,267 @@ func (rw *ShadowStreamClientReadWriter) Close() error {
 //	+------------------------+---------------------------+
 //	|  2B length + 16B tag   | variable length + 16B tag |
 //	+------------------------+---------------------------+
-type ShadowStreamWriter struct {
-	writer io.WriteCloser
-	ssc    *ShadowStreamCipher
+type ShadowStreamConn struct {
+	netio.Conn
+
+	readBuf    []byte
+	readStart  int
+	readCipher *ShadowStreamCipher
+
+	writeBuf    []byte
+	writeCipher *ShadowStreamCipher
 }
 
-// WriterInfo implements the Writer WriterInfo method.
-func (w *ShadowStreamWriter) WriterInfo() zerocopy.WriterInfo {
-	return ShadowStreamWriterInfo
-}
-
-// WriteZeroCopy implements the Writer WriteZeroCopy method.
-func (w *ShadowStreamWriter) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
-	overhead := w.ssc.Overhead()
-	lengthStart := payloadStart - overhead - 2
-	lengthBuf := b[lengthStart : lengthStart+2]
-	payloadBuf := b[payloadStart : payloadStart+payloadLen]
-	payloadTagEnd := payloadStart + payloadLen + overhead
-	chunksBuf := b[lengthStart:payloadTagEnd]
-
-	// Write length.
-	binary.BigEndian.PutUint16(lengthBuf, uint16(payloadLen))
-
-	// Seal length chunk.
-	w.ssc.EncryptInPlace(lengthBuf)
-
-	// Seal payload chunk.
-	w.ssc.EncryptInPlace(payloadBuf)
-
-	// Write to wrapped writer.
-	_, err = w.writer.Write(chunksBuf)
-	if err != nil {
-		return
+func (c *ShadowStreamConn) getReadBuf() []byte {
+	if c.readBuf == nil {
+		c.readBuf = slices.Grow(c.readBuf, streamReadMinBufferSize)
 	}
-	payloadWritten = payloadLen
-	return
+	return c.readBuf
 }
 
-// ShadowStreamReader wraps an io.ReadCloser and reads from it as an encrypted Shadowsocks stream.
-type ShadowStreamReader struct {
-	reader io.ReadCloser
-	ssc    *ShadowStreamCipher
+// Read implements [netio.Conn.Read].
+func (c *ShadowStreamConn) Read(b []byte) (n int, err error) {
+	if c.readStart == len(c.readBuf) {
+		// Happy path: b is large enough for the read.
+		if len(b) >= streamReadMinBufferSize {
+			return c.read(b)
+		}
+
+		readBuf := c.getReadBuf()
+
+		n, err = c.read(readBuf)
+		if err != nil {
+			return 0, err
+		}
+
+		c.readBuf = readBuf[:n]
+		c.readStart = 0
+	}
+
+	n = copy(b, c.readBuf[c.readStart:])
+	c.readStart += n
+	return n, nil
 }
 
-// ReaderInfo implements the Reader ReaderInfo method.
-func (r *ShadowStreamReader) ReaderInfo() zerocopy.ReaderInfo {
-	return ShadowStreamReaderInfo
+// WriteTo implements [io.WriterTo].
+func (c *ShadowStreamConn) WriteTo(w io.Writer) (n int64, err error) {
+	b := c.getReadBuf()
+
+	for {
+		nr, err := c.read(b)
+		if err != nil {
+			if err == io.EOF {
+				return n, nil
+			}
+			return n, err
+		}
+
+		nw, err := w.Write(b[:nr])
+		n += int64(nw)
+		if err != nil {
+			return n, err
+		}
+	}
 }
 
-// ReadZeroCopy implements the Reader ReadZeroCopy method.
-func (r *ShadowStreamReader) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
-	overhead := r.ssc.Overhead()
-	sealedLengthChunkStart := payloadBufStart - overhead - 2
-	sealedLengthChunkBuf := b[sealedLengthChunkStart:payloadBufStart]
+func (c *ShadowStreamConn) read(b []byte) (n int, err error) {
+	if cap(b) < streamReadMinBufferSize {
+		panic(fmt.Sprintf("ss2022.ShadowStreamConn.read: buffer too small: %d < %d", cap(b), streamReadMinBufferSize))
+	}
 
 	// Read sealed length chunk.
-	_, err = io.ReadFull(r.reader, sealedLengthChunkBuf)
-	if err != nil {
-		return
+	ciphertext := b[:2+tagSize]
+	if _, err = io.ReadFull(c.Conn, ciphertext); err != nil {
+		return 0, err
 	}
 
 	// Open sealed length chunk.
-	_, err = r.ssc.DecryptInPlace(sealedLengthChunkBuf)
-	if err != nil {
-		return
+	if _, err = c.readCipher.DecryptInPlace(ciphertext); err != nil {
+		return 0, err
 	}
 
 	// Validate length.
-	payloadLen = int(binary.BigEndian.Uint16(sealedLengthChunkBuf))
-	if payloadLen == 0 {
-		err = ErrZeroLengthChunk
-		return
+	length := int(binary.BigEndian.Uint16(ciphertext))
+	if length == 0 {
+		return 0, ErrZeroLengthChunk
 	}
 
 	// Read sealed payload chunk.
-	sealedPayloadChunkBuf := b[payloadBufStart : payloadBufStart+payloadLen+overhead]
-	_, err = io.ReadFull(r.reader, sealedPayloadChunkBuf)
-	if err != nil {
-		payloadLen = 0
-		return
+	ciphertext = b[:length+tagSize]
+	if _, err = io.ReadFull(c.Conn, ciphertext); err != nil {
+		return 0, err
 	}
 
 	// Open sealed payload chunk.
-	_, err = r.ssc.DecryptInPlace(sealedPayloadChunkBuf)
-	if err != nil {
-		payloadLen = 0
+	if _, err = c.readCipher.DecryptInPlace(ciphertext); err != nil {
+		return 0, err
 	}
 
-	return
+	return length, nil
+}
+
+func (c *ShadowStreamConn) getWriteBuf() []byte {
+	if c.writeBuf == nil {
+		c.writeBuf = slices.Grow(c.writeBuf, streamWriteBufferSize)
+	}
+	return c.writeBuf
+}
+
+// Write implements [netio.Conn.Write].
+func (c *ShadowStreamConn) Write(b []byte) (n int, err error) {
+	writeBuf := c.getWriteBuf()
+
+	for len(b) > 0 {
+		length := min(len(b), streamMaxPayloadSize)
+
+		if err = c.write(writeBuf, b[:length]); err != nil {
+			return n, err
+		}
+
+		n += length
+		b = b[length:]
+	}
+
+	return n, nil
+}
+
+// ReadFrom implements [io.ReaderFrom].
+func (c *ShadowStreamConn) ReadFrom(r io.Reader) (n int64, err error) {
+	writeBuf := c.getWriteBuf()
+	payloadBuf := writeBuf[2+tagSize : streamWriteBufferSize]
+
+	for {
+		nr, err := r.Read(payloadBuf)
+		if nr > 0 {
+			n += int64(nr)
+			if err := c.write(writeBuf, payloadBuf[:nr]); err != nil {
+				return n, err
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				return n, nil
+			}
+			return n, err
+		}
+	}
+}
+
+func (c *ShadowStreamConn) write(b, payload []byte) error {
+	// Append length.
+	b = binary.BigEndian.AppendUint16(b, uint16(len(payload)))
+
+	// Seal length chunk.
+	b = c.writeCipher.EncryptInPlace(b)
+
+	// Seal payload chunk.
+	b = c.writeCipher.EncryptAppend(b, payload)
+
+	// Write to inner connection.
+	_, err := c.Conn.Write(b)
+	return err
+}
+
+// WriterInfo implements the Writer WriterInfo method.
+func (*ShadowStreamConn) WriterInfo() zerocopy.WriterInfo {
+	return zerocopy.WriterInfo{
+		Headroom: zerocopy.Headroom{
+			Front: 2 + tagSize,
+			Rear:  tagSize,
+		},
+		MaxPayloadSizePerWrite: streamMaxPayloadSize,
+	}
+}
+
+// WriteZeroCopy implements the Writer WriteZeroCopy method.
+func (c *ShadowStreamConn) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
+	if payloadLen == 0 {
+		return 0, nil
+	}
+
+	writeBufStart := payloadStart - 2 - tagSize
+	writeBuf := b[writeBufStart:writeBufStart]
+	payload := b[payloadStart : payloadStart+payloadLen]
+
+	if err = c.write(writeBuf, payload); err != nil {
+		return 0, err
+	}
+	return payloadLen, nil
+}
+
+// ReaderInfo implements the Reader ReaderInfo method.
+func (*ShadowStreamConn) ReaderInfo() zerocopy.ReaderInfo {
+	return zerocopy.ReaderInfo{
+		Headroom: zerocopy.Headroom{
+			Rear: tagSize,
+		},
+		MinPayloadBufferSizePerRead: streamMaxPayloadSize,
+	}
+}
+
+// ReadZeroCopy implements the Reader ReadZeroCopy method.
+func (c *ShadowStreamConn) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
+	return c.read(b[payloadBufStart:])
 }
 
 // ShadowStreamCipher wraps an AEAD cipher and provides methods that transparently increments
 // the nonce after each AEAD operation.
 type ShadowStreamCipher struct {
 	aead  cipher.AEAD
-	nonce []byte
+	nonce [nonceSize]byte
 }
 
 // NewShadowStreamCipher wraps the given AEAD cipher into a new ShadowStreamCipher.
 func NewShadowStreamCipher(aead cipher.AEAD) *ShadowStreamCipher {
 	return &ShadowStreamCipher{
-		aead:  aead,
-		nonce: make([]byte, aead.NonceSize()),
+		aead: aead,
 	}
-}
-
-// Overhead returns the tag size of the AEAD cipher.
-func (c *ShadowStreamCipher) Overhead() int {
-	return c.aead.Overhead()
 }
 
 // EncryptInPlace encrypts and authenticates plaintext in-place.
 func (c *ShadowStreamCipher) EncryptInPlace(plaintext []byte) (ciphertext []byte) {
-	ciphertext = c.aead.Seal(plaintext[:0], c.nonce, plaintext, nil)
-	increment(c.nonce)
+	ciphertext = c.aead.Seal(plaintext[:0], c.nonce[:], plaintext, nil)
+	increment(c.nonce[:])
 	return
 }
 
 // EncryptTo encrypts and authenticates the plaintext and saves the ciphertext to dst.
 func (c *ShadowStreamCipher) EncryptTo(dst, plaintext []byte) (ciphertext []byte) {
-	ciphertext = c.aead.Seal(dst[:0], c.nonce, plaintext, nil)
-	increment(c.nonce)
+	ciphertext = c.aead.Seal(dst[:0], c.nonce[:], plaintext, nil)
+	increment(c.nonce[:])
+	return
+}
+
+// EncryptAppend encrypts and authenticates plaintext and appends the ciphertext to dst.
+func (c *ShadowStreamCipher) EncryptAppend(dst, plaintext []byte) (ciphertext []byte) {
+	ciphertext = c.aead.Seal(dst, c.nonce[:], plaintext, nil)
+	increment(c.nonce[:])
 	return
 }
 
 // DecryptInplace decrypts and authenticates ciphertext in-place.
 func (c *ShadowStreamCipher) DecryptInPlace(ciphertext []byte) (plaintext []byte, err error) {
-	plaintext, err = c.aead.Open(ciphertext[:0], c.nonce, ciphertext, nil)
+	plaintext, err = c.aead.Open(ciphertext[:0], c.nonce[:], ciphertext, nil)
 	if err == nil {
-		increment(c.nonce)
+		increment(c.nonce[:])
 	}
 	return
 }
 
 // DecryptTo decrypts and authenticates the ciphertext and saves the plaintext to dst.
 func (c *ShadowStreamCipher) DecryptTo(dst, ciphertext []byte) (plaintext []byte, err error) {
-	plaintext, err = c.aead.Open(dst[:0], c.nonce, ciphertext, nil)
+	plaintext, err = c.aead.Open(dst[:0], c.nonce[:], ciphertext, nil)
 	if err == nil {
-		increment(c.nonce)
+		increment(c.nonce[:])
+	}
+	return
+}
+
+// DecryptAppend decrypts and authenticates ciphertext and appends the plaintext to dst.
+func (c *ShadowStreamCipher) DecryptAppend(dst, ciphertext []byte) (plaintext []byte, err error) {
+	plaintext, err = c.aead.Open(dst, c.nonce[:], ciphertext, nil)
+	if err == nil {
+		increment(c.nonce[:])
 	}
 	return
 }
