@@ -139,9 +139,6 @@ type StreamServer interface {
 	//
 	// If the stream connection is not a connection request, and the processing
 	// is completed successfully, [ErrHandleStreamDone] is returned.
-	//
-	// If the processing fails, bytes read from the connection may be returned
-	// as the payload in the connection request.
 	HandleStream(c Conn, logger *zap.Logger) (ConnRequest, error)
 }
 
