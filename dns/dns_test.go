@@ -6,12 +6,13 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
 
-func testResolver(t *testing.T, name string, serverAddrPort netip.AddrPort, tcpClient zerocopy.TCPClient, udpClient zerocopy.UDPClient, logger *zap.Logger) {
+func testResolver(t *testing.T, name string, serverAddrPort netip.AddrPort, tcpClient netio.StreamClient, udpClient zerocopy.UDPClient, logger *zap.Logger) {
 	r := NewResolver(name, serverAddrPort, tcpClient, udpClient, logger)
 	ctx := t.Context()
 
@@ -43,7 +44,12 @@ func TestResolver(t *testing.T) {
 	defer logger.Sync()
 
 	serverAddrPort := netip.AddrPortFrom(netip.AddrFrom4([4]byte{1, 1, 1, 1}), 53)
-	tcpClient := direct.NewTCPClient("direct", "tcp", conn.DefaultTCPDialer)
+	tcpClientConfig := netio.TCPClientConfig{
+		Name:    "direct",
+		Network: "tcp",
+		Dialer:  conn.DefaultTCPDialer,
+	}
+	tcpClient := tcpClientConfig.NewTCPClient()
 	udpClient := direct.NewDirectUDPClient("direct", "ip", 1500, conn.DefaultUDPClientListenConfig)
 
 	t.Run("UDP", func(t *testing.T) {

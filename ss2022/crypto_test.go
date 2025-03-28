@@ -5,7 +5,35 @@ import (
 	"strconv"
 )
 
-func newRandomCipherConfigTupleNoEIH(method string, enableUDP bool) (clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, err error) {
+var (
+	methodCases = [...]string{
+		"2022-blake3-aes-128-gcm",
+		"2022-blake3-aes-256-gcm",
+	}
+
+	cipherCases = [...]struct {
+		name            string
+		newCipherConfig func(method string, enableUDP bool) (
+			clientCipherConfig *ClientCipherConfig,
+			userCipherConfig UserCipherConfig,
+			identityCipherConfig ServerIdentityCipherConfig,
+			userLookupMap UserLookupMap,
+			username string,
+			err error,
+		)
+	}{
+		{
+			name:            "NoEIH",
+			newCipherConfig: newRandomCipherConfigTupleNoEIH,
+		},
+		{
+			name:            "WithEIH",
+			newCipherConfig: newRandomCipherConfigTupleWithEIH,
+		},
+	}
+)
+
+func newRandomCipherConfigTupleNoEIH(method string, enableUDP bool) (clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, _ ServerIdentityCipherConfig, _ UserLookupMap, _ string, err error) {
 	keySize, err := PSKLengthForMethod(method)
 	if err != nil {
 		return
@@ -20,7 +48,7 @@ func newRandomCipherConfigTupleNoEIH(method string, enableUDP bool) (clientCiphe
 	return
 }
 
-func newRandomCipherConfigTupleWithEIH(method string, enableUDP bool) (clientCipherConfig *ClientCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, err error) {
+func newRandomCipherConfigTupleWithEIH(method string, enableUDP bool) (clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, username string, err error) {
 	keySize, err := PSKLengthForMethod(method)
 	if err != nil {
 		return
@@ -35,10 +63,11 @@ func newRandomCipherConfigTupleWithEIH(method string, enableUDP bool) (clientCip
 	for i := range 7 {
 		uPSK = make([]byte, keySize)
 		rand.Read(uPSK)
+		username = strconv.Itoa(i)
 
 		uPSKHash := PSKHash(uPSK)
 		var c *ServerUserCipherConfig
-		c, err = NewServerUserCipherConfig(strconv.Itoa(i), uPSK, enableUDP)
+		c, err = NewServerUserCipherConfig(username, uPSK, enableUDP)
 		if err != nil {
 			return
 		}

@@ -10,6 +10,7 @@ import (
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/ss2022"
+	"github.com/database64128/shadowsocks-go/ssnone"
 	"github.com/database64128/shadowsocks-go/tlscerts"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
@@ -111,9 +112,9 @@ type ClientConfig struct {
 
 	// Shadowsocks
 
-	PSK           []byte   `json:"psk"`
-	IPSKs         [][]byte `json:"iPSKs"`
-	PaddingPolicy string   `json:"paddingPolicy"`
+	PSK           []byte               `json:"psk"`
+	IPSKs         [][]byte             `json:"iPSKs"`
+	PaddingPolicy ss2022.PaddingPolicy `json:"paddingPolicy"`
 
 	// SlidingWindowFilterSize is the size of the sliding window filter.
 	//
@@ -253,26 +254,33 @@ func (cc *ClientConfig) newInnerClient() *netio.TCPClient {
 	return tcc.NewTCPClient()
 }
 
-// TCPClient creates a zerocopy.TCPClient from the ClientConfig.
-func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
+// TCPClient returns a new [netio.StreamClient] from the configuration.
+func (cc *ClientConfig) TCPClient() (netio.StreamClient, error) {
 	if !cc.EnableTCP {
 		return nil, errNetworkDisabled
 	}
 
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewTCPClient(cc.Name, cc.networkTCP, cc.connDialer), nil
+		return cc.innerClient, nil
+
 	case "none", "plain":
-		return direct.NewShadowsocksNoneTCPClient(cc.Name, cc.networkTCP, cc.TCPAddress.String(), cc.connDialer), nil
-	case "socks5":
-		s5tcc := direct.Socks5TCPClientConfig{
-			Name:    cc.Name,
-			Network: cc.networkTCP,
-			Address: cc.TCPAddress.String(),
-			Dialer:  cc.connDialer,
-			AuthMsg: cc.socks5AuthMsg,
+		scc := ssnone.StreamClientConfig{
+			Name:        cc.Name,
+			InnerClient: cc.innerClient,
+			Addr:        cc.TCPAddress,
 		}
-		return s5tcc.NewClient(), nil
+		return scc.NewStreamClient(), nil
+
+	case "socks5":
+		scc := socks5.StreamClientConfig{
+			Name:        cc.Name,
+			InnerClient: cc.innerClient,
+			Addr:        cc.TCPAddress,
+			AuthMsg:     cc.socks5AuthMsg,
+		}
+		return scc.NewStreamClient(), nil
+
 	case "http":
 		hpcc := httpproxy.ClientConfig{
 			Name:                           cc.Name,
@@ -304,11 +312,23 @@ func (cc *ClientConfig) TCPClient() (zerocopy.TCPClient, error) {
 		}
 
 		return hpcc.NewProxyClient()
+
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		if len(cc.UnsafeRequestStreamPrefix) != 0 || len(cc.UnsafeResponseStreamPrefix) != 0 {
 			cc.logger.Warn("Unsafe stream prefix taints the client", zap.String("client", cc.Name))
 		}
-		return ss2022.NewTCPClient(cc.Name, cc.networkTCP, cc.TCPAddress.String(), cc.connDialer, cc.AllowSegmentedFixedLengthHeader, cc.cipherConfig, cc.UnsafeRequestStreamPrefix, cc.UnsafeResponseStreamPrefix), nil
+
+		scc := ss2022.StreamClientConfig{
+			Name:                            cc.Name,
+			InnerClient:                     cc.innerClient,
+			Addr:                            cc.TCPAddress,
+			AllowSegmentedFixedLengthHeader: cc.AllowSegmentedFixedLengthHeader,
+			CipherConfig:                    cc.cipherConfig,
+			UnsafeRequestStreamPrefix:       cc.UnsafeRequestStreamPrefix,
+			UnsafeResponseStreamPrefix:      cc.UnsafeResponseStreamPrefix,
+		}
+		return scc.NewStreamClient(), nil
+
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}
@@ -350,11 +370,6 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 		}
 		return s5ucc.NewClient(), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		shouldPad, err := ss2022.ParsePaddingPolicy(cc.PaddingPolicy)
-		if err != nil {
-			return nil, err
-		}
-
 		switch {
 		case cc.SlidingWindowFilterSize == 0:
 			cc.SlidingWindowFilterSize = ss2022.DefaultSlidingWindowFilterSize
@@ -362,7 +377,7 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 			return nil, fmt.Errorf("negative sliding window filter size: %d", cc.SlidingWindowFilterSize)
 		}
 
-		return ss2022.NewUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.MTU, listenConfig, uint64(cc.SlidingWindowFilterSize), cc.cipherConfig, shouldPad), nil
+		return ss2022.NewUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.MTU, listenConfig, uint64(cc.SlidingWindowFilterSize), cc.cipherConfig, cc.PaddingPolicy), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}

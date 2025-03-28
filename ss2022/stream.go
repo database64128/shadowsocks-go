@@ -11,7 +11,6 @@ import (
 	"slices"
 
 	"github.com/database64128/shadowsocks-go/netio"
-	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
 const (
@@ -151,23 +150,6 @@ func (c *ShadowStreamServerConn) initWrite(hb, payload []byte) error {
 	// Write to inner connection.
 	_, err = c.ShadowStreamConn.Conn.Write(hb)
 	return err
-}
-
-// WriteZeroCopy implements the Writer WriteZeroCopy method.
-func (c *ShadowStreamServerConn) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (int, error) {
-	if payloadLen == 0 {
-		return 0, nil
-	}
-
-	if c.ShadowStreamConn.writeCipher == nil { // first write
-		hb, _ := c.prepareInitWriteBufs()
-		if err := c.initWrite(hb, b[payloadStart:payloadStart+payloadLen]); err != nil {
-			return 0, err
-		}
-		return payloadLen, nil
-	}
-
-	return c.ShadowStreamConn.WriteZeroCopy(b, payloadStart, payloadLen)
 }
 
 // ShadowStreamClientConn is a client stream connection.
@@ -329,24 +311,6 @@ func (c *ShadowStreamClientConn) readFirstPayloadChunk(b []byte) error {
 	// Open sealed payload chunk.
 	_, err := c.ShadowStreamConn.readCipher.DecryptInPlace(b)
 	return err
-}
-
-// ReadZeroCopy implements the Reader ReadZeroCopy method.
-func (c *ShadowStreamClientConn) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
-	if c.ShadowStreamConn.readCipher == nil { // first read
-		payloadLen, err = c.initRead(b)
-		if err != nil {
-			return 0, err
-		}
-
-		if err = c.readFirstPayloadChunk(b[payloadBufStart : payloadBufStart+payloadLen+tagSize]); err != nil {
-			return 0, err
-		}
-
-		return payloadLen, nil
-	}
-
-	return c.ShadowStreamConn.ReadZeroCopy(b, payloadBufStart, payloadBufLen)
 }
 
 // ReadFrom implements [io.ReaderFrom].
@@ -545,48 +509,6 @@ func (c *ShadowStreamConn) write(b, payload []byte) error {
 	// Write to inner connection.
 	_, err := c.Conn.Write(b)
 	return err
-}
-
-// WriterInfo implements the Writer WriterInfo method.
-func (*ShadowStreamConn) WriterInfo() zerocopy.WriterInfo {
-	return zerocopy.WriterInfo{
-		Headroom: zerocopy.Headroom{
-			Front: 2 + tagSize,
-			Rear:  tagSize,
-		},
-		MaxPayloadSizePerWrite: streamMaxPayloadSize,
-	}
-}
-
-// WriteZeroCopy implements the Writer WriteZeroCopy method.
-func (c *ShadowStreamConn) WriteZeroCopy(b []byte, payloadStart, payloadLen int) (payloadWritten int, err error) {
-	if payloadLen == 0 {
-		return 0, nil
-	}
-
-	writeBufStart := payloadStart - 2 - tagSize
-	writeBuf := b[writeBufStart:writeBufStart]
-	payload := b[payloadStart : payloadStart+payloadLen]
-
-	if err = c.write(writeBuf, payload); err != nil {
-		return 0, err
-	}
-	return payloadLen, nil
-}
-
-// ReaderInfo implements the Reader ReaderInfo method.
-func (*ShadowStreamConn) ReaderInfo() zerocopy.ReaderInfo {
-	return zerocopy.ReaderInfo{
-		Headroom: zerocopy.Headroom{
-			Rear: tagSize,
-		},
-		MinPayloadBufferSizePerRead: streamMaxPayloadSize,
-	}
-}
-
-// ReadZeroCopy implements the Reader ReadZeroCopy method.
-func (c *ShadowStreamConn) ReadZeroCopy(b []byte, payloadBufStart, payloadBufLen int) (payloadLen int, err error) {
-	return c.read(b[payloadBufStart:])
 }
 
 // ShadowStreamCipher wraps an AEAD cipher and provides methods that transparently increments

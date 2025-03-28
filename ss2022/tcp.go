@@ -7,47 +7,83 @@ import (
 	"crypto/rand"
 	"io"
 	mrand "math/rand/v2"
+	"net"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/socks5"
-	"github.com/database64128/shadowsocks-go/zerocopy"
+	"go.uber.org/zap"
 )
 
-// TCPClient is a Shadowsocks 2022 TCP client.
+// StreamClientConfig is the configuration for a Shadowsocks 2022 stream client.
+type StreamClientConfig struct {
+	// Name is the name of the client.
+	Name string
+
+	// InnerClient is the underlying stream client.
+	InnerClient netio.StreamClient
+
+	// Addr is the address of the Shadowsocks 2022 server.
+	Addr conn.Addr
+
+	// AllowSegmentedFixedLengthHeader controls whether to allow segmented fixed-length header.
+	//
+	// Setting it to true disables the requirement that the fixed-length header must be read in
+	// a single read call. This is useful when the underlying stream transport does not exhibit
+	// typical TCP behavior.
+	AllowSegmentedFixedLengthHeader bool
+
+	// CipherConfig is the cipher configuration.
+	CipherConfig *ClientCipherConfig
+
+	// UnsafeRequestStreamPrefix is the prefix bytes prepended to the request stream.
+	UnsafeRequestStreamPrefix []byte
+
+	// UnsafeResponseStreamPrefix is the prefix bytes prepended to the response stream.
+	UnsafeResponseStreamPrefix []byte
+}
+
+// NewStreamClient returns a new Shadowsocks 2022 stream client.
+func (c *StreamClientConfig) NewStreamClient() *StreamClient {
+	return &StreamClient{
+		name:                       c.Name,
+		innerClient:                c.InnerClient,
+		serverAddr:                 c.Addr,
+		readOnceOrFull:             readOnceOrFullFunc(c.AllowSegmentedFixedLengthHeader),
+		cipherConfig:               c.CipherConfig,
+		unsafeRequestStreamPrefix:  c.UnsafeRequestStreamPrefix,
+		unsafeResponseStreamPrefix: c.UnsafeResponseStreamPrefix,
+	}
+}
+
+// StreamClient is a Shadowsocks 2022 stream client.
 //
-// TCPClient implements [zerocopy.TCPClient] and [zerocopy.TCPDialer].
-type TCPClient struct {
+// StreamClient implements [netio.StreamClient] and [netio.StreamDialer].
+type StreamClient struct {
 	name                       string
-	rwo                        zerocopy.DirectReadWriteCloserOpener
+	innerClient                netio.StreamClient
+	serverAddr                 conn.Addr
 	readOnceOrFull             func(io.Reader, []byte) (int, error)
 	cipherConfig               *ClientCipherConfig
 	unsafeRequestStreamPrefix  []byte
 	unsafeResponseStreamPrefix []byte
 }
 
-// NewTCPClient creates a new Shadowsocks 2022 TCP client.
-func NewTCPClient(name, network, address string, dialer conn.Dialer, allowSegmentedFixedLengthHeader bool, cipherConfig *ClientCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPClient {
-	return &TCPClient{
-		name:                       name,
-		rwo:                        zerocopy.NewTCPConnOpener(dialer, network, address),
-		readOnceOrFull:             readOnceOrFullFunc(allowSegmentedFixedLengthHeader),
-		cipherConfig:               cipherConfig,
-		unsafeRequestStreamPrefix:  unsafeRequestStreamPrefix,
-		unsafeResponseStreamPrefix: unsafeResponseStreamPrefix,
-	}
-}
+var (
+	_ netio.StreamClient = (*StreamClient)(nil)
+	_ netio.StreamDialer = (*StreamClient)(nil)
+)
 
-// NewDialer implements [zerocopy.TCPClient.NewDialer].
-func (c *TCPClient) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
-	return c, zerocopy.TCPClientInfo{
+// NewStreamDialer implements [netio.StreamClient.NewStreamDialer].
+func (c *StreamClient) NewStreamDialer() (netio.StreamDialer, netio.StreamDialerInfo) {
+	return c, netio.StreamDialerInfo{
 		Name:                 c.name,
 		NativeInitialPayload: true,
 	}
 }
 
-// Dial implements [zerocopy.TCPDialer.Dial].
-func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
+// DialStream implements [netio.StreamDialer.DialStream].
+func (c *StreamClient) DialStream(ctx context.Context, targetAddr conn.Addr, payload []byte) (clientConn netio.Conn, err error) {
 	var (
 		paddingPayloadLen int
 		excessPayload     []byte
@@ -124,72 +160,101 @@ func (c *TCPClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []by
 	shadowStreamCipher.EncryptInPlace(variableLengthHeaderPlaintext)
 
 	// Write out.
-	rawRW, err = c.rwo.Open(ctx, b)
+	innerConn, err := c.innerClient.DialStream(ctx, c.serverAddr, b)
 	if err != nil {
 		return
 	}
 
-	w := ShadowStreamConn{
-		Conn:        rawRW.(netio.Conn),
-		writeCipher: shadowStreamCipher,
-	}
-
-	// Write excess payload, reusing the variable-length header buffer.
-	for len(excessPayload) > 0 {
-		n := copy(variableLengthHeaderPlaintext, excessPayload)
-		excessPayload = excessPayload[n:]
-		if _, err = w.WriteZeroCopy(b, variableLengthHeaderStart, n); err != nil {
-			rawRW.Close()
-			return
-		}
-	}
-
-	rw = &ShadowStreamClientConn{
-		ShadowStreamConn:           w,
+	clientConn = &ShadowStreamClientConn{
+		ShadowStreamConn: ShadowStreamConn{
+			Conn:        innerConn,
+			writeCipher: shadowStreamCipher,
+		},
 		readOnceOrFull:             c.readOnceOrFull,
 		cipherConfig:               c.cipherConfig,
 		requestSalt:                salt,
 		unsafeResponseStreamPrefix: c.unsafeResponseStreamPrefix,
 	}
 
+	// Write excess payload.
+	if len(excessPayload) > 0 {
+		if _, err = netio.ConnWriteContext(ctx, clientConn, excessPayload); err != nil {
+			_ = clientConn.Close()
+			return nil, err
+		}
+	}
+
 	return
 }
 
-// TCPServer is a Shadowsocks 2022 TCP server.
+// StreamServerConfig is the configuration for a Shadowsocks 2022 stream server.
+type StreamServerConfig struct {
+	// AllowSegmentedFixedLengthHeader controls whether to allow segmented fixed-length header.
+	//
+	// Setting it to true disables the requirement that the fixed-length header must be read in
+	// a single read call. This is useful when the underlying stream transport does not exhibit
+	// typical TCP behavior.
+	AllowSegmentedFixedLengthHeader bool
+
+	// UserCipherConfig is the non-EIH cipher configuration.
+	UserCipherConfig UserCipherConfig
+
+	// IdentityCipherConfig is the cipher configuration for the identity header.
+	IdentityCipherConfig ServerIdentityCipherConfig
+
+	// RejectPolicy takes care of incoming connections that cannot be authenticated.
+	RejectPolicy RejectPolicy
+
+	// UnsafeFallbackAddr is the optional fallback destination address for unauthenticated connections.
+	UnsafeFallbackAddr conn.Addr
+
+	// UnsafeRequestStreamPrefix is the prefix bytes prepended to the request stream.
+	UnsafeRequestStreamPrefix []byte
+
+	// UnsafeResponseStreamPrefix is the prefix bytes prepended to the response stream.
+	UnsafeResponseStreamPrefix []byte
+}
+
+// NewStreamServer returns a new Shadowsocks 2022 stream server.
+func (c *StreamServerConfig) NewStreamServer() *StreamServer {
+	return &StreamServer{
+		saltPool:                   NewSaltPool[string](ReplayWindowDuration),
+		readOnceOrFull:             readOnceOrFullFunc(c.AllowSegmentedFixedLengthHeader),
+		userCipherConfig:           c.UserCipherConfig,
+		identityCipherConfig:       c.IdentityCipherConfig,
+		rejectPolicy:               c.RejectPolicy,
+		unsafeFallbackAddr:         c.UnsafeFallbackAddr,
+		unsafeRequestStreamPrefix:  c.UnsafeRequestStreamPrefix,
+		unsafeResponseStreamPrefix: c.UnsafeResponseStreamPrefix,
+	}
+}
+
+// StreamServer is a Shadowsocks 2022 stream server.
 //
-// TCPServer implements [zerocopy.TCPServer].
-type TCPServer struct {
+// StreamServer implements [netio.StreamServer].
+type StreamServer struct {
 	CredStore
 	saltPool                   *SaltPool[string]
 	readOnceOrFull             func(io.Reader, []byte) (int, error)
 	userCipherConfig           UserCipherConfig
 	identityCipherConfig       ServerIdentityCipherConfig
+	rejectPolicy               RejectPolicy
+	unsafeFallbackAddr         conn.Addr
 	unsafeRequestStreamPrefix  []byte
 	unsafeResponseStreamPrefix []byte
 }
 
-// NewTCPServer creates a new Shadowsocks 2022 TCP server.
-func NewTCPServer(allowSegmentedFixedLengthHeader bool, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte) *TCPServer {
-	return &TCPServer{
-		saltPool:                   NewSaltPool[string](ReplayWindowDuration),
-		readOnceOrFull:             readOnceOrFullFunc(allowSegmentedFixedLengthHeader),
-		userCipherConfig:           userCipherConfig,
-		identityCipherConfig:       identityCipherConfig,
-		unsafeRequestStreamPrefix:  unsafeRequestStreamPrefix,
-		unsafeResponseStreamPrefix: unsafeResponseStreamPrefix,
-	}
-}
+var _ netio.StreamServer = (*StreamServer)(nil)
 
-// Info implements [zerocopy.TCPServer.Info].
-func (s *TCPServer) Info() zerocopy.TCPServerInfo {
-	return zerocopy.TCPServerInfo{
+// StreamServerInfo implements [netio.StreamServer.StreamServerInfo].
+func (s *StreamServer) StreamServerInfo() netio.StreamServerInfo {
+	return netio.StreamServerInfo{
 		NativeInitialPayload: true,
-		DefaultTCPConnCloser: zerocopy.ForceReset,
 	}
 }
 
-// Accept implements [zerocopy.TCPServer.Accept].
-func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
+// HandleStream implements [netio.StreamServer.HandleStream].
+func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req netio.ConnRequest, err error) {
 	var identityHeaderLen int
 	userCipherConfig := s.userCipherConfig
 	saltLen := len(userCipherConfig.PSK)
@@ -204,10 +269,29 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 	bufferLen := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength + tagSize
 	b := make([]byte, bufferLen)
 
+	var n int
+	defer func() {
+		if err != nil {
+			if n > 0 && s.unsafeFallbackAddr.IsValid() {
+				logger.Warn("Initiating fallback for unauthenticated connection", zap.Error(err))
+				req = netio.ConnRequest{
+					PendingConn: netio.NopPendingConn(rawRW),
+					Addr:        s.unsafeFallbackAddr,
+					Payload:     b[:n],
+				}
+				err = nil
+				return
+			}
+
+			if tc, ok := rawRW.(*net.TCPConn); ok {
+				s.rejectPolicy(tc, logger)
+			}
+		}
+	}()
+
 	// Read unsafe request stream prefix, salt, identity header, fixed-length header.
-	n, err := s.readOnceOrFull(rawRW, b)
+	n, err = s.readOnceOrFull(rawRW, b)
 	if err != nil {
-		payload = b[:n]
 		return
 	}
 
@@ -220,7 +304,6 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 	// Check but not add request salt to pool.
 	if !s.saltPool.Check(string(salt)) { // Is the compiler smart enough to not incur an allocation here?
 		s.Unlock()
-		payload = b[:n]
 		err = ErrRepeatedSalt
 		return
 	}
@@ -228,7 +311,6 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 	// Check unsafe request stream prefix.
 	if !bytes.Equal(ursp, s.unsafeRequestStreamPrefix) {
 		s.Unlock()
-		payload = b[:n]
 		err = &HeaderError[[]byte]{ErrUnsafeStreamPrefixMismatch, s.unsafeRequestStreamPrefix, ursp}
 		return
 	}
@@ -249,12 +331,11 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 		serverUserCipherConfig := s.ulm[uPSKHash]
 		if serverUserCipherConfig == nil {
 			s.Unlock()
-			payload = b[:n]
 			err = ErrIdentityHeaderUserPSKNotFound
 			return
 		}
 		userCipherConfig = serverUserCipherConfig.UserCipherConfig
-		username = serverUserCipherConfig.Name
+		req.Username = serverUserCipherConfig.Name
 	}
 
 	// Derive key and create cipher.
@@ -268,7 +349,6 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 	plaintext, err := shadowStreamCipher.DecryptTo(nil, ciphertext)
 	if err != nil {
 		s.Unlock()
-		payload = b[:n]
 		return
 	}
 
@@ -283,6 +363,9 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 	s.saltPool.Add(string(salt))
 
 	s.Unlock()
+
+	// Connection is authenticated. Fallback is no longer an option.
+	n = 0
 
 	b = make([]byte, vhlen+tagSize)
 
@@ -299,19 +382,19 @@ func (s *TCPServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.Re
 	}
 
 	// Parse variable-length header.
-	targetAddr, payload, err = ParseTCPRequestVariableLengthHeader(plaintext)
+	req.Addr, req.Payload, err = ParseTCPRequestVariableLengthHeader(plaintext)
 	if err != nil {
 		return
 	}
 
-	rw = &ShadowStreamServerConn{
+	req.PendingConn = netio.NopPendingConn(&ShadowStreamServerConn{
 		ShadowStreamConn: ShadowStreamConn{
-			Conn:       rawRW.(netio.Conn),
+			Conn:       rawRW,
 			readCipher: shadowStreamCipher,
 		},
 		cipherConfig:               userCipherConfig,
 		requestSalt:                salt,
 		unsafeResponseStreamPrefix: s.unsafeResponseStreamPrefix,
-	}
+	})
 	return
 }

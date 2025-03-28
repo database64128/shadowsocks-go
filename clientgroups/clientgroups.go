@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 
 	"github.com/database64128/shadowsocks-go"
+	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
@@ -63,7 +65,7 @@ type ClientGroupConfig struct {
 // AddClientGroup creates a client group from the configuration and adds it to the client maps.
 func (c *ClientGroupConfig) AddClientGroup(
 	logger *zap.Logger,
-	tcpClientByName map[string]zerocopy.TCPClient,
+	tcpClientByName map[string]netio.StreamClient,
 	udpClientByName map[string]zerocopy.UDPClient,
 	addProbeService func(shadowsocks.Service),
 ) error {
@@ -82,7 +84,7 @@ func (c *ClientGroupConfig) AddClientGroup(
 		}
 
 		var (
-			group   zerocopy.TCPClient
+			group   netio.StreamClient
 			service *ProbeService[tcpClient]
 		)
 		switch c.TCP.Policy {
@@ -145,21 +147,26 @@ func (c *ClientGroupConfig) AddClientGroup(
 }
 
 type tcpClient struct {
-	dialer zerocopy.TCPDialer
-	info   zerocopy.TCPClientInfo
+	dialer netio.StreamDialer
+	info   netio.StreamDialerInfo
 }
 
-func newTCPClient(client zerocopy.TCPClient) tcpClient {
-	dialer, info := client.NewDialer()
+func newTCPClient(client netio.StreamClient) tcpClient {
+	dialer, info := client.NewStreamDialer()
 	return tcpClient{
 		dialer: dialer,
 		info:   info,
 	}
 }
 
-// NewDialer implements [zerocopy.TCPClient.NewDialer].
-func (c tcpClient) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
+// NewStreamDialer implements [netio.StreamClient.NewStreamDialer].
+func (c tcpClient) NewStreamDialer() (netio.StreamDialer, netio.StreamDialerInfo) {
 	return c.dialer, c.info
+}
+
+// DialStream implements [netio.StreamDialer.DialStream].
+func (c tcpClient) DialStream(ctx context.Context, addr conn.Addr, payload []byte) (netio.Conn, error) {
+	return c.dialer.DialStream(ctx, addr, payload)
 }
 
 // roundRobinClientSelector is a client selector that selects clients in a round-robin fashion.
@@ -185,7 +192,7 @@ func (s *roundRobinClientSelector[C]) Select() C {
 
 // roundRobinTCPClientGroup is a TCP client group that selects clients in a round-robin fashion.
 //
-// roundRobinTCPClientGroup implements [zerocopy.TCPClient].
+// roundRobinTCPClientGroup implements [netio.StreamClient] and [netio.StreamDialer].
 type roundRobinTCPClientGroup struct {
 	selector roundRobinClientSelector[tcpClient]
 }
@@ -197,9 +204,14 @@ func newRoundRobinTCPClientGroup(clients []tcpClient) *roundRobinTCPClientGroup 
 	}
 }
 
-// NewDialer implements [zerocopy.TCPClient.NewDialer].
-func (g *roundRobinTCPClientGroup) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
-	return g.selector.Select().NewDialer()
+// NewStreamDialer implements [netio.StreamClient.NewStreamDialer].
+func (g *roundRobinTCPClientGroup) NewStreamDialer() (netio.StreamDialer, netio.StreamDialerInfo) {
+	return g.selector.Select().NewStreamDialer()
+}
+
+// DialStream implements [netio.StreamDialer.DialStream].
+func (g *roundRobinTCPClientGroup) DialStream(ctx context.Context, addr conn.Addr, payload []byte) (netio.Conn, error) {
+	return g.selector.Select().DialStream(ctx, addr, payload)
 }
 
 // roundRobinUDPClientGroup is a UDP client group that selects clients in a round-robin fashion.
@@ -247,7 +259,7 @@ func (s *randomClientSelector[C]) Select() C {
 
 // randomTCPClientGroup is a TCP client group that selects clients randomly.
 //
-// randomTCPClientGroup implements [zerocopy.TCPClient].
+// randomTCPClientGroup implements [netio.StreamClient] and [netio.StreamDialer].
 type randomTCPClientGroup struct {
 	selector randomClientSelector[tcpClient]
 }
@@ -259,9 +271,14 @@ func newRandomTCPClientGroup(clients []tcpClient) *randomTCPClientGroup {
 	}
 }
 
-// NewDialer implements [zerocopy.TCPClient.NewDialer].
-func (g *randomTCPClientGroup) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
-	return g.selector.Select().NewDialer()
+// NewStreamDialer implements [netio.StreamClient.NewStreamDialer].
+func (g *randomTCPClientGroup) NewStreamDialer() (netio.StreamDialer, netio.StreamDialerInfo) {
+	return g.selector.Select().NewStreamDialer()
+}
+
+// DialStream implements [netio.StreamDialer.DialStream].
+func (g *randomTCPClientGroup) DialStream(ctx context.Context, addr conn.Addr, payload []byte) (netio.Conn, error) {
+	return g.selector.Select().DialStream(ctx, addr, payload)
 }
 
 // randomUDPClientGroup is a UDP client group that selects clients randomly.

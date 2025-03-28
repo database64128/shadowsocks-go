@@ -4,11 +4,10 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/zerocopy"
+	"github.com/database64128/shadowsocks-go/netio"
 )
 
 // TCPProbeConfig is the configuration for a TCP probe.
@@ -39,27 +38,22 @@ type TCPProbe struct {
 }
 
 // Probe runs the connectivity test.
-func (p TCPProbe) Probe(ctx context.Context, client zerocopy.TCPClient) error {
+func (p TCPProbe) Probe(ctx context.Context, client netio.StreamClient) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	dialer, _ := client.NewDialer()
-
-	rawRW, rw, err := dialer.Dial(ctx, p.addr, p.req)
+	c, err := client.DialStream(ctx, p.addr, p.req)
 	if err != nil {
 		return fmt.Errorf("failed to create remote connection: %w", err)
 	}
-	defer rw.Close()
+	defer c.Close()
 
-	if tc, ok := rawRW.(*net.TCPConn); ok {
-		go func() {
-			<-ctx.Done()
-			_ = tc.SetReadDeadline(conn.ALongTimeAgo)
-		}()
-	}
+	go func() {
+		<-ctx.Done()
+		_ = c.SetReadDeadline(conn.ALongTimeAgo)
+	}()
 
-	cr := zerocopy.NewCopyReader(rw)
-	br := bufio.NewReader(cr)
+	br := bufio.NewReader(c)
 
 	resp, err := http.ReadResponse(br, nil)
 	if err != nil {

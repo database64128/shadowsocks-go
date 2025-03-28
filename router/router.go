@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/domainset"
 	"github.com/database64128/shadowsocks-go/mmap"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/prefixset"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/oschwald/geoip2-golang"
@@ -25,7 +27,7 @@ type Config struct {
 }
 
 // Router creates a router from the RouterConfig.
-func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int) (r *Router, err error) {
+func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]netio.StreamClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int) (r *Router, err error) {
 	defaultRoute := Route{name: "default"}
 
 	switch rc.DefaultTCPClientName {
@@ -134,9 +136,9 @@ func (r *Router) Close() error {
 	return r.close()
 }
 
-// GetTCPClient returns the zerocopy.TCPClient for a TCP request received by server
+// GetTCPClient returns the [netio.StreamClient] for a TCP request received by server
 // from sourceAddrPort to targetAddr.
-func (r *Router) GetTCPClient(ctx context.Context, requestInfo RequestInfo) (zerocopy.TCPClient, error) {
+func (r *Router) GetTCPClient(ctx context.Context, requestInfo RequestInfo) (netio.StreamClient, error) {
 	route, err := r.match(ctx, protocolTCP, requestInfo)
 	if err != nil {
 		return nil, err
@@ -188,4 +190,26 @@ func (r *Router) match(ctx context.Context, network protocol, requestInfo Reques
 		}
 	}
 	panic("did not match default route")
+}
+
+// DialResultFromError returns a [conn.DialResult] that describes the error.
+func DialResultFromError(err error) conn.DialResult {
+	return conn.DialResult{
+		Code: DialResultCodeFromError(err),
+		Err:  err,
+	}
+}
+
+// DialResultCodeFromError returns the [conn.DialResultCode] that matches the error.
+func DialResultCodeFromError(err error) conn.DialResultCode {
+	switch err {
+	case nil:
+		return conn.DialResultCodeSuccess
+	case ErrRejected:
+		return conn.DialResultCodeEACCES
+	case errNoAvailableResolvers, dns.ErrDomainNoAssociatedIPs:
+		return conn.DialResultCodeErrDomainNameLookup
+	default:
+		return conn.DialResultCodeErrOther
+	}
 }

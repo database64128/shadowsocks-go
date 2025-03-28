@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 	"golang.org/x/net/dns/dnsmessage"
@@ -61,7 +62,7 @@ type ResolverConfig struct {
 }
 
 // NewSimpleResolver creates a new [NewSimpleResolver] from the config.
-func (rc *ResolverConfig) NewSimpleResolver(tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, logger *zap.Logger) (SimpleResolver, error) {
+func (rc *ResolverConfig) NewSimpleResolver(tcpClientMap map[string]netio.StreamClient, udpClientMap map[string]zerocopy.UDPClient, logger *zap.Logger) (SimpleResolver, error) {
 	switch rc.Type {
 	case "plain", "":
 	case "system":
@@ -82,7 +83,7 @@ func (rc *ResolverConfig) NewSimpleResolver(tcpClientMap map[string]zerocopy.TCP
 	}
 
 	var (
-		tcpClient zerocopy.TCPClient
+		tcpClient netio.StreamClient
 		udpClient zerocopy.UDPClient
 	)
 
@@ -131,8 +132,8 @@ type Resolver struct {
 	// serverAddrPort is the upstream server's address and port.
 	serverAddrPort netip.AddrPort
 
-	// tcpClient is the TCPClient to use for sending queries and receiving replies.
-	tcpClient zerocopy.TCPClient
+	// tcpClient is the TCP client to use for sending queries and receiving replies.
+	tcpClient netio.StreamClient
 
 	// udpClient is the UDPClient to use for sending queries and receiving replies.
 	udpClient zerocopy.UDPClient
@@ -141,7 +142,7 @@ type Resolver struct {
 	logger *zap.Logger
 }
 
-func NewResolver(name string, serverAddrPort netip.AddrPort, tcpClient zerocopy.TCPClient, udpClient zerocopy.UDPClient, logger *zap.Logger) *Resolver {
+func NewResolver(name string, serverAddrPort netip.AddrPort, tcpClient netio.StreamClient, udpClient zerocopy.UDPClient, logger *zap.Logger) *Resolver {
 	return &Resolver{
 		name:           name,
 		cache:          make(map[string]Result),
@@ -495,10 +496,10 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()
 
-	dialer, clientInfo := r.tcpClient.NewDialer()
+	dialer, clientInfo := r.tcpClient.NewStreamDialer()
 
 	// Write.
-	rawRW, rw, err := dialer.Dial(ctx, r.serverAddr, queries)
+	c, err := dialer.DialStream(ctx, r.serverAddr, queries)
 	if err != nil {
 		r.logger.Warn("Failed to dial TCP DNS server",
 			zap.String("resolver", r.name),
@@ -509,23 +510,20 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 		)
 		return
 	}
-	defer rawRW.Close()
+	defer c.Close()
 
 	// Set read deadline.
-	if tc, ok := rawRW.(*net.TCPConn); ok {
-		go func() {
-			<-ctx.Done()
-			tc.SetReadDeadline(conn.ALongTimeAgo)
-		}()
-	}
+	go func() {
+		<-ctx.Done()
+		_ = c.SetReadDeadline(conn.ALongTimeAgo)
+	}()
 
 	// Read.
-	cr := zerocopy.NewCopyReader(rw)
 	lengthBuf := make([]byte, 2)
 
 	for range 2 {
 		// Read length field.
-		_, err = io.ReadFull(cr, lengthBuf)
+		_, err = io.ReadFull(c, lengthBuf)
 		if err != nil {
 			r.logger.Warn("Failed to read TCP DNS response length",
 				zap.String("resolver", r.name),
@@ -550,7 +548,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 
 		// Read message.
 		msg := make([]byte, msgLen)
-		_, err = io.ReadFull(cr, msg)
+		_, err = io.ReadFull(c, msg)
 		if err != nil {
 			r.logger.Warn("Failed to read TCP DNS response",
 				zap.String("resolver", r.name),

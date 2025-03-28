@@ -12,6 +12,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/dns"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/tlscerts"
@@ -64,7 +65,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	listenConfigCache := conn.NewListenConfigCache()
 	dialerCache := conn.NewDialerCache()
 	clientIndexByName := make(map[string]int, len(sc.Clients))
-	tcpClientMap := make(map[string]zerocopy.TCPClient, len(sc.Clients))
+	tcpClientMap := make(map[string]netio.StreamClient, len(sc.Clients))
 	udpClientMap := make(map[string]zerocopy.UDPClient, len(sc.Clients))
 	var maxClientPackerHeadroom zerocopy.Headroom
 

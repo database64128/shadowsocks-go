@@ -11,6 +11,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/domainset"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/portset"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/oschwald/geoip2-golang"
@@ -130,7 +131,7 @@ type RouteConfig struct {
 }
 
 // Route creates a route from the RouteConfig.
-func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]zerocopy.TCPClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*netipx.IPSet) (Route, error) {
+func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]netio.StreamClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*netipx.IPSet) (Route, error) {
 	// Bad name.
 	switch rc.Name {
 	case "", "default":
@@ -443,7 +444,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 type Route struct {
 	name      string
 	criteria  []Criterion
-	tcpClient zerocopy.TCPClient
+	tcpClient netio.StreamClient
 	udpClient zerocopy.UDPClient
 }
 
@@ -472,7 +473,7 @@ func (r *Route) Match(ctx context.Context, network protocol, requestInfo Request
 }
 
 // TCPClient returns the TCP client to use for the request.
-func (r *Route) TCPClient() (zerocopy.TCPClient, error) {
+func (r *Route) TCPClient() (netio.StreamClient, error) {
 	if r.tcpClient == nil {
 		return nil, ErrRejected
 	}

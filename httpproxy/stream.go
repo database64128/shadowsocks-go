@@ -6,15 +6,12 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
-	"net"
 	"slices"
 	"strings"
 	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/netio"
-	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
 )
 
@@ -67,7 +64,7 @@ type ClientConfig struct {
 
 // ProxyClient is an HTTP proxy client.
 //
-// ProxyClient implements [zerocopy.TCPClient] and [zerocopy.TCPDialer].
+// ProxyClient implements [netio.StreamClient] and [netio.StreamDialer].
 type ProxyClient struct {
 	name        string
 	innerClient netio.StreamClient
@@ -77,6 +74,11 @@ type ProxyClient struct {
 
 	proxyAuthHeader string
 }
+
+var (
+	_ netio.StreamClient = (*ProxyClient)(nil)
+	_ netio.StreamDialer = (*ProxyClient)(nil)
+)
 
 // NewProxyClient creates a new HTTP proxy client.
 func (c *ClientConfig) NewProxyClient() (*ProxyClient, error) {
@@ -112,26 +114,24 @@ func (c *ClientConfig) NewProxyClient() (*ProxyClient, error) {
 	return &client, nil
 }
 
-// NewDialer implements [zerocopy.TCPClient.NewDialer].
-func (c *ProxyClient) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
-	return c, zerocopy.TCPClientInfo{
+// NewStreamDialer implements [netio.StreamClient.NewStreamDialer].
+func (c *ProxyClient) NewStreamDialer() (netio.StreamDialer, netio.StreamDialerInfo) {
+	return c, netio.StreamDialerInfo{
 		Name:                 c.name,
 		NativeInitialPayload: false,
 	}
 }
 
-// Dial implements [zerocopy.TCPDialer.Dial].
-func (c *ProxyClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []byte) (rawRW zerocopy.DirectReadWriteCloser, rw zerocopy.ReadWriter, err error) {
+// DialStream implements [netio.StreamDialer.DialStream].
+func (c *ProxyClient) DialStream(ctx context.Context, targetAddr conn.Addr, payload []byte) (clientConn netio.Conn, err error) {
 	innerConn, err := c.innerClient.DialStream(ctx, c.serverAddr, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	if c.tlsConfig != nil {
 		innerConn = tls.Client(innerConn, c.tlsConfig)
 	}
-
-	var clientConn netio.Conn
 
 	if err = netio.ConnWriteContextFunc(ctx, innerConn, func(innerConn netio.Conn) (err error) {
 		clientConn, err = ClientConnect(innerConn, targetAddr, c.proxyAuthHeader)
@@ -148,17 +148,14 @@ func (c *ProxyClient) Dial(ctx context.Context, targetAddr conn.Addr, payload []
 		return nil
 	}); err != nil {
 		_ = innerConn.Close()
-		return nil, nil, err
+		return nil, err
 	}
 
-	return innerConn, direct.NewDirectStreamReadWriter(clientConn), nil
+	return clientConn, nil
 }
 
 // ServerConfig contains configuration options for an HTTP proxy server.
 type ServerConfig struct {
-	// Logger is the logger used for logging.
-	Logger *zap.Logger
-
 	// Users is a list of users allowed to connect to the server.
 	// It is ignored if none of the authentication methods are enabled.
 	Users []ServerUserCredentials
@@ -220,17 +217,14 @@ type EncryptedClientHelloKey struct {
 
 // ProxyServer is an HTTP proxy server.
 //
-// ProxyServer implements [zerocopy.TCPServer].
+// ProxyServer implements [netio.StreamServer].
 type ProxyServer struct {
-	logger          *zap.Logger
 	usernameByToken map[string]string
 }
 
 // NewProxyServer creates a new HTTP proxy server.
-func (c *ServerConfig) NewProxyServer() (zerocopy.TCPServer, error) {
-	server := ProxyServer{
-		logger: c.Logger,
-	}
+func (c *ServerConfig) NewProxyServer() (netio.StreamServer, error) {
+	var server ProxyServer
 
 	if c.EnableBasicAuth {
 		var b []byte
@@ -271,63 +265,61 @@ func (c *ServerConfig) NewProxyServer() (zerocopy.TCPServer, error) {
 		if c.RequireAndVerifyClientCert {
 			tlsServer.tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 		}
-		return &tlsServer, nil
+		return tlsServer, nil
 	}
 
-	return &server, nil
+	return server, nil
 }
 
-// Info implements [zerocopy.TCPServer.Info].
-func (s *ProxyServer) Info() zerocopy.TCPServerInfo {
-	return zerocopy.TCPServerInfo{
+// StreamServerInfo implements [netio.StreamServer.StreamServerInfo].
+func (ProxyServer) StreamServerInfo() netio.StreamServerInfo {
+	return netio.StreamServerInfo{
 		NativeInitialPayload: false,
-		DefaultTCPConnCloser: zerocopy.JustClose,
 	}
 }
 
-// Accept implements [zerocopy.TCPServer.Accept].
-func (s *ProxyServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
-	pc, targetAddr, username, err := ServerHandle(rawRW.(netio.Conn), s.logger, s.usernameByToken)
+// HandleStream implements [netio.StreamServer.HandleStream].
+func (s ProxyServer) HandleStream(c netio.Conn, logger *zap.Logger) (netio.ConnRequest, error) {
+	pc, targetAddr, username, err := ServerHandle(c, logger, s.usernameByToken)
 	if err != nil {
-		return nil, conn.Addr{}, nil, "", err
+		return netio.ConnRequest{}, err
 	}
-	c, err := pc.Proceed()
-	if err != nil {
-		return nil, conn.Addr{}, nil, "", err
-	}
-	return direct.NewDirectStreamReadWriter(c), targetAddr, nil, username, nil
+	return netio.ConnRequest{
+		PendingConn: pc,
+		Addr:        targetAddr,
+		Username:    username,
+	}, nil
 }
 
 // TLSProxyServer is an HTTP proxy server that uses TLS.
 //
-// TLSProxyServer implements [zerocopy.TCPServer].
+// TLSProxyServer implements [netio.StreamServer].
 type TLSProxyServer struct {
 	plainServer ProxyServer
 	tlsConfig   *tls.Config
 }
 
-// Info implements [zerocopy.TCPServer.Info].
-func (s *TLSProxyServer) Info() zerocopy.TCPServerInfo {
-	return s.plainServer.Info()
+// StreamServerInfo implements [netio.StreamServer.StreamServerInfo].
+func (TLSProxyServer) StreamServerInfo() netio.StreamServerInfo {
+	return netio.StreamServerInfo{
+		NativeInitialPayload: false,
+	}
 }
 
-// Accept implements [zerocopy.TCPServer.Accept].
-func (s *TLSProxyServer) Accept(rawRW zerocopy.DirectReadWriteCloser) (rw zerocopy.ReadWriter, targetAddr conn.Addr, payload []byte, username string, err error) {
-	netConn, ok := rawRW.(net.Conn)
-	if !ok {
-		return nil, conn.Addr{}, nil, "", zerocopy.ErrAcceptRequiresNetConn
-	}
+// HandleStream implements [netio.StreamServer.HandleStream].
+func (s TLSProxyServer) HandleStream(c netio.Conn, logger *zap.Logger) (netio.ConnRequest, error) {
+	tlsConn := tls.Server(c, s.tlsConfig)
 
-	tlsConn := tls.Server(netConn, s.tlsConfig)
-	rw, targetAddr, payload, username, err = s.plainServer.Accept(tlsConn)
+	req, err := s.plainServer.HandleStream(tlsConn, logger)
 	if err != nil {
-		return
+		_ = tlsConn.Close()
+		return netio.ConnRequest{}, err
 	}
 
 	if s.plainServer.usernameByToken == nil && s.tlsConfig.ClientAuth == tls.RequireAndVerifyClientCert {
 		tlsConnState := tlsConn.ConnectionState()
-		username = tlsConnState.PeerCertificates[0].Subject.CommonName
+		req.Username = tlsConnState.PeerCertificates[0].Subject.CommonName
 	}
 
-	return
+	return req, nil
 }

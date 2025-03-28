@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/netip"
 	"slices"
-	"sync"
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -264,32 +263,6 @@ func testPreambleStreamClientServerProceed(
 	}
 }
 
-// RWSerializedConn serializes Read and Write calls on a [netio.Conn].
-type RWSerializedConn struct {
-	netio.Conn
-	rdMu sync.Mutex
-	wrMu sync.Mutex
-}
-
-// NewRWSerializedConn returns a new [*RWSerializedConn] wrapping the given [netio.Conn].
-func NewRWSerializedConn(c netio.Conn) *RWSerializedConn {
-	return &RWSerializedConn{Conn: c}
-}
-
-// Read implements [netio.Conn.Read].
-func (c *RWSerializedConn) Read(b []byte) (n int, err error) {
-	c.rdMu.Lock()
-	defer c.rdMu.Unlock()
-	return c.Conn.Read(b)
-}
-
-// Write implements [netio.Conn.Write].
-func (c *RWSerializedConn) Write(b []byte) (n int, err error) {
-	c.wrMu.Lock()
-	defer c.wrMu.Unlock()
-	return c.Conn.Write(b)
-}
-
 // TestWrapConnStreamClientServerProceed tests a pair of stream client and server
 // implementations that return wrapper connections over the underlying connection.
 func TestWrapConnStreamClientServerProceed(
@@ -336,81 +309,124 @@ func testWrapConnStreamClientServerProceed(
 		NativeInitialPayload: true,
 	})
 
-	var serverConn netio.Conn
 	expectedInitialPayload := slices.Clone(initialPayload)
 
+	type serverConnOrErr struct {
+		serverConn netio.Conn
+		err        error
+	}
+
+	serverConnOrErrCh := make(chan serverConnOrErr)
+
 	go func() {
-		defer psc.Close()
-
-		select {
-		case <-ctx.Done():
-			t.Error("DialStream not called")
-			return
-
-		case pc := <-ch:
-			if !pc.LocalConnAddr().Equals(expectedServerAddr) {
-				t.Errorf("pc.LocalConnAddr() = %v, want %v", pc.LocalConnAddr(), expectedServerAddr)
-			}
-
-			req, err := server.HandleStream(pc, logger)
-			if err != nil {
-				t.Errorf("server.HandleStream failed: %v", err)
+		for {
+			select {
+			case <-ctx.Done():
+				t.Error("DialStream not called")
 				return
-			}
-			if !req.Addr.Equals(addr) {
-				t.Errorf("req.Addr = %v, want %v", req.Addr, addr)
-			}
-			if len(req.Payload) > len(expectedInitialPayload) {
-				t.Errorf("req.Payload = %v, want %v", req.Payload, expectedInitialPayload)
-			}
-			if req.Username != expectedUsername {
-				t.Errorf("req.Username = %q, want %q", req.Username, expectedUsername)
-			}
 
-			serverConn, err = req.Proceed()
-			if err != nil {
-				t.Errorf("req.Proceed failed: %v", err)
-				return
-			}
-			defer serverConn.Close()
+			case pc, ok := <-ch:
+				if !ok {
+					return
+				}
 
-			b := slices.Grow(req.Payload, len(expectedInitialPayload)-len(req.Payload))[:len(expectedInitialPayload)]
-			readBuf := b[len(req.Payload):]
-			if _, err = io.ReadFull(serverConn, readBuf); err != nil {
-				t.Errorf("io.ReadFull failed: %v", err)
-			}
-			if !bytes.Equal(b, expectedInitialPayload) {
-				t.Errorf("b = %v, want %v", b, expectedInitialPayload)
+				if !pc.LocalConnAddr().Equals(expectedServerAddr) {
+					t.Errorf("pc.LocalConnAddr() = %v, want %v", pc.LocalConnAddr(), expectedServerAddr)
+				}
+
+				req, err := server.HandleStream(pc, logger)
+				if err != nil {
+					t.Errorf("server.HandleStream failed: %v", err)
+					serverConnOrErrCh <- serverConnOrErr{err: err}
+					return
+				}
+				if !req.Addr.Equals(addr) {
+					t.Errorf("req.Addr = %v, want %v", req.Addr, addr)
+				}
+				if len(req.Payload) > len(expectedInitialPayload) {
+					t.Errorf("req.Payload = %v, want %v", req.Payload, expectedInitialPayload)
+				}
+				if req.Username != expectedUsername {
+					t.Errorf("req.Username = %q, want %q", req.Username, expectedUsername)
+				}
+
+				serverConn, err := req.Proceed()
+				if err != nil {
+					t.Errorf("req.Proceed failed: %v", err)
+					serverConnOrErrCh <- serverConnOrErr{err: err}
+					return
+				}
+
+				b := slices.Grow(req.Payload, len(expectedInitialPayload)-len(req.Payload))[:len(expectedInitialPayload)]
+				readBuf := b[len(req.Payload):]
+				if _, err = io.ReadFull(serverConn, readBuf); err != nil {
+					t.Errorf("io.ReadFull failed: %v", err)
+				}
+				if !bytes.Equal(b, expectedInitialPayload) {
+					t.Errorf("b = %v, want %v", b, expectedInitialPayload)
+				}
+
+				serverConnOrErrCh <- serverConnOrErr{serverConn: serverConn}
 			}
 		}
 	}()
 
 	client := newClient(psc)
 
-	clientConn, err := client.DialStream(ctx, addr, initialPayload)
-	if err != nil {
-		t.Fatalf("DialStream failed: %v", err)
-	}
-	defer clientConn.Close()
-
-	if _, ok := clientConn.(*PipeConn); !ok {
-		t.Errorf("clientConn is %T, want *PipeConn", clientConn)
-	}
-
-	// This also synchronizes the exit of the server goroutine.
-	if _, ok := <-ch; ok {
-		t.Error("DialStream called more than once")
-	}
-
 	nettest.TestConn(t, func() (c1 net.Conn, c2 net.Conn, stop func(), err error) {
-		c1 = NewRWSerializedConn(clientConn)
-		c2 = NewRWSerializedConn(serverConn)
+		clientConn, err := client.DialStream(ctx, addr, initialPayload)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		serverConnOrErr := <-serverConnOrErrCh
+		if serverConnOrErr.err != nil {
+			return nil, nil, nil, serverConnOrErr.err
+		}
+		serverConn := serverConnOrErr.serverConn
+
+		// Hide the connections behind pipes to satisfy synchronization requirements.
+		c1, c1pr := netio.NewPipe()
+		go func() {
+			_, _, _ = netio.BidirectionalCopy(clientConn, pipeConnWithoutWriteTo{PipeConn: c1pr})
+		}()
+
+		c2, c2pr := netio.NewPipe()
+		go func() {
+			_, _, _ = netio.BidirectionalCopy(serverConn, pipeConnWithoutWriteTo{PipeConn: c2pr})
+		}()
+
 		stop = func() {
 			_ = c1.Close()
 			_ = c2.Close()
 		}
 		return
 	})
+
+	_ = psc.Close()
+
+	// This also synchronizes the exit of the server goroutine.
+	if _, ok := <-ch; ok {
+		t.Error("DialStream called more than expected")
+	}
+}
+
+// pipeConnWithoutWriteTo wraps a [*netio.PipeConn] to hide its WriteTo method.
+// This is useful for testing with [nettest.TestConn], as a blocked writer can
+// cause the test to hang.
+type pipeConnWithoutWriteTo struct {
+	noWriteTo
+	*netio.PipeConn
+}
+
+// noWriteTo can be embedded alongside another type to
+// hide the WriteTo method of that other type.
+type noWriteTo struct{}
+
+// WriteTo hides another WriteTo method.
+// It should never be called.
+func (noWriteTo) WriteTo(io.Writer) (int64, error) {
+	panic("can't happen")
 }
 
 // TestStreamClientServerAbort tests a pair of stream client and server

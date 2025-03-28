@@ -12,6 +12,7 @@ import (
 	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/jsonhelper"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/probe"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
@@ -648,14 +649,19 @@ func (j *latencyProbeJob[C]) Run(ctx context.Context) {
 
 // atomicTCPClientGroup is a TCP client group that wraps an atomic client selector.
 //
-// atomicTCPClientGroup implements [zerocopy.TCPClient].
+// atomicTCPClientGroup implements [netio.StreamClient] and [netio.StreamDialer].
 type atomicTCPClientGroup struct {
 	selector atomicClientSelector[tcpClient]
 }
 
-// NewDialer implements [zerocopy.TCPClient.NewDialer].
-func (g *atomicTCPClientGroup) NewDialer() (zerocopy.TCPDialer, zerocopy.TCPClientInfo) {
-	return g.selector.Select().NewDialer()
+// NewStreamDialer implements [netio.StreamClient.NewStreamDialer].
+func (g *atomicTCPClientGroup) NewStreamDialer() (netio.StreamDialer, netio.StreamDialerInfo) {
+	return g.selector.Select().NewStreamDialer()
+}
+
+// DialStream implements [netio.StreamDialer.DialStream].
+func (g *atomicTCPClientGroup) DialStream(ctx context.Context, addr conn.Addr, payload []byte) (netio.Conn, error) {
+	return g.selector.Select().DialStream(ctx, addr, payload)
 }
 
 // atomicUDPClientGroup is a UDP client group that wraps an atomic client selector.

@@ -13,9 +13,11 @@ import (
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/httpproxy"
 	"github.com/database64128/shadowsocks-go/jsonhelper"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/ss2022"
+	"github.com/database64128/shadowsocks-go/ssnone"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/tlscerts"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -287,10 +289,10 @@ type ServerConfig struct {
 
 	// Shadowsocks
 
-	PSK           []byte `json:"psk"`
-	UPSKStorePath string `json:"uPSKStorePath"`
-	PaddingPolicy string `json:"paddingPolicy"`
-	RejectPolicy  string `json:"rejectPolicy"`
+	PSK           []byte               `json:"psk"`
+	UPSKStorePath string               `json:"uPSKStorePath"`
+	PaddingPolicy ss2022.PaddingPolicy `json:"paddingPolicy"`
+	RejectPolicy  ss2022.RejectPolicy  `json:"rejectPolicy"`
 
 	// SlidingWindowFilterSize is the size of the sliding window filter.
 	//
@@ -400,42 +402,40 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 	}
 
 	var (
-		server              zerocopy.TCPServer
-		connCloser          zerocopy.TCPConnCloser
+		server              netio.StreamServer
 		err                 error
 		listenerTransparent bool
 	)
 
 	switch sc.Protocol {
 	case "direct":
-		server = direct.NewTCPServer(sc.TunnelRemoteAddress)
+		server = netio.NewStreamProxyServer(sc.TunnelRemoteAddress)
 
 	case "tproxy":
-		server, err = direct.NewTCPTransparentServer()
+		server, err = netio.NewTCPTransparentProxyServer()
 		if err != nil {
 			return nil, err
 		}
 		listenerTransparent = true
 
 	case "none", "plain":
-		server = direct.NewShadowsocksNoneTCPServer()
+		server = ssnone.StreamServer{}
 
 	case "socks5":
-		s5tsc := direct.Socks5TCPServerConfig{
+		ssc := socks5.StreamServerConfig{
 			Users:              sc.Socks5.Users,
 			EnableUserPassAuth: sc.Socks5.EnableUserPassAuth,
 			EnableTCP:          sc.tcpEnabled,
 			EnableUDP:          sc.udpEnabled,
 		}
 
-		server, err = s5tsc.NewServer()
+		server, err = ssc.NewStreamServer()
 		if err != nil {
 			return nil, err
 		}
 
 	case "http":
 		hpsc := httpproxy.ServerConfig{
-			Logger:                     sc.logger,
 			Users:                      sc.HTTP.Users,
 			EncryptedClientHelloKeys:   sc.HTTP.EncryptedClientHelloKeys,
 			EnableBasicAuth:            sc.HTTP.EnableBasicAuth,
@@ -466,11 +466,23 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		}
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
+		if sc.UnsafeFallbackAddress.IsValid() {
+			sc.logger.Warn("Unsafe fallback taints the server", zap.String("server", sc.Name))
+		}
 		if len(sc.UnsafeRequestStreamPrefix) != 0 || len(sc.UnsafeResponseStreamPrefix) != 0 {
 			sc.logger.Warn("Unsafe stream prefix taints the server", zap.String("server", sc.Name))
 		}
 
-		s := ss2022.NewTCPServer(sc.AllowSegmentedFixedLengthHeader, sc.userCipherConfig, sc.identityCipherConfig, sc.UnsafeRequestStreamPrefix, sc.UnsafeResponseStreamPrefix)
+		scc := ss2022.StreamServerConfig{
+			AllowSegmentedFixedLengthHeader: sc.AllowSegmentedFixedLengthHeader,
+			UserCipherConfig:                sc.userCipherConfig,
+			IdentityCipherConfig:            sc.identityCipherConfig,
+			RejectPolicy:                    sc.RejectPolicy,
+			UnsafeFallbackAddr:              sc.UnsafeFallbackAddress,
+			UnsafeRequestStreamPrefix:       sc.UnsafeRequestStreamPrefix,
+			UnsafeResponseStreamPrefix:      sc.UnsafeResponseStreamPrefix,
+		}
+		s := scc.NewStreamServer()
 		sc.tcpCredStore = &s.CredStore
 		server = s
 
@@ -478,20 +490,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}
 
-	serverInfo := server.Info()
-
-	connCloser, err = zerocopy.ParseRejectPolicy(sc.RejectPolicy, serverInfo.DefaultTCPConnCloser)
-	if err != nil {
-		return nil, err
-	}
-
-	if sc.UnsafeFallbackAddress.IsValid() {
-		sc.logger.Warn("Unsafe fallback taints the server",
-			zap.String("server", sc.Name),
-			zap.Stringer("fallbackAddress", sc.UnsafeFallbackAddress),
-		)
-	}
-
+	serverInfo := server.StreamServerInfo()
 	listeners := make([]tcpRelayListener, len(sc.TCPListeners))
 
 	for i := range listeners {
@@ -501,7 +500,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		}
 	}
 
-	return NewTCPRelay(sc.index, sc.Name, listeners, server, connCloser, sc.UnsafeFallbackAddress, sc.collector, sc.router, sc.logger), nil
+	return NewTCPRelay(sc.index, sc.Name, listeners, server, sc.collector, sc.router, sc.logger), nil
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
@@ -547,11 +546,6 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (sha
 		natServer = direct.Socks5UDPNATServer{}
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		shouldPad, err := ss2022.ParsePaddingPolicy(sc.PaddingPolicy)
-		if err != nil {
-			return nil, err
-		}
-
 		switch {
 		case sc.SlidingWindowFilterSize == 0:
 			sc.SlidingWindowFilterSize = ss2022.DefaultSlidingWindowFilterSize
@@ -559,7 +553,7 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (sha
 			return nil, fmt.Errorf("negative sliding window filter size: %d", sc.SlidingWindowFilterSize)
 		}
 
-		s := ss2022.NewUDPServer(uint64(sc.SlidingWindowFilterSize), sc.userCipherConfig, sc.identityCipherConfig, shouldPad)
+		s := ss2022.NewUDPServer(uint64(sc.SlidingWindowFilterSize), sc.userCipherConfig, sc.identityCipherConfig, sc.PaddingPolicy)
 		sc.udpCredStore = &s.CredStore
 		sessionServer = s
 

@@ -12,95 +12,105 @@ import (
 
 	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/netio"
-	"github.com/database64128/shadowsocks-go/zerocopy"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/netiotest"
 	"go.uber.org/zap/zaptest"
 )
 
-func TestHttpStreamReadWriter(t *testing.T) {
-	logger := zaptest.NewLogger(t)
-	defer logger.Sync()
-
+func TestStreamClientServer(t *testing.T) {
 	for _, c := range []struct {
 		name                  string
-		expectedUsername      string
-		clientProxyAuthHeader string
-		serverUsernameByToken map[string]string
+		clientUsername        string
+		clientPassword        string
+		clientUseBasicAuth    bool
+		serverEnableBasicAuth bool
+		serverUsers           []ServerUserCredentials
 	}{
 		{
 			name:                  "NoAuth",
-			expectedUsername:      "",
-			clientProxyAuthHeader: "",
-			serverUsernameByToken: nil,
+			clientUsername:        "",
+			clientPassword:        "",
+			clientUseBasicAuth:    false,
+			serverEnableBasicAuth: false,
+			serverUsers:           nil,
 		},
 		{
 			name:                  "BasicAuth",
-			expectedUsername:      "hello",
-			clientProxyAuthHeader: "\r\nProxy-Authorization: basic aGVsbG86d29ybGQ=",
-			serverUsernameByToken: map[string]string{"aGVsbG86d29ybGQ=": "hello"},
+			clientUsername:        "hello",
+			clientPassword:        "world",
+			clientUseBasicAuth:    true,
+			serverEnableBasicAuth: true,
+			serverUsers: []ServerUserCredentials{
+				{
+					Username: "hello",
+					Password: "world",
+				},
+			},
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			testHttpStreamReadWriter(t, c.expectedUsername, c.clientProxyAuthHeader, c.serverUsernameByToken, logger)
+			addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 8080)
+
+			newClient := func(psc *netiotest.PipeStreamClient) netio.StreamClient {
+				clientConfig := ClientConfig{
+					Name:         "test",
+					InnerClient:  psc,
+					Addr:         addr,
+					Username:     c.clientUsername,
+					Password:     c.clientPassword,
+					UseBasicAuth: c.clientUseBasicAuth,
+				}
+				client, err := clientConfig.NewProxyClient()
+				if err != nil {
+					t.Fatalf("Failed to create client: %v", err)
+				}
+				return client
+			}
+
+			serverConfig := ServerConfig{
+				Users:           c.serverUsers,
+				EnableBasicAuth: c.serverEnableBasicAuth,
+			}
+			server, err := serverConfig.NewProxyServer()
+			if err != nil {
+				t.Fatalf("Failed to create server: %v", err)
+			}
+
+			t.Run("Proceed", func(t *testing.T) {
+				netiotest.TestPreambleStreamClientServerProceed(
+					t,
+					newClient,
+					server,
+					addr,
+					c.clientUsername,
+				)
+			})
+
+			t.Run("Abort", func(t *testing.T) {
+				netiotest.TestStreamClientServerAbort(
+					t,
+					newClient,
+					server,
+					func(t *testing.T, dialResult conn.DialResult, err error) {
+						var e ConnectNonSuccessfulResponseError
+						if !errors.As(err, &e) {
+							t.Errorf("err = %v, want %T", err, e)
+							return
+						}
+						if e.StatusCode != http.StatusBadGateway {
+							t.Errorf("e.StatusCode = %d, want %d", e.StatusCode, http.StatusBadGateway)
+						}
+					},
+				)
+			})
 		})
 	}
-
-	t.Run("BasicAuth/BadCredentials", func(t *testing.T) {
-		testHttpStreamReadWriterBasicAuthBadCredentials(t, logger)
-	})
 }
 
-func testHttpStreamReadWriter(t *testing.T, expectedUsername, clientProxyAuthHeader string, serverUsernameByToken map[string]string, logger *zap.Logger) {
-	pl, pr := netio.NewPipe()
+func TestStreamClientServerBasicAuthBadCredentials(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	defer logger.Sync()
 
-	clientTargetAddr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 80)
-
-	var (
-		wg               sync.WaitGroup
-		clientConn       netio.Conn
-		serverConn       netio.Conn
-		serverTargetAddr conn.Addr
-		username         string
-		cerr, serr       error
-	)
-
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		clientConn, cerr = ClientConnect(pl, clientTargetAddr, clientProxyAuthHeader)
-	}()
-
-	go func() {
-		defer wg.Done()
-		var serverPendingConn netio.PendingConn
-		serverPendingConn, serverTargetAddr, username, serr = ServerHandle(pr, logger, serverUsernameByToken)
-		if serr == nil {
-			serverConn, serr = serverPendingConn.Proceed()
-		}
-	}()
-
-	wg.Wait()
-
-	if cerr != nil {
-		t.Fatal(cerr)
-	}
-	if serr != nil {
-		t.Fatal(serr)
-	}
-	if !clientTargetAddr.Equals(serverTargetAddr) {
-		t.Errorf("Target address mismatch: c: %q, s: %q", clientTargetAddr, serverTargetAddr)
-	}
-	if username != expectedUsername {
-		t.Errorf("username = %q, want %q", username, expectedUsername)
-	}
-
-	zerocopy.ReadWriterTestFunc(t, direct.NewDirectStreamReadWriter(clientConn), direct.NewDirectStreamReadWriter(serverConn))
-}
-
-func testHttpStreamReadWriterBasicAuthBadCredentials(t *testing.T, logger *zap.Logger) {
 	pl, pr := netio.NewPipe()
 
 	clientTargetAddr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 80)
@@ -131,11 +141,7 @@ func testHttpStreamReadWriterBasicAuthBadCredentials(t *testing.T, logger *zap.L
 
 	go func() {
 		defer wg.Done()
-		var serverPendingConn netio.PendingConn
-		serverPendingConn, _, _, serr = ServerHandle(pr, logger, map[string]string{"QWxhZGRpbjpvcGVuIHNlc2FtZQ==": "Aladdin"})
-		if serr == nil {
-			_, serr = serverPendingConn.Proceed()
-		}
+		_, _, _, serr = ServerHandle(pr, logger, map[string]string{"QWxhZGRpbjpvcGVuIHNlc2FtZQ==": "Aladdin"})
 	}()
 
 	wg.Wait()

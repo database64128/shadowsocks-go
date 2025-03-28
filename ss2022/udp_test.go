@@ -36,7 +36,16 @@ var (
 	replayServerAddrPort = netip.AddrPortFrom(netip.IPv6Unspecified(), 10802)
 )
 
-func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, clientShouldPad, serverShouldPad PaddingPolicy, mtu, packetSize, payloadLen int) {
+func testUDPClientServer(
+	t *testing.T,
+	clientCipherConfig *ClientCipherConfig,
+	userCipherConfig UserCipherConfig,
+	identityCipherConfig ServerIdentityCipherConfig,
+	userLookupMap UserLookupMap,
+	expectedUsername string,
+	clientShouldPad, serverShouldPad PaddingPolicy,
+	mtu, packetSize, payloadLen int,
+) {
 	c := NewUDPClient(name, "ip", serverAddr, mtu, conn.DefaultUDPClientListenConfig, DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
 	s := NewUDPServer(DefaultSlidingWindowFilterSize, userCipherConfig, identityCipherConfig, serverShouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
@@ -82,9 +91,12 @@ func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, u
 	if err != nil {
 		t.Fatal(err)
 	}
-	serverUnpacker, _, err := s.NewUnpacker(p, csid)
+	serverUnpacker, username, err := s.NewUnpacker(p, csid)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if username != expectedUsername {
+		t.Errorf("username = %q, want %q", username, expectedUsername)
 	}
 	ta, ps, pl, err := serverUnpacker.UnpackInPlace(b, clientAddrPort, pkts, pktl)
 	if err != nil {
@@ -134,14 +146,18 @@ func testUDPClientServer(t *testing.T, clientCipherConfig *ClientCipherConfig, u
 	}
 }
 
-func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap) {
-	shouldPad, err := ParsePaddingPolicy("")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	c := NewUDPClient(name, "ip", serverAddr, mtu, conn.DefaultUDPClientListenConfig, DefaultSlidingWindowFilterSize, clientCipherConfig, shouldPad)
-	s := NewUDPServer(DefaultSlidingWindowFilterSize, userCipherConfig, identityCipherConfig, shouldPad)
+func testUDPClientServerSessionChangeAndReplay(
+	t *testing.T,
+	clientCipherConfig *ClientCipherConfig,
+	userCipherConfig UserCipherConfig,
+	identityCipherConfig ServerIdentityCipherConfig,
+	userLookupMap UserLookupMap,
+	expectedUsername string,
+	clientShouldPad, serverShouldPad PaddingPolicy,
+	mtu, packetSize, payloadLen int,
+) {
+	c := NewUDPClient(name, "ip", serverAddr, mtu, conn.DefaultUDPClientListenConfig, DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
+	s := NewUDPServer(DefaultSlidingWindowFilterSize, userCipherConfig, identityCipherConfig, serverShouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 	ctx := t.Context()
 
@@ -170,9 +186,12 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 	if err != nil {
 		t.Fatal(err)
 	}
-	serverUnpacker, _, err := s.NewUnpacker(p, csid)
+	serverUnpacker, username, err := s.NewUnpacker(p, csid)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if username != expectedUsername {
+		t.Errorf("username = %q, want %q", username, expectedUsername)
 	}
 
 	// Backup processed client packet.
@@ -294,65 +313,89 @@ func testUDPClientServerSessionChangeAndReplay(t *testing.T, clientCipherConfig 
 	}
 }
 
-func testUDPClientServerPaddingPolicy(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap, mtu, packetSize, payloadLen int) {
-	t.Run("NoPadding", func(t *testing.T) {
-		testUDPClientServer(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, NoPadding, NoPadding, mtu, packetSize, payloadLen)
-	})
-	t.Run("PadPlainDNS", func(t *testing.T) {
-		testUDPClientServer(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, PadPlainDNS, PadPlainDNS, mtu, packetSize, payloadLen)
-	})
-	t.Run("PadAll", func(t *testing.T) {
-		testUDPClientServer(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, PadAll, PadAll, mtu, packetSize, payloadLen)
-	})
+var paddingCases = [...]struct {
+	name      string
+	shouldPad PaddingPolicy
+}{
+	{"NoPadding", NoPadding},
+	{"PadPlainDNS", PadPlainDNS},
+	{"PadAll", PadAll},
 }
 
-func testUDPClientServerWithCipher(t *testing.T, clientCipherConfig *ClientCipherConfig, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, userLookupMap UserLookupMap) {
-	t.Run("Typical", func(t *testing.T) {
-		testUDPClientServerPaddingPolicy(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, mtu, packetSize, payloadLen)
-	})
-	t.Run("EmptyPayload", func(t *testing.T) {
-		testUDPClientServerPaddingPolicy(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, mtu, packetSize, 0)
-	})
-	t.Run("Jumbogram", func(t *testing.T) {
-		testUDPClientServerPaddingPolicy(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap, jumboMTU, jumboPacketSize, jumboPayloadLen)
-	})
-	t.Run("SessionChangeAndReplay", func(t *testing.T) {
-		testUDPClientServerSessionChangeAndReplay(t, clientCipherConfig, userCipherConfig, identityCipherConfig, userLookupMap)
-	})
-}
+func TestUDPClientServer(t *testing.T) {
+	t.Parallel()
+	for _, method := range methodCases {
+		for _, cipher := range cipherCases {
+			t.Run(method, func(t *testing.T) {
+				t.Parallel()
 
-func TestUDPClientServerNoEIH(t *testing.T) {
-	clientCipherConfig128, userCipherConfig128, err := newRandomCipherConfigTupleNoEIH("2022-blake3-aes-128-gcm", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	clientCipherConfig256, userCipherConfig256, err := newRandomCipherConfigTupleNoEIH("2022-blake3-aes-256-gcm", true)
-	if err != nil {
-		t.Fatal(err)
-	}
+				clientCipherConfig,
+					userCipherConfig,
+					identityCipherConfig,
+					userLookupMap,
+					username,
+					err := cipher.newCipherConfig(method, true)
+				if err != nil {
+					t.Fatal(err)
+				}
 
-	t.Run("128", func(t *testing.T) {
-		testUDPClientServerWithCipher(t, clientCipherConfig128, userCipherConfig128, ServerIdentityCipherConfig{}, nil)
-	})
-	t.Run("256", func(t *testing.T) {
-		testUDPClientServerWithCipher(t, clientCipherConfig256, userCipherConfig256, ServerIdentityCipherConfig{}, nil)
-	})
-}
-
-func TestUDPClientServerWithEIH(t *testing.T) {
-	clientCipherConfig128, identityCipherConfig128, userLookupMap128, err := newRandomCipherConfigTupleWithEIH("2022-blake3-aes-128-gcm", true)
-	if err != nil {
-		t.Fatal(err)
+				for _, clientShouldPadCase := range paddingCases {
+					t.Run(clientShouldPadCase.name, func(t *testing.T) {
+						t.Parallel()
+						for _, serverShouldPadCase := range paddingCases {
+							t.Run(serverShouldPadCase.name, func(t *testing.T) {
+								t.Parallel()
+								for _, sizeCases := range [...]struct {
+									name       string
+									mtu        int
+									packetSize int
+									payloadLen int
+								}{
+									{"Typical", mtu, packetSize, payloadLen},
+									{"EmptyPayload", mtu, packetSize, 0},
+									{"Jumbogram", jumboMTU, jumboPacketSize, jumboPayloadLen},
+								} {
+									t.Run(sizeCases.name, func(t *testing.T) {
+										t.Parallel()
+										t.Run("RoundTrip", func(t *testing.T) {
+											t.Parallel()
+											testUDPClientServer(
+												t,
+												clientCipherConfig,
+												userCipherConfig,
+												identityCipherConfig,
+												userLookupMap,
+												username,
+												clientShouldPadCase.shouldPad,
+												serverShouldPadCase.shouldPad,
+												sizeCases.mtu,
+												sizeCases.packetSize,
+												sizeCases.payloadLen,
+											)
+										})
+										t.Run("SessionChangeAndReplay", func(t *testing.T) {
+											t.Parallel()
+											testUDPClientServerSessionChangeAndReplay(
+												t,
+												clientCipherConfig,
+												userCipherConfig,
+												identityCipherConfig,
+												userLookupMap,
+												username,
+												clientShouldPadCase.shouldPad,
+												serverShouldPadCase.shouldPad,
+												sizeCases.mtu,
+												sizeCases.packetSize,
+												sizeCases.payloadLen,
+											)
+										})
+									})
+								}
+							})
+						}
+					})
+				}
+			})
+		}
 	}
-	clientCipherConfig256, identityCipherConfig256, userLookupMap256, err := newRandomCipherConfigTupleWithEIH("2022-blake3-aes-256-gcm", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Run("128", func(t *testing.T) {
-		testUDPClientServerWithCipher(t, clientCipherConfig128, UserCipherConfig{}, identityCipherConfig128, userLookupMap128)
-	})
-	t.Run("256", func(t *testing.T) {
-		testUDPClientServerWithCipher(t, clientCipherConfig256, UserCipherConfig{}, identityCipherConfig256, userLookupMap256)
-	})
 }
