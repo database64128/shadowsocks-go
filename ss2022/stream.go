@@ -513,7 +513,7 @@ func (c *ShadowStreamConn) Write(b []byte) (n int, err error) {
 // ReadFrom implements [io.ReaderFrom].
 func (c *ShadowStreamConn) ReadFrom(r io.Reader) (n int64, err error) {
 	writeBuf := c.getWriteBuf()
-	payloadBuf := writeBuf[2+tagSize : streamWriteBufferSize]
+	payloadBuf := writeBuf[2+tagSize : 2+tagSize+streamMaxPayloadSize]
 
 	for {
 		nr, err := r.Read(payloadBuf)
