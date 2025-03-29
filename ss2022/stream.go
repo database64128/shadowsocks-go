@@ -218,6 +218,9 @@ func (c *ShadowStreamClientConn) writeToServerConn(w *ShadowStreamServerConn) (n
 
 		payloadLen, err := c.initRead(b[:cap(b)])
 		if err != nil {
+			if err == io.EOF {
+				return 0, nil
+			}
 			return 0, err
 		}
 
@@ -241,6 +244,9 @@ func (c *ShadowStreamClientConn) writeToGeneric(w io.Writer) (n int64, err error
 	if c.ShadowStreamConn.readCipher == nil { // first read
 		payloadLen, err := c.initRead(nil)
 		if err != nil {
+			if err == io.EOF {
+				return 0, nil
+			}
 			return 0, err
 		}
 
