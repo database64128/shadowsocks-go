@@ -1,6 +1,7 @@
 package ss2022
 
 import (
+	"crypto/rand"
 	"io"
 	"net/netip"
 	"testing"
@@ -209,21 +210,34 @@ func TestStreamClientServer(t *testing.T) {
 									t.Parallel()
 									for _, unsafeStreamPrefixCase := range [...]struct {
 										name     string
-										request  []byte
-										response []byte
+										generate func() (request, response []byte)
 									}{
 										{
 											name: "NoPrefix",
+											generate: func() (request, response []byte) {
+												return nil, nil
+											},
 										},
 										{
-											name:     "WithPrefix",
-											request:  []byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"),
-											response: []byte("HTTP/1.1 200 OK\r\n\r\n"),
+											name: "ShortPrefix",
+											generate: func() (request, response []byte) {
+												return []byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"),
+													[]byte("HTTP/1.1 200 OK\r\n\r\n")
+											},
+										},
+										{
+											name: "GiganticPrefix",
+											generate: func() (request, response []byte) {
+												b := make([]byte, 1<<21)
+												rand.Read(b)
+												return b[:1<<20], b[1<<20:]
+											},
 										},
 									} {
 										t.Run(unsafeStreamPrefixCase.name, func(t *testing.T) {
 											t.Parallel()
-											t.Run("RoundTrip", func(t *testing.T) {
+											unsafeRequestStreamPrefix, unsafeResponseStreamPrefix := unsafeStreamPrefixCase.generate()
+											t.Run("Proceed", func(t *testing.T) {
 												t.Parallel()
 												testStreamClientServer(
 													t,
@@ -232,8 +246,8 @@ func TestStreamClientServer(t *testing.T) {
 													userCipherConfig,
 													identityCipherConfig,
 													userLookupMap,
-													unsafeStreamPrefixCase.request,
-													unsafeStreamPrefixCase.response,
+													unsafeRequestStreamPrefix,
+													unsafeResponseStreamPrefix,
 													username,
 												)
 											})
@@ -246,8 +260,8 @@ func TestStreamClientServer(t *testing.T) {
 													userCipherConfig,
 													identityCipherConfig,
 													userLookupMap,
-													unsafeStreamPrefixCase.request,
-													unsafeStreamPrefixCase.response,
+													unsafeRequestStreamPrefix,
+													unsafeResponseStreamPrefix,
 												)
 											})
 										})
