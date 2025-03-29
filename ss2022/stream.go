@@ -30,9 +30,13 @@ var ErrUnsafeStreamPrefixMismatch = errors.New("unsafe stream prefix mismatch")
 // ShadowStreamServerConn is a server stream connection.
 type ShadowStreamServerConn struct {
 	ShadowStreamConn
-	cipherConfig               UserCipherConfig
-	requestSalt                []byte
 	unsafeResponseStreamPrefix []byte
+	cipherConfig               UserCipherConfig
+
+	// Change type to [16]byte | [32]byte, once Go supports the necessary
+	// slice operations over array type parameters.
+	requestSalt    [32]byte
+	requestSaltLen int
 }
 
 // WriteTo implements [io.WriterTo].
@@ -132,7 +136,7 @@ func (c *ShadowStreamServerConn) initWrite(hb, payload []byte) error {
 	rand.Read(salt)
 
 	// Append response header.
-	hb = AppendTCPResponseHeader(dst, c.requestSalt, uint16(len(payload)))
+	hb = AppendTCPResponseHeader(dst, c.requestSalt[:c.requestSaltLen], uint16(len(payload)))
 
 	// Create AEAD cipher.
 	shadowStreamCipher, err := c.cipherConfig.ShadowStreamCipher(salt)
@@ -156,9 +160,13 @@ func (c *ShadowStreamServerConn) initWrite(hb, payload []byte) error {
 type ShadowStreamClientConn struct {
 	ShadowStreamConn
 	readOnceOrFull             func(io.Reader, []byte) (int, error)
-	cipherConfig               *ClientCipherConfig
-	requestSalt                []byte
 	unsafeResponseStreamPrefix []byte
+	cipherConfig               *ClientCipherConfig
+
+	// Change type to [16]byte | [32]byte, once Go supports the necessary
+	// slice operations over array type parameters.
+	requestSalt    [32]byte
+	requestSaltLen int
 }
 
 // Read implements [netio.Conn.Read].
@@ -294,7 +302,7 @@ func (c *ShadowStreamClientConn) initRead(b []byte) (payloadLen int, err error) 
 	}
 
 	// Parse response header.
-	payloadLen, err = ParseTCPResponseHeader(plaintext, c.requestSalt)
+	payloadLen, err = ParseTCPResponseHeader(plaintext, c.requestSalt[:c.requestSaltLen])
 	if err != nil {
 		return 0, err
 	}

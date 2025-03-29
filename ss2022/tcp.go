@@ -171,9 +171,10 @@ func (c *StreamClient) DialStream(ctx context.Context, targetAddr conn.Addr, pay
 			writeCipher: shadowStreamCipher,
 		},
 		readOnceOrFull:             c.readOnceOrFull,
-		cipherConfig:               c.cipherConfig,
-		requestSalt:                salt,
 		unsafeResponseStreamPrefix: c.unsafeResponseStreamPrefix,
+		cipherConfig:               c.cipherConfig,
+		requestSalt:                lengthExtendSalt(salt),
+		requestSaltLen:             saltLen,
 	}
 
 	// Write excess payload.
@@ -218,7 +219,7 @@ type StreamServerConfig struct {
 // NewStreamServer returns a new Shadowsocks 2022 stream server.
 func (c *StreamServerConfig) NewStreamServer() *StreamServer {
 	return &StreamServer{
-		saltPool:                   NewSaltPool[string](ReplayWindowDuration),
+		saltPool:                   *NewSaltPool[[32]byte](ReplayWindowDuration),
 		readOnceOrFull:             readOnceOrFullFunc(c.AllowSegmentedFixedLengthHeader),
 		userCipherConfig:           c.UserCipherConfig,
 		identityCipherConfig:       c.IdentityCipherConfig,
@@ -234,7 +235,7 @@ func (c *StreamServerConfig) NewStreamServer() *StreamServer {
 // StreamServer implements [netio.StreamServer].
 type StreamServer struct {
 	CredStore
-	saltPool                   *SaltPool[string]
+	saltPool                   SaltPool[[32]byte]
 	readOnceOrFull             func(io.Reader, []byte) (int, error)
 	userCipherConfig           UserCipherConfig
 	identityCipherConfig       ServerIdentityCipherConfig
@@ -302,7 +303,8 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 	s.Lock()
 
 	// Check but not add request salt to pool.
-	if !s.saltPool.Check(string(salt)) { // Is the compiler smart enough to not incur an allocation here?
+	extendedSalt := lengthExtendSalt(salt)
+	if !s.saltPool.Check(extendedSalt) {
 		s.Unlock()
 		err = ErrRepeatedSalt
 		return
@@ -360,7 +362,7 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 	}
 
 	// Add request salt to pool.
-	s.saltPool.Add(string(salt))
+	s.saltPool.Add(extendedSalt)
 
 	s.Unlock()
 
@@ -392,9 +394,15 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 			Conn:       rawRW,
 			readCipher: shadowStreamCipher,
 		},
-		cipherConfig:               userCipherConfig,
-		requestSalt:                salt,
 		unsafeResponseStreamPrefix: s.unsafeResponseStreamPrefix,
+		cipherConfig:               userCipherConfig,
+		requestSalt:                extendedSalt,
+		requestSaltLen:             saltLen,
 	})
 	return
+}
+
+func lengthExtendSalt(salt []byte) (out [32]byte) {
+	_ = copy(out[:], salt)
+	return out
 }
