@@ -83,25 +83,25 @@ func (c *ShadowStreamServerConn) readFromGeneric(r io.Reader) (n int64, err erro
 	if c.ShadowStreamConn.writeCipher == nil { // first write
 		hb, payloadBuf := c.prepareInitWriteBufs()
 
-		nr, err := r.Read(payloadBuf)
-		if nr > 0 {
-			n += int64(nr)
-			if err = c.initWrite(hb, payloadBuf[:nr]); err != nil {
+		for {
+			nr, err := r.Read(payloadBuf)
+			if nr > 0 {
+				n = int64(nr)
+				if err = c.initWrite(hb, payloadBuf[:nr]); err != nil {
+					return n, err
+				}
+				break
+			}
+			if err != nil {
+				if err == io.EOF {
+					return n, nil
+				}
 				return n, err
 			}
 		}
-		if err != nil {
-			if err == io.EOF {
-				return n, nil
-			}
-			return n, err
-		}
-		if nr <= 0 {
-			return 0, io.ErrNoProgress
-		}
 
-		n, err = c.ShadowStreamConn.ReadFrom(r)
-		n += int64(nr)
+		nn, err := c.ShadowStreamConn.ReadFrom(r)
+		n += nn
 		return n, err
 	}
 
@@ -254,12 +254,14 @@ func (c *ShadowStreamClientConn) writeToGeneric(w io.Writer) (n int64, err error
 		if err = c.readFirstPayloadChunk(readBuf[:payloadLen+tagSize]); err != nil {
 			return 0, err
 		}
-		if _, err = w.Write(readBuf[:payloadLen]); err != nil {
-			return 0, err
+		nw, err := w.Write(readBuf[:payloadLen])
+		n = int64(nw)
+		if err != nil {
+			return n, err
 		}
 
-		n, err = c.ShadowStreamConn.WriteTo(w)
-		n += int64(payloadLen)
+		nn, err := c.ShadowStreamConn.WriteTo(w)
+		n += nn
 		return n, err
 	}
 
