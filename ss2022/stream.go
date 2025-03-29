@@ -116,8 +116,9 @@ func (c *ShadowStreamServerConn) prepareInitWriteBufs() (hb, payloadBuf []byte) 
 	payloadBufStart := responseHeaderEnd + tagSize
 	// When ursp is unusually large, guarantee enough buffer space for at least 4096 bytes of payload.
 	minBufferLen := payloadBufStart + 4096 + tagSize
-	if minBufferLen <= streamWriteBufferSize {
-		hb = c.ShadowStreamConn.getWriteBuf()
+	writeBuf := c.ShadowStreamConn.writeBuf
+	if minBufferLen <= cap(writeBuf) {
+		hb = writeBuf
 	} else {
 		hb = slices.Grow(hb, minBufferLen)
 	}
@@ -213,9 +214,9 @@ func (c *ShadowStreamClientConn) WriteTo(w io.Writer) (n int64, err error) {
 
 func (c *ShadowStreamClientConn) writeToServerConn(w *ShadowStreamServerConn) (n int64, err error) {
 	if c.ShadowStreamConn.readCipher == nil { // first read
-		b := w.getWriteBuf()[:streamWriteBufferSize]
+		b := w.writeBuf
 
-		payloadLen, err := c.initRead(b)
+		payloadLen, err := c.initRead(b[:cap(b)])
 		if err != nil {
 			return 0, err
 		}
@@ -341,16 +342,16 @@ func (c *ShadowStreamClientConn) ReadFrom(r io.Reader) (n int64, err error) {
 type ShadowStreamConn struct {
 	netio.Conn
 
-	readBuf    []byte
+	readBuf    []byte // lazily allocated; length is readEnd
 	readStart  int
 	readCipher *ShadowStreamCipher
 
-	writeBuf    []byte
+	writeBuf    []byte // non-nil; length is always 0
 	writeCipher *ShadowStreamCipher
 }
 
 func (c *ShadowStreamConn) writeToShadowStreamConn(w *ShadowStreamConn) (n int64, err error) {
-	writeBuf := w.getWriteBuf()
+	writeBuf := w.writeBuf
 	readBuf := writeBuf[2+tagSize : 2+tagSize]
 
 	for {
@@ -457,16 +458,9 @@ func (c *ShadowStreamConn) read(b []byte) (n int, err error) {
 	return length, nil
 }
 
-func (c *ShadowStreamConn) getWriteBuf() []byte {
-	if c.writeBuf == nil {
-		c.writeBuf = slices.Grow(c.writeBuf, streamWriteBufferSize)
-	}
-	return c.writeBuf
-}
-
 // Write implements [netio.Conn.Write].
 func (c *ShadowStreamConn) Write(b []byte) (n int, err error) {
-	writeBuf := c.getWriteBuf()
+	writeBuf := c.writeBuf
 
 	for len(b) > 0 {
 		length := min(len(b), streamMaxPayloadSize)
@@ -484,7 +478,7 @@ func (c *ShadowStreamConn) Write(b []byte) (n int, err error) {
 
 // ReadFrom implements [io.ReaderFrom].
 func (c *ShadowStreamConn) ReadFrom(r io.Reader) (n int64, err error) {
-	writeBuf := c.getWriteBuf()
+	writeBuf := c.writeBuf
 	payloadBuf := writeBuf[2+tagSize : 2+tagSize+streamMaxPayloadSize]
 
 	for {

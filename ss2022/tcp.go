@@ -8,6 +8,7 @@ import (
 	"io"
 	mrand "math/rand/v2"
 	"net"
+	"slices"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
@@ -117,7 +118,15 @@ func (c *StreamClient) DialStream(ctx context.Context, targetAddr conn.Addr, pay
 	variableLengthHeaderLen := targetAddrLen + 2 + paddingPayloadLen
 	variableLengthHeaderEnd := variableLengthHeaderStart + variableLengthHeaderLen
 	bufferLen := variableLengthHeaderEnd + tagSize
-	b := make([]byte, bufferLen)
+
+	writeBuf := getWriteBuf()
+	var b []byte
+	if bufferLen <= cap(writeBuf) {
+		b = writeBuf[:bufferLen]
+	} else {
+		b = make([]byte, bufferLen)
+	}
+
 	ursp := b[:urspLen]
 	salt := b[urspLen:identityHeadersStart]
 	identityHeaders := b[identityHeadersStart:fixedLengthHeaderStart]
@@ -168,6 +177,7 @@ func (c *StreamClient) DialStream(ctx context.Context, targetAddr conn.Addr, pay
 	clientConn = &ShadowStreamClientConn{
 		ShadowStreamConn: ShadowStreamConn{
 			Conn:        innerConn,
+			writeBuf:    writeBuf,
 			writeCipher: shadowStreamCipher,
 		},
 		readOnceOrFull:             c.readOnceOrFull,
@@ -267,8 +277,23 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 	urspLen := len(s.unsafeRequestStreamPrefix)
 	identityHeaderStart := urspLen + saltLen
 	fixedLengthHeaderStart := identityHeaderStart + identityHeaderLen
-	bufferLen := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength + tagSize
-	b := make([]byte, bufferLen)
+	// We want fallback to reliably work before we can authenticate the connection.
+	// That means all decryption work must not happen in-place.
+	// Reserve 16 bytes at the end for decrypted identity and fixed-length headers.
+	reservedStart := fixedLengthHeaderStart + TCPRequestFixedLengthHeaderLength + tagSize
+	bufferLen := reservedStart + IdentityHeaderLength
+
+	// Even though we are performing a read here, we still prefer the write buffer,
+	// because it's larger, and the type-asserted writeTo path only ever uses the
+	// write buffer.
+	writeBuf := getWriteBuf()
+	var b []byte
+	if bufferLen <= cap(writeBuf) {
+		b = writeBuf[:bufferLen]
+	} else {
+		b = make([]byte, bufferLen)
+	}
+	readBuf := b[:reservedStart]
 
 	var n int
 	defer func() {
@@ -278,7 +303,7 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 				req = netio.ConnRequest{
 					PendingConn: netio.NopPendingConn(rawRW),
 					Addr:        s.unsafeFallbackAddr,
-					Payload:     b[:n],
+					Payload:     readBuf[:n],
 				}
 				err = nil
 				return
@@ -291,19 +316,20 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 	}()
 
 	// Read unsafe request stream prefix, salt, identity header, fixed-length header.
-	n, err = s.readOnceOrFull(rawRW, b)
+	n, err = s.readOnceOrFull(rawRW, readBuf)
 	if err != nil {
 		return
 	}
 
 	ursp := b[:urspLen]
 	salt := b[urspLen:identityHeaderStart]
-	ciphertext := b[fixedLengthHeaderStart:]
+	ciphertext := b[fixedLengthHeaderStart:reservedStart]
+	reserved := b[reservedStart:]
+	extendedSalt := lengthExtendSalt(salt)
 
 	s.Lock()
 
 	// Check but not add request salt to pool.
-	extendedSalt := lengthExtendSalt(salt)
 	if !s.saltPool.Check(extendedSalt) {
 		s.Unlock()
 		err = ErrRepeatedSalt
@@ -326,11 +352,10 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 			return
 		}
 
-		var uPSKHash [IdentityHeaderLength]byte
 		identityHeader := b[identityHeaderStart:fixedLengthHeaderStart]
-		identityHeaderCipher.Decrypt(uPSKHash[:], identityHeader)
+		identityHeaderCipher.Decrypt(reserved, identityHeader)
 
-		serverUserCipherConfig := s.ulm[uPSKHash]
+		serverUserCipherConfig := s.ulm[[IdentityHeaderLength]byte(reserved)]
 		if serverUserCipherConfig == nil {
 			s.Unlock()
 			err = ErrIdentityHeaderUserPSKNotFound
@@ -348,7 +373,7 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 	}
 
 	// AEAD open.
-	plaintext, err := shadowStreamCipher.DecryptTo(nil, ciphertext)
+	plaintext, err := shadowStreamCipher.DecryptTo(reserved, ciphertext)
 	if err != nil {
 		s.Unlock()
 		return
@@ -369,7 +394,12 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 	// Connection is authenticated. Fallback is no longer an option.
 	n = 0
 
-	b = make([]byte, vhlen+tagSize)
+	bufferLen = vhlen + tagSize
+	if bufferLen <= cap(writeBuf) {
+		b = writeBuf[:bufferLen]
+	} else {
+		b = make([]byte, bufferLen)
+	}
 
 	// Read variable-length header.
 	_, err = io.ReadFull(rawRW, b)
@@ -393,6 +423,7 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 		ShadowStreamConn: ShadowStreamConn{
 			Conn:       rawRW,
 			readCipher: shadowStreamCipher,
+			writeBuf:   writeBuf,
 		},
 		unsafeResponseStreamPrefix: s.unsafeResponseStreamPrefix,
 		cipherConfig:               userCipherConfig,
@@ -400,6 +431,10 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 		requestSaltLen:             saltLen,
 	})
 	return
+}
+
+func getWriteBuf() (b []byte) {
+	return slices.Grow(b, streamWriteBufferSize)
 }
 
 func lengthExtendSalt(salt []byte) (out [32]byte) {
