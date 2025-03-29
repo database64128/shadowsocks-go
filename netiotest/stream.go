@@ -4,16 +4,17 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"io"
 	"net"
 	"net/netip"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
 	"go.uber.org/zap/zaptest"
-	"golang.org/x/net/nettest"
 )
 
 // PipeStreamClient handles stream connection requests by creating a pipe
@@ -373,34 +374,20 @@ func testWrapConnStreamClientServerProceed(
 
 	client := newClient(psc)
 
-	nettest.TestConn(t, func() (c1 net.Conn, c2 net.Conn, stop func(), err error) {
-		clientConn, err := client.DialStream(ctx, addr, initialPayload)
-		if err != nil {
-			return nil, nil, nil, err
-		}
+	t.Run("RoundTrip", func(t *testing.T) {
+		TestConnPairRoundTrip(t, func() (c1, c2 netio.Conn) {
+			clientConn, err := client.DialStream(ctx, addr, initialPayload)
+			if err != nil {
+				t.Fatalf("DialStream failed: %v", err)
+			}
 
-		serverConnOrErr := <-serverConnOrErrCh
-		if serverConnOrErr.err != nil {
-			return nil, nil, nil, serverConnOrErr.err
-		}
-		serverConn := serverConnOrErr.serverConn
+			serverConnOrErr := <-serverConnOrErrCh
+			if serverConnOrErr.err != nil {
+				t.FailNow()
+			}
 
-		// Hide the connections behind pipes to satisfy synchronization requirements.
-		c1, c1pr := netio.NewPipe()
-		go func() {
-			_, _, _ = netio.BidirectionalCopy(clientConn, pipeConnWithoutWriteTo{PipeConn: c1pr})
-		}()
-
-		c2, c2pr := netio.NewPipe()
-		go func() {
-			_, _, _ = netio.BidirectionalCopy(serverConn, pipeConnWithoutWriteTo{PipeConn: c2pr})
-		}()
-
-		stop = func() {
-			_ = c1.Close()
-			_ = c2.Close()
-		}
-		return
+			return clientConn, serverConnOrErr.serverConn
+		})
 	})
 
 	_ = psc.Close()
@@ -411,22 +398,249 @@ func testWrapConnStreamClientServerProceed(
 	}
 }
 
-// pipeConnWithoutWriteTo wraps a [*netio.PipeConn] to hide its WriteTo method.
-// This is useful for testing with [nettest.TestConn], as a blocked writer can
-// cause the test to hang.
-type pipeConnWithoutWriteTo struct {
-	noWriteTo
-	*netio.PipeConn
+// TestConnPairRoundTrip tests a pair of connections for round-trip communication.
+func TestConnPairRoundTrip(t *testing.T, newConnPair func() (c1, c2 netio.Conn)) {
+	for _, sizeCase := range [...]struct {
+		name     string
+		copySize int
+	}{
+		{"0", 0},
+		{"1", 1},
+		{"4k", 4096},
+		{"1M", 1 << 20},
+	} {
+		t.Run(sizeCase.name, func(t *testing.T) {
+			t.Parallel()
+			c1, c2 := newConnPair()
+			testConnPairRoundTrip(t, sizeCase.copySize, c1, c2)
+
+			_, c1wt := c1.(io.WriterTo)
+			_, c2wt := c2.(io.WriterTo)
+			_, c1rf := c1.(io.ReaderFrom)
+			_, c2rf := c2.(io.ReaderFrom)
+
+			if c1wt || c2wt {
+				t.Run("HideWriteTo", func(t *testing.T) {
+					t.Parallel()
+					c1, c2 := newConnPair()
+					testConnPairRoundTrip(t, sizeCase.copySize, hideConnWriteTo(c1), hideConnWriteTo(c2))
+				})
+			}
+
+			if c1rf || c2rf {
+				t.Run("HideWriteToReadFrom", func(t *testing.T) {
+					t.Parallel()
+					c1, c2 := newConnPair()
+					testConnPairRoundTrip(t, sizeCase.copySize, hideConnWriteToReadFrom(c1), hideConnWriteToReadFrom(c2))
+				})
+			}
+
+			if c1wt || c2wt || c1rf || c2rf {
+				t.Run("BidirectionalCopy", func(t *testing.T) {
+					t.Parallel()
+					c1, c3 := newConnPair()
+					c4, c2 := newConnPair()
+					testConnPairRoundTripBidirectionalCopy(t, sizeCase.copySize, c1, c2, c3, c4, netio.BidirectionalCopy)
+				})
+
+				t.Run("BidirectionalCopyNoWriteTo", func(t *testing.T) {
+					t.Parallel()
+					c1, c3 := newConnPair()
+					c4, c2 := newConnPair()
+					testConnPairRoundTripBidirectionalCopy(t, sizeCase.copySize, c1, c2, c3, c4, bidirectionalCopyNoWriteTo)
+				})
+			}
+
+			if c1wt && c2wt && c1rf && c2rf {
+				t.Run("InterleaveReadWriteToWriteReadFrom", func(t *testing.T) {
+					t.Parallel()
+					c1, c2 := newConnPair()
+					testConnPairRoundTripInterleaveReadWriteToWriteReadFrom(t, sizeCase.copySize, c1, c2)
+				})
+			}
+		})
+	}
 }
 
-// noWriteTo can be embedded alongside another type to
-// hide the WriteTo method of that other type.
-type noWriteTo struct{}
+func testConnPairRoundTrip(t *testing.T, copySize int, c1, c2 netio.Conn) {
+	const copyCount = 10
+	bufSize := copySize * copyCount
+	want := make([]byte, bufSize)
+	rand.Read(want)
 
-// WriteTo hides another WriteTo method.
-// It should never be called.
-func (noWriteTo) WriteTo(io.Writer) (int64, error) {
-	panic("can't happen")
+	var makeCopyBuf func() []byte
+	if copySize > 0 {
+		makeCopyBuf = func() []byte {
+			return make([]byte, copySize)
+		}
+	} else {
+		makeCopyBuf = func() []byte {
+			return nil
+		}
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	readFunc := func(name string, c netio.Conn) {
+		var buf bytes.Buffer
+		buf.Grow(bufSize)
+		w := hideWriterReadFrom(&buf)
+		if _, err := io.CopyBuffer(w, c, makeCopyBuf()); err != nil {
+			t.Errorf("Copy w <- %s failed: %v", name, err)
+		}
+		if got := buf.Bytes(); !bytes.Equal(got, want) {
+			t.Error("got != want")
+		}
+		wg.Done()
+	}
+	go readFunc("c1", c1)
+	go readFunc("c2", c2)
+
+	writeFunc := func(name string, c netio.Conn) {
+		r := hideReaderWriteTo(bytes.NewReader(want))
+		if _, err := io.CopyBuffer(c, r, makeCopyBuf()); err != nil {
+			t.Errorf("Copy %s <- r failed: %v", name, err)
+		}
+		_ = c.CloseWrite()
+		wg.Done()
+	}
+	go writeFunc("c1", c1)
+	go writeFunc("c2", c2)
+
+	wg.Wait()
+
+	_ = c1.Close()
+	_ = c2.Close()
+}
+
+func testConnPairRoundTripBidirectionalCopy(
+	t *testing.T,
+	copySize int,
+	c1, c2, c3, c4 netio.Conn,
+	bidirectionalCopy func(left, right netio.ReadWriter) (nl2r, nr2l int64, err error),
+) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		if _, _, err := bidirectionalCopy(c3, c4); err != nil {
+			t.Errorf("Bidirectional copy c3 <-> c4 failed: %v", err)
+		}
+		_ = c3.Close()
+		_ = c4.Close()
+		wg.Done()
+	}()
+	testConnPairRoundTrip(t, copySize, c1, c2)
+	wg.Wait()
+}
+
+func testConnPairRoundTripInterleaveReadWriteToWriteReadFrom(t *testing.T, copySize int, c1, c2 netio.Conn) {
+	const copyCount = 10
+	bufSize := copySize * copyCount
+	want := make([]byte, bufSize)
+	rand.Read(want)
+
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	// Read the first half, then WriteTo the second half.
+	readFunc := func(name string, c netio.Conn) {
+		got1 := make([]byte, bufSize/2)
+		if _, err := io.ReadFull(c, got1); err != nil {
+			t.Errorf("Read %s -> got1 failed: %v", name, err)
+		}
+		if !bytes.Equal(got1, want[:len(got1)]) {
+			t.Error("got1 != want1")
+		}
+
+		var buf bytes.Buffer
+		buf.Grow(bufSize / 2)
+		if _, err := c.(io.WriterTo).WriteTo(&buf); err != nil {
+			t.Errorf("WriteTo %s -> buf failed: %v", name, err)
+		}
+		if got2 := buf.Bytes(); !bytes.Equal(got2, want[len(got1):]) {
+			t.Error("got2 != want2")
+		}
+		wg.Done()
+	}
+	go readFunc("c1", c1)
+	go readFunc("c2", c2)
+
+	// Interleave Write and ReadFrom, each writing copySize bytes.
+	writeFunc := func(name string, c netio.Conn) {
+		var r bytes.Reader
+		b := want
+		for range 5 {
+			if _, err := c.Write(b[:copySize]); err != nil {
+				t.Errorf("Write %s <- b failed: %v", name, err)
+			}
+			b = b[copySize:]
+
+			r.Reset(b[:copySize])
+			b = b[copySize:]
+			if _, err := c.(io.ReaderFrom).ReadFrom(&r); err != nil {
+				t.Errorf("ReadFrom %s <- r failed: %v", name, err)
+			}
+		}
+		_ = c.CloseWrite()
+		wg.Done()
+	}
+	go writeFunc("c1", c1)
+	go writeFunc("c2", c2)
+
+	wg.Wait()
+
+	_ = c1.Close()
+	_ = c2.Close()
+}
+
+func bidirectionalCopyNoWriteTo(left, right netio.ReadWriter) (nl2r, nr2l int64, err error) {
+	var (
+		wg     sync.WaitGroup
+		l2rErr error
+	)
+
+	wg.Add(1)
+	go func() {
+		nl2r, l2rErr = copyNoWriteTo(right, left)
+		_ = right.CloseWrite()
+		wg.Done()
+	}()
+
+	nr2l, err = copyNoWriteTo(left, right)
+	_ = left.CloseWrite()
+	wg.Wait()
+
+	return nl2r, nr2l, errors.Join(l2rErr, err)
+}
+
+func copyNoWriteTo(dst io.Writer, src io.Reader) (int64, error) {
+	if rf, ok := dst.(io.ReaderFrom); ok {
+		return rf.ReadFrom(src)
+	}
+	return io.Copy(dst, hideReaderWriteTo(src))
+}
+
+func hideReaderWriteTo(r io.Reader) io.Reader {
+	return struct{ io.Reader }{r}
+}
+
+func hideWriterReadFrom(w io.Writer) io.Writer {
+	return struct{ io.Writer }{w}
+}
+
+func hideConnWriteTo(c netio.Conn) netio.Conn {
+	if rf, ok := c.(io.ReaderFrom); ok {
+		return struct {
+			io.ReaderFrom
+			netio.Conn
+		}{rf, c}
+	}
+	return hideConnWriteToReadFrom(c)
+}
+
+func hideConnWriteToReadFrom(c netio.Conn) netio.Conn {
+	return struct{ netio.Conn }{c}
 }
 
 // TestStreamClientServerAbort tests a pair of stream client and server
