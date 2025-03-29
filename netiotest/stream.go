@@ -809,3 +809,128 @@ func testStreamClientServerAbort(
 		t.Error("DialStream called more than once")
 	}
 }
+
+func BenchmarkStreamClientServer(
+	b *testing.B,
+	newClient func(psc *PipeStreamClient) netio.StreamClient,
+	server netio.StreamServer,
+	writeSize int,
+) {
+	ctx := b.Context()
+	logger := zaptest.NewLogger(b)
+	defer logger.Sync()
+
+	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
+		Name:                 "test",
+		NativeInitialPayload: true,
+	})
+
+	go func() {
+		defer psc.Close()
+
+		select {
+		case <-ctx.Done():
+			b.Error("DialStream not called")
+			return
+
+		case pc := <-ch:
+			req, err := server.HandleStream(pc, logger)
+			if err != nil {
+				b.Errorf("server.HandleStream failed: %v", err)
+				return
+			}
+
+			serverConn, err := req.Proceed()
+			if err != nil {
+				b.Errorf("req.Proceed failed: %v", err)
+				return
+			}
+			defer serverConn.Close()
+
+			if _, err := io.Copy(io.Discard, serverConn); err != nil {
+				b.Errorf("io.Copy(io.Discard, serverConn) failed: %v", err)
+			}
+
+			if rf, ok := serverConn.(io.ReaderFrom); ok {
+				b.Run("ServerReadFrom", func(b *testing.B) {
+					var n int64
+					for b.Loop() {
+						nn, err := rf.ReadFrom(benchReader{})
+						if err != nil {
+							b.Fatalf("serverConn.ReadFrom failed: %v", err)
+						}
+						n += nn
+					}
+					b.SetBytes(n / int64(b.N))
+				})
+			}
+
+			b.Run("ServerWrite", func(b *testing.B) {
+				var n int64
+				writeBuf := make([]byte, writeSize)
+				for b.Loop() {
+					nn, err := serverConn.Write(writeBuf)
+					if err != nil {
+						b.Fatalf("serverConn.Write failed: %v", err)
+					}
+					n += int64(nn)
+				}
+				b.SetBytes(n / int64(b.N))
+			})
+
+			_ = serverConn.CloseWrite()
+		}
+	}()
+
+	client := newClient(psc)
+	addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 5201)
+	clientConn, err := client.DialStream(ctx, addr, nil)
+	if err != nil {
+		b.Fatalf("DialStream failed: %v", err)
+	}
+	defer clientConn.Close()
+
+	if rf, ok := clientConn.(io.ReaderFrom); ok {
+		b.Run("ClientReadFrom", func(b *testing.B) {
+			var n int64
+			for b.Loop() {
+				nn, err := rf.ReadFrom(benchReader{})
+				if err != nil {
+					b.Fatalf("clientConn.ReadFrom failed: %v", err)
+				}
+				n += nn
+			}
+			b.SetBytes(n / int64(b.N))
+		})
+	}
+
+	b.Run("ClientWrite", func(b *testing.B) {
+		var n int64
+		writeBuf := make([]byte, writeSize)
+		for b.Loop() {
+			nn, err := clientConn.Write(writeBuf)
+			if err != nil {
+				b.Fatalf("clientConn.Write failed: %v", err)
+			}
+			n += int64(nn)
+		}
+		b.SetBytes(n / int64(b.N))
+	})
+
+	_ = clientConn.CloseWrite()
+
+	if _, err := io.Copy(io.Discard, clientConn); err != nil {
+		b.Errorf("io.Copy(io.Discard, clientConn) failed: %v", err)
+	}
+
+	// This also synchronizes the exit of the server goroutine.
+	if _, ok := <-ch; ok {
+		b.Error("DialStream called more than once")
+	}
+}
+
+type benchReader struct{}
+
+func (benchReader) Read(p []byte) (n int, err error) {
+	return len(p), io.EOF
+}
