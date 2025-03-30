@@ -152,8 +152,10 @@ func TestPreambleStreamClientServerProceed(
 ) {
 	for _, addrCase := range testAddrCases {
 		t.Run(addrCase.name, func(t *testing.T) {
+			t.Parallel()
 			for _, payloadCase := range testInitialPayloadCases {
 				t.Run(payloadCase.name, func(t *testing.T) {
+					t.Parallel()
 					testPreambleStreamClientServerProceed(
 						t,
 						newClient,
@@ -275,8 +277,10 @@ func TestWrapConnStreamClientServerProceed(
 ) {
 	for _, addrCase := range testAddrCases {
 		t.Run(addrCase.name, func(t *testing.T) {
+			t.Parallel()
 			for _, payloadCase := range testInitialPayloadCases {
 				t.Run(payloadCase.name, func(t *testing.T) {
+					t.Parallel()
 					testWrapConnStreamClientServerProceed(
 						t,
 						newClient,
@@ -320,55 +324,44 @@ func testWrapConnStreamClientServerProceed(
 	serverConnOrErrCh := make(chan serverConnOrErr)
 
 	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				t.Error("DialStream not called")
-				return
-
-			case pc, ok := <-ch:
-				if !ok {
-					return
-				}
-
-				if !pc.LocalConnAddr().Equals(expectedServerAddr) {
-					t.Errorf("pc.LocalConnAddr() = %v, want %v", pc.LocalConnAddr(), expectedServerAddr)
-				}
-
-				req, err := server.HandleStream(pc, logger)
-				if err != nil {
-					t.Errorf("server.HandleStream failed: %v", err)
-					serverConnOrErrCh <- serverConnOrErr{err: err}
-					return
-				}
-				if !req.Addr.Equals(addr) {
-					t.Errorf("req.Addr = %v, want %v", req.Addr, addr)
-				}
-				if len(req.Payload) > len(expectedInitialPayload) {
-					t.Errorf("req.Payload = %v, want %v", req.Payload, expectedInitialPayload)
-				}
-				if req.Username != expectedUsername {
-					t.Errorf("req.Username = %q, want %q", req.Username, expectedUsername)
-				}
-
-				serverConn, err := req.Proceed()
-				if err != nil {
-					t.Errorf("req.Proceed failed: %v", err)
-					serverConnOrErrCh <- serverConnOrErr{err: err}
-					return
-				}
-
-				b := slices.Grow(req.Payload, len(expectedInitialPayload)-len(req.Payload))[:len(expectedInitialPayload)]
-				readBuf := b[len(req.Payload):]
-				if _, err = io.ReadFull(serverConn, readBuf); err != nil {
-					t.Errorf("io.ReadFull failed: %v", err)
-				}
-				if !bytes.Equal(b, expectedInitialPayload) {
-					t.Errorf("b = %v, want %v", b, expectedInitialPayload)
-				}
-
-				serverConnOrErrCh <- serverConnOrErr{serverConn: serverConn}
+		for pc := range ch {
+			if !pc.LocalConnAddr().Equals(expectedServerAddr) {
+				t.Errorf("pc.LocalConnAddr() = %v, want %v", pc.LocalConnAddr(), expectedServerAddr)
 			}
+
+			req, err := server.HandleStream(pc, logger)
+			if err != nil {
+				t.Errorf("server.HandleStream failed: %v", err)
+				serverConnOrErrCh <- serverConnOrErr{err: err}
+				return
+			}
+			if !req.Addr.Equals(addr) {
+				t.Errorf("req.Addr = %v, want %v", req.Addr, addr)
+			}
+			if len(req.Payload) > len(expectedInitialPayload) {
+				t.Errorf("req.Payload = %v, want %v", req.Payload, expectedInitialPayload)
+			}
+			if req.Username != expectedUsername {
+				t.Errorf("req.Username = %q, want %q", req.Username, expectedUsername)
+			}
+
+			serverConn, err := req.Proceed()
+			if err != nil {
+				t.Errorf("req.Proceed failed: %v", err)
+				serverConnOrErrCh <- serverConnOrErr{err: err}
+				return
+			}
+
+			b := slices.Grow(req.Payload, len(expectedInitialPayload)-len(req.Payload))[:len(expectedInitialPayload)]
+			readBuf := b[len(req.Payload):]
+			if _, err = io.ReadFull(serverConn, readBuf); err != nil {
+				t.Errorf("io.ReadFull failed: %v", err)
+			}
+			if !bytes.Equal(b, expectedInitialPayload) {
+				t.Errorf("b = %v, want %v", b, expectedInitialPayload)
+			}
+
+			serverConnOrErrCh <- serverConnOrErr{serverConn: serverConn}
 		}
 	}()
 
@@ -737,10 +730,13 @@ func TestStreamClientServerAbort(
 		},
 	} {
 		t.Run(dialResultCase.name, func(t *testing.T) {
+			t.Parallel()
 			for _, addrCase := range testAddrCases {
 				t.Run(addrCase.name, func(t *testing.T) {
+					t.Parallel()
 					for _, payloadCase := range testInitialPayloadCases {
 						t.Run(payloadCase.name, func(t *testing.T) {
+							t.Parallel()
 							testStreamClientServerAbort(
 								t,
 								newClient,

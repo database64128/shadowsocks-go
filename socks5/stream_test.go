@@ -204,6 +204,7 @@ func testStreamClientError(
 
 func TestStreamServerError(t *testing.T) {
 	logger := zaptest.NewLogger(t)
+	defer logger.Sync()
 
 	for _, c := range []struct {
 		name                     string
@@ -680,6 +681,7 @@ func TestStreamServerConfigValidation(t *testing.T) {
 }
 
 func TestStreamClientServer(t *testing.T) {
+	t.Parallel()
 	b := make([]byte, 255+255)
 	rand.Read(b)
 	userInfo255 := UserInfo{
@@ -731,6 +733,7 @@ func TestStreamClientServer(t *testing.T) {
 		},
 	} {
 		t.Run(authCase.name, func(t *testing.T) {
+			t.Parallel()
 			for _, udpCase := range []struct {
 				name      string
 				enableUDP bool
@@ -739,6 +742,7 @@ func TestStreamClientServer(t *testing.T) {
 				{"DisableUDP", false},
 			} {
 				t.Run(udpCase.name, func(t *testing.T) {
+					t.Parallel()
 					addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 1080)
 
 					newClient := func(psc *netiotest.PipeStreamClient) netio.StreamClient {
@@ -762,6 +766,7 @@ func TestStreamClientServer(t *testing.T) {
 					}
 
 					t.Run("Proceed", func(t *testing.T) {
+						t.Parallel()
 						netiotest.TestPreambleStreamClientServerProceed(
 							t,
 							newClient,
@@ -772,6 +777,7 @@ func TestStreamClientServer(t *testing.T) {
 					})
 
 					t.Run("Abort", func(t *testing.T) {
+						t.Parallel()
 						netiotest.TestStreamClientServerAbort(
 							t,
 							newClient,

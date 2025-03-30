@@ -18,6 +18,7 @@ import (
 )
 
 func TestStreamClientServer(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name                  string
 		clientUsername        string
@@ -49,6 +50,7 @@ func TestStreamClientServer(t *testing.T) {
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 8080)
 
 			newClient := func(psc *netiotest.PipeStreamClient) netio.StreamClient {
@@ -77,6 +79,7 @@ func TestStreamClientServer(t *testing.T) {
 			}
 
 			t.Run("Proceed", func(t *testing.T) {
+				t.Parallel()
 				netiotest.TestPreambleStreamClientServerProceed(
 					t,
 					newClient,
@@ -87,6 +90,7 @@ func TestStreamClientServer(t *testing.T) {
 			})
 
 			t.Run("Abort", func(t *testing.T) {
+				t.Parallel()
 				netiotest.TestStreamClientServerAbort(
 					t,
 					newClient,
