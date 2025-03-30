@@ -806,6 +806,7 @@ func testStreamClientServerAbort(
 	}
 }
 
+// BenchmarkStreamClientServer tests the performance of the stream client and server connections.
 func BenchmarkStreamClientServer(
 	b *testing.B,
 	newClient func(psc *PipeStreamClient) netio.StreamClient,
@@ -929,4 +930,84 @@ type benchReader struct{}
 
 func (benchReader) Read(p []byte) (n int, err error) {
 	return len(p), io.EOF
+}
+
+// BenchmarkStreamClientDialServerHandle tests the performance of the
+// stream client and server establishing and closing connections.
+func BenchmarkStreamClientDialServerHandle(
+	b *testing.B,
+	newClient func(psc *PipeStreamClient) netio.StreamClient,
+	server netio.StreamServer,
+) {
+	ctx := b.Context()
+	logger := zaptest.NewLogger(b)
+	defer logger.Sync()
+
+	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
+		Name:                 "test",
+		NativeInitialPayload: true,
+	})
+
+	serverDrainBuf := make([]byte, 1)
+
+	go func() {
+		var wg sync.WaitGroup
+		for pc := range ch {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				req, err := server.HandleStream(pc, logger)
+				if err != nil {
+					b.Errorf("server.HandleStream failed: %v", err)
+					return
+				}
+
+				serverConn, err := req.Proceed()
+				if err != nil {
+					b.Errorf("req.Proceed failed: %v", err)
+					return
+				}
+
+				n, err := serverConn.Read(serverDrainBuf)
+				if n != 0 || err != io.EOF {
+					b.Errorf("serverConn.Read() = %d, %v, want 0, io.EOF", n, err)
+				}
+
+				_ = serverConn.Close()
+			}()
+		}
+		wg.Wait()
+	}()
+
+	client := newClient(psc)
+	addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 5201)
+	clientDrainBuf := make([]byte, 1)
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			clientConn, err := client.DialStream(ctx, addr, nil)
+			if err != nil {
+				b.Errorf("DialStream failed: %v", err)
+				continue
+			}
+
+			_ = clientConn.CloseWrite()
+
+			n, err := clientConn.Read(clientDrainBuf)
+			if n != 0 || err != io.EOF {
+				b.Errorf("clientConn.Read() = %d, %v, want 0, io.EOF", n, err)
+			}
+
+			_ = clientConn.Close()
+		}
+	})
+
+	_ = psc.Close()
+
+	// This also synchronizes the exit of the server goroutine.
+	if _, ok := <-ch; ok {
+		b.Error("DialStream called more than once")
+	}
 }
