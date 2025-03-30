@@ -312,3 +312,44 @@ func BenchmarkStreamClientServer(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkStreamClientDialServerHandleStream(b *testing.B) {
+	for _, method := range methodCases {
+		b.Run(method, func(b *testing.B) {
+			for _, cipherCase := range cipherCases {
+				b.Run(cipherCase.name, func(b *testing.B) {
+					clientCipherConfig,
+						userCipherConfig,
+						identityCipherConfig,
+						userLookupMap,
+						_,
+						err := cipherCase.newCipherConfig(method, false)
+					if err != nil {
+						b.Fatal(err)
+					}
+
+					addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 20220)
+
+					newClient := func(psc *netiotest.PipeStreamClient) netio.StreamClient {
+						clientConfig := StreamClientConfig{
+							Name:         "test",
+							InnerClient:  psc,
+							Addr:         addr,
+							CipherConfig: clientCipherConfig,
+						}
+						return clientConfig.NewStreamClient()
+					}
+
+					serverConfig := StreamServerConfig{
+						UserCipherConfig:     userCipherConfig,
+						IdentityCipherConfig: identityCipherConfig,
+					}
+					server := serverConfig.NewStreamServer()
+					server.ReplaceUserLookupMap(userLookupMap)
+
+					netiotest.BenchmarkStreamClientDialServerHandle(b, newClient, server)
+				})
+			}
+		})
+	}
+}
