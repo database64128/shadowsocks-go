@@ -356,8 +356,8 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 		identityHeader := b[identityHeaderStart:fixedLengthHeaderStart]
 		identityHeaderCipher.Decrypt(reserved, identityHeader)
 
-		serverUserCipherConfig := s.ulm[[IdentityHeaderLength]byte(reserved)]
-		if serverUserCipherConfig == nil {
+		serverUserCipherConfig, ok := s.ulm[[IdentityHeaderLength]byte(reserved)]
+		if !ok {
 			s.Unlock()
 			err = ErrIdentityHeaderUserPSKNotFound
 			return

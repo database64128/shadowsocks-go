@@ -286,8 +286,8 @@ func (s *ManagedServer) LoadFromFile() error {
 		}
 
 		uPSKHash := ss2022.PSKHash(uPSK)
-		c := userLookupMap[uPSKHash]
-		if c != nil {
+		c, ok := userLookupMap[uPSKHash]
+		if ok {
 			s.mu.Unlock()
 			return fmt.Errorf("duplicate uPSK for user %s and %s", c.Name, username)
 		}

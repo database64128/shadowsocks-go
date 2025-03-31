@@ -201,9 +201,9 @@ type ServerUserCipherConfig struct {
 }
 
 // NewServerUserCipherConfig returns a new ServerUserCipherConfig.
-func NewServerUserCipherConfig(name string, psk []byte, enableUDP bool) (c *ServerUserCipherConfig, err error) {
-	c = &ServerUserCipherConfig{Name: name}
+func NewServerUserCipherConfig(name string, psk []byte, enableUDP bool) (c ServerUserCipherConfig, err error) {
 	c.UserCipherConfig, err = NewUserCipherConfig(psk, enableUDP)
+	c.Name = name
 	return
 }
 
@@ -254,6 +254,6 @@ func CheckPSKLength(method string, psk []byte, psks [][]byte) error {
 	return nil
 }
 
-// UserLookupMap is a map of uPSK hashes to [*ServerUserCipherConfig].
+// UserLookupMap is a map of uPSK hashes to [ServerUserCipherConfig].
 // Upon decryption of an identity header, the uPSK hash is looked up in this map.
-type UserLookupMap map[[IdentityHeaderLength]byte]*ServerUserCipherConfig
+type UserLookupMap map[[IdentityHeaderLength]byte]ServerUserCipherConfig

@@ -66,7 +66,7 @@ func newRandomCipherConfigTupleWithEIH(method string, enableUDP bool) (clientCip
 		username = strconv.Itoa(i)
 
 		uPSKHash := PSKHash(uPSK)
-		var c *ServerUserCipherConfig
+		var c ServerUserCipherConfig
 		c, err = NewServerUserCipherConfig(username, uPSK, enableUDP)
 		if err != nil {
 			return
