@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -984,25 +985,29 @@ func BenchmarkStreamClientDialServerHandle(
 	addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 5201)
 	clientDrainBuf := make([]byte, 1)
 
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			clientConn, err := client.DialStream(ctx, addr, nil)
-			if err != nil {
-				b.Errorf("DialStream failed: %v", err)
-				continue
-			}
+	for _, parallelism := range [...]int{1, 2, 4, 8, 12} {
+		b.Run(strconv.Itoa(parallelism), func(b *testing.B) {
+			b.SetParallelism(parallelism)
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					clientConn, err := client.DialStream(ctx, addr, nil)
+					if err != nil {
+						b.Errorf("DialStream failed: %v", err)
+						continue
+					}
 
-			_ = clientConn.CloseWrite()
+					_ = clientConn.CloseWrite()
 
-			n, err := clientConn.Read(clientDrainBuf)
-			if n != 0 || err != io.EOF {
-				b.Errorf("clientConn.Read() = %d, %v, want 0, io.EOF", n, err)
-			}
+					n, err := clientConn.Read(clientDrainBuf)
+					if n != 0 || err != io.EOF {
+						b.Errorf("clientConn.Read() = %d, %v, want 0, io.EOF", n, err)
+					}
 
-			_ = clientConn.Close()
-		}
-	})
+					_ = clientConn.Close()
+				}
+			})
+		})
+	}
 
 	_ = psc.Close()
 
