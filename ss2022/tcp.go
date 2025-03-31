@@ -328,18 +328,14 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 	reserved := b[reservedStart:]
 	extendedSalt := lengthExtendSalt(salt)
 
-	s.Lock()
-
 	// Check but not add request salt to pool.
-	if !s.saltPool.Check(extendedSalt) {
-		s.Unlock()
+	if !s.saltPool.TryCheck(extendedSalt) {
 		err = ErrRepeatedSalt
 		return
 	}
 
 	// Check unsafe request stream prefix.
 	if !bytes.Equal(ursp, s.unsafeRequestStreamPrefix) {
-		s.Unlock()
 		err = &HeaderError[[]byte]{ErrUnsafeStreamPrefixMismatch, s.unsafeRequestStreamPrefix, ursp}
 		return
 	}
@@ -349,16 +345,14 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 		var identityHeaderCipher cipher.Block
 		identityHeaderCipher, err = s.identityCipherConfig.TCP(salt)
 		if err != nil {
-			s.Unlock()
 			return
 		}
 
 		identityHeader := b[identityHeaderStart:fixedLengthHeaderStart]
 		identityHeaderCipher.Decrypt(reserved, identityHeader)
 
-		serverUserCipherConfig, ok := s.ulm[[IdentityHeaderLength]byte(reserved)]
+		serverUserCipherConfig, ok := s.CredStore.LookupUser([IdentityHeaderLength]byte(reserved))
 		if !ok {
-			s.Unlock()
 			err = ErrIdentityHeaderUserPSKNotFound
 			return
 		}
@@ -369,14 +363,12 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 	// Derive key and create cipher.
 	shadowStreamCipher, err := userCipherConfig.ShadowStreamCipher(salt)
 	if err != nil {
-		s.Unlock()
 		return
 	}
 
 	// AEAD open.
 	plaintext, err := shadowStreamCipher.DecryptTo(reserved, ciphertext)
 	if err != nil {
-		s.Unlock()
 		return
 	}
 
@@ -385,14 +377,13 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 	// Parse fixed-length header.
 	vhlen, err := ParseTCPRequestFixedLengthHeader(plaintext, now)
 	if err != nil {
-		s.Unlock()
 		return
 	}
 
 	// Add request salt to pool.
-	s.saltPool.Add(extendedSalt)
-
-	s.Unlock()
+	if !s.saltPool.Add(now, extendedSalt) {
+		return req, ErrRepeatedSalt
+	}
 
 	// Connection is authenticated. Fallback is no longer an option.
 	n = 0

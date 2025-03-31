@@ -2,7 +2,6 @@ package zerocopy
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -93,8 +92,6 @@ type UDPSessionServerInfo struct {
 
 // UDPSessionServer deals with incoming sessions.
 type UDPSessionServer interface {
-	sync.Locker
-
 	// Info returns information about the server.
 	Info() UDPSessionServerInfo
 

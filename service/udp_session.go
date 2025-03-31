@@ -99,6 +99,7 @@ type UDPSessionRelay struct {
 	router                 *router.Router
 	logger                 *zap.Logger
 	queuedPacketPool       sync.Pool
+	mu                     sync.Mutex
 	wg                     sync.WaitGroup
 	mwg                    sync.WaitGroup
 	table                  map[uint64]*session
@@ -233,7 +234,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 			continue
 		}
 
-		s.server.Lock()
+		s.mu.Lock()
 
 		entry, ok := s.table[csid]
 		if !ok {
@@ -252,7 +253,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 				)
 
 				s.putQueuedPacket(queuedPacket)
-				s.server.Unlock()
+				s.mu.Unlock()
 				continue
 			}
 		}
@@ -268,7 +269,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 			)
 
 			s.putQueuedPacket(queuedPacket)
-			s.server.Unlock()
+			s.mu.Unlock()
 			continue
 		}
 
@@ -302,7 +303,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 				)
 
 				s.putQueuedPacket(queuedPacket)
-				s.server.Unlock()
+				s.mu.Unlock()
 				continue
 			}
 
@@ -331,10 +332,10 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 				var sendChClean bool
 
 				defer func() {
-					s.server.Lock()
+					s.mu.Lock()
 					close(natConnSendCh)
 					delete(s.table, csid)
-					s.server.Unlock()
+					s.mu.Unlock()
 
 					if !sendChClean {
 						for queuedPacket := range natConnSendCh {
@@ -495,7 +496,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 			s.putQueuedPacket(queuedPacket)
 		}
 
-		s.server.Unlock()
+		s.mu.Unlock()
 	}
 
 	lnc.logger.Info("Finished receiving from serverConn",
@@ -713,7 +714,7 @@ func (s *UDPSessionRelay) Stop() error {
 	// so there won't be any new sessions added to the table.
 	s.mwg.Wait()
 
-	s.server.Lock()
+	s.mu.Lock()
 	for csid, entry := range s.table {
 		natConn := entry.state.Swap(entry.serverConn)
 		if natConn == nil {
@@ -727,7 +728,7 @@ func (s *UDPSessionRelay) Stop() error {
 			)
 		}
 	}
-	s.server.Unlock()
+	s.mu.Unlock()
 
 	// Wait for all relay goroutines to exit before closing serverConn,
 	// so in-flight packets can be written out.
