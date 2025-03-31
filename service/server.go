@@ -466,6 +466,8 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		}
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
+		sc.RejectPolicy.Initialize()
+
 		if sc.UnsafeFallbackAddress.IsValid() {
 			sc.logger.Warn("Unsafe fallback taints the server", zap.String("server", sc.Name))
 		}
@@ -546,6 +548,8 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (sha
 		natServer = direct.Socks5UDPNATServer{}
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
+		sc.PaddingPolicy.Initialize()
+
 		switch {
 		case sc.SlidingWindowFilterSize == 0:
 			sc.SlidingWindowFilterSize = ss2022.DefaultSlidingWindowFilterSize

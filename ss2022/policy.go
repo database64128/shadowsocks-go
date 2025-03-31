@@ -59,6 +59,13 @@ func (p *PaddingPolicy) UnmarshalText(text []byte) error {
 	return nil
 }
 
+// Initialize sets the default padding policy if p is nil.
+func (p *PaddingPolicy) Initialize() {
+	if *p == nil {
+		*p = PadPlainDNS
+	}
+}
+
 // RejectPolicy is a function that handles a potentially malicious TCP connection.
 // Upon returning, it's safe to close the connection.
 type RejectPolicy func(c *net.TCPConn, logger *zap.Logger)
@@ -182,4 +189,11 @@ func (p *RejectPolicy) UnmarshalText(text []byte) error {
 		return fmt.Errorf("invalid reject policy: %q", text)
 	}
 	return nil
+}
+
+// Initialize sets the default reject policy if p is nil.
+func (p *RejectPolicy) Initialize() {
+	if *p == nil {
+		*p = ForceReset
+	}
 }

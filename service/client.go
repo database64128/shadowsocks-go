@@ -370,6 +370,8 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 		}
 		return s5ucc.NewClient(), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
+		cc.PaddingPolicy.Initialize()
+
 		switch {
 		case cc.SlidingWindowFilterSize == 0:
 			cc.SlidingWindowFilterSize = ss2022.DefaultSlidingWindowFilterSize
