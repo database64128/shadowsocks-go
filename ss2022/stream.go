@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"time"
 
 	"github.com/database64128/shadowsocks-go/netio"
 )
@@ -137,7 +138,7 @@ func (c *ShadowStreamServerConn) initWrite(hb, payload []byte) error {
 	rand.Read(salt)
 
 	// Append response header.
-	hb = AppendTCPResponseHeader(dst, c.requestSalt[:c.requestSaltLen], uint16(len(payload)))
+	hb = AppendTCPResponseHeader(dst, time.Now(), c.requestSalt[:c.requestSaltLen], len(payload))
 
 	// Create AEAD cipher.
 	shadowStreamCipher, err := c.cipherConfig.ShadowStreamCipher(salt)
@@ -311,7 +312,7 @@ func (c *ShadowStreamClientConn) initRead(b []byte) (payloadLen int, err error) 
 	}
 
 	// Parse response header.
-	payloadLen, err = ParseTCPResponseHeader(plaintext, c.requestSalt[:c.requestSaltLen])
+	payloadLen, err = ParseTCPResponseHeader(plaintext, time.Now(), c.requestSalt[:c.requestSaltLen])
 	if err != nil {
 		return 0, err
 	}
@@ -508,7 +509,7 @@ func (c *ShadowStreamConn) ReadFrom(r io.Reader) (n int64, err error) {
 
 func (c *ShadowStreamConn) write(b, payload []byte) error {
 	// Append length.
-	b = binary.BigEndian.AppendUint16(b, uint16(len(payload)))
+	b = binary.BigEndian.AppendUint16(b, intToUint16(len(payload)))
 
 	// Seal length chunk.
 	b = c.writeCipher.EncryptInPlace(b)

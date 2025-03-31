@@ -9,6 +9,7 @@ import (
 	mrand "math/rand/v2"
 	"net"
 	"slices"
+	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
@@ -151,10 +152,10 @@ func (c *StreamClient) DialStream(ctx context.Context, targetAddr conn.Addr, pay
 	}
 
 	// Write variable-length header.
-	WriteTCPRequestVariableLengthHeader(variableLengthHeaderPlaintext, targetAddr, payload)
+	PutTCPRequestVariableLengthHeader(variableLengthHeaderPlaintext, targetAddr, payload)
 
 	// Write fixed-length header.
-	WriteTCPRequestFixedLengthHeader(fixedLengthHeaderPlaintext, uint16(variableLengthHeaderLen))
+	PutTCPRequestFixedLengthHeader(fixedLengthHeaderPlaintext, time.Now(), variableLengthHeaderLen)
 
 	// Create AEAD cipher.
 	shadowStreamCipher, err := c.cipherConfig.ShadowStreamCipher(salt)
@@ -379,8 +380,10 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 		return
 	}
 
+	now := time.Now()
+
 	// Parse fixed-length header.
-	vhlen, err := ParseTCPRequestFixedLengthHeader(plaintext)
+	vhlen, err := ParseTCPRequestFixedLengthHeader(plaintext, now)
 	if err != nil {
 		s.Unlock()
 		return

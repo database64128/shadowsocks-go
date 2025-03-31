@@ -94,9 +94,9 @@ func (e *HeaderError[T]) Error() string {
 // and returns an error if the timestamp exceeds the allowed time difference from system time.
 //
 // This function does not check buffer length. Make sure it's exactly 8 bytes long.
-func ValidateUnixEpochTimestamp(b []byte) error {
+func ValidateUnixEpochTimestamp(b []byte, now time.Time) error {
 	tsEpoch := int64(binary.BigEndian.Uint64(b))
-	nowEpoch := time.Now().Unix()
+	nowEpoch := now.Unix()
 	diff := tsEpoch - nowEpoch
 	if diff < -MaxEpochDiff || diff > MaxEpochDiff {
 		return &HeaderError[int64]{ErrBadTimestamp, nowEpoch, tsEpoch}
@@ -124,7 +124,7 @@ func intToUint16(i int) (u uint16) {
 //	+------+---------------+--------+
 //	|  1B  | 8B unix epoch |  u16be |
 //	+------+---------------+--------+
-func ParseTCPRequestFixedLengthHeader(b []byte) (n int, err error) {
+func ParseTCPRequestFixedLengthHeader(b []byte, now time.Time) (n int, err error) {
 	// Type
 	if b[0] != HeaderTypeClientStream {
 		err = &HeaderError[byte]{ErrTypeMismatch, HeaderTypeClientStream, b[0]}
@@ -132,7 +132,7 @@ func ParseTCPRequestFixedLengthHeader(b []byte) (n int, err error) {
 	}
 
 	// Timestamp
-	err = ValidateUnixEpochTimestamp(b[1:])
+	err = ValidateUnixEpochTimestamp(b[1:], now)
 	if err != nil {
 		return
 	}
@@ -143,18 +143,18 @@ func ParseTCPRequestFixedLengthHeader(b []byte) (n int, err error) {
 	return
 }
 
-// WriteTCPRequestFixedLengthHeader writes a TCP request fixed-length header into the buffer.
+// PutTCPRequestFixedLengthHeader stores a TCP request fixed-length header into the buffer.
 //
 // The buffer must be at least 11 bytes long. No buffer length checks are performed.
-func WriteTCPRequestFixedLengthHeader(b []byte, length uint16) {
+func PutTCPRequestFixedLengthHeader(b []byte, now time.Time, length int) {
 	// Type
 	b[0] = HeaderTypeClientStream
 
 	// Timestamp
-	binary.BigEndian.PutUint64(b[1:], uint64(time.Now().Unix()))
+	binary.BigEndian.PutUint64(b[1:], uint64(now.Unix()))
 
 	// Length
-	binary.BigEndian.PutUint16(b[1+8:], length)
+	binary.BigEndian.PutUint16(b[1+8:], intToUint16(length))
 }
 
 // ParseTCPRequestVariableLengthHeader parses a TCP request variable-length header and returns
@@ -198,7 +198,7 @@ func ParseTCPRequestVariableLengthHeader(b []byte) (targetAddr conn.Addr, payloa
 	return
 }
 
-// WriteTCPRequestVariableLengthHeader writes a TCP request variable-length header into the buffer.
+// PutTCPRequestVariableLengthHeader stores a TCP request variable-length header into the buffer.
 //
 // The header fills the whole buffer. Excess bytes are used as padding.
 //
@@ -208,7 +208,7 @@ func ParseTCPRequestVariableLengthHeader(b []byte) (targetAddr conn.Addr, payloa
 //
 // The buffer size must not exceed [streamMaxPayloadSize].
 // The excess space in the buffer must not be larger than [MaxPaddingLength] bytes.
-func WriteTCPRequestVariableLengthHeader(b []byte, targetAddr conn.Addr, payload []byte) {
+func PutTCPRequestVariableLengthHeader(b []byte, targetAddr conn.Addr, payload []byte) {
 	// SOCKS address
 	n := socks5.WriteAddrFromConnAddr(b, targetAddr)
 
@@ -233,7 +233,7 @@ func WriteTCPRequestVariableLengthHeader(b []byte, targetAddr conn.Addr, payload
 //	+------+---------------+----------------+--------+
 //	|  1B  | 8B unix epoch |     16/32B     |  u16be |
 //	+------+---------------+----------------+--------+
-func ParseTCPResponseHeader(b []byte, requestSalt []byte) (n int, err error) {
+func ParseTCPResponseHeader(b []byte, now time.Time, requestSalt []byte) (n int, err error) {
 	// Type
 	if b[0] != HeaderTypeServerStream {
 		err = &HeaderError[byte]{ErrTypeMismatch, HeaderTypeServerStream, b[0]}
@@ -241,7 +241,7 @@ func ParseTCPResponseHeader(b []byte, requestSalt []byte) (n int, err error) {
 	}
 
 	// Timestamp
-	err = ValidateUnixEpochTimestamp(b[1 : 1+8])
+	err = ValidateUnixEpochTimestamp(b[1:1+8], now)
 	if err != nil {
 		return
 	}
@@ -262,38 +262,38 @@ func ParseTCPResponseHeader(b []byte, requestSalt []byte) (n int, err error) {
 	return
 }
 
-// WriteTCPResponseHeader writes a TCP response fixed-length header into the buffer.
+// PutTCPResponseHeader stores a TCP response fixed-length header into the buffer.
 //
 // The buffer size must be exactly 1 + 8 + len(requestSalt) + 2 bytes.
-func WriteTCPResponseHeader(b []byte, requestSalt []byte, length uint16) {
+func PutTCPResponseHeader(b []byte, now time.Time, requestSalt []byte, length int) {
 	// Type
 	b[0] = HeaderTypeServerStream
 
 	// Timestamp
-	binary.BigEndian.PutUint64(b[1:], uint64(time.Now().Unix()))
+	binary.BigEndian.PutUint64(b[1:], uint64(now.Unix()))
 
 	// Request salt
 	copy(b[1+8:], requestSalt)
 
 	// Length
-	binary.BigEndian.PutUint16(b[1+8+len(requestSalt):], length)
+	binary.BigEndian.PutUint16(b[1+8+len(requestSalt):], intToUint16(length))
 }
 
 // AppendTCPResponseHeader appends a TCP response fixed-length header to the buffer.
 //
 // To avoid allocations, the buffer must have 1 + 8 + len(requestSalt) + 2 bytes of extra capacity.
-func AppendTCPResponseHeader(b, requestSalt []byte, length uint16) []byte {
+func AppendTCPResponseHeader(b []byte, now time.Time, requestSalt []byte, length int) []byte {
 	// Type
 	b = append(b, HeaderTypeServerStream)
 
 	// Timestamp
-	b = binary.BigEndian.AppendUint64(b, uint64(time.Now().Unix()))
+	b = binary.BigEndian.AppendUint64(b, uint64(now.Unix()))
 
 	// Request salt
 	b = append(b, requestSalt...)
 
 	// Length
-	return binary.BigEndian.AppendUint16(b, length)
+	return binary.BigEndian.AppendUint16(b, intToUint16(length))
 }
 
 // ParseSessionIDAndPacketID parses the session ID and packet ID segment of a decrypted UDP packet.
@@ -313,10 +313,10 @@ func ParseSessionIDAndPacketID(b []byte) (sid, pid uint64) {
 	return
 }
 
-// WriteSessionIDAndPacketID writes the session ID and packet ID to the buffer.
+// PutSessionIDAndPacketID stores the session ID and packet ID into the buffer.
 //
 // The buffer must be exactly 16 bytes long. No buffer length checks are performed.
-func WriteSessionIDAndPacketID(b []byte, sid, pid uint64) {
+func PutSessionIDAndPacketID(b []byte, sid, pid uint64) {
 	binary.BigEndian.PutUint64(b, sid)
 	binary.BigEndian.PutUint64(b[8:], pid)
 }
@@ -333,7 +333,7 @@ func WriteSessionIDAndPacketID(b []byte, sid, pid uint64) {
 //	+------+---------------+----------------+----------+------+----------+-------+----------+
 //	|  1B  | 8B unix epoch |     u16be      | variable |  1B  | variable | u16be | variable |
 //	+------+---------------+----------------+----------+------+----------+-------+----------+
-func ParseUDPClientMessageHeader(b []byte, cachedDomain string) (targetAddr conn.Addr, updatedCachedDomain string, payloadStart, payloadLen int, err error) {
+func ParseUDPClientMessageHeader(b []byte, now time.Time, cachedDomain string) (targetAddr conn.Addr, updatedCachedDomain string, payloadStart, payloadLen int, err error) {
 	updatedCachedDomain = cachedDomain
 
 	// Make sure buffer has type + timestamp + padding length.
@@ -349,7 +349,7 @@ func ParseUDPClientMessageHeader(b []byte, cachedDomain string) (targetAddr conn
 	}
 
 	// Timestamp
-	err = ValidateUnixEpochTimestamp(b[1 : 1+8])
+	err = ValidateUnixEpochTimestamp(b[1:1+8], now)
 	if err != nil {
 		return
 	}
@@ -377,15 +377,15 @@ func ParseUDPClientMessageHeader(b []byte, cachedDomain string) (targetAddr conn
 	return
 }
 
-// WriteUDPClientMessageHeader writes a UDP client message header into the buffer.
+// PutUDPClientMessageHeader stores a UDP client message header into the buffer.
 //
 // The buffer size must be exactly 1 + 8 + 2 + paddingLen + socks5.LengthOfAddrFromConnAddr(targetAddr) bytes.
-func WriteUDPClientMessageHeader(b []byte, paddingLen int, targetAddr conn.Addr) {
+func PutUDPClientMessageHeader(b []byte, now time.Time, paddingLen int, targetAddr conn.Addr) {
 	// Type
 	b[0] = HeaderTypeClientPacket
 
 	// Timestamp
-	binary.BigEndian.PutUint64(b[1:], uint64(time.Now().Unix()))
+	binary.BigEndian.PutUint64(b[1:], uint64(now.Unix()))
 
 	// Padding length
 	binary.BigEndian.PutUint16(b[1+8:], intToUint16(paddingLen))
@@ -406,7 +406,7 @@ func WriteUDPClientMessageHeader(b []byte, paddingLen int, targetAddr conn.Addr)
 //	+------+---------------+-------------------+----------------+----------+------+----------+-------+----------+
 //	|  1B  | 8B unix epoch |         8B        |     u16be      | variable |  1B  | variable | u16be | variable |
 //	+------+---------------+-------------------+----------------+----------+------+----------+-------+----------+
-func ParseUDPServerMessageHeader(b []byte, csid uint64) (payloadSourceAddrPort netip.AddrPort, payloadStart, payloadLen int, err error) {
+func ParseUDPServerMessageHeader(b []byte, now time.Time, csid uint64) (payloadSourceAddrPort netip.AddrPort, payloadStart, payloadLen int, err error) {
 	// Make sure buffer has type + timestamp + client session ID + padding length.
 	if len(b) < UDPServerMessageHeaderFixedLength {
 		err = ErrPacketIncompleteHeader
@@ -420,7 +420,7 @@ func ParseUDPServerMessageHeader(b []byte, csid uint64) (payloadSourceAddrPort n
 	}
 
 	// Timestamp
-	err = ValidateUnixEpochTimestamp(b[1 : 1+8])
+	err = ValidateUnixEpochTimestamp(b[1:1+8], now)
 	if err != nil {
 		return
 	}
@@ -454,15 +454,15 @@ func ParseUDPServerMessageHeader(b []byte, csid uint64) (payloadSourceAddrPort n
 	return
 }
 
-// WriteUDPServerMessageHeader writes a UDP server message header into the buffer.
+// PutUDPServerMessageHeader stores a UDP server message header into the buffer.
 //
 // The buffer size must be exactly 1 + 8 + 8 + 2 + paddingLen + socks5.LengthOfAddrFromAddrPort(sourceAddrPort) bytes.
-func WriteUDPServerMessageHeader(b []byte, csid uint64, paddingLen int, sourceAddrPort netip.AddrPort) {
+func PutUDPServerMessageHeader(b []byte, now time.Time, csid uint64, paddingLen int, sourceAddrPort netip.AddrPort) {
 	// Type
 	b[0] = HeaderTypeServerPacket
 
 	// Timestamp
-	binary.BigEndian.PutUint64(b[1:], uint64(time.Now().Unix()))
+	binary.BigEndian.PutUint64(b[1:], uint64(now.Unix()))
 
 	// Client session ID
 	binary.BigEndian.PutUint64(b[1+8:], csid)

@@ -130,7 +130,7 @@ func (p *ShadowPacketClientPacker) PackInPlace(ctx context.Context, b []byte, ta
 	messageHeaderStart := payloadStart - UDPClientMessageHeaderFixedLength - targetAddrLen - paddingLen
 
 	// Write message header.
-	WriteUDPClientMessageHeader(b[messageHeaderStart:payloadStart], paddingLen, targetAddr)
+	PutUDPClientMessageHeader(b[messageHeaderStart:payloadStart], time.Now(), paddingLen, targetAddr)
 
 	destAddrPort = p.serverAddrPort
 	packetStart = messageHeaderStart - p.nonAEADHeaderLen
@@ -141,7 +141,7 @@ func (p *ShadowPacketClientPacker) PackInPlace(ctx context.Context, b []byte, ta
 	plaintext := b[messageHeaderStart : payloadStart+payloadLen]
 
 	// Write separate header.
-	WriteSessionIDAndPacketID(separateHeader, p.csid, p.cpid)
+	PutSessionIDAndPacketID(separateHeader, p.csid, p.cpid)
 	p.cpid++
 
 	// Write and encrypt identity headers.
@@ -215,7 +215,7 @@ func (p *ShadowPacketServerPacker) PackInPlace(b []byte, sourceAddrPort netip.Ad
 	messageHeaderStart := payloadStart - UDPServerMessageHeaderFixedLength - paddingLen - sourceAddrLen
 
 	// Write message header.
-	WriteUDPServerMessageHeader(b[messageHeaderStart:payloadStart], p.csid, paddingLen, sourceAddrPort)
+	PutUDPServerMessageHeader(b[messageHeaderStart:payloadStart], time.Now(), p.csid, paddingLen, sourceAddrPort)
 
 	packetStart = messageHeaderStart - UDPSeparateHeaderLength
 	packetLen = payloadStart - packetStart + payloadLen + p.aead.Overhead()
@@ -224,7 +224,7 @@ func (p *ShadowPacketServerPacker) PackInPlace(b []byte, sourceAddrPort netip.Ad
 	plaintext := b[messageHeaderStart : payloadStart+payloadLen]
 
 	// Write separate header.
-	WriteSessionIDAndPacketID(separateHeader, p.ssid, p.spid)
+	PutSessionIDAndPacketID(separateHeader, p.ssid, p.spid)
 	p.spid++
 
 	// AEAD seal.
@@ -355,8 +355,10 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPor
 		return
 	}
 
+	now := time.Now()
+
 	// Parse message header.
-	payloadSourceAddrPort, payloadStart, payloadLen, err = ParseUDPServerMessageHeader(plaintext, p.csid)
+	payloadSourceAddrPort, payloadStart, payloadLen, err = ParseUDPServerMessageHeader(plaintext, now, p.csid)
 	if err != nil {
 		return
 	}
@@ -371,12 +373,12 @@ func (p *ShadowPacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPor
 	// Update session status.
 	switch sessionStatus {
 	case oldServerSession:
-		p.oldServerSessionLastSeenTime = time.Now()
+		p.oldServerSessionLastSeenTime = now
 	case newServerSession:
 		p.oldServerSessionID = p.currentServerSessionID
 		p.oldServerSessionAEAD = p.currentServerSessionAEAD
 		p.oldServerSessionFilter = p.currentServerSessionFilter
-		p.oldServerSessionLastSeenTime = time.Now()
+		p.oldServerSessionLastSeenTime = now
 		p.currentServerSessionID = ssid
 		p.currentServerSessionAEAD = saead
 		p.currentServerSessionFilter = sfilter
@@ -456,7 +458,7 @@ func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, sourceAddr netip.Ad
 	}
 
 	// Parse message header.
-	targetAddr, p.cachedDomain, payloadStart, payloadLen, err = ParseUDPClientMessageHeader(plaintext, p.cachedDomain)
+	targetAddr, p.cachedDomain, payloadStart, payloadLen, err = ParseUDPClientMessageHeader(plaintext, time.Now(), p.cachedDomain)
 	if err != nil {
 		return
 	}

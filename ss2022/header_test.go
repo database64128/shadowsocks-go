@@ -26,11 +26,12 @@ func TestHeaderErrorString(t *testing.T) {
 func TestWriteAndParseTCPRequestFixedLengthHeader(t *testing.T) {
 	b := make([]byte, TCPRequestFixedLengthHeaderLength)
 	length := int(mrand.Uint64() & math.MaxUint16)
+	now := time.Now()
 
 	// 1. Good header
-	WriteTCPRequestFixedLengthHeader(b, uint16(length))
+	PutTCPRequestFixedLengthHeader(b, now, length)
 
-	n, err := ParseTCPRequestFixedLengthHeader(b)
+	n, err := ParseTCPRequestFixedLengthHeader(b, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,19 +40,19 @@ func TestWriteAndParseTCPRequestFixedLengthHeader(t *testing.T) {
 	}
 
 	// 2. Bad timestamp (31s ago)
-	ts := time.Now().Add(-31 * time.Second)
+	ts := now.Add(-31 * time.Second)
 	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, err = ParseTCPRequestFixedLengthHeader(b)
+	_, err = ParseTCPRequestFixedLengthHeader(b, now)
 	if !errors.Is(err, ErrBadTimestamp) {
 		t.Fatalf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
 
 	// 3. Bad timestamp (31s later)
-	ts = time.Now().Add(31 * time.Second)
+	ts = now.Add(31 * time.Second)
 	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, err = ParseTCPRequestFixedLengthHeader(b)
+	_, err = ParseTCPRequestFixedLengthHeader(b, now)
 	if !errors.Is(err, ErrBadTimestamp) {
 		t.Fatalf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
@@ -59,7 +60,7 @@ func TestWriteAndParseTCPRequestFixedLengthHeader(t *testing.T) {
 	// 4. Bad type
 	b[0] = HeaderTypeServerStream
 
-	_, err = ParseTCPRequestFixedLengthHeader(b)
+	_, err = ParseTCPRequestFixedLengthHeader(b, now)
 	if !errors.Is(err, ErrTypeMismatch) {
 		t.Fatalf("Expected: %s\nGot: %s", ErrTypeMismatch, err)
 	}
@@ -77,7 +78,7 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 	b := make([]byte, bufLen)
 
 	// 1. Good header (padding + initial payload)
-	WriteTCPRequestVariableLengthHeader(b, targetAddr, payload)
+	PutTCPRequestVariableLengthHeader(b, targetAddr, payload)
 
 	ta, p, err := ParseTCPRequestVariableLengthHeader(b)
 	if err != nil {
@@ -92,7 +93,7 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 
 	// 2. Good header (initial payload)
 	b = b[:noPaddingLen]
-	WriteTCPRequestVariableLengthHeader(b, targetAddr, payload)
+	PutTCPRequestVariableLengthHeader(b, targetAddr, payload)
 
 	ta, p, err = ParseTCPRequestVariableLengthHeader(b)
 	if err != nil {
@@ -107,7 +108,7 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 
 	// 3. Good header (padding)
 	b = b[:noPayloadLen]
-	WriteTCPRequestVariableLengthHeader(b, targetAddr, nil)
+	PutTCPRequestVariableLengthHeader(b, targetAddr, nil)
 
 	ta, p, err = ParseTCPRequestVariableLengthHeader(b)
 	if err != nil {
@@ -152,14 +153,15 @@ func TestWriteAndParseTCPResponseHeader(t *testing.T) {
 	)
 
 	b := make([]byte, bufLen)
+	now := time.Now()
 	length := int(mrand.Uint64() & math.MaxUint16)
 	requestSalt := make([]byte, saltLen)
 	rand.Read(requestSalt)
 
 	// 1. Good header
-	WriteTCPResponseHeader(b, requestSalt, uint16(length))
+	PutTCPResponseHeader(b, now, requestSalt, length)
 
-	n, err := ParseTCPResponseHeader(b, requestSalt)
+	n, err := ParseTCPResponseHeader(b, now, requestSalt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,25 +172,25 @@ func TestWriteAndParseTCPResponseHeader(t *testing.T) {
 	// 2. Bad request salt
 	rand.Read(b[1+8 : 1+8+saltLen])
 
-	_, err = ParseTCPResponseHeader(b, requestSalt)
+	_, err = ParseTCPResponseHeader(b, now, requestSalt)
 	if !errors.Is(err, ErrClientSaltMismatch) {
 		t.Fatalf("Expected: %s\nGot: %s", ErrClientSaltMismatch, err)
 	}
 
 	// 3. Bad timestamp (31s ago)
-	ts := time.Now().Add(-31 * time.Second)
+	ts := now.Add(-31 * time.Second)
 	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, err = ParseTCPResponseHeader(b, requestSalt)
+	_, err = ParseTCPResponseHeader(b, now, requestSalt)
 	if !errors.Is(err, ErrBadTimestamp) {
 		t.Fatalf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
 
 	// 4. Bad timestamp (31s later)
-	ts = time.Now().Add(31 * time.Second)
+	ts = now.Add(31 * time.Second)
 	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, err = ParseTCPResponseHeader(b, requestSalt)
+	_, err = ParseTCPResponseHeader(b, now, requestSalt)
 	if !errors.Is(err, ErrBadTimestamp) {
 		t.Fatalf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
@@ -196,7 +198,7 @@ func TestWriteAndParseTCPResponseHeader(t *testing.T) {
 	// 5. Bad type
 	b[0] = HeaderTypeClientStream
 
-	_, err = ParseTCPResponseHeader(b, requestSalt)
+	_, err = ParseTCPResponseHeader(b, now, requestSalt)
 	if !errors.Is(err, ErrTypeMismatch) {
 		t.Fatalf("Expected: %s\nGot: %s", ErrTypeMismatch, err)
 	}
@@ -207,7 +209,7 @@ func TestWriteAndParseSessionIDAndPacketID(t *testing.T) {
 	pid := mrand.Uint64()
 	b := make([]byte, 16)
 
-	WriteSessionIDAndPacketID(b, sid, pid)
+	PutSessionIDAndPacketID(b, sid, pid)
 	psid, ppid := ParseSessionIDAndPacketID(b)
 	if psid != sid {
 		t.Fatalf("Expected session ID %d, got %d", sid, psid)
@@ -232,11 +234,12 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	headerNoPaddingBuf := bNoPadding[:noPaddingLen]
 	payload := b[headerLen:]
 	rand.Read(payload)
+	now := time.Now()
 
 	// 1. Good header (no padding)
-	WriteUDPClientMessageHeader(headerNoPaddingBuf, 0, targetAddr)
+	PutUDPClientMessageHeader(headerNoPaddingBuf, now, 0, targetAddr)
 
-	ta, cachedDomain, ps, pl, err := ParseUDPClientMessageHeader(bNoPadding, cachedDomain)
+	ta, cachedDomain, ps, pl, err := ParseUDPClientMessageHeader(bNoPadding, now, cachedDomain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,9 +255,9 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	}
 
 	// 2. Good header (padding)
-	WriteUDPClientMessageHeader(headerBuf, paddingLen, targetAddr)
+	PutUDPClientMessageHeader(headerBuf, now, paddingLen, targetAddr)
 
-	ta, cachedDomain, ps, pl, err = ParseUDPClientMessageHeader(b, cachedDomain)
+	ta, cachedDomain, ps, pl, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +274,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	// 3. Bad header (incomplete SOCKS address)
 	b = b[:headerLen-1]
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, cachedDomain)
+	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
 	if err == nil {
 		t.Error("Expected error, got nil")
 	}
@@ -279,7 +282,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	// 4. Bad header (incomplete padding)
 	b = b[:len(b)-targetAddrLen]
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, cachedDomain)
+	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
 	if !errors.Is(err, ErrPacketIncompleteHeader) {
 		t.Errorf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
 	}
@@ -287,7 +290,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	// 5. Bad header (incomplete padding length)
 	b = b[:1+8+1]
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, cachedDomain)
+	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
 	if !errors.Is(err, ErrPacketIncompleteHeader) {
 		t.Errorf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
 	}
@@ -295,19 +298,19 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	// 6. Bad timestamp (31s ago)
 	b = b[:UDPClientMessageHeaderFixedLength]
 
-	ts := time.Now().Add(-31 * time.Second)
+	ts := now.Add(-31 * time.Second)
 	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, cachedDomain)
+	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
 	if !errors.Is(err, ErrBadTimestamp) {
 		t.Errorf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
 
 	// 7. Bad timestamp (31s later)
-	ts = time.Now().Add(31 * time.Second)
+	ts = now.Add(31 * time.Second)
 	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, cachedDomain)
+	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
 	if !errors.Is(err, ErrBadTimestamp) {
 		t.Errorf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
@@ -315,13 +318,14 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	// 8. Bad type
 	b[0] = HeaderTypeServerPacket
 
-	_, _, _, _, err = ParseUDPClientMessageHeader(b, cachedDomain)
+	_, _, _, _, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
 	if !errors.Is(err, ErrTypeMismatch) {
 		t.Errorf("Expected: %s\nGot: %s", ErrTypeMismatch, err)
 	}
 }
 
 func TestWriteAndParseUDPServerMessageHeader(t *testing.T) {
+	now := time.Now()
 	csid := mrand.Uint64()
 	sourceAddrPort := netip.AddrPortFrom(netip.IPv6Unspecified(), 53)
 	sourceAddrPortLen := socks5.LengthOfAddrFromAddrPort(sourceAddrPort)
@@ -338,9 +342,9 @@ func TestWriteAndParseUDPServerMessageHeader(t *testing.T) {
 	rand.Read(payload)
 
 	// 1. Good header (no padding)
-	WriteUDPServerMessageHeader(headerNoPaddingBuf, csid, 0, sourceAddrPort)
+	PutUDPServerMessageHeader(headerNoPaddingBuf, now, csid, 0, sourceAddrPort)
 
-	sa, ps, pl, err := ParseUDPServerMessageHeader(bNoPadding, csid)
+	sa, ps, pl, err := ParseUDPServerMessageHeader(bNoPadding, now, csid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,9 +360,9 @@ func TestWriteAndParseUDPServerMessageHeader(t *testing.T) {
 	}
 
 	// 2. Good header (pad)
-	WriteUDPServerMessageHeader(headerBuf, csid, paddingLen, sourceAddrPort)
+	PutUDPServerMessageHeader(headerBuf, now, csid, paddingLen, sourceAddrPort)
 
-	sa, ps, pl, err = ParseUDPServerMessageHeader(b, csid)
+	sa, ps, pl, err = ParseUDPServerMessageHeader(b, now, csid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +379,7 @@ func TestWriteAndParseUDPServerMessageHeader(t *testing.T) {
 	// 3. Bad header (incomplete SOCKS address)
 	b = b[:headerLen-1]
 
-	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, now, csid)
 	if err == nil {
 		t.Error("Expected error, got nil")
 	}
@@ -383,7 +387,7 @@ func TestWriteAndParseUDPServerMessageHeader(t *testing.T) {
 	// 4. Bad header (incomplete padding)
 	b = b[:len(b)-sourceAddrPortLen]
 
-	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, now, csid)
 	if !errors.Is(err, ErrPacketIncompleteHeader) {
 		t.Errorf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
 	}
@@ -391,7 +395,7 @@ func TestWriteAndParseUDPServerMessageHeader(t *testing.T) {
 	// 5. Bad header (incomplete padding length)
 	b = b[:1+8+8+1]
 
-	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, now, csid)
 	if !errors.Is(err, ErrPacketIncompleteHeader) {
 		t.Errorf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
 	}
@@ -401,25 +405,25 @@ func TestWriteAndParseUDPServerMessageHeader(t *testing.T) {
 	badCsid := csid + 1
 	binary.BigEndian.PutUint64(b[1+8:], badCsid)
 
-	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, now, csid)
 	if !errors.Is(err, ErrClientSessionIDMismatch) {
 		t.Errorf("Expected: %s\nGot: %s", ErrClientSessionIDMismatch, err)
 	}
 
 	// 7. Bad timestamp (31s ago)
-	ts := time.Now().Add(-31 * time.Second)
+	ts := now.Add(-31 * time.Second)
 	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, now, csid)
 	if !errors.Is(err, ErrBadTimestamp) {
 		t.Errorf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
 
 	// 8. Bad timestamp (31s later)
-	ts = time.Now().Add(31 * time.Second)
+	ts = now.Add(31 * time.Second)
 	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, now, csid)
 	if !errors.Is(err, ErrBadTimestamp) {
 		t.Errorf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
@@ -427,7 +431,7 @@ func TestWriteAndParseUDPServerMessageHeader(t *testing.T) {
 	// 9. Bad type
 	b[0] = HeaderTypeClientPacket
 
-	_, _, _, err = ParseUDPServerMessageHeader(b, csid)
+	_, _, _, err = ParseUDPServerMessageHeader(b, now, csid)
 	if !errors.Is(err, ErrTypeMismatch) {
 		t.Errorf("Expected: %s\nGot: %s", ErrTypeMismatch, err)
 	}
