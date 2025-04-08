@@ -4,8 +4,6 @@ import (
 	"iter"
 	"regexp"
 	"slices"
-
-	"github.com/database64128/shadowsocks-go/slicehelper"
 )
 
 // RegexpMatcher adapts [regexp.Regexp] to the [Matcher] interface.
@@ -52,15 +50,15 @@ func (rmb RegexpMatcherBuilder) AppendTo(matchers []Matcher) ([]Matcher, error) 
 		return matchers, nil
 	}
 
-	head, tail := slicehelper.Extend(matchers, len(rmb))
+	matchers = slices.Grow(matchers, len(rmb))
 
-	for i, r := range rmb {
+	for _, r := range rmb {
 		re, err := regexp.Compile(r)
 		if err != nil {
 			return matchers, err
 		}
-		tail[i] = (*RegexpMatcher)(re)
+		matchers = append(matchers, (*RegexpMatcher)(re))
 	}
 
-	return head, nil
+	return matchers, nil
 }
