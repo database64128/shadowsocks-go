@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"slices"
 	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/slicehelper"
 )
 
 // SOCKS address types as defined in RFC 1928 section 5.
@@ -42,20 +42,18 @@ var (
 //
 // If the address is an IPv4-mapped IPv6 address, it is converted to an IPv4 address.
 func AppendAddrFromAddrPort(b []byte, addrPort netip.AddrPort) []byte {
-	var ret, out []byte
 	ip := addrPort.Addr()
 	switch {
 	case ip.Is4() || ip.Is4In6():
-		ret, out = slicehelper.Extend(b, 1+4+2)
-		out[0] = AtypIPv4
-		*(*[4]byte)(out[1:]) = ip.As4()
+		ip4 := ip.As4()
+		b = append(b, AtypIPv4)
+		b = append(b, ip4[:]...)
 	default:
-		ret, out = slicehelper.Extend(b, 1+16+2)
-		out[0] = AtypIPv6
-		*(*[16]byte)(out[1:]) = ip.As16()
+		ip6 := ip.As16()
+		b = append(b, AtypIPv6)
+		b = append(b, ip6[:]...)
 	}
-	binary.BigEndian.PutUint16(out[len(out)-2:], addrPort.Port())
-	return ret
+	return binary.BigEndian.AppendUint16(b, addrPort.Port())
 }
 
 // WriteAddrFromAddrPort writes the netip.AddrPort to the buffer in the SOCKS address format
@@ -103,15 +101,12 @@ func AppendAddrFromConnAddr(b []byte, addr conn.Addr) []byte {
 	}
 
 	domain := addr.Domain()
-	ret, out := slicehelper.Extend(b, 1+1+len(domain)+2)
-	out[0] = AtypDomainName
-	out[1] = byte(len(domain))
-	copy(out[2:], domain)
-
-	port := addr.Port()
-	binary.BigEndian.PutUint16(out[1+1+len(domain):], port)
-
-	return ret
+	if len(domain) > 255 {
+		panic(fmt.Sprintf("socks5.AppendAddrFromConnAddr: domain name too long: %d > 255", len(domain)))
+	}
+	b = append(b, AtypDomainName, byte(len(domain)))
+	b = append(b, domain...)
+	return binary.BigEndian.AppendUint16(b, addr.Port())
 }
 
 // WriteAddrFromConnAddr writes the address to the buffer in the SOCKS address format
@@ -154,36 +149,43 @@ func LengthOfAddrFromConnAddr(addr conn.Addr) int {
 		return LengthOfAddrFromAddrPort(addr.IPPort())
 	}
 	domain := addr.Domain()
+	if len(domain) > 255 {
+		panic(fmt.Sprintf("socks5.LengthOfAddrFromConnAddr: domain name too long: %d > 255", len(domain)))
+	}
 	return 1 + 1 + len(domain) + 2
 }
 
 // AppendFromReader reads just enough bytes from r to get a valid Addr
 // and appends it to the buffer.
 func AppendFromReader(b []byte, r io.Reader) ([]byte, error) {
-	ret, out := slicehelper.Extend(b, 2)
+	bLen := len(b)
+	b = slices.Grow(b, 2)[:bLen+2]
+	readBuf := b[bLen:]
 
 	// Read ATYP and an extra byte.
-	_, err := io.ReadFull(r, out)
-	if err != nil {
+	if _, err := io.ReadFull(r, readBuf); err != nil {
 		return nil, err
 	}
 
-	var addrLen int
-
-	switch out[0] {
+	var readBufSize int
+	switch readBuf[0] {
 	case AtypDomainName:
-		addrLen = 1 + 1 + int(out[1]) + 2
+		readBufSize = int(readBuf[1]) + 2
 	case AtypIPv4:
-		addrLen = 1 + 4 + 2
+		readBufSize = -2 + 1 + 4 + 2
 	case AtypIPv6:
-		addrLen = 1 + 16 + 2
+		readBufSize = -2 + 1 + 16 + 2
 	default:
-		return nil, fmt.Errorf("unknown atyp %d", out[0])
+		return nil, fmt.Errorf("invalid ATYP: %#x", readBuf[0])
 	}
 
-	ret, out = slicehelper.Extend(ret, addrLen-2)
-	_, err = io.ReadFull(r, out)
-	return ret, err
+	bLen = len(b)
+	b = slices.Grow(b, readBufSize)[:bLen+readBufSize]
+	readBuf = b[bLen:]
+	if _, err := io.ReadFull(r, readBuf); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 // AddrFromReader allocates and reads a SOCKS address from an io.Reader.
