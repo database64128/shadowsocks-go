@@ -3,9 +3,9 @@ package conn
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"unsafe"
 
-	"github.com/database64128/shadowsocks-go/slicehelper"
 	"golang.org/x/sys/unix"
 )
 
@@ -96,8 +96,9 @@ const (
 func (m SocketControlMessage) appendTo(b []byte) []byte {
 	switch {
 	case m.PktinfoAddr.Is4():
-		var msgBuf []byte
-		b, msgBuf = slicehelper.Extend(b, unix.SizeofCmsghdr+alignedSizeofInet4Pktinfo)
+		bLen := len(b)
+		b = slices.Grow(b, unix.SizeofCmsghdr+alignedSizeofInet4Pktinfo)[:bLen+unix.SizeofCmsghdr+alignedSizeofInet4Pktinfo]
+		msgBuf := b[bLen:]
 		cmsghdr := (*unix.Cmsghdr)(unsafe.Pointer(unsafe.SliceData(msgBuf)))
 		*cmsghdr = unix.Cmsghdr{
 			Len:   unix.SizeofCmsghdr + unix.SizeofInet4Pktinfo,
@@ -111,8 +112,9 @@ func (m SocketControlMessage) appendTo(b []byte) []byte {
 		_ = copy(msgBuf[unix.SizeofCmsghdr:], unsafe.Slice((*byte)(unsafe.Pointer(&pktinfo)), unix.SizeofInet4Pktinfo))
 
 	case m.PktinfoAddr.Is6():
-		var msgBuf []byte
-		b, msgBuf = slicehelper.Extend(b, unix.SizeofCmsghdr+alignedSizeofInet6Pktinfo)
+		bLen := len(b)
+		b = slices.Grow(b, unix.SizeofCmsghdr+alignedSizeofInet6Pktinfo)[:bLen+unix.SizeofCmsghdr+alignedSizeofInet6Pktinfo]
+		msgBuf := b[bLen:]
 		cmsghdr := (*unix.Cmsghdr)(unsafe.Pointer(unsafe.SliceData(msgBuf)))
 		*cmsghdr = unix.Cmsghdr{
 			Len:   unix.SizeofCmsghdr + unix.SizeofInet6Pktinfo,
@@ -127,8 +129,9 @@ func (m SocketControlMessage) appendTo(b []byte) []byte {
 	}
 
 	if m.SegmentSize > 0 {
-		var msgBuf []byte
-		b, msgBuf = slicehelper.Extend(b, unix.SizeofCmsghdr+alignedSizeofGSOSegmentSize)
+		bLen := len(b)
+		b = slices.Grow(b, unix.SizeofCmsghdr+alignedSizeofGSOSegmentSize)[:bLen+unix.SizeofCmsghdr+alignedSizeofGSOSegmentSize]
+		msgBuf := b[bLen:]
 		cmsghdr := (*unix.Cmsghdr)(unsafe.Pointer(unsafe.SliceData(msgBuf)))
 		*cmsghdr = unix.Cmsghdr{
 			Len:   unix.SizeofCmsghdr + sizeofGSOSegmentSize,
