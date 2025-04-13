@@ -298,6 +298,8 @@ func newRealIPMiddleware(logger *zap.Logger, trustedProxies []netip.Prefix, real
 		}, nil
 	}
 
+	realIPHeaderKey = http.CanonicalHeaderKey(realIPHeaderKey)
+
 	var sb netipx.IPSetBuilder
 	for _, p := range trustedProxies {
 		sb.AddPrefix(p)
