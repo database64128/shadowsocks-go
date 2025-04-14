@@ -158,11 +158,16 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	}
 
 	credman := cred.NewManager(logger)
-	var apiSM *ssm.ServerManager
-
 	services = append(services, credman)
 
+	var (
+		apiSM       *ssm.ServerManager
+		statsConfig stats.Config
+	)
+
 	if sc.API.Enabled {
+		statsConfig.Enabled = true
+
 		var apiServer *api.Server
 		apiServer, apiSM, err = sc.API.NewServer(logger, listenConfigCache, tlsCertStore)
 		if err != nil {
@@ -173,8 +178,8 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 
 	for i := range sc.Servers {
 		serverConfig := &sc.Servers[i]
-		collector := sc.Stats.Collector()
-		if err := serverConfig.Initialize(tlsCertStore, listenConfigCache, collector, router, logger, i); err != nil {
+
+		if err := serverConfig.Initialize(tlsCertStore, listenConfigCache, statsConfig, router, logger, i); err != nil {
 			return nil, fmt.Errorf("failed to initialize server %q: %w", serverConfig.Name, err)
 		}
 

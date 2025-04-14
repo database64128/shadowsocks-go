@@ -321,7 +321,7 @@ type ServerConfig struct {
 }
 
 // Initialize initializes the server configuration.
-func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCache conn.ListenConfigCache, collector stats.Collector, router *router.Router, logger *zap.Logger, index int) error {
+func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCache conn.ListenConfigCache, statsConfig stats.Config, router *router.Router, logger *zap.Logger, index int) error {
 	sc.tcpEnabled = sc.EnableTCP || len(sc.TCPListeners) > 0
 	sc.udpEnabled = sc.EnableUDP || len(sc.UDPListeners) > 0
 
@@ -388,7 +388,7 @@ func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCac
 
 	sc.tlsCertStore = tlsCertStore
 	sc.listenConfigCache = listenConfigCache
-	sc.collector = collector
+	sc.collector = statsConfig.Collector()
 	sc.router = router
 	sc.logger = logger
 	sc.index = index
