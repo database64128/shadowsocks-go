@@ -29,6 +29,9 @@ type Config struct {
 	DebugPprof bool `json:"debugPprof"`
 
 	// TrustedProxies specifies the IP address prefixes of trusted proxies.
+	// Requests from these proxies will be trusted to contain the real IP address
+	// in the specified header field.
+	// If empty, all proxies are trusted.
 	TrustedProxies []netip.Prefix `json:"trustedProxies"`
 
 	// RealIPHeaderKey specifies the header field to use for determining
@@ -299,6 +302,21 @@ func newRealIPMiddleware(logger *zap.Logger, trustedProxies []netip.Prefix, real
 	}
 
 	realIPHeaderKey = http.CanonicalHeaderKey(realIPHeaderKey)
+
+	// Trust all proxies if no trusted proxies are specified.
+	// This used to be disallowed, but we later realized that the server
+	// may use client certificates to authenticate clients, in which case
+	// there's no point in checking the remote address.
+	if len(trustedProxies) == 0 {
+		return func(h http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if v := r.Header[realIPHeaderKey]; len(v) > 0 {
+					r.RemoteAddr = fmt.Sprintf("%s (%s: %v)", r.RemoteAddr, realIPHeaderKey, v)
+				}
+				h.ServeHTTP(w, r)
+			})
+		}, nil
+	}
 
 	var sb netipx.IPSetBuilder
 	for _, p := range trustedProxies {
