@@ -44,22 +44,22 @@ type UDPPerfConfig struct {
 	// - "": Platform default.
 	// - "no": Do not receive or send packets in batches.
 	// - "sendmmsg": Use recvmmsg(2) and sendmmsg(2) calls. This is the default on Linux and NetBSD.
-	BatchMode string `json:"batchMode"`
+	BatchMode string `json:"batchMode,omitzero"`
 
 	// RelayBatchSize is the batch size of recvmmsg(2) and sendmmsg(2) calls in relay sessions.
 	//
 	// The default value is 256.
-	RelayBatchSize int `json:"relayBatchSize"`
+	RelayBatchSize int `json:"relayBatchSize,omitzero"`
 
 	// ServerRecvBatchSize is the batch size of a UDP relay's main receive routine.
 	//
 	// The default value is 64.
-	ServerRecvBatchSize int `json:"serverRecvBatchSize"`
+	ServerRecvBatchSize int `json:"serverRecvBatchSize,omitzero"`
 
 	// SendChannelCapacity is the capacity of a UDP relay session's uplink send channel.
 	//
 	// The default value is 1024.
-	SendChannelCapacity int `json:"sendChannelCapacity"`
+	SendChannelCapacity int `json:"sendChannelCapacity,omitzero"`
 }
 
 // CheckAndApplyDefaults checks the validity of the configuration and applies default values.

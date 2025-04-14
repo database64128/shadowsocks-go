@@ -47,18 +47,18 @@ type ResolverConfig struct {
 	// - "system": Use the system resolver. This does not support custom server addresses or clients.
 	//
 	// The default value is "plain".
-	Type string `json:"type"`
+	Type string `json:"type,omitzero"`
 
 	// AddrPort is the upstream server's address and port.
-	AddrPort netip.AddrPort `json:"addrPort"`
+	AddrPort netip.AddrPort `json:"addrPort,omitzero"`
 
 	// TCPClientName is the name of the TCPClient to use.
 	// Leave empty to disable TCP.
-	TCPClientName string `json:"tcpClientName"`
+	TCPClientName string `json:"tcpClientName,omitzero"`
 
 	// UDPClientName is the name of the UDPClient to use.
 	// Leave empty to disable UDP.
-	UDPClientName string `json:"udpClientName"`
+	UDPClientName string `json:"udpClientName,omitzero"`
 }
 
 // NewSimpleResolver creates a new [NewSimpleResolver] from the config.

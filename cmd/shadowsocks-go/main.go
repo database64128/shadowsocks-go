@@ -10,7 +10,7 @@ import (
 	"syscall"
 
 	"github.com/database64128/shadowsocks-go"
-	"github.com/database64128/shadowsocks-go/jsonhelper"
+	"github.com/database64128/shadowsocks-go/jsoncfg"
 	"github.com/database64128/shadowsocks-go/logging"
 	"github.com/database64128/shadowsocks-go/service"
 	"go.uber.org/zap"
@@ -19,6 +19,7 @@ import (
 
 var (
 	version  bool
+	fmtConf  bool
 	testConf bool
 	confPath string
 	zapConf  string
@@ -27,6 +28,7 @@ var (
 
 func init() {
 	flag.BoolVar(&version, "version", false, "Print the version and exit")
+	flag.BoolVar(&fmtConf, "fmtConf", false, "Format the configuration file and exit without starting the services")
 	flag.BoolVar(&testConf, "testConf", false, "Test the configuration file and exit without starting the services")
 	flag.StringVar(&confPath, "confPath", "config.json", "Path to the JSON configuration file")
 	flag.StringVar(&zapConf, "zapConf", "console", "Preset name or path to the JSON configuration file for building the zap logger.\nAvailable presets: console, console-nocolor, console-notime, systemd, production, development")
@@ -54,11 +56,23 @@ func main() {
 	logger.Info("shadowsocks-go", zap.String("version", shadowsocks.Version))
 
 	var sc service.Config
-	if err = jsonhelper.OpenAndDecodeDisallowUnknownFields(confPath, &sc); err != nil {
+	if err = jsoncfg.Open(confPath, &sc); err != nil {
 		logger.Fatal("Failed to load config",
 			zap.String("confPath", confPath),
 			zap.Error(err),
 		)
+	}
+
+	if fmtConf {
+		sc.Migrate()
+		if err = jsoncfg.Save(confPath, sc); err != nil {
+			logger.Fatal("Failed to save config",
+				zap.String("confPath", confPath),
+				zap.Error(err),
+			)
+		}
+		logger.Info("Formatted config file", zap.String("confPath", confPath))
+		return
 	}
 
 	m, err := sc.Manager(logger)

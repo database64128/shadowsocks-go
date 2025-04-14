@@ -43,7 +43,7 @@ type Config struct {
 	//
 	//	- "text": text format (default)
 	//	- "gob": gob format
-	Type string `json:"type"`
+	Type string `json:"type,omitzero"`
 
 	// Path is the path to the domain set file.
 	Path string `json:"path"`

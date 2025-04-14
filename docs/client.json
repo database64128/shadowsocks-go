@@ -2,19 +2,32 @@
     "servers": [
         {
             "name": "socks5",
-            "listen": ":1080",
             "protocol": "socks5",
-            "enableTCP": true,
-            "listenerTFO": true,
-            "enableUDP": true,
+            "tcpListeners": [
+                {
+                    "network": "tcp",
+                    "address": ":1080",
+                    "fastOpen": true
+                }
+            ],
+            "udpListeners": [
+                {
+                    "network": "udp",
+                    "address": ":1080"
+                }
+            ],
             "mtu": 1500
         },
         {
             "name": "http",
-            "listen": ":8080",
             "protocol": "http",
-            "enableTCP": true,
-            "listenerTFO": true
+            "tcpListeners": [
+                {
+                    "network": "tcp",
+                    "address": ":8080",
+                    "fastOpen": true
+                }
+            ]
         }
     ],
     "clients": [

@@ -11,7 +11,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/jsonhelper"
+	"github.com/database64128/shadowsocks-go/jsoncfg"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/probe"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -40,25 +40,25 @@ type ConnectivityProbeConfig struct {
 	// Timeout is the timeout for each connectivity test.
 	//
 	// Default is 5 seconds.
-	Timeout jsonhelper.Duration `json:"timeout"`
+	Timeout jsoncfg.Duration `json:"timeout,omitzero"`
 
 	// Interval is the interval between connectivity tests.
 	//
 	// Default is 30 seconds.
-	Interval jsonhelper.Duration `json:"interval"`
+	Interval jsoncfg.Duration `json:"interval,omitzero"`
 
 	// Concurrency is the maximum number of concurrent connectivity tests.
 	//
 	// Default is 32.
-	Concurrency int `json:"concurrency"`
+	Concurrency int `json:"concurrency,omitzero"`
 }
 
 func (c *ConnectivityProbeConfig) applyDefaults() {
 	if c.Timeout <= 0 {
-		c.Timeout = jsonhelper.Duration(defaultProbeTimeout)
+		c.Timeout = jsoncfg.Duration(defaultProbeTimeout)
 	}
 	if c.Interval <= 0 {
-		c.Interval = jsonhelper.Duration(defaultProbeInterval)
+		c.Interval = jsoncfg.Duration(defaultProbeInterval)
 	}
 	if c.Concurrency <= 0 {
 		c.Concurrency = defaultProbeConcurrency
@@ -73,17 +73,17 @@ type TCPConnectivityProbeConfig struct {
 	// Address is the address of the HTTP test endpoint.
 	//
 	// Default is "clients3.google.com:80".
-	Address conn.Addr `json:"address"`
+	Address conn.Addr `json:"address,omitzero"`
 
 	// EscapedPath is the escaped URL path of the HTTP test endpoint.
 	//
 	// Default is "/generate_204".
-	EscapedPath string `json:"escapedPath"`
+	EscapedPath string `json:"escapedPath,omitzero"`
 
 	// Host specifies the value of the Host header field in the HTTP request.
 	//
 	// Default is "clients3.google.com".
-	Host string `json:"host"`
+	Host string `json:"host,omitzero"`
 }
 
 // newAvailabilityClientGroup returns a new availability client group for the given TCP clients.
@@ -188,7 +188,7 @@ type UDPConnectivityProbeConfig struct {
 	// Address is the address of the UDP DNS server.
 	//
 	// Default is "[2606:4700:4700::1111]:53".
-	Address conn.Addr `json:"address"`
+	Address conn.Addr `json:"address,omitzero"`
 }
 
 // newAvailabilityClientGroup returns a new availability client group for the given UDP clients.

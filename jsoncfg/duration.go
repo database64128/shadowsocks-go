@@ -1,4 +1,4 @@
-package jsonhelper
+package jsoncfg
 
 import "time"
 

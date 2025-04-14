@@ -27,6 +27,10 @@ type UDPClient struct {
 
 // NewUDPClient creates a new Shadowsocks 2022 UDP client.
 func NewUDPClient(name, network string, addr conn.Addr, mtu int, listenConfig conn.ListenConfig, filterSize uint64, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
+	if filterSize == 0 {
+		filterSize = DefaultSlidingWindowFilterSize
+	}
+
 	identityHeadersLen := IdentityHeaderLength * len(cipherConfig.iPSKs)
 
 	return &UDPClient{
@@ -110,6 +114,10 @@ type UDPServer struct {
 
 // NewUDPServer creates a new Shadowsocks 2022 UDP server.
 func NewUDPServer(filterSize uint64, userCipherConfig UserCipherConfig, identityCipherConfig ServerIdentityCipherConfig, shouldPad PaddingPolicy) *UDPServer {
+	if filterSize == 0 {
+		filterSize = DefaultSlidingWindowFilterSize
+	}
+
 	var identityHeaderLen int
 	block := userCipherConfig.Block()
 	if block == nil {

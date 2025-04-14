@@ -47,7 +47,7 @@ type ClientSelectionConfig[PC TCPConnectivityProbeConfig | UDPConnectivityProbeC
 	Clients []string `json:"clients"`
 
 	// Probe is the configuration for connectivity probes.
-	Probe PC `json:"probe"`
+	Probe PC `json:"probe,omitzero"`
 }
 
 // ClientGroupConfig is the configuration for a client group.
@@ -56,10 +56,10 @@ type ClientGroupConfig struct {
 	Name string `json:"name"`
 
 	// TCP is the client selection configuration for TCP clients.
-	TCP ClientSelectionConfig[TCPConnectivityProbeConfig] `json:"tcp"`
+	TCP ClientSelectionConfig[TCPConnectivityProbeConfig] `json:"tcp,omitzero"`
 
 	// UDP is the client selection configuration for UDP clients.
-	UDP ClientSelectionConfig[UDPConnectivityProbeConfig] `json:"udp"`
+	UDP ClientSelectionConfig[UDPConnectivityProbeConfig] `json:"udp,omitzero"`
 }
 
 // AddClientGroup creates a client group from the configuration and adds it to the client maps.

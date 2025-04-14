@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/api"
@@ -12,6 +13,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/dns"
+	"github.com/database64128/shadowsocks-go/jsoncfg"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
@@ -25,14 +27,70 @@ var errNetworkDisabled = errors.New("this network (tcp or udp) is disabled")
 // Config is the main configuration structure.
 // It may be marshaled as or unmarshaled from JSON.
 type Config struct {
-	Servers      []ServerConfig                   `json:"servers"`
-	Clients      []ClientConfig                   `json:"clients"`
-	ClientGroups []clientgroups.ClientGroupConfig `json:"clientGroups"`
-	DNS          []dns.ResolverConfig             `json:"dns"`
-	Router       router.Config                    `json:"router"`
-	Stats        stats.Config                     `json:"stats"`
-	API          api.Config                       `json:"api"`
-	TLSCerts     tlscerts.Config                  `json:"certs"`
+	Servers      []ServerConfig                   `json:"servers,omitzero"`
+	Clients      []ClientConfig                   `json:"clients,omitzero"`
+	ClientGroups []clientgroups.ClientGroupConfig `json:"clientGroups,omitzero"`
+	DNS          []dns.ResolverConfig             `json:"dns,omitzero"`
+	Router       router.Config                    `json:"router,omitzero"`
+	Stats        stats.Config                     `json:"stats,omitzero"` // obsolete
+	API          api.Config                       `json:"api,omitzero"`
+	TLSCerts     tlscerts.Config                  `json:"certs,omitzero"`
+}
+
+// Migrate migrates deprecated fields to their new equivalents
+// and removes obsolete fields from the configuration.
+func (cfg *Config) Migrate() {
+	for i := range cfg.Servers {
+		sc := &cfg.Servers[i]
+
+		if sc.EnableTCP {
+			sc.TCPListeners = append(sc.TCPListeners, TCPListenerConfig{
+				ListenerConfig: ListenerConfig{
+					Network:      "tcp",
+					Address:      sc.Listen,
+					Fwmark:       sc.ListenerFwmark,
+					TrafficClass: sc.ListenerTrafficClass,
+				},
+				FastOpen:                  sc.ListenerTFO,
+				DisableInitialPayloadWait: sc.DisableInitialPayloadWait,
+			})
+		}
+
+		if sc.EnableUDP {
+			sc.UDPListeners = append(sc.UDPListeners, UDPListenerConfig{
+				ListenerConfig: ListenerConfig{
+					Network:      "udp",
+					Address:      sc.Listen,
+					Fwmark:       sc.ListenerFwmark,
+					TrafficClass: sc.ListenerTrafficClass,
+				},
+				UDPPerfConfig: UDPPerfConfig{
+					BatchMode:           sc.UDPBatchMode,
+					RelayBatchSize:      sc.UDPRelayBatchSize,
+					ServerRecvBatchSize: sc.UDPServerRecvBatchSize,
+					SendChannelCapacity: sc.UDPSendChannelCapacity,
+				},
+				NATTimeout: jsoncfg.Duration(time.Duration(sc.NatTimeoutSec) * time.Second),
+			})
+		}
+
+		sc.Listen = ""
+		sc.ListenerFwmark = 0
+		sc.ListenerTrafficClass = 0
+
+		sc.EnableTCP = false
+		sc.ListenerTFO = false
+		sc.DisableInitialPayloadWait = false
+
+		sc.EnableUDP = false
+		sc.NatTimeoutSec = 0
+		sc.UDPBatchMode = ""
+		sc.UDPRelayBatchSize = 0
+		sc.UDPServerRecvBatchSize = 0
+		sc.UDPSendChannelCapacity = 0
+	}
+
+	cfg.Stats.Enabled = false
 }
 
 // Manager initializes the service manager.
@@ -55,6 +113,10 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 				MTU:                 1500,
 			},
 		}
+	}
+
+	if sc.Stats.Enabled {
+		logger.Warn("The global stats configuration is obsolete and will be removed in a future version")
 	}
 
 	tlsCertStore, err := sc.TLSCerts.NewStore()

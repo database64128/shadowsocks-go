@@ -11,10 +11,10 @@ import (
 // Config is the configuration for the TLS certificate store.
 type Config struct {
 	// CertLists is a list of TLS certificate lists.
-	CertLists []TLSCertListConfig `json:"certLists"`
+	CertLists []TLSCertListConfig `json:"certLists,omitzero"`
 
 	// X509CertPools is a list of X.509 certificate pools.
-	X509CertPools []X509CertPoolConfig `json:"x509CertPools"`
+	X509CertPools []X509CertPoolConfig `json:"x509CertPools,omitzero"`
 }
 
 // Store is a store for TLS certificates.

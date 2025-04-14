@@ -12,7 +12,7 @@ import (
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/httpproxy"
-	"github.com/database64128/shadowsocks-go/jsonhelper"
+	"github.com/database64128/shadowsocks-go/jsoncfg"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/socks5"
@@ -36,17 +36,17 @@ type ListenerConfig struct {
 	// Fwmark sets the listener's fwmark on Linux, or user cookie on FreeBSD.
 	//
 	// Available on Linux and FreeBSD.
-	Fwmark int `json:"fwmark"`
+	Fwmark int `json:"fwmark,omitzero"`
 
 	// TrafficClass sets the traffic class of the listener.
 	//
 	// Available on most platforms except Windows.
-	TrafficClass int `json:"trafficClass"`
+	TrafficClass int `json:"trafficClass,omitzero"`
 
 	// ReusePort enables SO_REUSEPORT on the listener.
 	//
 	// Available on Linux and the BSDs.
-	ReusePort bool `json:"reusePort"`
+	ReusePort bool `json:"reusePort,omitzero"`
 }
 
 // TCPListenerConfig is the configuration for a TCP listener.
@@ -57,7 +57,7 @@ type TCPListenerConfig struct {
 	// FastOpen enables TCP Fast Open on the listener.
 	//
 	// Available on Linux, macOS, FreeBSD, and Windows.
-	FastOpen bool `json:"fastOpen"`
+	FastOpen bool `json:"fastOpen,omitzero"`
 
 	// FastOpenFallback enables runtime detection of TCP Fast Open support on the listener.
 	//
@@ -65,7 +65,7 @@ type TCPListenerConfig struct {
 	// When disabled, the listener will abort if TFO cannot be enabled on the socket.
 	//
 	// Available on all platforms.
-	FastOpenFallback bool `json:"fastOpenFallback"`
+	FastOpenFallback bool `json:"fastOpenFallback,omitzero"`
 
 	// Multipath enables multipath TCP on the listener.
 	//
@@ -76,21 +76,21 @@ type TCPListenerConfig struct {
 	// such as TCP keepalive (as of Linux 6.5), and failed connect attempts won't always be retried once.
 	//
 	// Available on platforms supported by Go std's MPTCP implementation.
-	Multipath bool `json:"multipath"`
+	Multipath bool `json:"multipath,omitzero"`
 
 	// DisableInitialPayloadWait disables the brief wait for initial payload.
 	// Setting it to true is useful when the listener only relays server-speaks-first protocols.
-	DisableInitialPayloadWait bool `json:"disableInitialPayloadWait"`
+	DisableInitialPayloadWait bool `json:"disableInitialPayloadWait,omitzero"`
 
 	// InitialPayloadWaitTimeout is the read timeout when waiting for the initial payload.
 	//
 	// The default value is 250ms.
-	InitialPayloadWaitTimeout jsonhelper.Duration `json:"initialPayloadWaitTimeout"`
+	InitialPayloadWaitTimeout jsoncfg.Duration `json:"initialPayloadWaitTimeout,omitzero"`
 
 	// InitialPayloadWaitBufferSize is the read buffer size when waiting for the initial payload.
 	//
 	// The default value is 1440.
-	InitialPayloadWaitBufferSize int `json:"initialPayloadWaitBufferSize"`
+	InitialPayloadWaitBufferSize int `json:"initialPayloadWaitBufferSize,omitzero"`
 
 	// FastOpenBacklog specifies the maximum number of pending TFO connections on Linux.
 	// If the value is 0, Go std's listen(2) backlog is used.
@@ -98,17 +98,17 @@ type TCPListenerConfig struct {
 	// On other platforms, a non-negative value is ignored, as they do not have the option to set the TFO backlog.
 	//
 	// On all platforms, a negative value disables TFO.
-	FastOpenBacklog int `json:"fastOpenBacklog"`
+	FastOpenBacklog int `json:"fastOpenBacklog,omitzero"`
 
 	// DeferAcceptSecs sets TCP_DEFER_ACCEPT to the given number of seconds on the listener.
 	//
 	// Available on Linux.
-	DeferAcceptSecs int `json:"deferAcceptSecs"`
+	DeferAcceptSecs int `json:"deferAcceptSecs,omitzero"`
 
 	// UserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the listener.
 	//
 	// Available on Linux.
-	UserTimeoutMsecs int `json:"userTimeoutMsecs"`
+	UserTimeoutMsecs int `json:"userTimeoutMsecs,omitzero"`
 }
 
 // Configure returns a TCP listener configuration.
@@ -116,11 +116,10 @@ func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 	switch lnc.Network {
 	case "tcp", "tcp4", "tcp6":
 	default:
-		return tcpRelayListener{}, fmt.Errorf("invalid network: %s", lnc.Network)
+		return tcpRelayListener{}, fmt.Errorf("invalid network: %q", lnc.Network)
 	}
 
 	initialPayloadWaitTimeout := lnc.InitialPayloadWaitTimeout.Value()
-
 	switch {
 	case initialPayloadWaitTimeout == 0:
 		initialPayloadWaitTimeout = defaultInitialPayloadWaitTimeout
@@ -128,11 +127,12 @@ func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 		return tcpRelayListener{}, fmt.Errorf("negative initial payload wait timeout: %s", initialPayloadWaitTimeout)
 	}
 
+	initialPayloadWaitBufferSize := lnc.InitialPayloadWaitBufferSize
 	switch {
-	case lnc.InitialPayloadWaitBufferSize == 0:
-		lnc.InitialPayloadWaitBufferSize = defaultInitialPayloadWaitBufferSize
-	case lnc.InitialPayloadWaitBufferSize < 0:
-		return tcpRelayListener{}, fmt.Errorf("negative initial payload wait buffer size: %d", lnc.InitialPayloadWaitBufferSize)
+	case initialPayloadWaitBufferSize == 0:
+		initialPayloadWaitBufferSize = defaultInitialPayloadWaitBufferSize
+	case initialPayloadWaitBufferSize < 0:
+		return tcpRelayListener{}, fmt.Errorf("negative initial payload wait buffer size: %d", initialPayloadWaitBufferSize)
 	}
 
 	return tcpRelayListener{
@@ -150,7 +150,7 @@ func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 		}),
 		waitForInitialPayload:        !serverNativeInitialPayload && !lnc.DisableInitialPayloadWait,
 		initialPayloadWaitTimeout:    initialPayloadWaitTimeout,
-		initialPayloadWaitBufferSize: lnc.InitialPayloadWaitBufferSize,
+		initialPayloadWaitBufferSize: initialPayloadWaitBufferSize,
 		network:                      lnc.Network,
 		address:                      lnc.Address,
 	}, nil
@@ -167,14 +167,14 @@ type UDPListenerConfig struct {
 	// NATTimeout is the duration after which an inactive NAT mapping expires.
 	//
 	// The default value is 5 minutes.
-	NATTimeout jsonhelper.Duration `json:"natTimeout"`
+	NATTimeout jsoncfg.Duration `json:"natTimeout,omitzero"`
 
 	// AllowFragmentation controls whether to allow IP fragmentation.
 	//
 	// IP fragmentation does not reliably work over the Internet.
 	// Sending fragmented packets will significantly reduce throughput.
 	// Do not enable this option unless it is absolutely necessary.
-	AllowFragmentation bool `json:"allowFragmentation"`
+	AllowFragmentation bool `json:"allowFragmentation,omitzero"`
 }
 
 // Configure returns a UDP server socket configuration.
@@ -182,7 +182,7 @@ func (lnc *UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 	switch lnc.Network {
 	case "udp", "udp4", "udp6":
 	default:
-		return udpRelayServerConn{}, fmt.Errorf("invalid network: %s", lnc.Network)
+		return udpRelayServerConn{}, fmt.Errorf("invalid network: %q", lnc.Network)
 	}
 
 	if err := lnc.UDPPerfConfig.CheckAndApplyDefaults(); err != nil {
@@ -190,7 +190,6 @@ func (lnc *UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 	}
 
 	natTimeout := lnc.NATTimeout.Value()
-
 	switch {
 	case natTimeout == 0:
 		natTimeout = defaultNatTimeout
@@ -231,43 +230,43 @@ type ServerConfig struct {
 	Protocol string `json:"protocol"`
 
 	// TCPListeners is the list of TCP listeners.
-	TCPListeners []TCPListenerConfig `json:"tcpListeners"`
+	TCPListeners []TCPListenerConfig `json:"tcpListeners,omitzero"`
 
 	// UDPListeners is the list of UDP listeners.
-	UDPListeners []UDPListenerConfig `json:"udpListeners"`
+	UDPListeners []UDPListenerConfig `json:"udpListeners,omitzero"`
 
 	// MTU is the MTU of the server's designated network path.
 	// The value is used for calculating UDP receive buffer size.
-	MTU int `json:"mtu"`
+	MTU int `json:"mtu,omitzero"`
 
 	// Single listener configuration.
 
-	Listen               string `json:"listen"`
-	ListenerFwmark       int    `json:"listenerFwmark"`
-	ListenerTrafficClass int    `json:"listenerTrafficClass"`
+	Listen               string `json:"listen,omitzero"`
+	ListenerFwmark       int    `json:"listenerFwmark,omitzero"`
+	ListenerTrafficClass int    `json:"listenerTrafficClass,omitzero"`
 
 	// TCP
 
-	EnableTCP                 bool `json:"enableTCP"`
-	ListenerTFO               bool `json:"listenerTFO"`
-	DisableInitialPayloadWait bool `json:"disableInitialPayloadWait"`
+	EnableTCP                 bool `json:"enableTCP,omitzero"`
+	ListenerTFO               bool `json:"listenerTFO,omitzero"`
+	DisableInitialPayloadWait bool `json:"disableInitialPayloadWait,omitzero"`
 
 	// UDP
 
-	EnableUDP     bool `json:"enableUDP"`
-	NatTimeoutSec int  `json:"natTimeoutSec"`
+	EnableUDP     bool `json:"enableUDP,omitzero"`
+	NatTimeoutSec int  `json:"natTimeoutSec,omitzero"`
 
 	// UDP performance tuning
 
-	UDPBatchMode           string `json:"udpBatchMode"`
-	UDPRelayBatchSize      int    `json:"udpRelayBatchSize"`
-	UDPServerRecvBatchSize int    `json:"udpServerRecvBatchSize"`
-	UDPSendChannelCapacity int    `json:"udpSendChannelCapacity"`
+	UDPBatchMode           string `json:"udpBatchMode,omitzero"`
+	UDPRelayBatchSize      int    `json:"udpRelayBatchSize,omitzero"`
+	UDPServerRecvBatchSize int    `json:"udpServerRecvBatchSize,omitzero"`
+	UDPSendChannelCapacity int    `json:"udpSendChannelCapacity,omitzero"`
 
 	// Simple tunnel
 
-	TunnelRemoteAddress conn.Addr `json:"tunnelRemoteAddress"`
-	TunnelUDPTargetOnly bool      `json:"tunnelUDPTargetOnly"`
+	TunnelRemoteAddress conn.Addr `json:"tunnelRemoteAddress,omitzero"`
+	TunnelUDPTargetOnly bool      `json:"tunnelUDPTargetOnly,omitzero"`
 
 	tcpEnabled bool
 	udpEnabled bool
@@ -279,27 +278,27 @@ type ServerConfig struct {
 	// does not exhibit typical TCP behavior.
 	//
 	// Only applicable to Shadowsocks 2022 TCP.
-	AllowSegmentedFixedLengthHeader bool `json:"allowSegmentedFixedLengthHeader"`
+	AllowSegmentedFixedLengthHeader bool `json:"allowSegmentedFixedLengthHeader,omitzero"`
 
 	// Socks5 is the protocol-specific configuration for "socks5".
-	Socks5 Socks5ServerConfig `json:"socks5"`
+	Socks5 Socks5ServerConfig `json:"socks5,omitzero"`
 
 	// HTTP is the protocol-specific configuration for "http".
-	HTTP HTTPProxyServerConfig `json:"http"`
+	HTTP HTTPProxyServerConfig `json:"http,omitzero"`
 
 	// Shadowsocks
 
-	PSK           []byte               `json:"psk"`
-	UPSKStorePath string               `json:"uPSKStorePath"`
-	PaddingPolicy ss2022.PaddingPolicy `json:"paddingPolicy"`
-	RejectPolicy  ss2022.RejectPolicy  `json:"rejectPolicy"`
+	PSK           []byte                    `json:"psk,omitzero"`
+	UPSKStorePath string                    `json:"uPSKStorePath,omitzero"`
+	PaddingPolicy ss2022.PaddingPolicyField `json:"paddingPolicy,omitzero"`
+	RejectPolicy  ss2022.RejectPolicyField  `json:"rejectPolicy,omitzero"`
 
 	// SlidingWindowFilterSize is the size of the sliding window filter.
 	//
 	// The default value is 256.
 	//
 	// Only applicable to Shadowsocks 2022 UDP.
-	SlidingWindowFilterSize int `json:"slidingWindowFilterSize"`
+	SlidingWindowFilterSize uint64 `json:"slidingWindowFilterSize,omitzero"`
 
 	userCipherConfig     ss2022.UserCipherConfig
 	identityCipherConfig ss2022.ServerIdentityCipherConfig
@@ -308,9 +307,9 @@ type ServerConfig struct {
 
 	// Taint
 
-	UnsafeFallbackAddress      conn.Addr `json:"unsafeFallbackAddress"`
-	UnsafeRequestStreamPrefix  []byte    `json:"unsafeRequestStreamPrefix"`
-	UnsafeResponseStreamPrefix []byte    `json:"unsafeResponseStreamPrefix"`
+	UnsafeFallbackAddress      conn.Addr `json:"unsafeFallbackAddress,omitzero"`
+	UnsafeRequestStreamPrefix  []byte    `json:"unsafeRequestStreamPrefix,omitzero"`
+	UnsafeResponseStreamPrefix []byte    `json:"unsafeResponseStreamPrefix,omitzero"`
 
 	tlsCertStore      *tlscerts.Store
 	listenConfigCache conn.ListenConfigCache
@@ -382,8 +381,14 @@ func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCac
 				ServerRecvBatchSize: sc.UDPServerRecvBatchSize,
 				SendChannelCapacity: sc.UDPSendChannelCapacity,
 			},
-			NATTimeout: jsonhelper.Duration(time.Duration(sc.NatTimeoutSec) * time.Second),
+			NATTimeout: jsoncfg.Duration(time.Duration(sc.NatTimeoutSec) * time.Second),
 		})
+	}
+
+	if sc.EnableTCP || sc.EnableUDP {
+		logger.Warn("Single-listener configuration is deprecated and will be removed in a future version",
+			zap.String("server", sc.Name),
+		)
 	}
 
 	sc.tlsCertStore = tlsCertStore
@@ -466,8 +471,6 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		}
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		sc.RejectPolicy.Initialize()
-
 		if sc.UnsafeFallbackAddress.IsValid() {
 			sc.logger.Warn("Unsafe fallback taints the server", zap.String("server", sc.Name))
 		}
@@ -479,7 +482,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 			AllowSegmentedFixedLengthHeader: sc.AllowSegmentedFixedLengthHeader,
 			UserCipherConfig:                sc.userCipherConfig,
 			IdentityCipherConfig:            sc.identityCipherConfig,
-			RejectPolicy:                    sc.RejectPolicy,
+			RejectPolicy:                    sc.RejectPolicy.Policy(),
 			UnsafeFallbackAddr:              sc.UnsafeFallbackAddress,
 			UnsafeRequestStreamPrefix:       sc.UnsafeRequestStreamPrefix,
 			UnsafeResponseStreamPrefix:      sc.UnsafeResponseStreamPrefix,
@@ -548,16 +551,7 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (sha
 		natServer = direct.Socks5UDPNATServer{}
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		sc.PaddingPolicy.Initialize()
-
-		switch {
-		case sc.SlidingWindowFilterSize == 0:
-			sc.SlidingWindowFilterSize = ss2022.DefaultSlidingWindowFilterSize
-		case sc.SlidingWindowFilterSize < 0:
-			return nil, fmt.Errorf("negative sliding window filter size: %d", sc.SlidingWindowFilterSize)
-		}
-
-		s := ss2022.NewUDPServer(uint64(sc.SlidingWindowFilterSize), sc.userCipherConfig, sc.identityCipherConfig, sc.PaddingPolicy)
+		s := ss2022.NewUDPServer(sc.SlidingWindowFilterSize, sc.userCipherConfig, sc.identityCipherConfig, sc.PaddingPolicy.Policy())
 		sc.udpCredStore = &s.CredStore
 		sessionServer = s
 
@@ -625,39 +619,39 @@ func (sc *ServerConfig) PostInit(credman *cred.Manager, apiSM *ssm.ServerManager
 type Socks5ServerConfig struct {
 	// Users is a list of users allowed to connect to the server.
 	// It is ignored if none of the authentication methods are enabled.
-	Users []socks5.UserInfo `json:"users"`
+	Users []socks5.UserInfo `json:"users,omitzero"`
 
 	// EnableUserPassAuth controls whether to enable username/password authentication.
 	//
 	// CAVEAT: UDP listeners, if any, are not protected by username/password authentication.
-	EnableUserPassAuth bool `json:"enableUserPassAuth"`
+	EnableUserPassAuth bool `json:"enableUserPassAuth,omitzero"`
 }
 
 // HTTPProxyServerConfig is the configuration for an HTTP proxy server.
 type HTTPProxyServerConfig struct {
 	// Users is a list of users allowed to connect to the server.
 	// It is ignored if none of the authentication methods are enabled.
-	Users []httpproxy.ServerUserCredentials `json:"users"`
+	Users []httpproxy.ServerUserCredentials `json:"users,omitzero"`
 
 	// CertList is the name of the certificate list in the certificate store,
 	// used as the server certificate for HTTPS.
-	CertList string `json:"certList"`
+	CertList string `json:"certList,omitzero"`
 
 	// ClientCAs is the name of the X.509 certificate pool in the certificate store,
 	// used as the root CA set for verifying client certificates.
-	ClientCAs string `json:"clientCAs"`
+	ClientCAs string `json:"clientCAs,omitzero"`
 
 	// EncryptedClientHelloKeys are the ECH keys to use when a client attempts ECH.
-	EncryptedClientHelloKeys []httpproxy.EncryptedClientHelloKey `json:"encryptedClientHelloKeys"`
+	EncryptedClientHelloKeys []httpproxy.EncryptedClientHelloKey `json:"encryptedClientHelloKeys,omitzero"`
 
 	// EnableBasicAuth controls whether to enable HTTP Basic Authentication.
-	EnableBasicAuth bool `json:"enableBasicAuth"`
+	EnableBasicAuth bool `json:"enableBasicAuth,omitzero"`
 
 	// EnableTLS controls whether to enable TLS.
-	EnableTLS bool `json:"enableTLS"`
+	EnableTLS bool `json:"enableTLS,omitzero"`
 
 	// RequireAndVerifyClientCert controls whether to require and verify client certificates.
-	RequireAndVerifyClientCert bool `json:"requireAndVerifyClientCert"`
+	RequireAndVerifyClientCert bool `json:"requireAndVerifyClientCert,omitzero"`
 }
 
 // Validate validates the configuration.

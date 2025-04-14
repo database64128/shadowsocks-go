@@ -35,30 +35,30 @@ type ClientConfig struct {
 	// - "ip6": Resolve to an IPv6 address.
 	//
 	// If unspecified, "ip" is used.
-	Network string `json:"network"`
+	Network string `json:"network,omitzero"`
 
 	// Endpoint is the address of the remote proxy server, if applicable.
 	//
 	// Do not use if either TCPAddress or UDPAddress is specified.
-	Endpoint conn.Addr `json:"endpoint"`
+	Endpoint conn.Addr `json:"endpoint,omitzero"`
 
 	// TCPAddress is the TCP address of the remote proxy server, if applicable.
 	//
 	// Do not use if Endpoint is specified.
-	TCPAddress conn.Addr `json:"tcpAddress"`
+	TCPAddress conn.Addr `json:"tcpAddress,omitzero"`
 
 	// UDPAddress is the UDP address of the remote proxy server, if applicable.
 	//
 	// Do not use if Endpoint is specified.
-	UDPAddress conn.Addr `json:"udpAddress"`
+	UDPAddress conn.Addr `json:"udpAddress,omitzero"`
 
-	DialerFwmark       int `json:"dialerFwmark"`
-	DialerTrafficClass int `json:"dialerTrafficClass"`
+	DialerFwmark       int `json:"dialerFwmark,omitzero"`
+	DialerTrafficClass int `json:"dialerTrafficClass,omitzero"`
 
 	// TCP
 
-	EnableTCP bool `json:"enableTCP"`
-	DialerTFO bool `json:"dialerTFO"`
+	EnableTCP bool `json:"enableTCP,omitzero"`
+	DialerTFO bool `json:"dialerTFO,omitzero"`
 
 	// TCPFastOpenFallback enables runtime detection of TCP Fast Open support on the dialer.
 	//
@@ -66,7 +66,7 @@ type ClientConfig struct {
 	// When disabled, the dialer will abort if TFO cannot be enabled on the socket.
 	//
 	// Available on all platforms.
-	TCPFastOpenFallback bool `json:"tcpFastOpenFallback"`
+	TCPFastOpenFallback bool `json:"tcpFastOpenFallback,omitzero"`
 
 	// MultipathTCP enables multipath TCP on the client.
 	//
@@ -77,7 +77,7 @@ type ClientConfig struct {
 	// such as TCP keepalive (as of Linux 6.5), and failed connect attempts won't always be retried once.
 	//
 	// Available on platforms supported by Go std's MPTCP implementation.
-	MultipathTCP bool `json:"multipathTCP"`
+	MultipathTCP bool `json:"multipathTCP,omitzero"`
 
 	// AllowSegmentedFixedLengthHeader disables the requirement that
 	// the fixed-length header must be read in a single read call.
@@ -86,49 +86,49 @@ type ClientConfig struct {
 	// does not exhibit typical TCP behavior.
 	//
 	// Only applicable to Shadowsocks 2022 TCP.
-	AllowSegmentedFixedLengthHeader bool `json:"allowSegmentedFixedLengthHeader"`
+	AllowSegmentedFixedLengthHeader bool `json:"allowSegmentedFixedLengthHeader,omitzero"`
 
 	// UDP
 
-	EnableUDP bool `json:"enableUDP"`
+	EnableUDP bool `json:"enableUDP,omitzero"`
 
 	// AllowFragmentation controls whether to allow fragmented UDP packets.
 	//
 	// IP fragmentation does not reliably work over the Internet.
 	// Sending fragmented packets will significantly reduce throughput.
 	// Do not enable this option unless it is absolutely necessary.
-	AllowFragmentation bool `json:"allowFragmentation"`
+	AllowFragmentation bool `json:"allowFragmentation,omitzero"`
 
 	// MTU is the MTU of the client's designated network path.
-	MTU int `json:"mtu"`
+	MTU int `json:"mtu,omitzero"`
 
 	// Socks5 is the protocol-specific configuration for "socks5".
-	Socks5 Socks5ClientConfig `json:"socks5"`
+	Socks5 Socks5ClientConfig `json:"socks5,omitzero"`
 
 	socks5AuthMsg []byte
 
 	// HTTP is the protocol-specific configuration for "http".
-	HTTP HTTPProxyClientConfig `json:"http"`
+	HTTP HTTPProxyClientConfig `json:"http,omitzero"`
 
 	// Shadowsocks
 
-	PSK           []byte               `json:"psk"`
-	IPSKs         [][]byte             `json:"iPSKs"`
-	PaddingPolicy ss2022.PaddingPolicy `json:"paddingPolicy"`
+	PSK           []byte                    `json:"psk,omitzero"`
+	IPSKs         [][]byte                  `json:"iPSKs,omitzero"`
+	PaddingPolicy ss2022.PaddingPolicyField `json:"paddingPolicy,omitzero"`
 
 	// SlidingWindowFilterSize is the size of the sliding window filter.
 	//
 	// The default value is 256.
 	//
 	// Only applicable to Shadowsocks 2022 UDP.
-	SlidingWindowFilterSize int `json:"slidingWindowFilterSize"`
+	SlidingWindowFilterSize uint64 `json:"slidingWindowFilterSize,omitzero"`
 
 	cipherConfig *ss2022.ClientCipherConfig
 
 	// Taint
 
-	UnsafeRequestStreamPrefix  []byte `json:"unsafeRequestStreamPrefix"`
-	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix"`
+	UnsafeRequestStreamPrefix  []byte `json:"unsafeRequestStreamPrefix,omitzero"`
+	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix,omitzero"`
 
 	tlsCertStore      *tlscerts.Store
 	listenConfigCache conn.ListenConfigCache
@@ -370,16 +370,7 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 		}
 		return s5ucc.NewClient(), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		cc.PaddingPolicy.Initialize()
-
-		switch {
-		case cc.SlidingWindowFilterSize == 0:
-			cc.SlidingWindowFilterSize = ss2022.DefaultSlidingWindowFilterSize
-		case cc.SlidingWindowFilterSize < 0:
-			return nil, fmt.Errorf("negative sliding window filter size: %d", cc.SlidingWindowFilterSize)
-		}
-
-		return ss2022.NewUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.MTU, listenConfig, uint64(cc.SlidingWindowFilterSize), cc.cipherConfig, cc.PaddingPolicy), nil
+		return ss2022.NewUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.MTU, listenConfig, cc.SlidingWindowFilterSize, cc.cipherConfig, cc.PaddingPolicy.Policy()), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}
@@ -391,7 +382,7 @@ type Socks5ClientConfig struct {
 	socks5.UserInfo
 
 	// EnableUserPassAuth controls whether to enable username/password authentication.
-	EnableUserPassAuth bool `json:"enableUserPassAuth"`
+	EnableUserPassAuth bool `json:"enableUserPassAuth,omitzero"`
 }
 
 // HTTPProxyClientConfig is the configuration for an HTTP proxy client.
@@ -399,30 +390,30 @@ type HTTPProxyClientConfig struct {
 	// CertList is the name of the certificate list in the certificate store,
 	// used as the client certificate for mutual TLS.
 	// If empty, no client certificate is used.
-	CertList string `json:"certList"`
+	CertList string `json:"certList,omitzero"`
 
 	// RootCAs is the name of the X.509 certificate pool in the certificate store,
 	// used for verifying the server certificate.
 	// If empty, the system default is used.
-	RootCAs string `json:"rootCAs"`
+	RootCAs string `json:"rootCAs,omitzero"`
 
 	// ServerName is the server name used for TLS.
 	// If empty, it is inferred from the address.
-	ServerName string `json:"serverName"`
+	ServerName string `json:"serverName,omitzero"`
 
 	// ECHConfigList is a serialized ECHConfigList.
 	// See [tls.Config.EncryptedClientHelloConfigList].
-	ECHConfigList []byte `json:"echConfigList"`
+	ECHConfigList []byte `json:"echConfigList,omitzero"`
 
 	// Username is the username used for authentication.
-	Username string `json:"username"`
+	Username string `json:"username,omitzero"`
 
 	// Password is the password used for authentication.
-	Password string `json:"password"`
+	Password string `json:"password,omitzero"`
 
 	// UseTLS controls whether to use TLS.
-	UseTLS bool `json:"useTLS"`
+	UseTLS bool `json:"useTLS,omitzero"`
 
 	// UseBasicAuth controls whether to use HTTP Basic Authentication.
-	UseBasicAuth bool `json:"useBasicAuth"`
+	UseBasicAuth bool `json:"useBasicAuth,omitzero"`
 }

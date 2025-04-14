@@ -33,101 +33,101 @@ type RouteConfig struct {
 	Name string `json:"name"`
 
 	// Apply this route to "tcp" or "udp" only. If empty, match all requests.
-	Network string `json:"network"`
+	Network string `json:"network,omitzero"`
 
 	// Route matched requests to this client. Must not be empty.
 	Client string `json:"client"`
 
 	// When matching a domain target to IP prefixes, use this resolver to resolve the domain name.
 	// If unspecified, use all resolvers by order.
-	Resolver string `json:"resolver"`
+	Resolver string `json:"resolver,omitzero"`
 
 	// Match requests from these servers. If empty, match all requests.
-	FromServers []string `json:"fromServers"`
+	FromServers []string `json:"fromServers,omitzero"`
 
 	// Match requests from these users. If empty, match all requests.
-	FromUsers []string `json:"fromUsers"`
+	FromUsers []string `json:"fromUsers,omitzero"`
 
 	// Match requests from these ports. If empty, match all requests.
-	FromPorts []uint16 `json:"fromPorts"`
+	FromPorts []uint16 `json:"fromPorts,omitzero"`
 
 	// Match requests from these ports and port ranges. If empty, match all requests.
-	FromPortRanges string `json:"fromPortRanges"`
+	FromPortRanges string `json:"fromPortRanges,omitzero"`
 
 	// Match requests from IP addresses in these prefixes. If empty, match all requests.
-	FromPrefixes []netip.Prefix `json:"fromPrefixes"`
+	FromPrefixes []netip.Prefix `json:"fromPrefixes,omitzero"`
 
 	// Match requests from IP addresses in these prefix sets. If empty, match all requests.
-	FromPrefixSets []string `json:"fromPrefixSets"`
+	FromPrefixSets []string `json:"fromPrefixSets,omitzero"`
 
 	// Match requests from IP addresses in these countries. If empty, match all requests.
-	FromGeoIPCountries []string `json:"fromGeoIPCountries"`
+	FromGeoIPCountries []string `json:"fromGeoIPCountries,omitzero"`
 
 	// Match requests to these ports. If empty, match all requests.
-	ToPorts []uint16 `json:"toPorts"`
+	ToPorts []uint16 `json:"toPorts,omitzero"`
 
 	// Match requests to these ports and port ranges. If empty, match all requests.
-	ToPortRanges string `json:"toPortRanges"`
+	ToPortRanges string `json:"toPortRanges,omitzero"`
 
 	// Match requests to these domain targets. If empty, match all requests.
-	ToDomains []string `json:"toDomains"`
+	ToDomains []string `json:"toDomains,omitzero"`
 
 	// Match requests to domains in these domain sets. If empty, match all requests.
-	ToDomainSets []string `json:"toDomainSets"`
+	ToDomainSets []string `json:"toDomainSets,omitzero"`
 
 	// Require the matched domain target to resolve to IP addresses in these prefixes.
-	ToMatchedDomainExpectedPrefixes []netip.Prefix `json:"toMatchedDomainExpectedPrefixes"`
+	ToMatchedDomainExpectedPrefixes []netip.Prefix `json:"toMatchedDomainExpectedPrefixes,omitzero"`
 
 	// Require the matched domain target to resolve to IP addresses in these prefix sets.
-	ToMatchedDomainExpectedPrefixSets []string `json:"toMatchedDomainExpectedPrefixSets"`
+	ToMatchedDomainExpectedPrefixSets []string `json:"toMatchedDomainExpectedPrefixSets,omitzero"`
 
 	// Require the matched domain target to resolve to IP addresses in these countries.
-	ToMatchedDomainExpectedGeoIPCountries []string `json:"toMatchedDomainExpectedGeoIPCountries"`
+	ToMatchedDomainExpectedGeoIPCountries []string `json:"toMatchedDomainExpectedGeoIPCountries,omitzero"`
 
 	// Match requests to IP addresses in these prefixes. If empty, match all requests.
-	ToPrefixes []netip.Prefix `json:"toPrefixes"`
+	ToPrefixes []netip.Prefix `json:"toPrefixes,omitzero"`
 
 	// Match requests to IP addresses in these prefix sets. If empty, match all requests.
-	ToPrefixSets []string `json:"toPrefixSets"`
+	ToPrefixSets []string `json:"toPrefixSets,omitzero"`
 
 	// Match requests to IP addresses in these countries. If empty, match all requests.
-	ToGeoIPCountries []string `json:"toGeoIPCountries"`
+	ToGeoIPCountries []string `json:"toGeoIPCountries,omitzero"`
 
 	// Do not resolve destination domains to match IP rules.
-	DisableNameResolutionForIPRules bool `json:"disableNameResolutionForIPRules"`
+	DisableNameResolutionForIPRules bool `json:"disableNameResolutionForIPRules,omitzero"`
 
 	// Invert source server matching logic. Match requests from all servers except those in FromServers.
-	InvertFromServers bool `json:"invertFromServers"`
+	InvertFromServers bool `json:"invertFromServers,omitzero"`
 
 	// Invert source user matching logic. Match requests from all users except those in FromUsers.
-	InvertFromUsers bool `json:"invertFromUsers"`
+	InvertFromUsers bool `json:"invertFromUsers,omitzero"`
 
 	// Invert source IP prefix matching logic. Match requests from all IP prefixes except those in FromPrefixes or FromPrefixSets.
-	InvertFromPrefixes bool `json:"invertFromPrefixes"`
+	InvertFromPrefixes bool `json:"invertFromPrefixes,omitzero"`
 
 	// Invert source GeoIP country matching logic. Match requests from all countries except those in FromGeoIPCountries.
-	InvertFromGeoIPCountries bool `json:"invertFromGeoIPCountries"`
+	InvertFromGeoIPCountries bool `json:"invertFromGeoIPCountries,omitzero"`
 
 	// Invert source port matching logic. Match requests from all ports except those in FromPorts.
-	InvertFromPorts bool `json:"invertFromPorts"`
+	InvertFromPorts bool `json:"invertFromPorts,omitzero"`
 
 	// Invert destination domain matching logic. Match requests to all domains except those in ToDomains or ToDomainSets.
-	InvertToDomains bool `json:"invertToDomains"`
+	InvertToDomains bool `json:"invertToDomains,omitzero"`
 
 	// Invert destination domain expected prefix matching logic. Match requests to all domains except those whose resolved IP addresses are in ToMatchedDomainExpectedPrefixes or ToMatchedDomainExpectedPrefixSets.
-	InvertToMatchedDomainExpectedPrefixes bool `json:"invertToMatchedDomainExpectedPrefixes"`
+	InvertToMatchedDomainExpectedPrefixes bool `json:"invertToMatchedDomainExpectedPrefixes,omitzero"`
 
 	// Invert destination domain expected GeoIP country matching logic. Match requests to all domains except those whose resolved IP addresses are in ToMatchedDomainExpectedGeoIPCountries.
-	InvertToMatchedDomainExpectedGeoIPCountries bool `json:"invertToMatchedDomainExpectedGeoIPCountries"`
+	InvertToMatchedDomainExpectedGeoIPCountries bool `json:"invertToMatchedDomainExpectedGeoIPCountries,omitzero"`
 
 	// Invert destination IP prefix matching logic. Match requests to all IP prefixes except those in ToPrefixes or ToPrefixSets.
-	InvertToPrefixes bool `json:"invertToPrefixes"`
+	InvertToPrefixes bool `json:"invertToPrefixes,omitzero"`
 
 	// Invert destination GeoIP country matching logic. Match requests to all countries except those in ToGeoIPCountries.
-	InvertToGeoIPCountries bool `json:"invertToGeoIPCountries"`
+	InvertToGeoIPCountries bool `json:"invertToGeoIPCountries,omitzero"`
 
 	// Invert destination port matching logic. Match requests to all ports except those in ToPorts.
-	InvertToPorts bool `json:"invertToPorts"`
+	InvertToPorts bool `json:"invertToPorts,omitzero"`
 }
 
 // Route creates a route from the RouteConfig.

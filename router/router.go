@@ -18,12 +18,12 @@ import (
 
 // Config is the configuration for a Router.
 type Config struct {
-	DefaultTCPClientName  string             `json:"defaultTCPClientName"`
-	DefaultUDPClientName  string             `json:"defaultUDPClientName"`
-	GeoLite2CountryDbPath string             `json:"geoLite2CountryDbPath"`
-	DomainSets            []domainset.Config `json:"domainSets"`
-	PrefixSets            []prefixset.Config `json:"prefixSets"`
-	Routes                []RouteConfig      `json:"routes"`
+	DefaultTCPClientName  string             `json:"defaultTCPClientName,omitzero"`
+	DefaultUDPClientName  string             `json:"defaultUDPClientName,omitzero"`
+	GeoLite2CountryDbPath string             `json:"geoLite2CountryDbPath,omitzero"`
+	DomainSets            []domainset.Config `json:"domainSets,omitzero"`
+	PrefixSets            []prefixset.Config `json:"prefixSets,omitzero"`
+	Routes                []RouteConfig      `json:"routes,omitzero"`
 }
 
 // Router creates a router from the RouterConfig.

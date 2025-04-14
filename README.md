@@ -70,11 +70,20 @@ To add/update/remove users without restarting the server, modify the uPSK store 
     "servers": [
         {
             "name": "ss-2022",
-            "listen": ":20220",
             "protocol": "2022-blake3-aes-128-gcm",
-            "enableTCP": true,
-            "listenerTFO": true,
-            "enableUDP": true,
+            "tcpListeners": [
+                {
+                    "network": "tcp",
+                    "address": ":20220",
+                    "fastOpen": true
+                }
+            ],
+            "udpListeners": [
+                {
+                    "network": "udp",
+                    "address": ":20220"
+                }
+            ],
             "mtu": 1500,
             "psk": "qQln3GlVCZi5iJUObJVNCw==",
             "uPSKStorePath": "/etc/shadowsocks-go/upsks.json"
@@ -101,19 +110,32 @@ By default, the router uses the configured DNS server to resolve domain names an
     "servers": [
         {
             "name": "socks5",
-            "listen": ":1080",
             "protocol": "socks5",
-            "enableTCP": true,
-            "listenerTFO": true,
-            "enableUDP": true,
+            "tcpListeners": [
+                {
+                    "network": "tcp",
+                    "address": ":1080",
+                    "fastOpen": true
+                }
+            ],
+            "udpListeners": [
+                {
+                    "network": "udp",
+                    "address": ":1080"
+                }
+            ],
             "mtu": 1500
         },
         {
             "name": "http",
-            "listen": ":8080",
             "protocol": "http",
-            "enableTCP": true,
-            "listenerTFO": true
+            "tcpListeners": [
+                {
+                    "network": "tcp",
+                    "address": ":8080",
+                    "fastOpen": true
+                }
+            ]
         }
     ],
     "clients": [

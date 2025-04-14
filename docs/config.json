@@ -3,19 +3,39 @@
         {
             "name": "socks5",
             "protocol": "socks5",
-            "mtu": 1500,
-            "listen": ":1080",
-            "listenerFwmark": 52140,
-            "listenerTrafficClass": 0,
-            "enableTCP": true,
-            "listenerTFO": true,
-            "disableInitialPayloadWait": false,
-            "enableUDP": true,
-            "natTimeoutSec": 300,
-            "udpBatchMode": "sendmmsg",
-            "udpRelayBatchSize": 64,
-            "udpServerRecvBatchSize": 512,
-            "udpSendChannelCapacity": 1024
+            "tcpListeners": [
+                {
+                    "network": "tcp",
+                    "address": ":1080",
+                    "fwmark": 52140,
+                    "trafficClass": 0,
+                    "reusePort": false,
+                    "fastOpen": true,
+                    "fastOpenBacklog": 0,
+                    "fastOpenFallback": false,
+                    "multipath": false,
+                    "deferAcceptSecs": 0,
+                    "userTimeoutMsecs": 0,
+                    "disableInitialPayloadWait": false,
+                    "initialPayloadWaitTimeout": "250ms",
+                    "initialPayloadWaitBufferSize": 1440
+                }
+            ],
+            "udpListeners": [
+                {
+                    "network": "udp",
+                    "address": ":1080",
+                    "fwmark": 52140,
+                    "trafficClass": 0,
+                    "reusePort": false,
+                    "batchMode": "sendmmsg",
+                    "relayBatchSize": 64,
+                    "serverRecvBatchSize": 512,
+                    "sendChannelCapacity": 1024,
+                    "natTimeout": "3m0s"
+                }
+            ],
+            "mtu": 1500
         },
         {
             "name": "socks5-multi-listeners",
@@ -97,7 +117,7 @@
                     "relayBatchSize": 0,
                     "serverRecvBatchSize": 0,
                     "sendChannelCapacity": 0,
-                    "natTimeout": "180s"
+                    "natTimeout": "3m0s"
                 },
                 {
                     "network": "udp",
@@ -109,7 +129,7 @@
                     "relayBatchSize": 0,
                     "serverRecvBatchSize": 0,
                     "sendChannelCapacity": 0,
-                    "natTimeout": "180s",
+                    "natTimeout": "3m0s",
                     "allowFragmentation": false
                 },
                 {
@@ -122,7 +142,7 @@
                     "relayBatchSize": 0,
                     "serverRecvBatchSize": 0,
                     "sendChannelCapacity": 0,
-                    "natTimeout": "180s",
+                    "natTimeout": "3m0s",
                     "allowFragmentation": false
                 },
                 {
@@ -135,7 +155,7 @@
                     "relayBatchSize": 0,
                     "serverRecvBatchSize": 0,
                     "sendChannelCapacity": 0,
-                    "natTimeout": "180s",
+                    "natTimeout": "3m0s",
                     "allowFragmentation": false
                 }
             ],
@@ -175,12 +195,24 @@
         {
             "name": "http",
             "protocol": "http",
-            "listen": ":8080",
-            "listenerFwmark": 52140,
-            "listenerTrafficClass": 0,
-            "enableTCP": true,
-            "listenerTFO": true,
-            "disableInitialPayloadWait": false
+            "tcpListeners": [
+                {
+                    "network": "tcp",
+                    "address": ":8080",
+                    "fwmark": 52140,
+                    "trafficClass": 0,
+                    "reusePort": false,
+                    "fastOpen": true,
+                    "fastOpenBacklog": 0,
+                    "fastOpenFallback": false,
+                    "multipath": false,
+                    "deferAcceptSecs": 0,
+                    "userTimeoutMsecs": 0,
+                    "disableInitialPayloadWait": false,
+                    "initialPayloadWaitTimeout": "250ms",
+                    "initialPayloadWaitBufferSize": 1440
+                }
+            ]
         },
         {
             "name": "http-basic-auth",
@@ -191,7 +223,7 @@
                     "address": ":8081",
                     "fwmark": 52140,
                     "trafficClass": 0,
-                    "reusePort": true,
+                    "reusePort": false,
                     "fastOpen": true,
                     "fastOpenBacklog": 0,
                     "fastOpenFallback": false,
@@ -227,55 +259,115 @@
         {
             "name": "tproxy",
             "protocol": "tproxy",
-            "mtu": 1500,
-            "listen": ":12345",
-            "listenerFwmark": 52140,
-            "listenerTrafficClass": 0,
-            "enableTCP": true,
-            "listenerTFO": true,
-            "disableInitialPayloadWait": false,
-            "enableUDP": true,
-            "natTimeoutSec": 150,
-            "udpBatchMode": "sendmmsg",
-            "udpRelayBatchSize": 64,
-            "udpServerRecvBatchSize": 1024,
-            "udpSendChannelCapacity": 1024
+            "tcpListeners": [
+                {
+                    "network": "tcp",
+                    "address": ":12345",
+                    "fwmark": 52140,
+                    "trafficClass": 0,
+                    "reusePort": false,
+                    "fastOpen": true,
+                    "fastOpenBacklog": 0,
+                    "fastOpenFallback": false,
+                    "multipath": false,
+                    "deferAcceptSecs": 0,
+                    "userTimeoutMsecs": 0,
+                    "disableInitialPayloadWait": false,
+                    "initialPayloadWaitTimeout": "250ms",
+                    "initialPayloadWaitBufferSize": 1440
+                }
+            ],
+            "udpListeners": [
+                {
+                    "network": "udp",
+                    "address": ":12345",
+                    "fwmark": 52140,
+                    "trafficClass": 0,
+                    "reusePort": false,
+                    "batchMode": "sendmmsg",
+                    "relayBatchSize": 64,
+                    "serverRecvBatchSize": 1024,
+                    "sendChannelCapacity": 1024,
+                    "natTimeout": "3m0s"
+                }
+            ],
+            "mtu": 1500
         },
         {
             "name": "tunnel",
             "protocol": "direct",
+            "tcpListeners": [
+                {
+                    "network": "tcp",
+                    "address": ":53",
+                    "fwmark": 52140,
+                    "trafficClass": 0,
+                    "reusePort": false,
+                    "fastOpen": true,
+                    "fastOpenBacklog": 0,
+                    "fastOpenFallback": false,
+                    "multipath": false,
+                    "deferAcceptSecs": 0,
+                    "userTimeoutMsecs": 0,
+                    "disableInitialPayloadWait": false,
+                    "initialPayloadWaitTimeout": "250ms",
+                    "initialPayloadWaitBufferSize": 1440
+                }
+            ],
+            "udpListeners": [
+                {
+                    "network": "udp",
+                    "address": ":53",
+                    "fwmark": 52140,
+                    "trafficClass": 0,
+                    "reusePort": false,
+                    "batchMode": "sendmmsg",
+                    "relayBatchSize": 2,
+                    "serverRecvBatchSize": 8,
+                    "sendChannelCapacity": 64,
+                    "natTimeout": "17s"
+                }
+            ],
             "mtu": 1500,
-            "listen": ":53",
-            "listenerFwmark": 52140,
-            "listenerTrafficClass": 0,
-            "enableTCP": true,
-            "listenerTFO": true,
-            "disableInitialPayloadWait": false,
-            "enableUDP": true,
-            "natTimeoutSec": 60,
-            "udpBatchMode": "sendmmsg",
-            "udpRelayBatchSize": 2,
-            "udpServerRecvBatchSize": 8,
-            "udpSendChannelCapacity": 64,
             "tunnelRemoteAddress": "[2606:4700:4700::1111]:53",
             "tunnelUDPTargetOnly": false
         },
         {
             "name": "ss-2022",
             "protocol": "2022-blake3-aes-128-gcm",
+            "tcpListeners": [
+                {
+                    "network": "tcp",
+                    "address": ":20220",
+                    "fwmark": 52140,
+                    "trafficClass": 0,
+                    "reusePort": false,
+                    "fastOpen": true,
+                    "fastOpenBacklog": 0,
+                    "fastOpenFallback": false,
+                    "multipath": false,
+                    "deferAcceptSecs": 0,
+                    "userTimeoutMsecs": 0,
+                    "disableInitialPayloadWait": false,
+                    "initialPayloadWaitTimeout": "250ms",
+                    "initialPayloadWaitBufferSize": 1440
+                }
+            ],
+            "udpListeners": [
+                {
+                    "network": "udp",
+                    "address": ":20220",
+                    "fwmark": 52140,
+                    "trafficClass": 0,
+                    "reusePort": false,
+                    "batchMode": "sendmmsg",
+                    "relayBatchSize": 64,
+                    "serverRecvBatchSize": 512,
+                    "sendChannelCapacity": 1024,
+                    "natTimeout": "3m0s"
+                }
+            ],
             "mtu": 1500,
-            "listen": ":20220",
-            "listenerFwmark": 52140,
-            "listenerTrafficClass": 0,
-            "enableTCP": true,
-            "listenerTFO": true,
-            "disableInitialPayloadWait": false,
-            "enableUDP": true,
-            "natTimeoutSec": 150,
-            "udpBatchMode": "sendmmsg",
-            "udpRelayBatchSize": 64,
-            "udpServerRecvBatchSize": 512,
-            "udpSendChannelCapacity": 1024,
             "allowSegmentedFixedLengthHeader": false,
             "psk": "qQln3GlVCZi5iJUObJVNCw==",
             "uPSKStorePath": "/etc/shadowsocks-go/upsks.json",
@@ -587,9 +679,6 @@
                 "invertToPorts": false
             }
         ]
-    },
-    "stats": {
-        "enabled": true
     },
     "api": {
         "enabled": true,

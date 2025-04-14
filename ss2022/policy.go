@@ -11,6 +11,118 @@ import (
 	"go.uber.org/zap"
 )
 
+// Unify the *PolicyField structs once Go has better generics support.
+
+// PaddingPolicyField provides textual representation for a padding policy function.
+//
+// PaddingPolicyField implements [encoding.TextAppender], [encoding.TextMarshaler], and [encoding.TextUnmarshaler].
+type PaddingPolicyField struct {
+	policy PaddingPolicy
+	name   string
+}
+
+// NewPaddingPolicyField returns a [PaddingPolicyField] for the given padding policy name.
+func NewPaddingPolicyField(name string) (PaddingPolicyField, error) {
+	policy, err := ParsePaddingPolicy(name)
+	if err != nil {
+		return PaddingPolicyField{}, err
+	}
+	return PaddingPolicyField{
+		policy: policy,
+		name:   name,
+	}, nil
+}
+
+// Policy returns the padding policy function.
+func (p PaddingPolicyField) Policy() PaddingPolicy {
+	if p.policy == nil {
+		return PadPlainDNS
+	}
+	return p.policy
+}
+
+// Name returns the name of the padding policy.
+func (p PaddingPolicyField) Name() string {
+	if p.name == "" {
+		return "PadPlainDNS"
+	}
+	return p.name
+}
+
+// AppendText implements [encoding.TextAppender].
+func (p PaddingPolicyField) AppendText(b []byte) ([]byte, error) {
+	return append(b, p.name...), nil
+}
+
+// MarshalText implements [encoding.TextMarshaler].
+func (p PaddingPolicyField) MarshalText() ([]byte, error) {
+	return []byte(p.name), nil
+}
+
+// UnmarshalText implements [encoding.TextUnmarshaler].
+func (p *PaddingPolicyField) UnmarshalText(text []byte) error {
+	if err := p.policy.UnmarshalText(text); err != nil {
+		return err
+	}
+	p.name = string(text)
+	return nil
+}
+
+// RejectPolicyField provides textual representation for a reject policy function.
+//
+// RejectPolicyField implements [encoding.TextAppender], [encoding.TextMarshaler], and [encoding.TextUnmarshaler].
+type RejectPolicyField struct {
+	policy RejectPolicy
+	name   string
+}
+
+// NewRejectPolicyField returns a [RejectPolicyField] for the given reject policy name.
+func NewRejectPolicyField(name string) (RejectPolicyField, error) {
+	policy, err := ParseRejectPolicy(name)
+	if err != nil {
+		return RejectPolicyField{}, err
+	}
+	return RejectPolicyField{
+		policy: policy,
+		name:   name,
+	}, nil
+}
+
+// Policy returns the reject policy function.
+func (p RejectPolicyField) Policy() RejectPolicy {
+	if p.policy == nil {
+		return JustClose
+	}
+	return p.policy
+}
+
+// Name returns the name of the reject policy.
+func (p RejectPolicyField) Name() string {
+	if p.name == "" {
+		return "JustClose"
+	}
+	return p.name
+}
+
+// AppendText implements [encoding.TextAppender].
+func (p RejectPolicyField) AppendText(b []byte) ([]byte, error) {
+	return append(b, p.name...), nil
+}
+
+// MarshalText implements [encoding.TextMarshaler].
+func (p RejectPolicyField) MarshalText() ([]byte, error) {
+	return []byte(p.name), nil
+}
+
+// UnmarshalText implements [encoding.TextUnmarshaler].
+func (p *RejectPolicyField) UnmarshalText(text []byte) error {
+	if err := p.policy.UnmarshalText(text); err != nil {
+		return err
+	}
+	p.name = string(text)
+	return nil
+}
+
 // PaddingPolicy is a function that takes the target address and
 // returns whether padding should be added.
 type PaddingPolicy func(targetAddr conn.Addr) (shouldPad bool)
@@ -57,13 +169,6 @@ func (p *PaddingPolicy) UnmarshalText(text []byte) error {
 		return fmt.Errorf("invalid padding policy: %q", text)
 	}
 	return nil
-}
-
-// Initialize sets the default padding policy if p is nil.
-func (p *PaddingPolicy) Initialize() {
-	if *p == nil {
-		*p = PadPlainDNS
-	}
 }
 
 // RejectPolicy is a function that handles a potentially malicious TCP connection.
@@ -189,11 +294,4 @@ func (p *RejectPolicy) UnmarshalText(text []byte) error {
 		return fmt.Errorf("invalid reject policy: %q", text)
 	}
 	return nil
-}
-
-// Initialize sets the default reject policy if p is nil.
-func (p *RejectPolicy) Initialize() {
-	if *p == nil {
-		*p = ForceReset
-	}
 }

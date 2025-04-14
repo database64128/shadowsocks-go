@@ -26,26 +26,26 @@ type Config struct {
 	Enabled bool `json:"enabled"`
 
 	// DebugPprof enables pprof endpoints for debugging and profiling.
-	DebugPprof bool `json:"debugPprof"`
+	DebugPprof bool `json:"debugPprof,omitzero"`
 
 	// TrustedProxies specifies the IP address prefixes of trusted proxies.
 	// Requests from these proxies will be trusted to contain the real IP address
 	// in the specified header field.
 	// If empty, all proxies are trusted.
-	TrustedProxies []netip.Prefix `json:"trustedProxies"`
+	TrustedProxies []netip.Prefix `json:"trustedProxies,omitzero"`
 
 	// RealIPHeaderKey specifies the header field to use for determining
 	// the client's real IP address when the request is from a trusted proxy.
 	// If empty, the real IP address is not appended to [http.Request.RemoteAddr].
-	RealIPHeaderKey string `json:"realIPHeaderKey"`
+	RealIPHeaderKey string `json:"realIPHeaderKey,omitzero"`
 
 	// StaticPath is the path where static files are served from.
 	// If empty, static file serving is disabled.
-	StaticPath string `json:"staticPath"`
+	StaticPath string `json:"staticPath,omitzero"`
 
 	// SecretPath adds a secret path prefix to API and pprof endpoints.
 	// Static files are not affected. If empty, no secret path is added.
-	SecretPath string `json:"secretPath"`
+	SecretPath string `json:"secretPath,omitzero"`
 
 	// Listeners is the list of server listeners.
 	Listeners []ListenerConfig `json:"listeners"`
@@ -62,12 +62,12 @@ type ListenerConfig struct {
 	// Fwmark sets the listener's fwmark on Linux, or user cookie on FreeBSD.
 	//
 	// Available on Linux and FreeBSD.
-	Fwmark int `json:"fwmark"`
+	Fwmark int `json:"fwmark,omitzero"`
 
 	// TrafficClass sets the traffic class of the listener.
 	//
 	// Available on most platforms except Windows.
-	TrafficClass int `json:"trafficClass"`
+	TrafficClass int `json:"trafficClass,omitzero"`
 
 	// FastOpenBacklog specifies the maximum number of pending TFO connections on Linux.
 	// If the value is 0, Go std's listen(2) backlog is used.
@@ -75,44 +75,44 @@ type ListenerConfig struct {
 	// On other platforms, a non-negative value is ignored, as they do not have the option to set the TFO backlog.
 	//
 	// On all platforms, a negative value disables TFO.
-	FastOpenBacklog int `json:"fastOpenBacklog"`
+	FastOpenBacklog int `json:"fastOpenBacklog,omitzero"`
 
 	// DeferAcceptSecs sets TCP_DEFER_ACCEPT to the given number of seconds on the listener.
 	//
 	// Available on Linux.
-	DeferAcceptSecs int `json:"deferAcceptSecs"`
+	DeferAcceptSecs int `json:"deferAcceptSecs,omitzero"`
 
 	// UserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the listener.
 	//
 	// Available on Linux.
-	UserTimeoutMsecs int `json:"userTimeoutMsecs"`
+	UserTimeoutMsecs int `json:"userTimeoutMsecs,omitzero"`
 
 	// CertList is the name of the certificate list in the certificate store,
 	// used as the server certificate for HTTPS.
-	CertList string `json:"certList"`
+	CertList string `json:"certList,omitzero"`
 
 	// ClientCAs is the name of the X.509 certificate pool in the certificate store,
 	// used as the root CA set for verifying client certificates.
-	ClientCAs string `json:"clientCAs"`
+	ClientCAs string `json:"clientCAs,omitzero"`
 
 	// EncryptedClientHelloKeys are the ECH keys to use when a client attempts ECH.
-	EncryptedClientHelloKeys []EncryptedClientHelloKey `json:"encryptedClientHelloKeys"`
+	EncryptedClientHelloKeys []EncryptedClientHelloKey `json:"encryptedClientHelloKeys,omitzero"`
 
 	// EnableTLS controls whether to enable TLS.
-	EnableTLS bool `json:"enableTLS"`
+	EnableTLS bool `json:"enableTLS,omitzero"`
 
 	// RequireAndVerifyClientCert controls whether to require and verify client certificates.
-	RequireAndVerifyClientCert bool `json:"requireAndVerifyClientCert"`
+	RequireAndVerifyClientCert bool `json:"requireAndVerifyClientCert,omitzero"`
 
 	// ReusePort enables SO_REUSEPORT on the listener.
 	//
 	// Available on Linux and the BSDs.
-	ReusePort bool `json:"reusePort"`
+	ReusePort bool `json:"reusePort,omitzero"`
 
 	// FastOpen enables TCP Fast Open on the listener.
 	//
 	// Available on Linux, macOS, FreeBSD, and Windows.
-	FastOpen bool `json:"fastOpen"`
+	FastOpen bool `json:"fastOpen,omitzero"`
 
 	// FastOpenFallback enables runtime detection of TCP Fast Open support on the listener.
 	//
@@ -120,7 +120,7 @@ type ListenerConfig struct {
 	// When disabled, the listener will abort if TFO cannot be enabled on the socket.
 	//
 	// Available on all platforms.
-	FastOpenFallback bool `json:"fastOpenFallback"`
+	FastOpenFallback bool `json:"fastOpenFallback,omitzero"`
 
 	// Multipath enables multipath TCP on the listener.
 	//
@@ -131,7 +131,7 @@ type ListenerConfig struct {
 	// such as TCP keepalive (as of Linux 6.5), and failed connect attempts won't always be retried once.
 	//
 	// Available on platforms supported by Go std's MPTCP implementation.
-	Multipath bool `json:"multipath"`
+	Multipath bool `json:"multipath,omitzero"`
 }
 
 // EncryptedClientHelloKey holds a private key that is associated
