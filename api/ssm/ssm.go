@@ -64,18 +64,21 @@ func (sm *ServerManager) requireServerStats(h func(http.ResponseWriter, *http.Re
 		name := r.PathValue("server")
 		server, ok := sm.serverByName[name]
 		if !ok {
-			return restapi.EncodeResponse(w, http.StatusNotFound, StandardError{Message: "server not found"})
+			return restapi.EncodeResponse(w, http.StatusNotFound, &serverNotFoundJSON)
 		}
 		return h(w, r, server.StatsCollector)
 	}
 }
 
-var serverInfoJSON = []byte(`{"server":"shadowsocks-go ` + shadowsocks.Version + `","apiVersion":"v1"}`)
+var (
+	serverInfoJSON                = []byte(`{"server":"shadowsocks-go ` + shadowsocks.Version + `","apiVersion":"v1"}`)
+	serverNotFoundJSON            = []byte(`{"error":"server not found"}`)
+	serverNoCredentialManagerJSON = []byte(`{"error":"The server does not support user management."}`)
+	userNotFoundJSON              = []byte(`{"error":"user not found"}`)
+)
 
 func handleGetServerInfo(w http.ResponseWriter, _ *http.Request, _ stats.Collector) (int, error) {
-	w.Header()["Content-Type"] = []string{"application/json"}
-	_, err := w.Write(serverInfoJSON)
-	return http.StatusOK, err
+	return restapi.EncodeResponse(w, http.StatusOK, &serverInfoJSON)
 }
 
 func handleGetStats(w http.ResponseWriter, r *http.Request, sc stats.Collector) (int, error) {
@@ -93,10 +96,10 @@ func (sm *ServerManager) requireServerUsers(h func(http.ResponseWriter, *http.Re
 		name := r.PathValue("server")
 		server, ok := sm.serverByName[name]
 		if !ok {
-			return restapi.EncodeResponse(w, http.StatusNotFound, StandardError{Message: "server not found"})
+			return restapi.EncodeResponse(w, http.StatusNotFound, &serverNotFoundJSON)
 		}
 		if server.CredentialManager == nil {
-			return restapi.EncodeResponse(w, http.StatusNotFound, StandardError{Message: "The server does not support user management."})
+			return restapi.EncodeResponse(w, http.StatusNotFound, &serverNoCredentialManagerJSON)
 		}
 		return h(w, r, server)
 	}
@@ -131,7 +134,7 @@ func handleGetUser(w http.ResponseWriter, r *http.Request, ms Server) (int, erro
 	username := r.PathValue("username")
 	userCred, ok := ms.CredentialManager.GetCredential(username)
 	if !ok {
-		return restapi.EncodeResponse(w, http.StatusNotFound, StandardError{Message: "user not found"})
+		return restapi.EncodeResponse(w, http.StatusNotFound, &userNotFoundJSON)
 	}
 
 	return restapi.EncodeResponse(w, http.StatusOK, response{userCred, ms.StatsCollector.Snapshot().Traffic})
