@@ -96,6 +96,7 @@ func (s *ManagedServer) saveToFile() error {
 	if err != nil {
 		return err
 	}
+	b = append(b, '\n') // b has plenty of unused capacity.
 
 	if err = os.WriteFile(s.path, b, 0644); err != nil {
 		return err
