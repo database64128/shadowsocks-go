@@ -4,8 +4,6 @@ import (
 	"iter"
 	"maps"
 	"slices"
-
-	"github.com/database64128/shadowsocks-go/maphelper"
 )
 
 // MaxLinearDomains is the maximum number of domain rules under which a linear matcher can outperform a map matcher.
@@ -197,7 +195,7 @@ func (dmmp *DomainMapMatcher) AppendTo(matchers []Matcher) ([]Matcher, error) {
 	}
 
 	if len(dmm) <= MaxLinearDomains {
-		dlm := DomainLinearMatcher(maphelper.Keys(dmm))
+		dlm := DomainLinearMatcherFromSeq(dmm.Rules())
 		return dlm.AppendTo(matchers)
 	}
 

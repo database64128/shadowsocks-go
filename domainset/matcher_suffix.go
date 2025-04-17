@@ -4,8 +4,6 @@ import (
 	"iter"
 	"maps"
 	"slices"
-
-	"github.com/database64128/shadowsocks-go/maphelper"
 )
 
 // MaxLinearSuffixes is the maximum number of suffix rules under which a linear matcher can outperform a trie matcher.
@@ -20,6 +18,12 @@ type SuffixLinearMatcher []string
 func NewSuffixLinearMatcher(capacity int) MatcherBuilder {
 	slm := make(SuffixLinearMatcher, 0, capacity)
 	return &slm
+}
+
+// SuffixLinearMatcherFromSeq creates a [SuffixLinearMatcher] from a sequence of suffix rules.
+func SuffixLinearMatcherFromSeq(suffixCount int, suffixSeq iter.Seq[string]) SuffixLinearMatcher {
+	slm := make(SuffixLinearMatcher, 0, suffixCount)
+	return slices.AppendSeq(slm, suffixSeq)
 }
 
 // Match implements the Matcher Match method.
@@ -141,7 +145,7 @@ func (smmp *SuffixMapMatcher) AppendTo(matchers []Matcher) ([]Matcher, error) {
 	// But a linear matcher will migrate to a trie matcher when the number of rules exceeds 4.
 	// So we only migrate to a linear matcher when the number of rules does not exceed 4.
 	if len(smm) <= MaxLinearSuffixes {
-		slm := SuffixLinearMatcher(maphelper.Keys(smm))
+		slm := SuffixLinearMatcherFromSeq(smm.Rules())
 		return slm.AppendTo(matchers)
 	}
 
