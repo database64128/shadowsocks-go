@@ -65,7 +65,7 @@ func main() {
 
 	if fmtConf {
 		sc.Migrate()
-		if err = jsoncfg.Save(confPath, sc); err != nil {
+		if err = jsoncfg.Save(confPath, &sc); err != nil {
 			logger.Fatal("Failed to save config",
 				zap.String("confPath", confPath),
 				zap.Error(err),
