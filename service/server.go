@@ -593,14 +593,14 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (sha
 }
 
 // PostInit performs post-initialization tasks.
-func (sc *ServerConfig) PostInit(credman *cred.Manager, serverByName map[string]ssm.Server, serverNames []string) error {
+func (sc *ServerConfig) PostInit(credmgr *cred.Manager, serverByName map[string]ssm.Server, serverNames []string) error {
 	var cms *cred.ManagedServer
 
 	switch sc.Protocol {
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		if sc.UPSKStorePath != "" {
 			var err error
-			cms, err = credman.RegisterServer(sc.Name, sc.UPSKStorePath, len(sc.PSK), sc.tcpCredStore, sc.udpCredStore)
+			cms, err = credmgr.RegisterServer(sc.Name, sc.UPSKStorePath, len(sc.PSK), sc.tcpCredStore, sc.udpCredStore)
 			if err != nil {
 				return err
 			}

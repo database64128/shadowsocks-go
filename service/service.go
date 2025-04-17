@@ -219,8 +219,8 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		return nil, fmt.Errorf("failed to create router: %w", err)
 	}
 
-	credman := cred.NewManager(logger)
-	services = append(services, credman)
+	credmgr := cred.NewManager(logger)
+	services = append(services, credmgr)
 
 	var (
 		serverByName map[string]ssm.Server
@@ -259,7 +259,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 			return nil, fmt.Errorf("failed to create UDP relay service for %q: %w", serverConfig.Name, err)
 		}
 
-		if err = serverConfig.PostInit(credman, serverByName, serverNames); err != nil {
+		if err = serverConfig.PostInit(credmgr, serverByName, serverNames); err != nil {
 			return nil, fmt.Errorf("failed to post-initialize server %q: %w", serverConfig.Name, err)
 		}
 	}
@@ -272,18 +272,25 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		services = append(services, apiServer)
 	}
 
-	return &Manager{services, router, logger}, nil
+	return &Manager{
+		notifyReload: newReloadNotifier(logger, credmgr, tlsCertStore),
+		services:     services,
+		router:       router,
+		logger:       logger,
+	}, nil
 }
 
 // Manager manages the services.
 type Manager struct {
-	services []shadowsocks.Service
-	router   *router.Router
-	logger   *zap.Logger
+	notifyReload reloadNotifier
+	services     []shadowsocks.Service
+	router       *router.Router
+	logger       *zap.Logger
 }
 
 // Start starts all configured services.
 func (m *Manager) Start(ctx context.Context) error {
+	m.notifyReload.start()
 	for _, s := range m.services {
 		if err := s.Start(ctx); err != nil {
 			kv := s.ZapField()
@@ -303,6 +310,7 @@ func (m *Manager) Stop() {
 		}
 		m.logger.Info("Stopped service", kv)
 	}
+	m.notifyReload.stop()
 }
 
 // Close closes the manager.

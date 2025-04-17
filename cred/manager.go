@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"maps"
 	"os"
 	"slices"
@@ -31,6 +32,7 @@ type ManagedServer struct {
 	pskLength           int
 	tcp                 *ss2022.CredStore
 	udp                 *ss2022.CredStore
+	name                string
 	path                string
 	cachedContent       string
 	cachedCredMap       map[string]*cachedUserCredential
@@ -39,6 +41,11 @@ type ManagedServer struct {
 	wg                  sync.WaitGroup
 	saveQueue           chan struct{}
 	logger              *zap.Logger
+}
+
+// Name returns the name of the server.
+func (s *ManagedServer) Name() string {
+	return s.name
 }
 
 // UserCredential stores a user's credential.
@@ -331,6 +338,11 @@ func NewManager(logger *zap.Logger) *Manager {
 	}
 }
 
+// Servers returns the number of managed servers and an iterator over them.
+func (m *Manager) Servers() (int, iter.Seq[*ManagedServer]) {
+	return len(m.servers), maps.Values(m.servers)
+}
+
 // ReloadAll asks all managed servers to reload credentials from files.
 func (m *Manager) ReloadAll() {
 	for name, s := range m.servers {
@@ -367,7 +379,6 @@ func (m *Manager) Start(ctx context.Context) error {
 	for _, s := range m.servers {
 		s.Start(ctx)
 	}
-	m.registerSIGUSR1()
 	return nil
 }
 
@@ -391,6 +402,7 @@ func (m *Manager) RegisterServer(name, path string, pskLength int, tcpCredStore,
 		pskLength: pskLength,
 		tcp:       tcpCredStore,
 		udp:       udpCredStore,
+		name:      name,
 		path:      path,
 		saveQueue: make(chan struct{}, 1),
 		logger:    m.logger,
@@ -399,6 +411,6 @@ func (m *Manager) RegisterServer(name, path string, pskLength int, tcpCredStore,
 		return nil, fmt.Errorf("failed to load credentials for server %s: %w", name, err)
 	}
 	m.servers[name] = s
-	m.logger.Debug("Registered server", zap.String("server", name))
+	m.logger.Debug("Registered server for credential management", zap.String("server", name))
 	return s, nil
 }
