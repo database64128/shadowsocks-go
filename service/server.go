@@ -594,7 +594,7 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (sha
 }
 
 // PostInit performs post-initialization tasks.
-func (sc *ServerConfig) PostInit(credman *cred.Manager, apiSM *ssm.ServerManager) error {
+func (sc *ServerConfig) PostInit(credman *cred.Manager, serverByName map[string]ssm.Server, serverNames []string) error {
 	var cms *cred.ManagedServer
 
 	switch sc.Protocol {
@@ -608,8 +608,12 @@ func (sc *ServerConfig) PostInit(credman *cred.Manager, apiSM *ssm.ServerManager
 		}
 	}
 
-	if apiSM != nil {
-		apiSM.AddServer(sc.Name, cms, sc.collector)
+	if serverByName != nil {
+		serverByName[sc.Name] = ssm.Server{
+			CredentialManager: cms,
+			StatsCollector:    sc.collector,
+		}
+		serverNames[sc.index] = sc.Name
 	}
 
 	return nil

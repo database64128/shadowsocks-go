@@ -223,19 +223,15 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	services = append(services, credman)
 
 	var (
-		apiSM       *ssm.ServerManager
-		statsConfig stats.Config
+		serverByName map[string]ssm.Server
+		serverNames  []string
+		statsConfig  stats.Config
 	)
 
 	if sc.API.Enabled {
+		serverByName = make(map[string]ssm.Server, len(sc.Servers))
+		serverNames = make([]string, len(sc.Servers))
 		statsConfig.Enabled = true
-
-		var apiServer *api.Server
-		apiServer, apiSM, err = sc.API.NewServer(logger, listenConfigCache, tlsCertStore)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create API server: %w", err)
-		}
-		services = append(services, apiServer)
 	}
 
 	for i := range sc.Servers {
@@ -263,9 +259,17 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 			return nil, fmt.Errorf("failed to create UDP relay service for %q: %w", serverConfig.Name, err)
 		}
 
-		if err = serverConfig.PostInit(credman, apiSM); err != nil {
+		if err = serverConfig.PostInit(credman, serverByName, serverNames); err != nil {
 			return nil, fmt.Errorf("failed to post-initialize server %q: %w", serverConfig.Name, err)
 		}
+	}
+
+	if sc.API.Enabled {
+		apiServer, err := sc.API.NewServer(logger, listenConfigCache, tlsCertStore, serverByName, serverNames)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create API server: %w", err)
+		}
+		services = append(services, apiServer)
 	}
 
 	return &Manager{services, router, logger}, nil

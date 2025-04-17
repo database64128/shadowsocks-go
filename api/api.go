@@ -155,9 +155,15 @@ type EncryptedClientHelloKey struct {
 }
 
 // NewServer returns a new API server from the config.
-func (c *Config) NewServer(logger *zap.Logger, listenConfigCache conn.ListenConfigCache, tlsCertStore *tlscerts.Store) (*Server, *ssm.ServerManager, error) {
+func (c *Config) NewServer(
+	logger *zap.Logger,
+	listenConfigCache conn.ListenConfigCache,
+	tlsCertStore *tlscerts.Store,
+	serverByName map[string]ssm.Server,
+	serverNames []string,
+) (*Server, error) {
 	if len(c.Listeners) == 0 {
-		return nil, nil, errors.New("no listeners specified")
+		return nil, errors.New("no listeners specified")
 	}
 
 	lcs := make([]listenConfig, len(c.Listeners))
@@ -185,7 +191,7 @@ func (c *Config) NewServer(logger *zap.Logger, listenConfigCache conn.ListenConf
 			if lnc.CertList != "" {
 				certs, getCert, ok := tlsCertStore.GetCertList(lnc.CertList)
 				if !ok {
-					return nil, nil, fmt.Errorf("certificate list %q not found", lnc.CertList)
+					return nil, fmt.Errorf("certificate list %q not found", lnc.CertList)
 				}
 				tlsConfig.Certificates = certs
 				tlsConfig.GetCertificate = getCert
@@ -194,7 +200,7 @@ func (c *Config) NewServer(logger *zap.Logger, listenConfigCache conn.ListenConf
 			if lnc.ClientCAs != "" {
 				pool, ok := tlsCertStore.GetX509CertPool(lnc.ClientCAs)
 				if !ok {
-					return nil, nil, fmt.Errorf("client CA X.509 certificate pool %q not found", lnc.ClientCAs)
+					return nil, fmt.Errorf("client CA X.509 certificate pool %q not found", lnc.ClientCAs)
 				}
 				tlsConfig.ClientCAs = pool
 			}
@@ -225,7 +231,7 @@ func (c *Config) NewServer(logger *zap.Logger, listenConfigCache conn.ListenConf
 
 	realIP, err := newRealIPMiddleware(logger, c.TrustedProxies, c.RealIPHeaderKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create real IP middleware: %w", err)
+		return nil, fmt.Errorf("failed to create real IP middleware: %w", err)
 	}
 
 	if c.DebugPprof {
@@ -247,7 +253,7 @@ func (c *Config) NewServer(logger *zap.Logger, listenConfigCache conn.ListenConf
 
 	// /api/ssm/v1
 	apiSSMv1Path := joinPatternPath(basePath, "/api/ssm/v1")
-	sm := ssm.NewServerManager()
+	sm := ssm.NewServerManager(serverByName, serverNames)
 	sm.RegisterHandlers(func(method, path string, handler restapi.HandlerFunc) {
 		pattern := method + " " + joinPatternPath(apiSSMv1Path, path)
 		mux.Handle(pattern, realIP(logAPIRequests(logger, handler)))
@@ -259,7 +265,7 @@ func (c *Config) NewServer(logger *zap.Logger, listenConfigCache conn.ListenConf
 
 	errorLog, err := zap.NewStdLogAt(logger, zap.ErrorLevel)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create error logger: %w", err)
+		return nil, fmt.Errorf("failed to create error logger: %w", err)
 	}
 
 	return &Server{
@@ -269,7 +275,7 @@ func (c *Config) NewServer(logger *zap.Logger, listenConfigCache conn.ListenConf
 			Handler:  mux,
 			ErrorLog: errorLog,
 		},
-	}, sm, nil
+	}, nil
 }
 
 // joinPatternPath joins path elements into a pattern path.
