@@ -4,8 +4,10 @@ package tlscerts
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
+	"sync/atomic"
 )
 
 // Config is the configuration for the TLS certificate store.
@@ -19,8 +21,10 @@ type Config struct {
 
 // Store is a store for TLS certificates.
 type Store struct {
-	certListByName     map[string][]tls.Certificate
-	x509CertPoolByName map[string]*x509.CertPool
+	config              Config
+	certListByName      map[string]TLSCertList
+	x509CertPoolByName  map[string]*x509.CertPool
+	reloadableCertLists []TLSCertList
 }
 
 // NewStore creates a new store for TLS certificates.
@@ -29,18 +33,30 @@ func (c *Config) NewStore() (*Store, error) {
 		return &Store{}, nil
 	}
 
-	certListByName := make(map[string][]tls.Certificate, len(c.CertLists))
+	certListByName := make(map[string]TLSCertList, len(c.CertLists))
 
-	for _, certList := range c.CertLists {
-		if _, ok := certListByName[certList.Name]; ok {
-			return nil, fmt.Errorf("duplicate TLS certificate list name: %q", certList.Name)
+	var reloadableCertListCount int
+	for _, certListCfg := range c.CertLists {
+		if certListCfg.Reloadable {
+			reloadableCertListCount++
+		}
+	}
+	reloadableCertLists := make([]TLSCertList, 0, reloadableCertListCount)
+
+	for _, certListCfg := range c.CertLists {
+		if _, ok := certListByName[certListCfg.Name]; ok {
+			return nil, fmt.Errorf("duplicate TLS certificate list name: %q", certListCfg.Name)
 		}
 
-		certs, err := certList.Load()
+		certList, err := certListCfg.NewTLSCertList()
 		if err != nil {
-			return nil, fmt.Errorf("failed to load TLS certificate list %q: %w", certList.Name, err)
+			return nil, fmt.Errorf("failed to load TLS certificate list %q: %w", certListCfg.Name, err)
 		}
-		certListByName[certList.Name] = certs
+		certListByName[certListCfg.Name] = certList
+
+		if certListCfg.Reloadable {
+			reloadableCertLists = append(reloadableCertLists, certList)
+		}
 	}
 
 	x509CertPoolByName := make(map[string]*x509.CertPool, len(c.X509CertPools))
@@ -58,27 +74,33 @@ func (c *Config) NewStore() (*Store, error) {
 	}
 
 	return &Store{
-		certListByName:     certListByName,
-		x509CertPoolByName: x509CertPoolByName,
+		config:              *c,
+		certListByName:      certListByName,
+		x509CertPoolByName:  x509CertPoolByName,
+		reloadableCertLists: reloadableCertLists,
 	}, nil
 }
 
-// GetCertList gets a TLS server certificate list by name.
-func (s *Store) GetCertList(name string) (certs []tls.Certificate, getCert func(*tls.ClientHelloInfo) (*tls.Certificate, error), ok bool) {
-	certs, ok = s.certListByName[name]
-	return
+// Config returns the configuration of the TLS certificate store.
+func (s *Store) Config() *Config {
+	return &s.config
 }
 
-// GetClientCertList gets a TLS client certificate list by name.
-func (s *Store) GetClientCertList(name string) (certs []tls.Certificate, getClientCert func(*tls.CertificateRequestInfo) (*tls.Certificate, error), ok bool) {
-	certs, ok = s.certListByName[name]
-	return
+// GetCertList gets a TLS certificate list by name.
+func (s *Store) GetCertList(name string) (TLSCertList, bool) {
+	certList, ok := s.certListByName[name]
+	return certList, ok
 }
 
 // GetX509CertPool gets an X.509 certificate pool by name.
 func (s *Store) GetX509CertPool(name string) (pool *x509.CertPool, ok bool) {
 	pool, ok = s.x509CertPoolByName[name]
 	return
+}
+
+// ReloadableCertLists returns the list of reloadable TLS certificate lists.
+func (s *Store) ReloadableCertLists() []TLSCertList {
+	return s.reloadableCertLists
 }
 
 // TLSCertListConfig is the configuration for a list of TLS certificates.
@@ -88,6 +110,9 @@ type TLSCertListConfig struct {
 
 	// Certs is a list of TLS certificates.
 	Certs []TLSCertConfig `json:"certs"`
+
+	// Reloadable controls whether the certificates can be reloaded on demand.
+	Reloadable bool `json:"reloadable,omitzero"`
 }
 
 // Load loads the TLS certificate list.
@@ -96,10 +121,176 @@ func (c *TLSCertListConfig) Load() (certs []tls.Certificate, err error) {
 	for i, cert := range c.Certs {
 		certs[i], err = cert.Load()
 		if err != nil {
-			return nil, fmt.Errorf("failed to load certificate %q: %w", c.Name, err)
+			return nil, fmt.Errorf("failed to load certificate at index %d: %w", i, err)
 		}
 	}
 	return certs, nil
+}
+
+var errNoCertificates = errors.New("no certificates configured")
+
+// NewTLSCertList creates a new TLS certificate list.
+func (c *TLSCertListConfig) NewTLSCertList() (TLSCertList, error) {
+	if len(c.Certs) == 0 {
+		return nil, errNoCertificates
+	}
+
+	certs, err := c.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	if !c.Reloadable {
+		return newStaticTLSCertList(c, certs), nil
+	}
+	return newReloadableTLSCertList(c, certs), nil
+}
+
+// TLSCertList is a list of TLS certificates.
+type TLSCertList interface {
+	// Config returns the configuration of the TLS certificate list.
+	Config() *TLSCertListConfig
+
+	// GetCertificateFunc returns the TLS certificates or a function to get the server certificate.
+	GetCertificateFunc() (certs []tls.Certificate, getCert func(*tls.ClientHelloInfo) (*tls.Certificate, error))
+
+	// GetClientCertificateFunc returns the TLS client certificates or a function to get the client certificate.
+	GetClientCertificateFunc() (certs []tls.Certificate, getClientCert func(*tls.CertificateRequestInfo) (*tls.Certificate, error))
+
+	// Reload reloads the TLS certificate list.
+	// It returns [ReloadDisabledError] if reloading is not enabled.
+	Reload() error
+}
+
+// StaticTLSCertList is a static list of TLS certificates.
+// It does not support reloading.
+//
+// StaticTLSCertList implements [TLSCertList].
+type StaticTLSCertList struct {
+	config *TLSCertListConfig
+	certs  []tls.Certificate
+}
+
+// newStaticTLSCertList returns a new static TLS certificate list.
+func newStaticTLSCertList(config *TLSCertListConfig, certs []tls.Certificate) *StaticTLSCertList {
+	return &StaticTLSCertList{
+		config: config,
+		certs:  certs,
+	}
+}
+
+// Config implements [TLSCertList.Config].
+func (cl *StaticTLSCertList) Config() *TLSCertListConfig {
+	return cl.config
+}
+
+// GetCertificateFunc implements [TLSCertList.GetCertificateFunc].
+func (cl *StaticTLSCertList) GetCertificateFunc() (certs []tls.Certificate, getCert func(*tls.ClientHelloInfo) (*tls.Certificate, error)) {
+	return cl.certs, nil
+}
+
+// GetClientCertificateFunc implements [TLSCertList.GetClientCertificateFunc].
+func (cl *StaticTLSCertList) GetClientCertificateFunc() (certs []tls.Certificate, getClientCert func(*tls.CertificateRequestInfo) (*tls.Certificate, error)) {
+	return cl.certs, nil
+}
+
+// ReloadDisabledError is an error indicating that reloading is not enabled for this certificate list.
+type ReloadDisabledError struct{}
+
+func (ReloadDisabledError) Error() string {
+	return "reloading is not enabled for this certificate list"
+}
+
+func (ReloadDisabledError) Is(target error) bool {
+	return target == errors.ErrUnsupported
+}
+
+// Reload implements [TLSCertList.Reload].
+func (cl *StaticTLSCertList) Reload() error {
+	return ReloadDisabledError{}
+}
+
+// ReloadableTLSCertList is a reloadable list of TLS certificates.
+//
+// ReloadableTLSCertList implements [TLSCertList].
+type ReloadableTLSCertList struct {
+	config        *TLSCertListConfig
+	atomicCerts   atomic.Pointer[[]tls.Certificate]
+	getCert       func(*tls.ClientHelloInfo) (*tls.Certificate, error)        // lazily initialized
+	getClientCert func(*tls.CertificateRequestInfo) (*tls.Certificate, error) // lazily initialized
+}
+
+// newReloadableTLSCertList returns a new reloadable TLS certificate list.
+func newReloadableTLSCertList(config *TLSCertListConfig, certs []tls.Certificate) *ReloadableTLSCertList {
+	cl := ReloadableTLSCertList{
+		config: config,
+	}
+	cl.atomicCerts.Store(&certs)
+	return &cl
+}
+
+// Config implements [TLSCertList.Config].
+func (cl *ReloadableTLSCertList) Config() *TLSCertListConfig {
+	return cl.config
+}
+
+// GetCertificateFunc implements [TLSCertList.GetCertificateFunc].
+func (cl *ReloadableTLSCertList) GetCertificateFunc() (certs []tls.Certificate, getCert func(*tls.ClientHelloInfo) (*tls.Certificate, error)) {
+	if cl.getCert == nil {
+		cl.getCert = func(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			certs := *cl.atomicCerts.Load()
+
+			switch len(certs) {
+			case 0:
+				return nil, errNoCertificates
+			case 1:
+				return &certs[0], nil
+			}
+
+			for i := range certs {
+				cert := &certs[i]
+				if err := chi.SupportsCertificate(cert); err != nil {
+					continue
+				}
+				return cert, nil
+			}
+
+			// If nothing matches, return the first certificate.
+			return &certs[0], nil
+		}
+	}
+	return nil, cl.getCert
+}
+
+// GetClientCertificateFunc implements [TLSCertList.GetClientCertificateFunc].
+func (cl *ReloadableTLSCertList) GetClientCertificateFunc() (certs []tls.Certificate, getClientCert func(*tls.CertificateRequestInfo) (*tls.Certificate, error)) {
+	if cl.getClientCert == nil {
+		cl.getClientCert = func(cri *tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			certs := *cl.atomicCerts.Load()
+
+			for i := range certs {
+				cert := &certs[i]
+				if err := cri.SupportsCertificate(cert); err != nil {
+					continue
+				}
+				return cert, nil
+			}
+
+			// No acceptable certificate found. Don't send a certificate.
+			return &tls.Certificate{}, nil
+		}
+	}
+	return nil, cl.getClientCert
+}
+
+// Reload implements [TLSCertList.Reload].
+func (cl *ReloadableTLSCertList) Reload() error {
+	certs, err := cl.config.Load()
+	if err != nil {
+		return err
+	}
+	cl.atomicCerts.Store(&certs)
+	return nil
 }
 
 // TLSCertConfig is the configuration for a TLS certificate.

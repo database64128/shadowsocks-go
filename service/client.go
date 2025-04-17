@@ -295,12 +295,11 @@ func (cc *ClientConfig) TCPClient() (netio.StreamClient, error) {
 		}
 
 		if cc.HTTP.CertList != "" {
-			certs, getClientCert, ok := cc.tlsCertStore.GetClientCertList(cc.HTTP.CertList)
+			certList, ok := cc.tlsCertStore.GetCertList(cc.HTTP.CertList)
 			if !ok {
 				return nil, fmt.Errorf("certificate list not found: %q", cc.HTTP.CertList)
 			}
-			hpcc.Certificates = certs
-			hpcc.GetClientCertificate = getClientCert
+			hpcc.Certificates, hpcc.GetClientCertificate = certList.GetClientCertificateFunc()
 		}
 
 		if cc.HTTP.RootCAs != "" {

@@ -726,7 +726,8 @@
                         "certPath": "/etc/letsencrypt/live/example.com/fullchain.pem",
                         "keyPath": "/etc/letsencrypt/live/example.com/privkey.pem"
                     }
-                ]
+                ],
+                "reloadable": true
             },
             {
                 "name": "my-client-cert",

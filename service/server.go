@@ -449,12 +449,11 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		}
 
 		if sc.HTTP.CertList != "" {
-			certs, getCert, ok := sc.tlsCertStore.GetCertList(sc.HTTP.CertList)
+			certList, ok := sc.tlsCertStore.GetCertList(sc.HTTP.CertList)
 			if !ok {
 				return nil, fmt.Errorf("certificate list %q not found", sc.HTTP.CertList)
 			}
-			hpsc.Certificates = certs
-			hpsc.GetCertificate = getCert
+			hpsc.Certificates, hpsc.GetCertificate = certList.GetCertificateFunc()
 		}
 
 		if sc.HTTP.ClientCAs != "" {

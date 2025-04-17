@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/database64128/shadowsocks-go"
+	"github.com/database64128/shadowsocks-go/api/certmgr"
 	"github.com/database64128/shadowsocks-go/api/internal/restapi"
 	"github.com/database64128/shadowsocks-go/api/ssm"
 	"github.com/database64128/shadowsocks-go/conn"
@@ -189,12 +190,11 @@ func (c *Config) NewServer(
 			var tlsConfig tls.Config
 
 			if lnc.CertList != "" {
-				certs, getCert, ok := tlsCertStore.GetCertList(lnc.CertList)
+				certList, ok := tlsCertStore.GetCertList(lnc.CertList)
 				if !ok {
 					return nil, fmt.Errorf("certificate list %q not found", lnc.CertList)
 				}
-				tlsConfig.Certificates = certs
-				tlsConfig.GetCertificate = getCert
+				tlsConfig.Certificates, tlsConfig.GetCertificate = certList.GetCertificateFunc()
 			}
 
 			if lnc.ClientCAs != "" {
@@ -256,6 +256,14 @@ func (c *Config) NewServer(
 	sm := ssm.NewServerManager(serverByName, serverNames)
 	sm.RegisterHandlers(func(method, path string, handler restapi.HandlerFunc) {
 		pattern := method + " " + joinPatternPath(apiSSMv1Path, path)
+		mux.Handle(pattern, realIP(logAPIRequests(logger, handler)))
+	})
+
+	// /api/tlscerts/v1
+	apiTLSCertsV1Path := joinPatternPath(basePath, "/api/tlscerts/v1")
+	cm := certmgr.NewCertificateManager(tlsCertStore)
+	cm.RegisterHandlers(func(method, path string, handler restapi.HandlerFunc) {
+		pattern := method + " " + joinPatternPath(apiTLSCertsV1Path, path)
 		mux.Handle(pattern, realIP(logAPIRequests(logger, handler)))
 	})
 
