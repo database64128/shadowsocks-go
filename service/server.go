@@ -386,7 +386,7 @@ func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCac
 	}
 
 	if sc.EnableTCP || sc.EnableUDP {
-		logger.Warn("Single-listener configuration is deprecated and will be removed in a future version",
+		logger.Warn("Server-level single-listener fields are deprecated and will be removed in a future version. You can run with -fmtConf to migrate to the new format.",
 			zap.String("server", sc.Name),
 		)
 	}

@@ -27,9 +27,9 @@ var (
 )
 
 func init() {
-	flag.BoolVar(&version, "version", false, "Print the version and exit")
-	flag.BoolVar(&fmtConf, "fmtConf", false, "Format the configuration file and exit without starting the services")
-	flag.BoolVar(&testConf, "testConf", false, "Test the configuration file and exit without starting the services")
+	flag.BoolVar(&version, "version", false, "Print version information and exit")
+	flag.BoolVar(&fmtConf, "fmtConf", false, "Format the configuration file")
+	flag.BoolVar(&testConf, "testConf", false, "Test the configuration file and exit")
 	flag.StringVar(&confPath, "confPath", "config.json", "Path to the JSON configuration file")
 	flag.StringVar(&zapConf, "zapConf", "console", "Preset name or path to the JSON configuration file for building the zap logger.\nAvailable presets: console, console-nocolor, console-notime, systemd, production, development")
 	flag.TextVar(&logLevel, "logLevel", zapcore.InfoLevel, "Log level for the console and systemd presets.\nAvailable levels: debug, info, warn, error, dpanic, panic, fatal")
@@ -72,7 +72,6 @@ func main() {
 			)
 		}
 		logger.Info("Formatted config file", zap.String("confPath", confPath))
-		return
 	}
 
 	m, err := sc.Manager(logger)

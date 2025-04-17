@@ -116,7 +116,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	}
 
 	if sc.Stats.Enabled {
-		logger.Warn("The global stats configuration is obsolete and will be removed in a future version")
+		logger.Warn("The global stats configuration is obsolete and will be removed in a future version. You can run with -fmtConf to have all obsolete fields removed.")
 	}
 
 	tlsCertStore, err := sc.TLSCerts.NewStore()
