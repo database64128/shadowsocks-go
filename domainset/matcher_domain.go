@@ -199,5 +199,5 @@ func (dmmp *DomainMapMatcher) AppendTo(matchers []Matcher) ([]Matcher, error) {
 		return dlm.AppendTo(matchers)
 	}
 
-	return append(matchers, dmm), nil
+	return append(matchers, dmmp), nil
 }

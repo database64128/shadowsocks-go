@@ -50,9 +50,10 @@ func (klm KeywordLinearMatcher) MatcherCount() int {
 }
 
 // AppendTo implements the MatcherBuilder AppendTo method.
-func (klm KeywordLinearMatcher) AppendTo(matchers []Matcher) ([]Matcher, error) {
+func (klmp *KeywordLinearMatcher) AppendTo(matchers []Matcher) ([]Matcher, error) {
+	klm := *klmp
 	if len(klm) == 0 {
 		return matchers, nil
 	}
-	return append(matchers, klm), nil
+	return append(matchers, klmp), nil
 }
