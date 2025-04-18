@@ -99,13 +99,8 @@ func main() {
 		cancel()
 	}()
 
-	if err = m.Start(ctx); err != nil {
-		logger.Fatal("Failed to start services",
-			zap.String("confPath", confPath),
-			zap.Error(err),
-		)
+	if !m.Run(ctx) {
+		m.Close()
+		os.Exit(1)
 	}
-
-	<-ctx.Done()
-	m.Stop()
 }

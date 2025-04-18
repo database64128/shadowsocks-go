@@ -306,5 +306,6 @@ func (s *TCPRelay) Stop() error {
 		}
 	}
 
+	s.logger.Info("Stopped TCP relay service", zap.String("server", s.serverName))
 	return nil
 }

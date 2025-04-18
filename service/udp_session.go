@@ -741,5 +741,6 @@ func (s *UDPSessionRelay) Stop() error {
 		}
 	}
 
+	s.logger.Info("Stopped UDP session relay service", zap.String("server", s.serverName))
 	return nil
 }

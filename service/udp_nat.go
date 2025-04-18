@@ -652,5 +652,6 @@ func (s *UDPNATRelay) Stop() error {
 		}
 	}
 
+	s.logger.Info("Stopped UDP NAT relay service", zap.String("server", s.serverName))
 	return nil
 }

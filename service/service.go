@@ -288,34 +288,46 @@ type Manager struct {
 	logger       *zap.Logger
 }
 
-// Start starts all configured services.
-func (m *Manager) Start(ctx context.Context) error {
+// Run starts all services. If any service fails to start, it stops all running services
+// and returns false. On success, it blocks until the context is canceled, and then stops
+// all services. It returns true if no errors were encountered.
+func (m *Manager) Run(ctx context.Context) bool {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	m.notifyReload.start()
+
+	ok := true
+	runningSvcs := make([]shadowsocks.Service, 0, len(m.services))
+
 	for _, s := range m.services {
 		if err := s.Start(ctx); err != nil {
-			kv := s.ZapField()
-			return fmt.Errorf("failed to start %s=%q: %w", kv.Key, kv.String, err)
+			m.logger.Error("Failed to start service", s.ZapField(), zap.Error(err))
+			ok = false
+			break
 		}
+		runningSvcs = append(runningSvcs, s)
 	}
-	return nil
-}
 
-// Stop stops all running services.
-func (m *Manager) Stop() {
-	for _, s := range m.services {
-		kv := s.ZapField()
-		if err := s.Stop(); err != nil {
-			m.logger.Warn("Failed to stop service", kv, zap.Error(err))
-			continue
-		}
-		m.logger.Info("Stopped service", kv)
+	if ok {
+		<-ctx.Done()
+	} else {
+		cancel()
 	}
+
+	for _, s := range runningSvcs {
+		if err := s.Stop(); err != nil {
+			m.logger.Error("Failed to stop service", s.ZapField(), zap.Error(err))
+		}
+	}
+
 	m.notifyReload.stop()
+	return ok
 }
 
 // Close closes the manager.
 func (m *Manager) Close() {
 	if err := m.router.Close(); err != nil {
-		m.logger.Warn("Failed to close router", zap.Error(err))
+		m.logger.Error("Failed to close router", zap.Error(err))
 	}
 }

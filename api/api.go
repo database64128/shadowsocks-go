@@ -459,5 +459,9 @@ func (s *Server) Start(ctx context.Context) error {
 //
 // Stop implements [shadowsocks.Service.Stop].
 func (s *Server) Stop() error {
-	return s.server.Close()
+	if err := s.server.Close(); err != nil {
+		return err
+	}
+	s.logger.Info("Stopped API server")
+	return nil
 }

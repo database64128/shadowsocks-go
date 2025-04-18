@@ -14,15 +14,11 @@ import (
 )
 
 type reloadNotifier struct {
-	sigCh chan os.Signal
 	fns   []func()
+	sigCh chan os.Signal
 }
 
-func newReloadNotifier(logger *zap.Logger, credmgr *cred.Manager, tlsCertStore *tlscerts.Store) reloadNotifier {
-	rn := reloadNotifier{
-		sigCh: make(chan os.Signal, 1),
-	}
-
+func newReloadNotifier(logger *zap.Logger, credmgr *cred.Manager, tlsCertStore *tlscerts.Store) (rn reloadNotifier) {
 	if cmsCount, cmsSeq := credmgr.Servers(); cmsCount > 0 {
 		cms := slices.AppendSeq(make([]*cred.ManagedServer, 0, cmsCount), cmsSeq)
 		rn.fns = append(rn.fns, func() {
@@ -57,6 +53,7 @@ func (rn *reloadNotifier) start() {
 	if len(rn.fns) == 0 {
 		return
 	}
+	rn.sigCh = make(chan os.Signal, 1)
 	signal.Notify(rn.sigCh, syscall.SIGUSR1)
 	go func() {
 		for range rn.sigCh {

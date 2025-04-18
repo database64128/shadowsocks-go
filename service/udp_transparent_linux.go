@@ -808,5 +808,6 @@ func (s *UDPTransparentRelay) Stop() error {
 		}
 	}
 
+	s.logger.Info("Stopped UDP transparent relay service", zap.String("server", s.serverName))
 	return nil
 }
