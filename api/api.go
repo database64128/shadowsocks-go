@@ -347,7 +347,7 @@ func newRealIPMiddleware(logger *zap.Logger, trustedProxies []netip.Prefix, real
 			if v := r.Header[realIPHeaderKey]; len(v) > 0 {
 				proxyAddrPort, err := netip.ParseAddrPort(r.RemoteAddr)
 				if err != nil {
-					logger.Warn("Failed to parse HTTP request remote address",
+					logger.Error("Failed to parse HTTP request remote address",
 						zap.String("remoteAddr", r.RemoteAddr),
 						zap.Error(err),
 					)

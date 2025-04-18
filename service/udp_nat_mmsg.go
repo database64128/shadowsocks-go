@@ -140,14 +140,14 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(ctx context.Context, lnc *udpRe
 			queuedPacket := qpvec[i]
 
 			if msg.Msghdr.Controllen == 0 {
-				lnc.logger.Warn("Skipping packet with no control message from serverConn")
+				lnc.logger.Error("Skipping packet with no control message from serverConn")
 				s.putQueuedPacket(queuedPacket)
 				continue
 			}
 
 			clientAddrPort, err := conn.SockaddrToAddrPort(msg.Msghdr.Name, msg.Msghdr.Namelen)
 			if err != nil {
-				lnc.logger.Warn("Failed to parse sockaddr of packet from serverConn", zap.Error(err))
+				lnc.logger.Error("Failed to parse sockaddr of packet from serverConn", zap.Error(err))
 				s.putQueuedPacket(queuedPacket)
 				continue
 			}
@@ -201,7 +201,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(ctx context.Context, lnc *udpRe
 			if !bytes.Equal(entry.clientPktinfoCache, cmsg) {
 				m, err := conn.ParseSocketControlMessage(cmsg)
 				if err != nil {
-					lnc.logger.Warn("Failed to parse pktinfo control message from serverConn",
+					lnc.logger.Error("Failed to parse pktinfo control message from serverConn",
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 						zap.Error(err),
@@ -289,7 +289,7 @@ func (s *UDPNATRelay) recvFromServerConnRecvmmsg(ctx context.Context, lnc *udpRe
 
 					err = natConn.SetReadDeadline(time.Now().Add(lnc.natTimeout))
 					if err != nil {
-						lnc.logger.Warn("Failed to set read deadline on natConn",
+						lnc.logger.Error("Failed to set read deadline on natConn",
 							zap.Stringer("clientAddress", clientAddrPort),
 							zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 							zap.String("client", clientInfo.Name),
@@ -498,7 +498,7 @@ main:
 		}
 
 		if err := uplink.natConn.SetReadDeadline(time.Now().Add(uplink.natTimeout)); err != nil {
-			uplink.logger.Warn("Failed to set read deadline on natConn",
+			uplink.logger.Error("Failed to set read deadline on natConn",
 				zap.Stringer("clientAddress", uplink.clientAddrPort),
 				zap.String("client", uplink.clientName),
 				zap.Duration("natTimeout", uplink.natTimeout),
@@ -597,7 +597,7 @@ func (s *UDPNATRelay) relayNatConnToServerConnSendmmsg(downlink natDownlinkMmsg)
 
 			packetSourceAddrPort, err := conn.SockaddrToAddrPort(msg.Msghdr.Name, msg.Msghdr.Namelen)
 			if err != nil {
-				downlink.logger.Warn("Failed to parse sockaddr of packet from natConn",
+				downlink.logger.Error("Failed to parse sockaddr of packet from natConn",
 					zap.Stringer("clientAddress", downlink.clientAddrPort),
 					zap.String("client", downlink.clientName),
 					zap.Error(err),

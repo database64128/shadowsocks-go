@@ -140,7 +140,7 @@ func (s *ManagedServer) dequeueSave(ctx context.Context) {
 		// which takes the write lock. So it is safe to take just the read lock here.
 		s.mu.RLock()
 		if err := s.saveToFile(); err != nil {
-			s.logger.Warn("Failed to save credentials", zap.Error(err))
+			s.logger.Error("Failed to save credentials", zap.Error(err))
 		}
 		s.mu.RUnlock()
 	}
@@ -347,7 +347,7 @@ func (m *Manager) Servers() (int, iter.Seq[*ManagedServer]) {
 func (m *Manager) ReloadAll() {
 	for name, s := range m.servers {
 		if err := s.LoadFromFile(); err != nil {
-			m.logger.Warn("Failed to reload credentials", zap.String("server", name), zap.Error(err))
+			m.logger.Error("Failed to reload credentials", zap.String("server", name), zap.Error(err))
 			continue
 		}
 		m.logger.Info("Reloaded credentials", zap.String("server", name))

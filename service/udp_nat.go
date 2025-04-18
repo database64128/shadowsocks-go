@@ -248,7 +248,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(ctx context.Context, lnc *udpRel
 		if !bytes.Equal(entry.clientPktinfoCache, cmsg) {
 			m, err := conn.ParseSocketControlMessage(cmsg)
 			if err != nil {
-				lnc.logger.Warn("Failed to parse pktinfo control message from serverConn",
+				lnc.logger.Error("Failed to parse pktinfo control message from serverConn",
 					zap.Stringer("clientAddress", clientAddrPort),
 					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 					zap.Error(err),
@@ -337,7 +337,7 @@ func (s *UDPNATRelay) recvFromServerConnGeneric(ctx context.Context, lnc *udpRel
 
 				err = natConn.SetReadDeadline(time.Now().Add(lnc.natTimeout))
 				if err != nil {
-					lnc.logger.Warn("Failed to set read deadline on natConn",
+					lnc.logger.Error("Failed to set read deadline on natConn",
 						zap.Stringer("clientAddress", clientAddrPort),
 						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
 						zap.String("client", clientInfo.Name),
@@ -476,7 +476,7 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(ctx context.Context, uplin
 
 		err = uplink.natConn.SetReadDeadline(time.Now().Add(uplink.natTimeout))
 		if err != nil {
-			uplink.logger.Warn("Failed to set read deadline on natConn",
+			uplink.logger.Error("Failed to set read deadline on natConn",
 				zap.Stringer("clientAddress", uplink.clientAddrPort),
 				zap.String("client", uplink.clientName),
 				zap.Duration("natTimeout", uplink.natTimeout),
@@ -617,7 +617,7 @@ func (s *UDPNATRelay) Stop() error {
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
 		if err := lnc.serverConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
-			lnc.logger.Warn("Failed to set read deadline on serverConn", zap.Error(err))
+			lnc.logger.Error("Failed to set read deadline on serverConn", zap.Error(err))
 		}
 	}
 
@@ -633,7 +633,7 @@ func (s *UDPNATRelay) Stop() error {
 		}
 
 		if err := natConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
-			entry.logger.Warn("Failed to set read deadline on natConn",
+			entry.logger.Error("Failed to set read deadline on natConn",
 				zap.Stringer("clientAddress", clientAddrPort),
 				zap.Error(err),
 			)
@@ -648,7 +648,7 @@ func (s *UDPNATRelay) Stop() error {
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
 		if err := lnc.serverConn.Close(); err != nil {
-			lnc.logger.Warn("Failed to close serverConn", zap.Error(err))
+			lnc.logger.Error("Failed to close serverConn", zap.Error(err))
 		}
 	}
 

@@ -25,7 +25,7 @@ func newReloadNotifier(logger *zap.Logger, credmgr *cred.Manager, tlsCertStore *
 			for _, s := range cms {
 				name := s.Name()
 				if err := s.LoadFromFile(); err != nil {
-					logger.Warn("Failed to reload server credentials", zap.String("server", name), zap.Error(err))
+					logger.Error("Failed to reload server credentials", zap.String("server", name), zap.Error(err))
 					continue
 				}
 				logger.Info("Reloaded server credentials", zap.String("server", name))
@@ -38,7 +38,7 @@ func newReloadNotifier(logger *zap.Logger, credmgr *cred.Manager, tlsCertStore *
 			for _, certList := range certLists {
 				name := certList.Config().Name
 				if err := certList.Reload(); err != nil {
-					logger.Warn("Failed to reload TLS certificate list", zap.String("certList", name), zap.Error(err))
+					logger.Error("Failed to reload TLS certificate list", zap.String("certList", name), zap.Error(err))
 					continue
 				}
 				logger.Info("Reloaded TLS certificate list", zap.String("certList", name))

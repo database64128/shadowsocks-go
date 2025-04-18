@@ -105,7 +105,7 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 					if errors.Is(err, os.ErrDeadlineExceeded) {
 						break
 					}
-					lnc.logger.Warn("Failed to accept TCP connection", zap.Error(err))
+					lnc.logger.Error("Failed to accept TCP connection", zap.Error(err))
 					continue
 				}
 
@@ -202,7 +202,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 		req.Payload = make([]byte, lnc.initialPayloadWaitBufferSize)
 
 		if err = clientConn.SetReadDeadline(time.Now().Add(lnc.initialPayloadWaitTimeout)); err != nil {
-			logger.Warn("Failed to set read deadline to initial payload wait timeout", zap.Error(err))
+			logger.Error("Failed to set read deadline to initial payload wait timeout", zap.Error(err))
 			return
 		}
 
@@ -235,7 +235,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 		req.Payload = req.Payload[:payloadLength]
 
 		if err = clientConn.SetReadDeadline(time.Time{}); err != nil {
-			logger.Warn("Failed to reset read deadline", zap.Error(err))
+			logger.Error("Failed to reset read deadline", zap.Error(err))
 			return
 		}
 	}
@@ -293,7 +293,7 @@ func (s *TCPRelay) Stop() error {
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
 		if err := lnc.listener.SetDeadline(conn.ALongTimeAgo); err != nil {
-			lnc.logger.Warn("Failed to set deadline on listener", zap.Error(err))
+			lnc.logger.Error("Failed to set deadline on listener", zap.Error(err))
 		}
 	}
 
@@ -302,7 +302,7 @@ func (s *TCPRelay) Stop() error {
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
 		if err := lnc.listener.Close(); err != nil {
-			lnc.logger.Warn("Failed to close listener", zap.Error(err))
+			lnc.logger.Error("Failed to close listener", zap.Error(err))
 		}
 	}
 
