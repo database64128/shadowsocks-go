@@ -8,7 +8,19 @@ import (
 )
 
 func readFile(f *os.File, size uintptr) (addr unsafe.Pointer, close func() error, err error) {
-	handle, err := windows.CreateFileMapping(windows.Handle(f.Fd()), nil, windows.PAGE_READONLY, 0, 0, nil)
+	rawConn, err := f.SyscallConn()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var handle windows.Handle
+
+	if cerr := rawConn.Control(func(fd uintptr) {
+		handle, err = windows.CreateFileMapping(windows.Handle(fd), nil, windows.PAGE_READONLY, 0, 0, nil)
+	}); cerr != nil {
+		return nil, nil, cerr
+	}
+
 	if err != nil {
 		return nil, nil, os.NewSyscallError("CreateFileMappingW", err)
 	}
