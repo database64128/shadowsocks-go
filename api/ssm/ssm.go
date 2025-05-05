@@ -122,7 +122,7 @@ func handleAddUser(w http.ResponseWriter, r *http.Request, ms Server) (int, erro
 		return restapi.EncodeResponse(w, http.StatusBadRequest, StandardError{Message: err.Error()})
 	}
 
-	return restapi.EncodeResponse(w, http.StatusOK, &uc)
+	return restapi.EncodeResponse(w, http.StatusCreated, &uc)
 }
 
 func handleGetUser(w http.ResponseWriter, r *http.Request, ms Server) (int, error) {
