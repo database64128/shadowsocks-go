@@ -53,6 +53,8 @@ func (sm *ServerManager) RegisterHandlers(register func(method string, path stri
 	register(http.MethodGet, "/servers/{server}/users/{username}", sm.requireServerUsers(handleGetUser))
 	register(http.MethodPatch, "/servers/{server}/users/{username}", sm.requireServerUsers(handleUpdateUser))
 	register(http.MethodDelete, "/servers/{server}/users/{username}", sm.requireServerUsers(handleDeleteUser))
+
+	register(http.MethodPost, "/servers/{server}/reload-users", sm.requireServerUsers(handleReloadUsers))
 }
 
 func (sm *ServerManager) handleListServers(w http.ResponseWriter, _ *http.Request) (int, error) {
@@ -163,6 +165,13 @@ func handleDeleteUser(w http.ResponseWriter, r *http.Request, ms Server) (int, e
 	username := r.PathValue("username")
 	if err := ms.CredentialManager.DeleteCredential(username); err != nil {
 		return restapi.EncodeResponse(w, http.StatusNotFound, StandardError{Message: err.Error()})
+	}
+	return restapi.EncodeResponse(w, http.StatusNoContent, nil)
+}
+
+func handleReloadUsers(w http.ResponseWriter, _ *http.Request, s Server) (int, error) {
+	if err := s.CredentialManager.LoadFromFile(); err != nil {
+		return restapi.EncodeResponse(w, http.StatusInternalServerError, StandardError{Message: err.Error()})
 	}
 	return restapi.EncodeResponse(w, http.StatusNoContent, nil)
 }
