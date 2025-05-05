@@ -107,42 +107,42 @@ func (sm *ServerManager) requireServerUsers(h func(http.ResponseWriter, *http.Re
 	}
 }
 
-func handleListUsers(w http.ResponseWriter, _ *http.Request, ms Server) (int, error) {
+func handleListUsers(w http.ResponseWriter, _ *http.Request, s Server) (int, error) {
 	type response struct {
 		Users []cred.UserCredential `json:"users"`
 	}
-	return restapi.EncodeResponse(w, http.StatusOK, response{Users: ms.CredentialManager.Credentials()})
+	return restapi.EncodeResponse(w, http.StatusOK, response{Users: s.CredentialManager.Credentials()})
 }
 
-func handleAddUser(w http.ResponseWriter, r *http.Request, ms Server) (int, error) {
+func handleAddUser(w http.ResponseWriter, r *http.Request, s Server) (int, error) {
 	var uc cred.UserCredential
 	if err := restapi.DecodeRequest(r, &uc); err != nil {
 		return restapi.EncodeResponse(w, http.StatusBadRequest, StandardError{Message: err.Error()})
 	}
 
-	if err := ms.CredentialManager.AddCredential(uc.Name, uc.UPSK); err != nil {
+	if err := s.CredentialManager.AddCredential(uc.Name, uc.UPSK); err != nil {
 		return restapi.EncodeResponse(w, http.StatusBadRequest, StandardError{Message: err.Error()})
 	}
 
 	return restapi.EncodeResponse(w, http.StatusCreated, &uc)
 }
 
-func handleGetUser(w http.ResponseWriter, r *http.Request, ms Server) (int, error) {
+func handleGetUser(w http.ResponseWriter, r *http.Request, s Server) (int, error) {
 	type response struct {
 		cred.UserCredential
 		stats.Traffic
 	}
 
 	username := r.PathValue("username")
-	userCred, ok := ms.CredentialManager.GetCredential(username)
+	userCred, ok := s.CredentialManager.GetCredential(username)
 	if !ok {
 		return restapi.EncodeResponse(w, http.StatusNotFound, &userNotFoundJSON)
 	}
 
-	return restapi.EncodeResponse(w, http.StatusOK, response{userCred, ms.StatsCollector.Snapshot().Traffic})
+	return restapi.EncodeResponse(w, http.StatusOK, response{userCred, s.StatsCollector.Snapshot().Traffic})
 }
 
-func handleUpdateUser(w http.ResponseWriter, r *http.Request, ms Server) (int, error) {
+func handleUpdateUser(w http.ResponseWriter, r *http.Request, s Server) (int, error) {
 	var update struct {
 		UPSK []byte `json:"uPSK"`
 	}
@@ -151,7 +151,7 @@ func handleUpdateUser(w http.ResponseWriter, r *http.Request, ms Server) (int, e
 	}
 
 	username := r.PathValue("username")
-	if err := ms.CredentialManager.UpdateCredential(username, update.UPSK); err != nil {
+	if err := s.CredentialManager.UpdateCredential(username, update.UPSK); err != nil {
 		if errors.Is(err, cred.ErrNonexistentUser) {
 			return restapi.EncodeResponse(w, http.StatusNotFound, StandardError{Message: err.Error()})
 		}
@@ -161,9 +161,9 @@ func handleUpdateUser(w http.ResponseWriter, r *http.Request, ms Server) (int, e
 	return restapi.EncodeResponse(w, http.StatusNoContent, nil)
 }
 
-func handleDeleteUser(w http.ResponseWriter, r *http.Request, ms Server) (int, error) {
+func handleDeleteUser(w http.ResponseWriter, r *http.Request, s Server) (int, error) {
 	username := r.PathValue("username")
-	if err := ms.CredentialManager.DeleteCredential(username); err != nil {
+	if err := s.CredentialManager.DeleteCredential(username); err != nil {
 		return restapi.EncodeResponse(w, http.StatusNotFound, StandardError{Message: err.Error()})
 	}
 	return restapi.EncodeResponse(w, http.StatusNoContent, nil)
