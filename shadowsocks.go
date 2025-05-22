@@ -8,7 +8,7 @@ import (
 )
 
 // Version is the current version of shadowsocks-go.
-const Version = "1.13.0"
+const Version = "1.14.0"
 
 // Service is the common service abstraction in this module.
 type Service interface {
