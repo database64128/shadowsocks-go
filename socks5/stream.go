@@ -21,7 +21,7 @@ const Version = 5
 type UnsupportedVersionError byte
 
 func (v UnsupportedVersionError) Error() string {
-	return fmt.Sprintf("unsupported SOCKS version: %#X", v)
+	return fmt.Sprintf("unsupported SOCKS version: %#x", byte(v))
 }
 
 func (UnsupportedVersionError) Is(target error) bool {
@@ -40,7 +40,7 @@ const (
 type UnsupportedAuthMethodError byte
 
 func (m UnsupportedAuthMethodError) Error() string {
-	return fmt.Sprintf("unsupported authentication method: %#X", m)
+	return fmt.Sprintf("unsupported authentication method: %#x", byte(m))
 }
 
 func (UnsupportedAuthMethodError) Is(target error) bool {
@@ -58,7 +58,7 @@ const (
 type UnsupportedCommandError byte
 
 func (c UnsupportedCommandError) Error() string {
-	return fmt.Sprintf("unsupported command: %#X", c)
+	return fmt.Sprintf("unsupported command: %#x", byte(c))
 }
 
 func (UnsupportedCommandError) Is(target error) bool {
@@ -120,7 +120,7 @@ func (r ReplyError) Error() string {
 	case ReplyAddressTypeNotSupported:
 		return "address type not supported"
 	default:
-		return fmt.Sprintf("unknown SOCKS5 reply error: %#X", r)
+		return fmt.Sprintf("unknown SOCKS5 reply error: %#x", byte(r))
 	}
 }
 
@@ -132,7 +132,7 @@ const UsernamePasswordAuthVersion = 1
 type UnsupportedUsernamePasswordAuthVersionError byte
 
 func (v UnsupportedUsernamePasswordAuthVersionError) Error() string {
-	return fmt.Sprintf("unsupported username/password authentication version: %#X", v)
+	return fmt.Sprintf("unsupported username/password authentication version: %#x", byte(v))
 }
 
 func (UnsupportedUsernamePasswordAuthVersionError) Is(target error) bool {
