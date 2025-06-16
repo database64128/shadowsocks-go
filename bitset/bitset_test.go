@@ -5,22 +5,19 @@ import (
 	"testing"
 )
 
-func assertPanic(t *testing.T, f func()) {
+func mustPanic(t *testing.T, f func(), name string) {
 	t.Helper()
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic, got none")
-		}
-	}()
+	defer func() { _ = recover() }()
 	f()
+	t.Errorf("%s did not panic", name)
 }
 
 func testBitSetIndexOutOfRange(t *testing.T, s BitSet) {
 	index := s.Capacity()
-	assertPanic(t, func() { s.IsSet(index) })
-	assertPanic(t, func() { s.Set(index) })
-	assertPanic(t, func() { s.Unset(index) })
-	assertPanic(t, func() { s.Flip(index) })
+	mustPanic(t, func() { _ = s.IsSet(index) }, "s.IsSet(index)")
+	mustPanic(t, func() { s.Set(index) }, "s.Set(index)")
+	mustPanic(t, func() { s.Unset(index) }, "s.Unset(index)")
+	mustPanic(t, func() { s.Flip(index) }, "s.Flip(index)")
 }
 
 func assertEmptyBitSet(t *testing.T, s BitSet) {

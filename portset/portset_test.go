@@ -6,23 +6,20 @@ import (
 	"testing"
 )
 
-func assertPanic(t *testing.T, f func()) {
+func mustPanic(t *testing.T, f func(), name string) {
 	t.Helper()
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic, got none")
-		}
-	}()
+	defer func() { _ = recover() }()
 	f()
+	t.Errorf("%s did not panic", name)
 }
 
 func TestPortSetBadPort(t *testing.T) {
 	var s PortSet
-	assertPanic(t, func() { s.Contains(0) })
-	assertPanic(t, func() { s.Add(0) })
-	assertPanic(t, func() { s.AddRange(0, 1) })
-	assertPanic(t, func() { s.AddRange(1, 0) })
-	assertPanic(t, func() { s.AddRange(1, 1) })
+	mustPanic(t, func() { _ = s.Contains(0) }, "s.Contains(0)")
+	mustPanic(t, func() { s.Add(0) }, "s.Add(0)")
+	mustPanic(t, func() { s.AddRange(0, 1) }, "s.AddRange(0, 1)")
+	mustPanic(t, func() { s.AddRange(1, 0) }, "s.AddRange(1, 0)")
+	mustPanic(t, func() { s.AddRange(1, 1) }, "s.AddRange(1, 1)")
 }
 
 func assertPortSetFirst(t *testing.T, s *PortSet, from uint16) {
