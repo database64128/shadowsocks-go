@@ -220,7 +220,7 @@ func TestWriteAndParseSessionIDAndPacketID(t *testing.T) {
 }
 
 func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
-	var cachedDomain string
+	var domainCache socks5.DomainCache
 	targetAddr := conn.AddrFromIPAndPort(netip.IPv6Unspecified(), 53)
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
 	noPaddingLen := UDPClientMessageHeaderFixedLength + targetAddrLen
@@ -239,7 +239,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	// 1. Good header (no padding)
 	PutUDPClientMessageHeader(headerNoPaddingBuf, now, 0, targetAddr)
 
-	ta, cachedDomain, ps, pl, err := ParseUDPClientMessageHeader(bNoPadding, now, cachedDomain)
+	ta, ps, pl, err := ParseUDPClientMessageHeader(bNoPadding, now, &domainCache)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	// 2. Good header (padding)
 	PutUDPClientMessageHeader(headerBuf, now, paddingLen, targetAddr)
 
-	ta, cachedDomain, ps, pl, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
+	ta, ps, pl, err = ParseUDPClientMessageHeader(b, now, &domainCache)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	// 3. Bad header (incomplete SOCKS address)
 	b = b[:headerLen-1]
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
+	_, _, _, err = ParseUDPClientMessageHeader(b, now, &domainCache)
 	if err == nil {
 		t.Error("Expected error, got nil")
 	}
@@ -282,7 +282,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	// 4. Bad header (incomplete padding)
 	b = b[:len(b)-targetAddrLen]
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
+	_, _, _, err = ParseUDPClientMessageHeader(b, now, &domainCache)
 	if !errors.Is(err, ErrPacketIncompleteHeader) {
 		t.Errorf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
 	}
@@ -290,7 +290,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	// 5. Bad header (incomplete padding length)
 	b = b[:1+8+1]
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
+	_, _, _, err = ParseUDPClientMessageHeader(b, now, &domainCache)
 	if !errors.Is(err, ErrPacketIncompleteHeader) {
 		t.Errorf("Expected: %s\nGot: %s", ErrPacketIncompleteHeader, err)
 	}
@@ -301,7 +301,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	ts := now.Add(-31 * time.Second)
 	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
+	_, _, _, err = ParseUDPClientMessageHeader(b, now, &domainCache)
 	if !errors.Is(err, ErrBadTimestamp) {
 		t.Errorf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
@@ -310,7 +310,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	ts = now.Add(31 * time.Second)
 	binary.BigEndian.PutUint64(b[1:], uint64(ts.Unix()))
 
-	_, cachedDomain, _, _, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
+	_, _, _, err = ParseUDPClientMessageHeader(b, now, &domainCache)
 	if !errors.Is(err, ErrBadTimestamp) {
 		t.Errorf("Expected: %s\nGot: %s", ErrBadTimestamp, err)
 	}
@@ -318,7 +318,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	// 8. Bad type
 	b[0] = HeaderTypeServerPacket
 
-	_, _, _, _, err = ParseUDPClientMessageHeader(b, now, cachedDomain)
+	_, _, _, err = ParseUDPClientMessageHeader(b, now, &domainCache)
 	if !errors.Is(err, ErrTypeMismatch) {
 		t.Errorf("Expected: %s\nGot: %s", ErrTypeMismatch, err)
 	}

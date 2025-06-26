@@ -249,8 +249,8 @@ func (ShadowsocksNonePacketServerPacker) PackInPlace(b []byte, sourceAddrPort ne
 
 // ShadowsocksNonePacketServerUnpacker implements the zerocopy Unpacker interface.
 type ShadowsocksNonePacketServerUnpacker struct {
-	// cachedDomain caches the last used domain target to avoid allocating new strings.
-	cachedDomain string
+	// domainCache caches the last used domain target to avoid allocating new strings.
+	domainCache socks5.DomainCache
 }
 
 // ServerUnpackerInfo implements the zerocopy.ServerUnpacker ServerUnpackerInfo method.
@@ -263,7 +263,7 @@ func (ShadowsocksNonePacketServerUnpacker) ServerUnpackerInfo() zerocopy.ServerU
 // UnpackInPlace implements the zerocopy.ServerUnpacker UnpackInPlace method.
 func (p *ShadowsocksNonePacketServerUnpacker) UnpackInPlace(b []byte, sourceAddrPort netip.AddrPort, packetStart, packetLen int) (targetAddr conn.Addr, payloadStart, payloadLen int, err error) {
 	var targetAddrLen int
-	targetAddr, targetAddrLen, p.cachedDomain, err = socks5.ConnAddrFromSliceWithDomainCache(b[packetStart:packetStart+packetLen], p.cachedDomain)
+	targetAddr, targetAddrLen, err = p.domainCache.ConnAddrFromSlice(b[packetStart : packetStart+packetLen])
 	payloadStart = packetStart + targetAddrLen
 	payloadLen = packetLen - targetAddrLen
 	return
@@ -395,8 +395,8 @@ func (Socks5PacketServerPacker) PackInPlace(b []byte, sourceAddrPort netip.AddrP
 
 // Socks5PacketServerUnpacker implements the zerocopy Unpacker interface.
 type Socks5PacketServerUnpacker struct {
-	// cachedDomain caches the last used domain target to avoid allocating new strings.
-	cachedDomain string
+	// domainCache caches the last used domain target to avoid allocating new strings.
+	domainCache socks5.DomainCache
 }
 
 // ServerUnpackerInfo implements the zerocopy.ServerUnpacker ServerUnpackerInfo method.
@@ -420,7 +420,7 @@ func (p *Socks5PacketServerUnpacker) UnpackInPlace(b []byte, sourceAddrPort neti
 	}
 
 	var targetAddrLen int
-	targetAddr, targetAddrLen, p.cachedDomain, err = socks5.ConnAddrFromSliceWithDomainCache(pkt[3:], p.cachedDomain)
+	targetAddr, targetAddrLen, err = p.domainCache.ConnAddrFromSlice(pkt[3:])
 	payloadStart = packetStart + targetAddrLen + 3
 	payloadLen = packetLen - targetAddrLen - 3
 	return

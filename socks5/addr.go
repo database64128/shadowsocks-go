@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/netip"
 	"slices"
+	"unique"
 	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -284,17 +285,20 @@ func ConnAddrFromSlice(b []byte) (conn.Addr, int, error) {
 
 	switch b[0] {
 	case AtypDomainName:
-		if len(b) < 1+1+int(b[1])+2 {
-			return conn.Addr{}, 0, fmt.Errorf("addr length %d is too short for ATYP %d", len(b), b[0])
+		domainLen := int(b[1])
+		domainEnd := 1 + 1 + domainLen
+		portEnd := domainEnd + 2
+		if len(b) < portEnd {
+			return conn.Addr{}, 0, fmt.Errorf("addr length %d is too short for ATYP %#x", len(b), b[0])
 		}
-		domain := string(b[2 : 2+int(b[1])])
-		port := binary.BigEndian.Uint16(b[2+int(b[1]):])
+		domain := string(b[2:domainEnd])
+		port := binary.BigEndian.Uint16(b[domainEnd:])
 		addr, err := conn.AddrFromDomainPort(domain, port)
-		return addr, 2 + int(b[1]) + 2, err
+		return addr, portEnd, err
 
 	case AtypIPv4:
 		if len(b) < 1+4+2 {
-			return conn.Addr{}, 0, fmt.Errorf("addr length %d is too short for ATYP %d", len(b), b[0])
+			return conn.Addr{}, 0, fmt.Errorf("addr length %d is too short for ATYP %#x", len(b), b[0])
 		}
 		ip := netip.AddrFrom4(*(*[4]byte)(b[1:]))
 		port := binary.BigEndian.Uint16(b[1+4:])
@@ -302,54 +306,66 @@ func ConnAddrFromSlice(b []byte) (conn.Addr, int, error) {
 
 	case AtypIPv6:
 		if len(b) < 1+16+2 {
-			return conn.Addr{}, 0, fmt.Errorf("addr length %d is too short for ATYP %d", len(b), b[0])
+			return conn.Addr{}, 0, fmt.Errorf("addr length %d is too short for ATYP %#x", len(b), b[0])
 		}
 		ip := netip.AddrFrom16(*(*[16]byte)(b[1:]))
 		port := binary.BigEndian.Uint16(b[1+16:])
 		return conn.AddrFromIPAndPort(ip, port), 1 + 16 + 2, nil
 
 	default:
-		return conn.Addr{}, 0, fmt.Errorf("invalid ATYP: %d", b[0])
+		return conn.Addr{}, 0, fmt.Errorf("invalid ATYP: %#x", b[0])
 	}
 }
 
-// ConnAddrFromSliceWithDomainCache is like [ConnAddrFromSlice] but uses a domain cache to minimize string allocations.
-// The returned string is the updated domain cache.
-func ConnAddrFromSliceWithDomainCache(b []byte, cachedDomain string) (conn.Addr, int, string, error) {
+// DomainCache uses string interning to avoid unnecessary allocations when parsing domain name SOCKS5 addresses.
+//
+// The zero value is ready for use.
+type DomainCache struct {
+	domain string
+	handle unique.Handle[string]
+}
+
+// ConnAddrFromSlice is like [ConnAddrFromSlice] but uses the domain cache to minimize string allocations.
+func (c *DomainCache) ConnAddrFromSlice(b []byte) (conn.Addr, int, error) {
 	if len(b) < 2 {
-		return conn.Addr{}, 0, cachedDomain, fmt.Errorf("addr length too short: %d", len(b))
+		return conn.Addr{}, 0, fmt.Errorf("addr length too short: %d", len(b))
 	}
 
 	switch b[0] {
 	case AtypDomainName:
-		if len(b) < 1+1+int(b[1])+2 {
-			return conn.Addr{}, 0, cachedDomain, fmt.Errorf("addr length %d is too short for ATYP %d", len(b), b[0])
+		domainLen := int(b[1])
+		domainEnd := 1 + 1 + domainLen
+		portEnd := domainEnd + 2
+		if len(b) < portEnd {
+			return conn.Addr{}, 0, fmt.Errorf("addr length %d is too short for ATYP %#x", len(b), b[0])
 		}
-		domain := b[2 : 2+int(b[1])]
-		if cachedDomain != string(domain) { // Hopefully the compiler will optimize the string allocation away.
-			cachedDomain = string(domain)
+		if domainBytes := b[2:domainEnd]; string(domainBytes) != c.domain {
+			// Unsafe is required for Go 1.24 and earlier to avoid allocating on lookup.
+			// Drop unsafe when we upgrade to Go 1.25.
+			c.handle = unique.Make(unsafe.String(unsafe.SliceData(domainBytes), len(domainBytes)))
+			c.domain = c.handle.Value()
 		}
-		port := binary.BigEndian.Uint16(b[2+int(b[1]):])
-		addr, err := conn.AddrFromDomainPort(cachedDomain, port)
-		return addr, 2 + int(b[1]) + 2, cachedDomain, err
+		port := binary.BigEndian.Uint16(b[domainEnd:])
+		addr, err := conn.AddrFromDomainPort(c.domain, port)
+		return addr, portEnd, err
 
 	case AtypIPv4:
 		if len(b) < 1+4+2 {
-			return conn.Addr{}, 0, cachedDomain, fmt.Errorf("addr length %d is too short for ATYP %d", len(b), b[0])
+			return conn.Addr{}, 0, fmt.Errorf("addr length %d is too short for ATYP %#x", len(b), b[0])
 		}
 		ip := netip.AddrFrom4(*(*[4]byte)(b[1 : 1+4]))
 		port := binary.BigEndian.Uint16(b[1+4:])
-		return conn.AddrFromIPAndPort(ip, port), 1 + 4 + 2, cachedDomain, nil
+		return conn.AddrFromIPAndPort(ip, port), 1 + 4 + 2, nil
 
 	case AtypIPv6:
 		if len(b) < 1+16+2 {
-			return conn.Addr{}, 0, cachedDomain, fmt.Errorf("addr length %d is too short for ATYP %d", len(b), b[0])
+			return conn.Addr{}, 0, fmt.Errorf("addr length %d is too short for ATYP %#x", len(b), b[0])
 		}
 		ip := netip.AddrFrom16(*(*[16]byte)(b[1 : 1+16]))
 		port := binary.BigEndian.Uint16(b[1+16:])
-		return conn.AddrFromIPAndPort(ip, port), 1 + 16 + 2, cachedDomain, nil
+		return conn.AddrFromIPAndPort(ip, port), 1 + 16 + 2, nil
 
 	default:
-		return conn.Addr{}, 0, cachedDomain, fmt.Errorf("invalid ATYP: %d", b[0])
+		return conn.Addr{}, 0, fmt.Errorf("invalid ATYP: %#x", b[0])
 	}
 }

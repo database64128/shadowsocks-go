@@ -11,44 +11,72 @@ import (
 )
 
 // Test zero value address.
+
 var (
 	addrZero         = IPv4UnspecifiedAddr
 	addrZeroConnAddr conn.Addr
 )
 
 // Test IPv4 address.
+
+const addr4port uint16 = 1080
+
 var (
-	addr4                = [IPv4AddrLen]byte{AtypIPv4, 127, 0, 0, 1, 4, 56}
-	addr4addr            = netip.AddrFrom4([4]byte{127, 0, 0, 1})
-	addr4port     uint16 = 1080
-	addr4addrport        = netip.AddrPortFrom(addr4addr, addr4port)
-	addr4connaddr        = conn.AddrFromIPPort(addr4addrport)
+	addr4 = [IPv4AddrLen]byte{
+		AtypIPv4,
+		127, 0, 0, 1,
+		byte(addr4port >> 8), byte(addr4port & 0xff),
+	}
+	addr4addr     = netip.AddrFrom4([4]byte{127, 0, 0, 1})
+	addr4addrport = netip.AddrPortFrom(addr4addr, addr4port)
+	addr4connaddr = conn.AddrFromIPPort(addr4addrport)
 )
 
 // Test IPv4-mapped IPv6 address.
+
+const addr4in6port uint16 = 1080
+
 var (
-	addr4in6                = [IPv4AddrLen]byte{AtypIPv4, 127, 0, 0, 1, 4, 56}
-	addr4in6addr            = netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1})
-	addr4in6port     uint16 = 1080
-	addr4in6addrport        = netip.AddrPortFrom(addr4in6addr, addr4in6port)
-	addr4in6connaddr        = conn.AddrFromIPPort(addr4in6addrport)
+	addr4in6 = [IPv4AddrLen]byte{
+		AtypIPv4,
+		127, 0, 0, 1,
+		byte(addr4in6port >> 8), byte(addr4in6port & 0xff),
+	}
+	addr4in6addr     = netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1})
+	addr4in6addrport = netip.AddrPortFrom(addr4in6addr, addr4in6port)
+	addr4in6connaddr = conn.AddrFromIPPort(addr4in6addrport)
 )
 
 // Test IPv6 address.
+
+const addr6port uint16 = 1080
+
 var (
-	addr6                = [IPv6AddrLen]byte{AtypIPv6, 0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e, 4, 56}
-	addr6addr            = netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e})
-	addr6port     uint16 = 1080
-	addr6addrport        = netip.AddrPortFrom(addr6addr, addr6port)
-	addr6connaddr        = conn.AddrFromIPPort(addr6addrport)
+	addr6 = [IPv6AddrLen]byte{
+		AtypIPv6,
+		0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e,
+		byte(addr6port >> 8), byte(addr6port & 0xff),
+	}
+	addr6addr     = netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e})
+	addr6addrport = netip.AddrPortFrom(addr6addr, addr6port)
+	addr6connaddr = conn.AddrFromIPPort(addr6addrport)
 )
 
 // Test domain name.
+
+const (
+	addrDomainHost        = "example.com"
+	addrDomainPort uint16 = 443
+)
+
 var (
-	addrDomain                = [1 + 1 + 11 + 2]byte{AtypDomainName, 11, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm', 1, 187}
-	addrDomainHost            = "example.com"
-	addrDomainPort     uint16 = 443
-	addrDomainConnAddr        = conn.MustAddrFromDomainPort(addrDomainHost, addrDomainPort)
+	addrDomain = [1 + 1 + len(addrDomainHost) + 2]byte{
+		AtypDomainName,
+		byte(len(addrDomainHost)),
+		'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+		byte(addrDomainPort >> 8), byte(addrDomainPort & 0xff),
+	}
+	addrDomainConnAddr = conn.MustAddrFromDomainPort(addrDomainHost, addrDomainPort)
 )
 
 func testAddrFromReader(t *testing.T, addr []byte) {
@@ -156,51 +184,54 @@ func TestConnAddrFromSliceAndReader(t *testing.T) {
 	testConnAddrFromSliceAndReader(t, addrDomain[:], addrDomainConnAddr)
 }
 
-func testConnAddrFromSliceWithDomainCache(t *testing.T, sa []byte, cachedDomain string, expectedAddr conn.Addr) string {
-	b := make([]byte, 512)
+func testConnAddrFromSliceWithDomainCache(t *testing.T, b, sa []byte, dc *DomainCache, expectedAddr conn.Addr) {
 	n := copy(b, sa)
-	rand.Read(b[n:])
-	expectedTail := make([]byte, 512-n)
-	copy(expectedTail, b[n:])
+	tail := b[n:]
+	rand.Read(tail)
+	expectedTail := make([]byte, 0, 512)
+	expectedTail = append(expectedTail, tail...)
 
-	addr, n, cachedDomain, err := ConnAddrFromSliceWithDomainCache(b, cachedDomain)
+	addr, n, err := dc.ConnAddrFromSlice(b)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n != len(sa) {
-		t.Errorf("ConnAddrFromSlice(b) returned n=%d, expected n=%d.", n, len(sa))
+		t.Errorf("dc.ConnAddrFromSlice(%x) returned n=%d, expected n=%d", b, n, len(sa))
 	}
 	if !addr.Equals(expectedAddr) {
-		t.Errorf("ConnAddrFromSlice(b) returned %s, expected %s.", addr, expectedAddr)
+		t.Errorf("dc.ConnAddrFromSlice(%x) returned %s, expected %s", b, addr, expectedAddr)
 	}
 	if !bytes.Equal(b[n:], expectedTail) {
-		t.Error("ConnAddrFromSlice(b) modified non-address bytes.")
+		t.Errorf("dc.ConnAddrFromSlice(%x) modified non-address bytes", b)
 	}
-	return cachedDomain
 }
 
 func TestConnAddrFromSliceWithDomainCache(t *testing.T) {
-	const s = "🌐"
-	cachedDomain := s
+	var dc DomainCache
+	b := make([]byte, 512)
 
-	cachedDomain = testConnAddrFromSliceWithDomainCache(t, addr4[:], cachedDomain, addr4connaddr)
-	if cachedDomain != s {
-		t.Errorf("ConnAddrFromSliceWithDomainCache(addr4) modified cachedDomain to %s.", cachedDomain)
+	if n := testing.AllocsPerRun(10, func() {
+		testConnAddrFromSliceWithDomainCache(t, b, addr4[:], &dc, addr4connaddr)
+		testConnAddrFromSliceWithDomainCache(t, b, addr4in6[:], &dc, addr4connaddr)
+		testConnAddrFromSliceWithDomainCache(t, b, addr6[:], &dc, addr6connaddr)
+		testConnAddrFromSliceWithDomainCache(t, b, addrDomain[:], &dc, addrDomainConnAddr)
+	}); n > 0 {
+		t.Errorf("AllocsPerRun(10, ...) = %f, want 0", n)
 	}
 
-	cachedDomain = testConnAddrFromSliceWithDomainCache(t, addr4in6[:], cachedDomain, addr4connaddr)
-	if cachedDomain != s {
-		t.Errorf("ConnAddrFromSliceWithDomainCache(addr4in6) modified cachedDomain to %s.", cachedDomain)
+	const addrDomain2Host = "www.google.com"
+	addrDomain2 := [1 + 1 + len(addrDomain2Host) + 2]byte{
+		AtypDomainName,
+		byte(len(addrDomain2Host)),
+		'w', 'w', 'w', '.', 'g', 'o', 'o', 'g', 'l', 'e', '.', 'c', 'o', 'm',
+		byte(addrDomainPort >> 8), byte(addrDomainPort & 0xff),
 	}
+	addrDomain2ConnAddr := conn.MustAddrFromDomainPort(addrDomain2Host, addrDomainPort)
 
-	cachedDomain = testConnAddrFromSliceWithDomainCache(t, addr6[:], cachedDomain, addr6connaddr)
-	if cachedDomain != s {
-		t.Errorf("ConnAddrFromSliceWithDomainCache(addr6) modified cachedDomain to %s.", cachedDomain)
-	}
-
-	cachedDomain = testConnAddrFromSliceWithDomainCache(t, addrDomain[:], cachedDomain, addrDomainConnAddr)
-	if cachedDomain != addrDomainHost {
-		t.Errorf("ConnAddrFromSliceWithDomainCache(addrDomain) modified cachedDomain to %s, expected %s.", cachedDomain, addrDomainHost)
+	if n := testing.AllocsPerRun(10, func() {
+		testConnAddrFromSliceWithDomainCache(t, b, addrDomain2[:], &dc, addrDomain2ConnAddr)
+	}); n > 0 {
+		t.Errorf("AllocsPerRun(10, ...) = %f, want 0", n)
 	}
 }
 

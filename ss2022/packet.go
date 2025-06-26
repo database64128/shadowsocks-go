@@ -407,8 +407,8 @@ type ShadowPacketServerUnpacker struct {
 	// We trade 2 extra nil checks during unpacking for better performance when the server is flooded by invalid packets.
 	filter *SlidingWindowFilter
 
-	// cachedDomain caches the last used domain target to avoid allocating new strings.
-	cachedDomain string
+	// domainCache caches the last used domain target to avoid allocating new strings.
+	domainCache socks5.DomainCache
 
 	// nonAEADHeaderLen is the length of the separate header and identity headers.
 	nonAEADHeaderLen int
@@ -458,7 +458,7 @@ func (p *ShadowPacketServerUnpacker) UnpackInPlace(b []byte, sourceAddr netip.Ad
 	}
 
 	// Parse message header.
-	targetAddr, p.cachedDomain, payloadStart, payloadLen, err = ParseUDPClientMessageHeader(plaintext, time.Now(), p.cachedDomain)
+	targetAddr, payloadStart, payloadLen, err = ParseUDPClientMessageHeader(plaintext, time.Now(), &p.domainCache)
 	if err != nil {
 		return
 	}

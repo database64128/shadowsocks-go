@@ -333,9 +333,7 @@ func PutSessionIDAndPacketID(b []byte, sid, pid uint64) {
 //	+------+---------------+----------------+----------+------+----------+-------+----------+
 //	|  1B  | 8B unix epoch |     u16be      | variable |  1B  | variable | u16be | variable |
 //	+------+---------------+----------------+----------+------+----------+-------+----------+
-func ParseUDPClientMessageHeader(b []byte, now time.Time, cachedDomain string) (targetAddr conn.Addr, updatedCachedDomain string, payloadStart, payloadLen int, err error) {
-	updatedCachedDomain = cachedDomain
-
+func ParseUDPClientMessageHeader(b []byte, now time.Time, domainCache *socks5.DomainCache) (targetAddr conn.Addr, payloadStart, payloadLen int, err error) {
 	// Make sure buffer has type + timestamp + padding length.
 	if len(b) < UDPClientMessageHeaderFixedLength {
 		err = ErrPacketIncompleteHeader
@@ -366,7 +364,7 @@ func ParseUDPClientMessageHeader(b []byte, now time.Time, cachedDomain string) (
 
 	// SOCKS address
 	var n int
-	targetAddr, n, updatedCachedDomain, err = socks5.ConnAddrFromSliceWithDomainCache(b[payloadStart:], cachedDomain)
+	targetAddr, n, err = domainCache.ConnAddrFromSlice(b[payloadStart:])
 	if err != nil {
 		return
 	}
