@@ -34,6 +34,30 @@ func (s BitSet) Count() (count uint) {
 	return
 }
 
+// First returns the index of the first set bit.
+func (s BitSet) First() (index uint, found bool) {
+	for i, block := range s.blocks {
+		if block == 0 {
+			continue
+		}
+		return uint(i*blockBits + bits.TrailingZeros(block)), true
+	}
+	return 0, false
+}
+
+// FlipFirst unsets the first set bit and returns its index.
+func (s BitSet) FlipFirst() (index uint, found bool) {
+	for i, block := range s.blocks {
+		if block == 0 {
+			continue
+		}
+		bitIndex := bits.TrailingZeros(block)
+		s.blocks[i] ^= 1 << bitIndex
+		return uint(i*blockBits + bitIndex), true
+	}
+	return 0, false
+}
+
 func (s BitSet) checkIndex(index uint) {
 	if index >= s.capacity {
 		panic(fmt.Sprintf("bitset: index out of range [%d] with capacity %d", index, s.capacity))

@@ -23,11 +23,17 @@ func testBitSetIndexOutOfRange(t *testing.T, s BitSet) {
 func assertEmptyBitSet(t *testing.T, s BitSet) {
 	t.Helper()
 	if count := s.Count(); count != 0 {
-		t.Errorf("expected count to be 0, got %d", count)
+		t.Errorf("s.Count() = %d, want 0", count)
+	}
+	if first, found := s.First(); first != 0 || found {
+		t.Errorf("s.First() = (%d, %t), want (0, false)", first, found)
+	}
+	if index, found := s.FlipFirst(); index != 0 || found {
+		t.Errorf("s.FlipFirst() = (%d, %t), want (0, false)", index, found)
 	}
 	for i := range s.Capacity() {
 		if s.IsSet(i) {
-			t.Errorf("bit %d is unexpectedly set", i)
+			t.Errorf("s.IsSet(%d) = true, want false", i)
 		}
 	}
 }
@@ -35,11 +41,11 @@ func assertEmptyBitSet(t *testing.T, s BitSet) {
 func assertOddBitSet(t *testing.T, s BitSet) {
 	t.Helper()
 	if count, expectedCount := s.Count(), s.Capacity()/2; count != expectedCount {
-		t.Errorf("expected count to be %d, got %d", expectedCount, count)
+		t.Errorf("s.Count() = %d, want %d", count, expectedCount)
 	}
 	for i := range s.Capacity() {
-		if i%2 == 0 == s.IsSet(i) {
-			t.Errorf("unexpected bit %d", i)
+		if got, want := s.IsSet(i), i%2 == 1; got != want {
+			t.Errorf("s.IsSet(%d) = %t, want %t", i, got, want)
 		}
 	}
 }
@@ -47,11 +53,11 @@ func assertOddBitSet(t *testing.T, s BitSet) {
 func assertEvenBitSet(t *testing.T, s BitSet) {
 	t.Helper()
 	if count, expectedCount := s.Count(), (s.Capacity()+1)/2; count != expectedCount {
-		t.Errorf("expected count to be %d, got %d", expectedCount, count)
+		t.Errorf("s.Count() = %d, want %d", count, expectedCount)
 	}
 	for i := range s.Capacity() {
-		if i%2 == 1 == s.IsSet(i) {
-			t.Errorf("unexpected bit %d", i)
+		if got, want := s.IsSet(i), i%2 == 0; got != want {
+			t.Errorf("s.IsSet(%d) = %t, want %t", i, got, want)
 		}
 	}
 }
@@ -59,11 +65,11 @@ func assertEvenBitSet(t *testing.T, s BitSet) {
 func assertFullBitSet(t *testing.T, s BitSet) {
 	t.Helper()
 	if count := s.Count(); count != s.Capacity() {
-		t.Errorf("expected count to be %d, got %d", s.Capacity(), count)
+		t.Errorf("s.Count() = %d, want %d", count, s.Capacity())
 	}
 	for i := range s.Capacity() {
 		if !s.IsSet(i) {
-			t.Errorf("bit %d is unexpectedly unset", i)
+			t.Errorf("s.IsSet(%d) = false, want true", i)
 		}
 	}
 }
@@ -104,6 +110,32 @@ func fillBitSet(t *testing.T, s BitSet) {
 	for i := range s.Capacity() {
 		s.Set(i)
 	}
+}
+
+func testBitSetFirst(t *testing.T, s BitSet) {
+	if first, found := s.First(); first != 0 || found {
+		t.Errorf("s.First() = (%d, %t), want (0, false)", first, found)
+	}
+	if index, found := s.FlipFirst(); index != 0 || found {
+		t.Errorf("s.FlipFirst() = (%d, %t), want (0, false)", index, found)
+	}
+
+	for i := s.Capacity() - 1; i < s.Capacity(); i-- {
+		s.Set(i)
+		if first, found := s.First(); first != i || !found {
+			t.Errorf("s.First() = (%d, %t), want (%d, true)", first, found, i)
+		}
+	}
+
+	assertFullBitSet(t, s)
+
+	for i := range s.Capacity() {
+		if index, found := s.FlipFirst(); index != i || !found {
+			t.Errorf("s.FlipFirst() = (%d, %t), want (%d, true)", index, found, i)
+		}
+	}
+
+	assertEmptyBitSet(t, s)
 }
 
 func testBitSetSetAll(t *testing.T, s BitSet) {
@@ -193,6 +225,9 @@ func TestBitSet(t *testing.T) {
 			s := NewBitSet(capacity)
 			t.Run("IndexOutOfRange", func(t *testing.T) {
 				testBitSetIndexOutOfRange(t, s)
+			})
+			t.Run("First", func(t *testing.T) {
+				testBitSetFirst(t, s)
 			})
 			t.Run("SetAll", func(t *testing.T) {
 				testBitSetSetAll(t, s)
