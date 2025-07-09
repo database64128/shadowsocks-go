@@ -5,67 +5,104 @@ import (
 	"time"
 )
 
-// SaltPool stores salts for [retention, 2*retention) to protect against replay attacks
+// SaltPool stores salts for [ReplayWindowDuration] to protect against replay attacks
 // during the replay window.
-type SaltPool[T comparable] struct {
-	mu        sync.RWMutex
-	pool      map[T]time.Time
-	retention time.Duration
-	lastClean time.Time
+type SaltPool struct {
+	mu         sync.RWMutex
+	nodeBySalt map[[32]byte]*saltNode
+
+	// head is the oldest node.
+	head *saltNode
+	// tail is the newest node.
+	tail *saltNode
 }
 
-// clean removes expired salts from the pool,
-// if the amount of time since the last cleanup exceeds retention.
-func (p *SaltPool[T]) clean(now time.Time) {
-	if now.Sub(p.lastClean) > p.retention {
-		for salt, added := range p.pool {
-			if now.Sub(added) > p.retention {
-				delete(p.pool, salt)
-			}
-		}
-		p.lastClean = now
-	}
+type saltNode struct {
+	next      *saltNode
+	salt      [32]byte
+	expiresAt time.Time
 }
 
-// Check returns whether the given salt is valid (not in the pool).
-func (p *SaltPool[T]) Check(salt T) bool {
+// Contains returns whether the pool contains the given salt.
+func (p *SaltPool) Contains(salt [32]byte) bool {
 	p.mu.RLock()
-	_, ok := p.pool[salt]
+	_, ok := p.nodeBySalt[salt]
 	p.mu.RUnlock()
-	return !ok
+	return ok
 }
 
-// TryCheck is like Check, but it immediately returns true if the pool is contended.
-func (p *SaltPool[T]) TryCheck(salt T) bool {
+// TryContains is like Contains, but it immediately returns false if the pool is contended.
+func (p *SaltPool) TryContains(salt [32]byte) bool {
 	if p.mu.TryRLock() {
-		_, ok := p.pool[salt]
+		_, ok := p.nodeBySalt[salt]
 		p.mu.RUnlock()
-		return !ok
+		return ok
 	}
-	return true
+	return false
 }
 
-// Add cleans the pool, checks if the salt already exists in the pool,
-// and adds the salt to the pool if the salt is not already in the pool.
+// Add adds the salt to the pool if it is not already in the pool.
 // It returns true if the salt was added, false if it already exists.
-func (p *SaltPool[T]) Add(now time.Time, salt T) bool {
+func (p *SaltPool) Add(now time.Time, salt [32]byte) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.clean(now)
-	if _, ok := p.pool[salt]; ok {
+	p.pruneExpired(now)
+	if _, ok := p.nodeBySalt[salt]; ok {
 		return false
 	}
-	p.pool[salt] = now
+	p.insert(now, salt)
 	return true
 }
 
-// NewSaltPool returns a new salt pool with the given retention as the minimum amount of time
-// for which an added salt is guaranteed to be kept in the pool.
-func NewSaltPool[T comparable](retention time.Duration) *SaltPool[T] {
-	return &SaltPool[T]{
-		pool:      make(map[T]time.Time),
-		retention: retention,
-		lastClean: time.Now(),
+// Clear removes all salts from the pool.
+func (p *SaltPool) Clear() {
+	p.mu.Lock()
+	clear(p.nodeBySalt)
+	p.head = nil
+	p.tail = nil
+	p.mu.Unlock()
+}
+
+// pruneExpired removes all expired salts from the pool.
+func (p *SaltPool) pruneExpired(now time.Time) {
+	node := p.head
+	if node == nil || node.expiresAt.After(now) {
+		return
+	}
+	for {
+		delete(p.nodeBySalt, node.salt)
+		node = node.next
+		if node == nil {
+			p.head = nil
+			p.tail = nil
+			return
+		}
+		if node.expiresAt.After(now) {
+			p.head = node
+			return
+		}
+	}
+}
+
+// insert adds the new salt to the pool.
+func (p *SaltPool) insert(now time.Time, salt [32]byte) {
+	node := &saltNode{
+		salt:      salt,
+		expiresAt: now.Add(ReplayWindowDuration),
+	}
+	p.nodeBySalt[salt] = node
+	if p.tail != nil {
+		p.tail.next = node
+	} else {
+		p.head = node
+	}
+	p.tail = node
+}
+
+// NewSaltPool returns a new salt pool.
+func NewSaltPool() *SaltPool {
+	return &SaltPool{
+		nodeBySalt: make(map[[32]byte]*saltNode),
 	}
 }

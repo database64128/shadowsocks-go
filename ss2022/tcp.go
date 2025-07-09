@@ -230,7 +230,7 @@ type StreamServerConfig struct {
 // NewStreamServer returns a new Shadowsocks 2022 stream server.
 func (c *StreamServerConfig) NewStreamServer() *StreamServer {
 	return &StreamServer{
-		saltPool:                   *NewSaltPool[[32]byte](ReplayWindowDuration),
+		saltPool:                   *NewSaltPool(),
 		readOnceOrFull:             readOnceOrFullFunc(c.AllowSegmentedFixedLengthHeader),
 		userCipherConfig:           c.UserCipherConfig,
 		identityCipherConfig:       c.IdentityCipherConfig,
@@ -246,7 +246,7 @@ func (c *StreamServerConfig) NewStreamServer() *StreamServer {
 // StreamServer implements [netio.StreamServer].
 type StreamServer struct {
 	CredStore
-	saltPool                   SaltPool[[32]byte]
+	saltPool                   SaltPool
 	readOnceOrFull             func(io.Reader, []byte) (int, error)
 	userCipherConfig           UserCipherConfig
 	identityCipherConfig       ServerIdentityCipherConfig
@@ -329,7 +329,7 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 	extendedSalt := lengthExtendSalt(salt)
 
 	// Check but not add request salt to pool.
-	if !s.saltPool.TryCheck(extendedSalt) {
+	if s.saltPool.TryContains(extendedSalt) {
 		err = ErrRepeatedSalt
 		return
 	}
