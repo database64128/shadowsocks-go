@@ -14,7 +14,7 @@ import (
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/portset"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/oschwald/geoip2-golang"
+	"github.com/oschwald/geoip2-golang/v2"
 	"go.uber.org/zap"
 	"go4.org/netipx"
 )
@@ -760,17 +760,17 @@ func (c DestResolvedGeoIPCountryCriterion) Meet(ctx context.Context, network pro
 }
 
 func matchAddrToGeoIPCountries(countries []string, addr netip.Addr, geoip *geoip2.Reader, logger *zap.Logger) (bool, error) {
-	country, err := geoip.Country(addr.AsSlice())
+	country, err := geoip.Country(addr)
 	if err != nil {
 		return false, err
 	}
 	if ce := logger.Check(zap.DebugLevel, "Matched GeoIP country"); ce != nil {
 		ce.Write(
 			zap.Stringer("ip", addr),
-			zap.String("country", country.Country.IsoCode),
+			zap.String("country", country.Country.ISOCode),
 		)
 	}
-	return slices.Contains(countries, country.Country.IsoCode), nil
+	return slices.Contains(countries, country.Country.ISOCode), nil
 }
 
 func lookup(ctx context.Context, resolvers []dns.SimpleResolver, domain string) (ip netip.Addr, err error) {
