@@ -9,6 +9,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/netiotest"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -347,9 +348,28 @@ func BenchmarkStreamClientDialServerHandleStream(b *testing.B) {
 					server := serverConfig.NewStreamServer()
 					server.ReplaceUserLookupMap(userLookupMap)
 
-					netiotest.BenchmarkStreamClientDialServerHandle(b, newClient, server)
+					netiotest.BenchmarkStreamClientDialServerHandle(b, newClient, newStreamServerClearSaltPool(server))
 				})
 			}
 		})
 	}
+}
+
+// streamServerClearSaltPool wraps a [StreamServer] and clears the salt pool after handling a stream connection.
+// This is useful in benchmarks where the salt pool significantly affects the results.
+type streamServerClearSaltPool struct {
+	*StreamServer
+}
+
+func newStreamServerClearSaltPool(server *StreamServer) *streamServerClearSaltPool {
+	return &streamServerClearSaltPool{
+		StreamServer: server,
+	}
+}
+
+// HandleStream implements [netio.StreamServer.HandleStream].
+func (s *streamServerClearSaltPool) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req netio.ConnRequest, err error) {
+	req, err = s.StreamServer.HandleStream(rawRW, logger)
+	s.saltPool.Clear()
+	return req, err
 }
