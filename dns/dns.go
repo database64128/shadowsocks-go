@@ -32,9 +32,10 @@ const (
 )
 
 var (
-	ErrLookup                = errors.New("name lookup failed")
-	ErrMessageNotResponse    = errors.New("message is not a response")
-	ErrDomainNoAssociatedIPs = errors.New("domain name has no associated IP addresses")
+	ErrLookup                       = errors.New("name lookup failed")
+	ErrMessageNotResponse           = errors.New("message is not a response")
+	ErrResponseNoRecursionAvailable = errors.New("response indicates server does not support recursion")
+	ErrDomainNoAssociatedIPs        = errors.New("domain name has no associated IP addresses")
 )
 
 // ResolverConfig configures a DNS resolver.
@@ -634,6 +635,11 @@ func (r *Result) parseMsg(msg []byte) (dnsmessage.Header, error) {
 
 	// Continue parsing even if truncated.
 	// The caller may still want to use the result.
+
+	// Check RecursionAvailable.
+	if !header.RecursionAvailable {
+		return dnsmessage.Header{}, ErrResponseNoRecursionAvailable
+	}
 
 	// Check RCode.
 	if header.RCode != dnsmessage.RCodeSuccess {
