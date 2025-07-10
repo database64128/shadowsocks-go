@@ -10,6 +10,7 @@ import (
 	"unique"
 	"unsafe"
 
+	"github.com/database64128/shadowsocks-go/cache"
 	"github.com/database64128/shadowsocks-go/conn"
 )
 
@@ -321,8 +322,7 @@ func ConnAddrFromSlice(b []byte) (conn.Addr, int, error) {
 //
 // The zero value is ready for use.
 type DomainCache struct {
-	domain string
-	handle unique.Handle[string]
+	handleByDomain *cache.BoundedCache[string, unique.Handle[string]]
 }
 
 // ConnAddrFromSlice is like [ConnAddrFromSlice] but uses the domain cache to minimize string allocations.
@@ -339,14 +339,25 @@ func (c *DomainCache) ConnAddrFromSlice(b []byte) (conn.Addr, int, error) {
 		if len(b) < portEnd {
 			return conn.Addr{}, 0, fmt.Errorf("addr length %d is too short for ATYP %#x", len(b), b[0])
 		}
-		if domainBytes := b[2:domainEnd]; string(domainBytes) != c.domain {
+		if c.handleByDomain == nil {
+			// Initialize the cache with a reasonable size.
+			const domainCacheSize = 32
+			c.handleByDomain = cache.NewBoundedCache[string, unique.Handle[string]](domainCacheSize)
+		}
+		var domain string
+		domainBytes := b[2:domainEnd]
+		entry, ok := c.handleByDomain.GetEntry(string(domainBytes))
+		if !ok {
 			// Unsafe is required for Go 1.24 and earlier to avoid allocating on lookup.
 			// Drop unsafe when we upgrade to Go 1.25.
-			c.handle = unique.Make(unsafe.String(unsafe.SliceData(domainBytes), len(domainBytes)))
-			c.domain = c.handle.Value()
+			handle := unique.Make(unsafe.String(unsafe.SliceData(domainBytes), len(domainBytes)))
+			domain = handle.Value()
+			c.handleByDomain.InsertUnchecked(domain, handle)
+		} else {
+			domain = entry.Key
 		}
 		port := binary.BigEndian.Uint16(b[domainEnd:])
-		addr, err := conn.AddrFromDomainPort(c.domain, port)
+		addr, err := conn.AddrFromDomainPort(domain, port)
 		return addr, portEnd, err
 
 	case AtypIPv4:
