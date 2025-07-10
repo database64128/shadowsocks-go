@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/database64128/shadowsocks-go/cache"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/zerocopy"
@@ -26,6 +27,8 @@ const (
 	maxDNSPacketSize = 1232
 
 	lookupTimeout = 20 * time.Second
+
+	defaultCacheSize = 1024
 )
 
 var (
@@ -42,9 +45,8 @@ type ResolverConfig struct {
 
 	// Type is the resolver type.
 	//
-	// Available values:
-	// - "plain": Resolve names by sending cleartext DNS queries to the configured upstream server.
-	// - "system": Use the system resolver. This does not support custom server addresses or clients.
+	//  - "plain": Resolve names by sending cleartext DNS queries to the configured upstream server.
+	//  - "system": Use the system resolver. This does not support custom server addresses or clients.
 	//
 	// The default value is "plain".
 	Type string `json:"type,omitzero"`
@@ -59,6 +61,12 @@ type ResolverConfig struct {
 	// UDPClientName is the name of the UDPClient to use.
 	// Leave empty to disable UDP.
 	UDPClientName string `json:"udpClientName,omitzero"`
+
+	// CacheSize is the size of the DNS cache.
+	//
+	// If zero, the default cache size is 1024.
+	// If negative, the cache will be unbounded.
+	CacheSize int `json:"cacheSize,omitzero"`
 }
 
 // NewSimpleResolver creates a new [NewSimpleResolver] from the config.
@@ -101,7 +109,12 @@ func (rc *ResolverConfig) NewSimpleResolver(tcpClientMap map[string]netio.Stream
 		}
 	}
 
-	return NewResolver(rc.Name, rc.AddrPort, tcpClient, udpClient, logger), nil
+	cacheSize := rc.CacheSize
+	if cacheSize == 0 {
+		cacheSize = defaultCacheSize
+	}
+
+	return NewResolver(rc.Name, cacheSize, rc.AddrPort, tcpClient, udpClient, logger), nil
 }
 
 // Result represents the result of name resolution.
@@ -120,11 +133,11 @@ type Resolver struct {
 	// name stores the resolver's name to make its log messages more useful.
 	name string
 
-	// mu protects the DNS cache map.
-	mu sync.RWMutex
+	// mu protects the DNS cache.
+	mu sync.Mutex
 
-	// cache is the DNS cache map.
-	cache map[string]Result
+	// cache is the DNS cache.
+	cache cache.BoundedCache[string, Result]
 
 	// serverAddr is the upstream server's address and port.
 	serverAddr conn.Addr
@@ -142,10 +155,10 @@ type Resolver struct {
 	logger *zap.Logger
 }
 
-func NewResolver(name string, serverAddrPort netip.AddrPort, tcpClient netio.StreamClient, udpClient zerocopy.UDPClient, logger *zap.Logger) *Resolver {
+func NewResolver(name string, cacheSize int, serverAddrPort netip.AddrPort, tcpClient netio.StreamClient, udpClient zerocopy.UDPClient, logger *zap.Logger) *Resolver {
 	return &Resolver{
 		name:           name,
-		cache:          make(map[string]Result),
+		cache:          *cache.NewBoundedCache[string, Result](cacheSize),
 		serverAddr:     conn.AddrFromIPPort(serverAddrPort),
 		serverAddrPort: serverAddrPort,
 		tcpClient:      tcpClient,
@@ -156,9 +169,9 @@ func NewResolver(name string, serverAddrPort netip.AddrPort, tcpClient netio.Str
 
 func (r *Resolver) lookup(ctx context.Context, name string) (Result, error) {
 	// Lookup cache first.
-	r.mu.RLock()
-	result, ok := r.cache[name]
-	r.mu.RUnlock()
+	r.mu.Lock()
+	result, ok := r.cache.Get(name)
+	r.mu.Unlock()
 
 	if ok && !result.HasExpired() {
 		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup got result from cache"); ce != nil {
@@ -294,7 +307,7 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 	// Add result to cache if TTL hasn't expired.
 	if !result.HasExpired() {
 		r.mu.Lock()
-		r.cache[nameString] = result
+		r.cache.Set(nameString, result)
 		r.mu.Unlock()
 	}
 

@@ -13,7 +13,7 @@ import (
 )
 
 func testResolver(t *testing.T, name string, serverAddrPort netip.AddrPort, tcpClient netio.StreamClient, udpClient zerocopy.UDPClient, logger *zap.Logger) {
-	r := NewResolver(name, serverAddrPort, tcpClient, udpClient, logger)
+	r := NewResolver(name, defaultCacheSize, serverAddrPort, tcpClient, udpClient, logger)
 	ctx := t.Context()
 
 	// Uncached lookup.
