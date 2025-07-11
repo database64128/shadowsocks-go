@@ -1,4 +1,4 @@
-//go:build !darwin && !freebsd && !linux && !windows
+//go:build !darwin && !freebsd && !linux && !openbsd && !windows
 
 package conn
 

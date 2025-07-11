@@ -1,4 +1,4 @@
-//go:build aix || dragonfly || netbsd || openbsd || zos
+//go:build aix || dragonfly || netbsd || zos
 
 package conn
 

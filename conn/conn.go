@@ -145,7 +145,7 @@ type ListenerSocketOptions struct {
 
 	// Transparent enables transparent proxy on the listener.
 	//
-	// Available on Linux and FreeBSD.
+	// Available on Linux, FreeBSD, and OpenBSD.
 	Transparent bool
 
 	// PathMTUDiscovery enables Path MTU Discovery on the listener.
@@ -190,12 +190,12 @@ type ListenerSocketOptions struct {
 
 	// ReceivePacketInfo enables the reception of packet information control messages on the listener.
 	//
-	// Available on Linux, macOS, FreeBSD, and Windows.
+	// Available on Linux, macOS, FreeBSD, OpenBSD, and Windows.
 	ReceivePacketInfo bool
 
 	// ReceiveOriginalDestAddr enables the reception of original destination address control messages on the listener.
 	//
-	// Available on Linux and FreeBSD.
+	// Available on Linux, FreeBSD, and OpenBSD.
 	ReceiveOriginalDestAddr bool
 }
 
