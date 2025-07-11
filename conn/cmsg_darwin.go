@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const socketControlMessageBufferSize = unix.SizeofCmsghdr + alignedSizeofInet6Pktinfo
+const socketControlMessageBufferSize = unix.SizeofCmsghdr + max(alignedSizeofInet4Pktinfo, alignedSizeofInet6Pktinfo)
 
 const cmsgAlignTo = 4
 

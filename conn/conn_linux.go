@@ -6,9 +6,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// TransparentSocketControlMessageBufferSize specifies the buffer size for receiving IPV6_RECVORIGDSTADDR socket control messages.
-const TransparentSocketControlMessageBufferSize = unix.SizeofCmsghdr + (unix.SizeofSockaddrInet6+unix.SizeofPtr-1) & ^(unix.SizeofPtr-1)
-
 func setSendBufferSize(fd, size int) error {
 	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_SNDBUF, size); err != nil {
 		return fmt.Errorf("failed to set socket option SO_SNDBUF: %w", err)

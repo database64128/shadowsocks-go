@@ -164,7 +164,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 	msgvec := make([]conn.Mmsghdr, n)
 
 	for i := range msgvec {
-		cmsgBuf := make([]byte, conn.TransparentSocketControlMessageBufferSize)
+		cmsgBuf := make([]byte, conn.SocketControlMessageBufferSize)
 		cmsgvec[i] = cmsgBuf
 		msgvec[i].Msghdr.Name = (*byte)(unsafe.Pointer(&namevec[i]))
 		msgvec[i].Msghdr.Namelen = unix.SizeofSockaddrInet6
@@ -187,7 +187,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 			qpvec[i] = queuedPacket
 			iovec[i].Base = &queuedPacket.buf[s.packetBufFrontHeadroom]
 			iovec[i].SetLen(s.packetBufRecvSize)
-			msgvec[i].Msghdr.SetControllen(conn.TransparentSocketControlMessageBufferSize)
+			msgvec[i].Msghdr.SetControllen(conn.SocketControlMessageBufferSize)
 		}
 
 		n, err = serverConn.ReadMsgs(msgvec, 0)

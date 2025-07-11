@@ -9,8 +9,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const socketControlMessageBufferSize = unix.SizeofCmsghdr + alignedSizeofInet6Pktinfo +
-	unix.SizeofCmsghdr + alignedSizeofGROSegmentSize
+const socketControlMessageBufferSize = unix.SizeofCmsghdr + max(alignedSizeofInet4Pktinfo, alignedSizeofInet6Pktinfo) +
+	unix.SizeofCmsghdr + max(alignedSizeofSockaddrInet4, alignedSizeofSockaddrInet6) +
+	unix.SizeofCmsghdr + max(alignedSizeofGSOSegmentSize, alignedSizeofGROSegmentSize)
 
 const (
 	sizeofGSOSegmentSize = 2 // int(unsafe.Sizeof(uint16(0)))
@@ -89,6 +90,8 @@ func parseSocketControlMessage(cmsg []byte) (m SocketControlMessage, err error) 
 const (
 	alignedSizeofInet4Pktinfo   = (unix.SizeofInet4Pktinfo + unix.SizeofPtr - 1) & ^(unix.SizeofPtr - 1)
 	alignedSizeofInet6Pktinfo   = (unix.SizeofInet6Pktinfo + unix.SizeofPtr - 1) & ^(unix.SizeofPtr - 1)
+	alignedSizeofSockaddrInet4  = (unix.SizeofSockaddrInet4 + unix.SizeofPtr - 1) & ^(unix.SizeofPtr - 1)
+	alignedSizeofSockaddrInet6  = (unix.SizeofSockaddrInet6 + unix.SizeofPtr - 1) & ^(unix.SizeofPtr - 1)
 	alignedSizeofGSOSegmentSize = (sizeofGSOSegmentSize + unix.SizeofPtr - 1) & ^(unix.SizeofPtr - 1)
 	alignedSizeofGROSegmentSize = (sizeofGROSegmentSize + unix.SizeofPtr - 1) & ^(unix.SizeofPtr - 1)
 )

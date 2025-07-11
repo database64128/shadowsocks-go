@@ -9,8 +9,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const socketControlMessageBufferSize = sizeofCmsghdr + alignedSizeofInet6Pktinfo +
-	sizeofCmsghdr + alignedSizeofCoalescedInfo
+const socketControlMessageBufferSize = sizeofCmsghdr + max(alignedSizeofInet4Pktinfo, alignedSizeofInet6Pktinfo) +
+	sizeofCmsghdr + max(alignedSizeofSendMsgSize, alignedSizeofCoalescedInfo)
 
 const (
 	sizeofPtr           = int(unsafe.Sizeof(uintptr(0)))
