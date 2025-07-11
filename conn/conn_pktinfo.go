@@ -1,4 +1,4 @@
-//go:build darwin || linux || windows
+//go:build darwin || freebsd || linux || windows
 
 package conn
 
