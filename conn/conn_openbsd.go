@@ -8,24 +8,7 @@ import (
 
 func setTransparent(fd int, _ string) error {
 	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_BINDANY, 1); err != nil {
-		return fmt.Errorf("failed to set socket option IP_BINDANY: %w", err)
-	}
-	return nil
-}
-
-func setRecvPktinfo(fd int, network string) error {
-	switch network {
-	case "udp4":
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_RECVDSTADDR, 1); err != nil {
-			return fmt.Errorf("failed to set socket option IP_RECVDSTADDR: %w", err)
-		}
-		// OpenBSD also has IP_RECVIF, but it cannot be used when sending.
-	case "udp6":
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO, 1); err != nil {
-			return fmt.Errorf("failed to set socket option IPV6_RECVPKTINFO: %w", err)
-		}
-	default:
-		return fmt.Errorf("unsupported network: %s", network)
+		return fmt.Errorf("failed to set socket option SO_BINDANY: %w", err)
 	}
 	return nil
 }

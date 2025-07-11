@@ -4,5 +4,6 @@ func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
 		appendSetSendBufferSize(lso.SendBufferSize).
 		appendSetRecvBufferSize(lso.ReceiveBufferSize).
-		appendSetTrafficClassFunc(lso.TrafficClass)
+		appendSetTrafficClassFunc(lso.TrafficClass).
+		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo)
 }

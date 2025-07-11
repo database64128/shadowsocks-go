@@ -4,29 +4,23 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net/netip"
-	"runtime"
 	"slices"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
 
-const socketControlMessageBufferSize = unix.SizeofCmsghdr + max(alignedSizeofInet4Addr, alignedSizeofInet6Pktinfo) +
-	unix.SizeofCmsghdr + alignedSizeofDstPort
-
 const (
+	socketControlMessageBufferSize = alignedSizeofCmsghdr + max(alignedSizeofInet4Addr, alignedSizeofInet6Pktinfo) +
+		alignedSizeofCmsghdr + alignedSizeofDstPort
+
+	alignedSizeofInet4Addr    = (sizeofInet4Addr + cmsgAlignTo - 1) & ^(cmsgAlignTo - 1)
+	alignedSizeofInet6Pktinfo = (unix.SizeofInet6Pktinfo + cmsgAlignTo - 1) & ^(cmsgAlignTo - 1)
+	alignedSizeofDstPort      = (sizeofDstPort + cmsgAlignTo - 1) & ^(cmsgAlignTo - 1)
+
 	sizeofInet4Addr = 4 // sizeof(struct in_addr)
 	sizeofDstPort   = 2 // sizeof(u_int16_t)
 )
-
-func cmsgAlign(n int) int {
-	salign := unix.SizeofPtr
-	// OpenBSD armv7 requires 64-bit alignment.
-	if runtime.GOARCH == "arm" {
-		salign = 8
-	}
-	return (n + salign - 1) & ^(salign - 1)
-}
 
 func parseSocketControlMessage(cmsg []byte) (m SocketControlMessage, err error) {
 	for len(cmsg) >= unix.SizeofCmsghdr {
@@ -40,40 +34,40 @@ func parseSocketControlMessage(cmsg []byte) (m SocketControlMessage, err error) 
 		case unix.IPPROTO_IP:
 			switch cmsghdr.Type {
 			case unix.IP_RECVDSTADDR:
-				if len(cmsg) < unix.SizeofCmsghdr+sizeofInet4Addr {
+				if len(cmsg) < alignedSizeofCmsghdr+sizeofInet4Addr {
 					return m, fmt.Errorf("invalid IP_RECVDSTADDR control message length %d", cmsghdr.Len)
 				}
-				addr := [sizeofInet4Addr]byte(cmsg[unix.SizeofCmsghdr:])
+				addr := [sizeofInet4Addr]byte(cmsg[alignedSizeofCmsghdr:])
 				m.PktinfoAddr = netip.AddrFrom4(addr)
 				// OpenBSD also uses this for transparent proxies.
 				m.OriginalDestinationAddrPort = netip.AddrPortFrom(m.PktinfoAddr, m.OriginalDestinationAddrPort.Port())
 
 			case unix.IP_RECVDSTPORT:
-				if len(cmsg) < unix.SizeofCmsghdr+sizeofDstPort {
+				if len(cmsg) < alignedSizeofCmsghdr+sizeofDstPort {
 					return m, fmt.Errorf("invalid IP_RECVDSTPORT control message length %d", cmsghdr.Len)
 				}
-				port := binary.BigEndian.Uint16(cmsg[unix.SizeofCmsghdr:])
+				port := binary.BigEndian.Uint16(cmsg[alignedSizeofCmsghdr:])
 				m.OriginalDestinationAddrPort = netip.AddrPortFrom(m.PktinfoAddr, port)
 			}
 
 		case unix.IPPROTO_IPV6:
 			switch cmsghdr.Type {
 			case unix.IPV6_PKTINFO:
-				if len(cmsg) < unix.SizeofCmsghdr+unix.SizeofInet6Pktinfo {
+				if len(cmsg) < alignedSizeofCmsghdr+unix.SizeofInet6Pktinfo {
 					return m, fmt.Errorf("invalid IPV6_PKTINFO control message length %d", cmsghdr.Len)
 				}
 				var pktinfo unix.Inet6Pktinfo
-				_ = copy(unsafe.Slice((*byte)(unsafe.Pointer(&pktinfo)), unix.SizeofInet6Pktinfo), cmsg[unix.SizeofCmsghdr:])
+				_ = copy(unsafe.Slice((*byte)(unsafe.Pointer(&pktinfo)), unix.SizeofInet6Pktinfo), cmsg[alignedSizeofCmsghdr:])
 				m.PktinfoAddr = netip.AddrFrom16(pktinfo.Addr)
 				m.PktinfoIfindex = pktinfo.Ifindex
 				// OpenBSD also uses this for transparent proxies.
 				m.OriginalDestinationAddrPort = netip.AddrPortFrom(m.PktinfoAddr, m.OriginalDestinationAddrPort.Port())
 
 			case unix.IPV6_RECVDSTPORT:
-				if len(cmsg) < unix.SizeofCmsghdr+sizeofDstPort {
+				if len(cmsg) < alignedSizeofCmsghdr+sizeofDstPort {
 					return m, fmt.Errorf("invalid IPV6_RECVDSTPORT control message length %d", cmsghdr.Len)
 				}
-				port := binary.BigEndian.Uint16(cmsg[unix.SizeofCmsghdr:])
+				port := binary.BigEndian.Uint16(cmsg[alignedSizeofCmsghdr:])
 				m.OriginalDestinationAddrPort = netip.AddrPortFrom(m.PktinfoAddr, port)
 			}
 		}
@@ -84,34 +78,28 @@ func parseSocketControlMessage(cmsg []byte) (m SocketControlMessage, err error) 
 	return m, nil
 }
 
-const (
-	alignedSizeofInet4Addr    = (sizeofInet4Addr + unix.SizeofPtr - 1) & ^(unix.SizeofPtr - 1)
-	alignedSizeofInet6Pktinfo = (unix.SizeofInet6Pktinfo + unix.SizeofPtr - 1) & ^(unix.SizeofPtr - 1)
-	alignedSizeofDstPort      = (sizeofDstPort + unix.SizeofPtr - 1) & ^(unix.SizeofPtr - 1)
-)
-
 func (m SocketControlMessage) appendTo(b []byte) []byte {
 	switch {
 	case m.PktinfoAddr.Is4():
 		bLen := len(b)
-		b = slices.Grow(b, unix.SizeofCmsghdr+alignedSizeofInet4Addr)[:bLen+unix.SizeofCmsghdr+alignedSizeofInet4Addr]
+		b = slices.Grow(b, alignedSizeofCmsghdr+alignedSizeofInet4Addr)[:bLen+alignedSizeofCmsghdr+alignedSizeofInet4Addr]
 		msgBuf := b[bLen:]
 		cmsghdr := (*unix.Cmsghdr)(unsafe.Pointer(unsafe.SliceData(msgBuf)))
 		*cmsghdr = unix.Cmsghdr{
-			Len:   unix.SizeofCmsghdr + sizeofInet4Addr,
+			Len:   alignedSizeofCmsghdr + sizeofInet4Addr,
 			Level: unix.IPPROTO_IP,
 			Type:  unix.IP_SENDSRCADDR,
 		}
 		addr := m.PktinfoAddr.As4()
-		_ = copy(msgBuf[unix.SizeofCmsghdr:], addr[:])
+		_ = copy(msgBuf[alignedSizeofCmsghdr:], addr[:])
 
 	case m.PktinfoAddr.Is6():
 		bLen := len(b)
-		b = slices.Grow(b, unix.SizeofCmsghdr+alignedSizeofInet6Pktinfo)[:bLen+unix.SizeofCmsghdr+alignedSizeofInet6Pktinfo]
+		b = slices.Grow(b, alignedSizeofCmsghdr+alignedSizeofInet6Pktinfo)[:bLen+alignedSizeofCmsghdr+alignedSizeofInet6Pktinfo]
 		msgBuf := b[bLen:]
 		cmsghdr := (*unix.Cmsghdr)(unsafe.Pointer(unsafe.SliceData(msgBuf)))
 		*cmsghdr = unix.Cmsghdr{
-			Len:   unix.SizeofCmsghdr + unix.SizeofInet6Pktinfo,
+			Len:   alignedSizeofCmsghdr + unix.SizeofInet6Pktinfo,
 			Level: unix.IPPROTO_IPV6,
 			Type:  unix.IPV6_PKTINFO,
 		}
@@ -119,7 +107,7 @@ func (m SocketControlMessage) appendTo(b []byte) []byte {
 			Addr:    m.PktinfoAddr.As16(),
 			Ifindex: m.PktinfoIfindex,
 		}
-		_ = copy(msgBuf[unix.SizeofCmsghdr:], unsafe.Slice((*byte)(unsafe.Pointer(&pktinfo)), unix.SizeofInet6Pktinfo))
+		_ = copy(msgBuf[alignedSizeofCmsghdr:], unsafe.Slice((*byte)(unsafe.Pointer(&pktinfo)), unix.SizeofInet6Pktinfo))
 	}
 
 	return b

@@ -1,4 +1,4 @@
-//go:build aix || dragonfly || netbsd || zos
+//go:build dragonfly || netbsd || zos
 
 package conn
 
@@ -7,5 +7,6 @@ func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
 		appendSetSendBufferSize(lso.SendBufferSize).
 		appendSetRecvBufferSize(lso.ReceiveBufferSize).
 		appendSetTrafficClassFunc(lso.TrafficClass).
-		appendSetReusePortFunc(lso.ReusePort)
+		appendSetReusePortFunc(lso.ReusePort).
+		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo)
 }

@@ -190,7 +190,7 @@ type ListenerSocketOptions struct {
 
 	// ReceivePacketInfo enables the reception of packet information control messages on the listener.
 	//
-	// Available on Linux, macOS, FreeBSD, OpenBSD, and Windows.
+	// Available on POSIX systems.
 	ReceivePacketInfo bool
 
 	// ReceiveOriginalDestAddr enables the reception of original destination address control messages on the listener.
