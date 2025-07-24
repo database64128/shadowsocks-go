@@ -250,25 +250,38 @@ var (
 	DefaultUDPClientListenConfig = DefaultUDPClientSocketOptions.ListenConfig()
 )
 
-// Dialer is [tfo.Dialer] but provides a subjectively nicer API.
-type Dialer tfo.Dialer
+// Dialer wraps a [tfo.Dialer] and provides a subjectively nicer API.
+type Dialer struct {
+	td  tfo.Dialer
+	fns setFuncSlice
+}
+
+// TFO returns true if the next DialTCP call will attempt to enable TFO.
+func (d *Dialer) TFO() bool {
+	return d.td.TFO()
+}
 
 // DialTCP wraps [tfo.Dialer.DialContext] and returns a [*net.TCPConn] directly.
-func (d *Dialer) DialTCP(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
-	c, err := (*tfo.Dialer)(d).DialContext(ctx, network, address, b)
+func (d *Dialer) DialTCP(ctx context.Context, network, address string, b []byte) (tc *net.TCPConn, info SocketInfo, err error) {
+	td := d.td
+	td.ControlContext = d.fns.controlContextFunc(&info)
+	c, err := td.DialContext(ctx, network, address, b)
 	if err != nil {
-		return nil, err
+		return nil, info, err
 	}
-	return c.(*net.TCPConn), nil
+	return c.(*net.TCPConn), info, nil
 }
 
 // DialUDP wraps [net.Dialer.DialContext] and returns a [*net.UDPConn] directly.
-func (d *Dialer) DialUDP(ctx context.Context, network, address string) (*net.UDPConn, error) {
-	c, err := d.Dialer.DialContext(ctx, network, address)
+func (d *Dialer) DialUDP(ctx context.Context, network, address string) (uc *net.UDPConn, info SocketInfo, err error) {
+	info.MaxUDPGSOSegments = 1
+	nd := d.td.Dialer
+	nd.ControlContext = d.fns.controlContextFunc(&info)
+	c, err := nd.DialContext(ctx, network, address)
 	if err != nil {
-		return nil, err
+		return nil, info, err
 	}
-	return c.(*net.UDPConn), nil
+	return c.(*net.UDPConn), info, nil
 }
 
 // DialerSocketOptions contains dialer-specific socket options.
@@ -311,13 +324,13 @@ type DialerSocketOptions struct {
 // Dialer returns a [Dialer] with a control function that sets the socket options.
 func (dso DialerSocketOptions) Dialer() Dialer {
 	d := Dialer{
-		Dialer: net.Dialer{
-			ControlContext: dso.buildSetFns().controlContextFunc(nil),
+		td: tfo.Dialer{
+			DisableTFO: !dso.TCPFastOpen,
+			Fallback:   dso.TCPFastOpenFallback,
 		},
-		DisableTFO: !dso.TCPFastOpen,
-		Fallback:   dso.TCPFastOpenFallback,
+		fns: dso.buildSetFns(),
 	}
-	d.SetMultipathTCP(dso.MultipathTCP)
+	d.td.SetMultipathTCP(dso.MultipathTCP)
 	return d
 }
 

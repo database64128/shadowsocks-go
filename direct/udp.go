@@ -184,7 +184,7 @@ func (c *Socks5UDPClient) Info() zerocopy.UDPClientInfo {
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
 func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
-	tc, err := c.dialer.DialTCP(ctx, c.networkTCP, c.address, nil)
+	tc, _, err := c.dialer.DialTCP(ctx, c.networkTCP, c.address, nil)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to dial SOCKS5 server: %w", err)
 	}
@@ -244,7 +244,7 @@ func (c *Socks5AuthUDPClient) Info() zerocopy.UDPClientInfo {
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
 func (c *Socks5AuthUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
-	tc, err := c.plainClient.dialer.DialTCP(ctx, c.plainClient.networkTCP, c.plainClient.address, nil)
+	tc, _, err := c.plainClient.dialer.DialTCP(ctx, c.plainClient.networkTCP, c.plainClient.address, nil)
 	if err != nil {
 		return c.plainClient.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to dial SOCKS5 server: %w", err)
 	}

@@ -49,13 +49,17 @@ var (
 func (c *TCPClient) NewStreamDialer() (StreamDialer, StreamDialerInfo) {
 	return c, StreamDialerInfo{
 		Name:                 c.name,
-		NativeInitialPayload: !c.dialer.DisableTFO,
+		NativeInitialPayload: c.dialer.TFO(),
 	}
 }
 
 // DialStream implements [StreamDialer.DialStream].
 func (c *TCPClient) DialStream(ctx context.Context, addr conn.Addr, payload []byte) (Conn, error) {
-	return c.dialer.DialTCP(ctx, c.network, addr.String(), payload)
+	tc, _, err := c.dialer.DialTCP(ctx, c.network, addr.String(), payload)
+	if err != nil {
+		return nil, err
+	}
+	return tc, nil
 }
 
 // NewTCPTransparentProxyServer returns a new TCP transparent proxy server.
