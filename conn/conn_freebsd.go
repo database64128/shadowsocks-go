@@ -58,3 +58,12 @@ func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
 		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo).
 		appendSetRecvOrigDstAddrFunc(lso.ReceiveOriginalDestAddr)
 }
+
+func (dso DialerSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}.
+		appendSetSendBufferSize(dso.SendBufferSize).
+		appendSetRecvBufferSize(dso.ReceiveBufferSize).
+		appendSetFwmarkFunc(dso.Fwmark).
+		appendSetTrafficClassFunc(dso.TrafficClass).
+		appendSetPMTUDFunc(dso.PathMTUDiscovery)
+}

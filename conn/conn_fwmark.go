@@ -10,9 +10,3 @@ func (fns setFuncSlice) appendSetFwmarkFunc(fwmark int) setFuncSlice {
 	}
 	return fns
 }
-
-func (dso DialerSocketOptions) buildSetFns() setFuncSlice {
-	return setFuncSlice{}.
-		appendSetFwmarkFunc(dso.Fwmark).
-		appendSetTrafficClassFunc(dso.TrafficClass)
-}

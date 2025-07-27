@@ -9,3 +9,11 @@ func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
 		appendSetPMTUDFunc(lso.PathMTUDiscovery).
 		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo)
 }
+
+func (dso DialerSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}.
+		appendSetSendBufferSize(dso.SendBufferSize).
+		appendSetRecvBufferSize(dso.ReceiveBufferSize).
+		appendSetTrafficClassFunc(dso.TrafficClass).
+		appendSetPMTUDFunc(dso.PathMTUDiscovery)
+}

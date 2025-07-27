@@ -293,6 +293,20 @@ func (d *Dialer) DialUDP(ctx context.Context, network, address string) (uc *net.
 
 // DialerSocketOptions contains dialer-specific socket options.
 type DialerSocketOptions struct {
+	// SendBufferSize sets the send buffer size of the dialer.
+	//
+	// This is best-effort and does not return an error if the operation fails.
+	//
+	// Available on POSIX systems.
+	SendBufferSize int
+
+	// ReceiveBufferSize sets the receive buffer size of the dialer.
+	//
+	// This is best-effort and does not return an error if the operation fails.
+	//
+	// Available on POSIX systems.
+	ReceiveBufferSize int
+
 	// Fwmark sets the dialer's fwmark on Linux, or user cookie on FreeBSD.
 	//
 	// Available on Linux and FreeBSD.
@@ -302,6 +316,16 @@ type DialerSocketOptions struct {
 	//
 	// Available on most platforms except Windows.
 	TrafficClass int
+
+	// TCPUserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the dialer.
+	//
+	// Available on Linux.
+	TCPUserTimeoutMsecs int
+
+	// PathMTUDiscovery enables Path MTU Discovery on the dialer.
+	//
+	// Available on Linux, macOS, FreeBSD, and Windows.
+	PathMTUDiscovery bool
 
 	// TCPFastOpen enables TCP Fast Open on the dialer.
 	//
@@ -326,6 +350,17 @@ type DialerSocketOptions struct {
 	//
 	// Available on platforms supported by Go std's MPTCP implementation.
 	MultipathTCP bool
+
+	// ProbeUDPGSOSupport enables best-effort probing of
+	// UDP Generic Segmentation Offload (GSO) support on the dialer.
+	//
+	// Available on Linux and Windows.
+	ProbeUDPGSOSupport bool
+
+	// UDPGenericReceiveOffload enables UDP Generic Receive Offload (GRO) on the dialer.
+	//
+	// Available on Linux and Windows.
+	UDPGenericReceiveOffload bool
 }
 
 // Dialer returns a [Dialer] with a control function that sets the socket options.
@@ -350,6 +385,16 @@ var (
 
 	// DefaultTCPDialer is the default [Dialer] for TCP clients.
 	DefaultTCPDialer = DefaultTCPDialerSocketOptions.Dialer()
+
+	// DefaultUDPDialerSocketOptions is the default [DialerSocketOptions] for UDP clients.
+	DefaultUDPDialerSocketOptions = DialerSocketOptions{
+		SendBufferSize:    DefaultUDPSocketBufferSize,
+		ReceiveBufferSize: DefaultUDPSocketBufferSize,
+		PathMTUDiscovery:  true,
+	}
+
+	// DefaultUDPDialer is the default [Dialer] for UDP clients.
+	DefaultUDPDialer = DefaultUDPDialerSocketOptions.Dialer()
 )
 
 // ListenConfigCache is a map of [ListenerSocketOptions] to [ListenConfig].
@@ -382,6 +427,7 @@ type DialerCache map[DialerSocketOptions]Dialer
 func NewDialerCache() DialerCache {
 	return DialerCache{
 		DefaultTCPDialerSocketOptions: DefaultTCPDialer,
+		DefaultUDPDialerSocketOptions: DefaultUDPDialer,
 	}
 }
 
