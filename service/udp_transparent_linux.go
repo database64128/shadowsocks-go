@@ -475,7 +475,7 @@ main:
 
 			qpvec[count] = queuedPacket
 			dapvec[count] = destAddrPort
-			namevec[count] = conn.AddrPortToSockaddrInet6(destAddrPort)
+			conn.SockaddrInet6PutAddrPort(&namevec[count], destAddrPort)
 			iovec[count].Base = &queuedPacket.buf[packetStart]
 			iovec[count].SetLen(packetLength)
 			count++

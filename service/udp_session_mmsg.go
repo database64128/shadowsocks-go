@@ -513,7 +513,7 @@ main:
 
 			qpvec[count] = queuedPacket
 			dapvec[count] = destAddrPort
-			namevec[count] = conn.AddrPortToSockaddrInet6(destAddrPort)
+			conn.SockaddrInet6PutAddrPort(&namevec[count], destAddrPort)
 			iovec[count].Base = &queuedPacket.buf[packetStart]
 			iovec[count].SetLen(packetLength)
 			count++
@@ -609,7 +609,11 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(downlink sessionDownl
 		burstBatchSize   int
 	)
 
-	rsa6, namelen := conn.AddrPortToSockaddrValue(clientAddrPort)
+	var (
+		name    unix.RawSockaddrInet6
+		namelen uint32
+	)
+	conn.SockaddrPutAddrPort(&name, &namelen, clientAddrPort)
 	savec := make([]unix.RawSockaddrInet6, downlink.relayBatchSize)
 	bufvec := make([][]byte, downlink.relayBatchSize)
 	riovec := make([]unix.Iovec, downlink.relayBatchSize)
@@ -629,7 +633,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(downlink sessionDownl
 		rmsgvec[i].Msghdr.Iov = &riovec[i]
 		rmsgvec[i].Msghdr.SetIovlen(1)
 
-		smsgvec[i].Msghdr.Name = (*byte)(unsafe.Pointer(&rsa6))
+		smsgvec[i].Msghdr.Name = (*byte)(unsafe.Pointer(&name))
 		smsgvec[i].Msghdr.Namelen = namelen
 		smsgvec[i].Msghdr.Iov = &siovec[i]
 		smsgvec[i].Msghdr.SetIovlen(1)
@@ -659,7 +663,7 @@ func (s *UDPSessionRelay) relayNatConnToServerConnSendmmsg(downlink sessionDownl
 			clientAddrPort = caip.addrPort
 			clientPktinfo = caip.pktinfo
 			maxClientPacketSize = zerocopy.MaxPacketSizeForAddr(s.mtu, clientAddrPort.Addr())
-			rsa6, _ = conn.AddrPortToSockaddrValue(clientAddrPort) // namelen won't change
+			conn.SockaddrPutAddrPort(&name, &namelen, clientAddrPort) // namelen won't change
 
 			for i := range smsgvec {
 				smsgvec[i].Msghdr.Control = unsafe.SliceData(clientPktinfo)

@@ -14,55 +14,17 @@ const (
 	SizeofSockaddrInet6 = uint32(unsafe.Sizeof(windows.RawSockaddrInet6{}))
 )
 
-func AddrPortToSockaddrValue(addrPort netip.AddrPort) (rsa6 windows.RawSockaddrInet6, namelen uint32) {
-	if !addrPort.IsValid() {
-		return
-	}
-	addr, port := addrPort.Addr(), addrPort.Port()
-	p := (*[2]byte)(unsafe.Pointer(&rsa6.Port))
-	p[0] = byte(port >> 8)
-	p[1] = byte(port)
-	if addr.Is4() {
-		rsa6.Family = windows.AF_INET
-		a := (*[4]byte)(unsafe.Pointer(&rsa6.Flowinfo))
-		*a = addr.As4()
-		namelen = SizeofSockaddrInet4
-		return
-	}
-	rsa6.Family = windows.AF_INET6
-	rsa6.Addr = addr.As16()
-	rsa6.Scope_id = uint32(netx.ZoneCache.Index(addr.Zone()))
-	namelen = SizeofSockaddrInet6
-	return
-}
-
-func SockaddrValueToAddrPort(rsa6 windows.RawSockaddrInet6, namelen uint32) (netip.AddrPort, error) {
-	if namelen == 0 {
-		return netip.AddrPort{}, nil
-	}
-	p := (*[2]byte)(unsafe.Pointer(&rsa6.Port))
-	port := uint16(p[0])<<8 + uint16(p[1])
-	var addr netip.Addr
-	switch namelen {
-	case SizeofSockaddrInet4:
-		addr = netip.AddrFrom4(*(*[4]byte)(unsafe.Pointer(&rsa6.Flowinfo)))
-	case SizeofSockaddrInet6:
-		addr = netip.AddrFrom16(rsa6.Addr).WithZone(netx.ZoneCache.Name(int(rsa6.Scope_id)))
-	default:
-		return netip.AddrPort{}, fmt.Errorf("bad sockaddr length: %d", namelen)
-	}
-	return netip.AddrPortFrom(addr, port), nil
-}
-
 func AddrPortToSockaddr(addrPort netip.AddrPort) (name *byte, namelen uint32) {
 	switch {
 	case !addrPort.IsValid():
 		return nil, 0
 	case addrPort.Addr().Is4():
-		rsa4 := AddrPortToSockaddrInet4(addrPort)
+		var rsa4 windows.RawSockaddrInet4
+		SockaddrInet4PutAddrPort(&rsa4, addrPort)
 		return (*byte)(unsafe.Pointer(&rsa4)), SizeofSockaddrInet4
 	default:
-		rsa6 := AddrPortToSockaddrInet6(addrPort)
+		var rsa6 windows.RawSockaddrInet6
+		SockaddrInet6PutAddrPort(&rsa6, addrPort)
 		return (*byte)(unsafe.Pointer(&rsa6)), SizeofSockaddrInet6
 	}
 }
@@ -72,39 +34,57 @@ func AddrPortUnmappedToSockaddr(addrPort netip.AddrPort) (name *byte, namelen ui
 	case !addrPort.IsValid():
 		return nil, 0
 	case addrPort.Addr().Is4() || addrPort.Addr().Is4In6():
-		rsa4 := AddrPortToSockaddrInet4(addrPort)
+		var rsa4 windows.RawSockaddrInet4
+		SockaddrInet4PutAddrPort(&rsa4, addrPort)
 		return (*byte)(unsafe.Pointer(&rsa4)), SizeofSockaddrInet4
 	default:
-		rsa6 := AddrPortToSockaddrInet6(addrPort)
+		var rsa6 windows.RawSockaddrInet6
+		SockaddrInet6PutAddrPort(&rsa6, addrPort)
 		return (*byte)(unsafe.Pointer(&rsa6)), SizeofSockaddrInet6
 	}
 }
 
-func AddrPortToSockaddrInet4(addrPort netip.AddrPort) windows.RawSockaddrInet4 {
-	addr := addrPort.Addr()
-	port := addrPort.Port()
-	rsa4 := windows.RawSockaddrInet4{
-		Family: windows.AF_INET,
-		Addr:   addr.As4(),
+func SockaddrPutAddrPort(name *windows.RawSockaddrInet6, namelen *uint32, addrPort netip.AddrPort) {
+	if !addrPort.IsValid() {
+		*name = windows.RawSockaddrInet6{}
+		*namelen = 0
+		return
 	}
-	p := (*[2]byte)(unsafe.Pointer(&rsa4.Port))
+	addr, port := addrPort.Addr(), addrPort.Port()
+	p := (*[2]byte)(unsafe.Pointer(&name.Port))
 	p[0] = byte(port >> 8)
 	p[1] = byte(port)
-	return rsa4
+	if addr.Is4() {
+		name.Family = windows.AF_INET
+		a := (*[4]byte)(unsafe.Pointer(&name.Flowinfo))
+		*a = addr.As4()
+		*namelen = SizeofSockaddrInet4
+		return
+	}
+	name.Family = windows.AF_INET6
+	name.Addr = addr.As16()
+	name.Scope_id = uint32(netx.ZoneCache.Index(addr.Zone()))
+	*namelen = SizeofSockaddrInet6
 }
 
-func AddrPortToSockaddrInet6(addrPort netip.AddrPort) windows.RawSockaddrInet6 {
-	addr := addrPort.Addr()
+func SockaddrInet4PutAddrPort(sa *windows.RawSockaddrInet4, addrPort netip.AddrPort) {
+	sa.Family = windows.AF_INET
 	port := addrPort.Port()
-	rsa6 := windows.RawSockaddrInet6{
-		Family:   windows.AF_INET6,
-		Addr:     addr.As16(),
-		Scope_id: uint32(netx.ZoneCache.Index(addr.Zone())),
-	}
-	p := (*[2]byte)(unsafe.Pointer(&rsa6.Port))
+	p := (*[2]byte)(unsafe.Pointer(&sa.Port))
 	p[0] = byte(port >> 8)
 	p[1] = byte(port)
-	return rsa6
+	sa.Addr = addrPort.Addr().As4()
+}
+
+func SockaddrInet6PutAddrPort(sa *windows.RawSockaddrInet6, addrPort netip.AddrPort) {
+	sa.Family = windows.AF_INET6
+	port := addrPort.Port()
+	p := (*[2]byte)(unsafe.Pointer(&sa.Port))
+	p[0] = byte(port >> 8)
+	p[1] = byte(port)
+	addr := addrPort.Addr()
+	sa.Addr = addr.As16()
+	sa.Scope_id = uint32(netx.ZoneCache.Index(addr.Zone()))
 }
 
 func SockaddrToAddrPort(name *byte, namelen uint32) (netip.AddrPort, error) {
