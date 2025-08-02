@@ -11,6 +11,9 @@ import (
 )
 
 func AddrPortToSockaddrValue(addrPort netip.AddrPort) (rsa6 unix.RawSockaddrInet6, namelen uint32) {
+	if !addrPort.IsValid() {
+		return
+	}
 	addr, port := addrPort.Addr(), addrPort.Port()
 	p := (*[2]byte)(unsafe.Pointer(&rsa6.Port))
 	p[0] = byte(port >> 8)
