@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
@@ -56,6 +58,10 @@ type ClientConfig struct {
 	//
 	// Do not use if Endpoint is specified.
 	UDPAddress conn.Addr `json:"udpAddress,omitzero"`
+
+	// OverrideResolverDialAddress optionally specifies an alternate DNS server address
+	// to override the dial address of the dialer's DNS resolver.
+	OverrideResolverDialAddress string `json:"overrideResolverDialAddress,omitzero"`
 
 	// DialerFwmark sets the dialer's fwmark on Linux, or user cookie on FreeBSD.
 	//
@@ -244,8 +250,8 @@ func (cc *ClientConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCac
 
 	if cc.EnableTCP || cc.EnableUDP && cc.Protocol == "socks5" {
 		cc.networkTCP = cc.tcpNetwork()
-		cc.connDialer = cc.dialer()
-		cc.innerClient = cc.newInnerClient()
+		cc.initConnDialer()
+		cc.initInnerClient()
 	}
 
 	return nil
@@ -264,23 +270,32 @@ func (cc *ClientConfig) tcpNetwork() string {
 	}
 }
 
-func (cc *ClientConfig) dialer() conn.Dialer {
-	return cc.dialerCache.Get(conn.DialerSocketOptions{
+func (cc *ClientConfig) initConnDialer() {
+	cc.connDialer = cc.dialerCache.Get(conn.DialerSocketOptions{
 		Fwmark:              cc.DialerFwmark,
 		TrafficClass:        cc.DialerTrafficClass,
 		TCPFastOpen:         cc.DialerTFO,
 		TCPFastOpenFallback: cc.TCPFastOpenFallback,
 		MultipathTCP:        cc.MultipathTCP,
 	})
+	if cc.OverrideResolverDialAddress != "" {
+		cc.connDialer.SetResolver(&net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				c, _, err := cc.connDialer.Dial(ctx, network, cc.OverrideResolverDialAddress, nil)
+				return c, err
+			},
+		})
+	}
 }
 
-func (cc *ClientConfig) newInnerClient() *netio.TCPClient {
+func (cc *ClientConfig) initInnerClient() {
 	tcc := netio.TCPClientConfig{
 		Name:    cc.Name,
 		Network: cc.networkTCP,
 		Dialer:  cc.connDialer,
 	}
-	return tcc.NewTCPClient()
+	cc.innerClient = tcc.NewTCPClient()
 }
 
 // TCPClient returns a new [netio.StreamClient] from the configuration.
