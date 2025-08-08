@@ -268,6 +268,19 @@ func (d *Dialer) TFO() bool {
 	return d.td.TFO()
 }
 
+// SetResolver sets an alternate resolver to use.
+func (d *Dialer) SetResolver(resolver *net.Resolver) {
+	d.td.Resolver = resolver
+}
+
+// Dial wraps [tfo.Dialer.DialContext].
+func (d *Dialer) Dial(ctx context.Context, network, address string, b []byte) (c net.Conn, info SocketInfo, err error) {
+	td := d.td
+	td.ControlContext = d.fns.controlContextFunc(&info)
+	c, err = td.DialContext(ctx, network, address, b)
+	return c, info, err
+}
+
 // DialTCP wraps [tfo.Dialer.DialContext] and returns a [*net.TCPConn] directly.
 func (d *Dialer) DialTCP(ctx context.Context, network, address string, b []byte) (tc *net.TCPConn, info SocketInfo, err error) {
 	td := d.td
