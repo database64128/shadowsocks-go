@@ -226,7 +226,13 @@ type ServerConfig struct {
 	Name string `json:"name"`
 
 	// Protocol is the protocol the server uses.
-	// Valid values include "direct", "tproxy" (Linux only), "socks5", "http", "none", "plain", "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm".
+	//
+	//  - "direct": Proxy all traffic to a fixed destination address specified by [TunnelRemoteAddress].
+	//  - "tproxy": Transparent proxy. Only available on Linux, macOS, FreeBSD, and OpenBSD.
+	//  - "socks5": SOCKS5 proxy.
+	//  - "http": HTTP proxy.
+	//  - "none", "plain": Shadowsocks "none" proxy.
+	//  - "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm": Shadowsocks 2022 proxy.
 	Protocol string `json:"protocol"`
 
 	// TCPListeners is the list of TCP listeners.
@@ -263,10 +269,12 @@ type ServerConfig struct {
 	UDPServerRecvBatchSize int    `json:"udpServerRecvBatchSize,omitzero"`
 	UDPSendChannelCapacity int    `json:"udpSendChannelCapacity,omitzero"`
 
-	// Simple tunnel
-
+	// TunnelRemoteAddress specifies the fixed destination address when [Protocol] is "direct".
 	TunnelRemoteAddress conn.Addr `json:"tunnelRemoteAddress,omitzero"`
-	TunnelUDPTargetOnly bool      `json:"tunnelUDPTargetOnly,omitzero"`
+
+	// TunnelUDPTargetOnly controls whether to "connect" to the destination address for UDP.
+	// If true, the server will drop packets that are not sent from [TunnelRemoteAddress].
+	TunnelUDPTargetOnly bool `json:"tunnelUDPTargetOnly,omitzero"`
 
 	tcpEnabled bool
 	udpEnabled bool
@@ -286,12 +294,30 @@ type ServerConfig struct {
 	// HTTP is the protocol-specific configuration for "http".
 	HTTP HTTPProxyServerConfig `json:"http,omitzero"`
 
-	// Shadowsocks
+	// PSK specifies the pre-shared key (PSK) in single-user mode,
+	// or the identity pre-shared key (iPSK) in multi-user mode for Shadowsocks 2022.
+	PSK []byte `json:"psk,omitzero"`
 
-	PSK           []byte                    `json:"psk,omitzero"`
-	UPSKStorePath string                    `json:"uPSKStorePath,omitzero"`
+	// UPSKStorePath specifies the path to the user pre-shared key (uPSK) store for Shadowsocks 2022.
+	//
+	// A non-empty value enables multi-user mode. Leave empty for single-user servers.
+	UPSKStorePath string `json:"uPSKStorePath,omitzero"`
+
+	// PaddingPolicy specifies the padding policy for Shadowsocks 2022 packets.
+	//
+	//  - "PadPlainDNS": Only add padding if the destination port is 53. (default)
+	//  - "PadAll": Always add padding.
+	//  - "NoPadding": Never add padding.
 	PaddingPolicy ss2022.PaddingPolicyField `json:"paddingPolicy,omitzero"`
-	RejectPolicy  ss2022.RejectPolicyField  `json:"rejectPolicy,omitzero"`
+
+	// RejectPolicy specifies the reject policy for handling unauthenticated connections
+	// to the Shadowsocks 2022 server.
+	//
+	//  - "JustClose": Close the connection without any special handling.
+	//  - "ForceReset": Force a RST on the connection.
+	//  - "CloseWriteDrain": Close the write end and drain the read end.
+	//  - "ReplyWithGibberish": Keep reading and replying with random garbage until EOF or error.
+	RejectPolicy ss2022.RejectPolicyField `json:"rejectPolicy,omitzero"`
 
 	// SlidingWindowFilterSize is the size of the sliding window filter.
 	//
@@ -305,11 +331,21 @@ type ServerConfig struct {
 	tcpCredStore         *ss2022.CredStore
 	udpCredStore         *ss2022.CredStore
 
-	// Taint
+	// UnsafeFallbackAddress specifies the optional fallback destination address
+	// for unauthenticated connections to the Shadowsocks 2022 server.
+	UnsafeFallbackAddress conn.Addr `json:"unsafeFallbackAddress,omitzero"`
 
-	UnsafeFallbackAddress      conn.Addr `json:"unsafeFallbackAddress,omitzero"`
-	UnsafeRequestStreamPrefix  []byte    `json:"unsafeRequestStreamPrefix,omitzero"`
-	UnsafeResponseStreamPrefix []byte    `json:"unsafeResponseStreamPrefix,omitzero"`
+	// UnsafeRequestStreamPrefix specifies the prefix bytes expected at the beginning of
+	// Shadowsocks 2022 request streams.
+	//
+	// The use of this feature "taints" the server.
+	UnsafeRequestStreamPrefix []byte `json:"unsafeRequestStreamPrefix,omitzero"`
+
+	// UnsafeResponseStreamPrefix specifies the prefix bytes expected at the beginning of
+	// Shadowsocks 2022 response streams.
+	//
+	// The use of this feature "taints" the server.
+	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix,omitzero"`
 
 	tlsCertStore      *tlscerts.Store
 	listenConfigCache conn.ListenConfigCache

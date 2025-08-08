@@ -326,22 +326,22 @@ When adding padding, the MTU is taken into account, so the size of the padded pa
 
 The padding policy can be configured individually for each Shadowsocks 2022 client and server.
 
-- `PadPlainDNS`: Add padding if the destination port is 53. (Default)
-- `PadAll`: Pad all packets.
-- `NoPadding`: No padding.
+- `"PadPlainDNS"`: Add padding if the destination port is 53. (default)
+- `"PadAll"`: Pad all packets.
+- `"NoPadding"`: No padding.
 
 ### 2. TCP Reject Policy
 
-Reject policies are implemented for all TCP servers. A TCP server's reject policy is invoked when an accepted connection fails the protocol's handshake process. Each protocol has its own default reject policy. Custom reject policies can be useful for censorship circumvention servers to evade active probing.
+Reject policies are implemented for Shadowsocks 2022 TCP servers. A server's reject policy is invoked when an accepted connection fails the protocol's handshake process. Custom reject policies can be useful for censorship circumvention servers to evade active probing.
 
-- `JustClose`: Just close the connection. (Default for cleartext protocols)
-- `ForceReset`: Forcibly reset the connection. Many protocols behave this way when invalid data is received. (Default for Shadowsocks 2022)
-- `CloseWriteDrain`: Send FIN and keep reading until EOF. This is typically how legacy Shadowsocks servers handle replay.
-- `ReplyWithGibberish`: Keep reading and send random garbage after each read returns. This emulates how a legacy Shadowsocks server without replay protection behaves, except it doesn't actually relay the replayed payload.
+- `"JustClose"`: Just close the connection, without any special handling.
+- `"ForceReset"`: Forcibly reset the connection. Many protocols behave this way when invalid data is received. (default)
+- `"CloseWriteDrain"`: Send FIN and keep reading until EOF. This is typically how legacy Shadowsocks servers handle replay.
+- `"ReplyWithGibberish"`: Keep reading and send random garbage after each read returns. This emulates how a legacy Shadowsocks server without replay protection behaves, except it doesn't actually relay the replayed payload.
 
 ### 3. Unsafe Fallback
 
-A Shadowsocks 2022 server can be configured to forward TCP connections to a fallback address when the handshake fails. Add the `unsafeFallbackAddress` field to the server block to specify the fallback address. On startup a warning message will be printed to tell you that using this feature "taints" the server. Unsafe fallback only works for TCP connections.
+A Shadowsocks 2022 server can be configured to forward TCP connections to a fallback address when the handshake fails. Add the `"unsafeFallbackAddress"` field to the server block to specify the fallback address. On startup a warning message will be printed to tell you that using this feature "taints" the server. Unsafe fallback only works for TCP connections.
 
 This feature might be useful when your threat model only includes off-path attackers, and you want to reuse the port or trick probes into thinking the server is something else. An on-path attacker (e.g. a typical censor) can easily tell that the regular traffic does not match the fallback traffic.
 
@@ -349,7 +349,7 @@ This feature might be useful when your threat model only includes off-path attac
 
 The unsafe stream prefix feature allows you to configure a pair of pre-shared cleartext prefixes for Shadowsocks 2022 streams. The prefixes are prepended to the request and response streams to trick simple firewalls.
 
-To use this feature, add `unsafeRequestStreamPrefix` and `unsafeResponseStreamPrefix` to both client and server blocks, and specify the prefixes in base64 encoding. The client and server must agree on the same pair of prefixes. On startup a warning message will be printed to tell you that using this feature "taints" the client and server.
+To use this feature, add `"unsafeRequestStreamPrefix"` and `"unsafeResponseStreamPrefix"` to both client and server blocks, and specify the prefixes in base64 encoding. The client and server must agree on the same pair of prefixes. On startup a warning message will be printed to tell you that using this feature "taints" the client and server.
 
 ## License
 

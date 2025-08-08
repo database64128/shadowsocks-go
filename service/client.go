@@ -23,16 +23,21 @@ type ClientConfig struct {
 	Name string `json:"name"`
 
 	// Protocol is the protocol used by the client.
-	// Valid values include "direct", "socks5", "http", "none", "plain", "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm".
+	//
+	//  - "direct": Direct connection.
+	//  - "socks5": SOCKS5 proxy.
+	//  - "http": HTTP proxy.
+	//  - "none", "plain": Shadowsocks "none" proxy.
+	//  - "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm": Shadowsocks 2022 proxy.
 	Protocol string `json:"protocol"`
 
 	// Network controls the address family of the resolved IP address
 	// when the address is a domain name. It is ignored if the address
 	// is an IP address.
 	//
-	// - "ip": Follow the system default.
-	// - "ip4": Resolve to an IPv4 address.
-	// - "ip6": Resolve to an IPv6 address.
+	//  - "ip": Follow the system default.
+	//  - "ip4": Resolve to an IPv4 address.
+	//  - "ip6": Resolve to an IPv6 address.
 	//
 	// If unspecified, "ip" is used.
 	Network string `json:"network,omitzero"`
@@ -52,12 +57,22 @@ type ClientConfig struct {
 	// Do not use if Endpoint is specified.
 	UDPAddress conn.Addr `json:"udpAddress,omitzero"`
 
-	DialerFwmark       int `json:"dialerFwmark,omitzero"`
+	// DialerFwmark sets the dialer's fwmark on Linux, or user cookie on FreeBSD.
+	//
+	// Available on Linux and FreeBSD.
+	DialerFwmark int `json:"dialerFwmark,omitzero"`
+
+	// DialerTrafficClass sets the traffic class of the dialer.
+	//
+	// Available on most platforms except Windows.
 	DialerTrafficClass int `json:"dialerTrafficClass,omitzero"`
 
-	// TCP
-
+	// EnableTCP controls whether to enable TCP on the client.
 	EnableTCP bool `json:"enableTCP,omitzero"`
+
+	// DialerTFO enables TCP Fast Open on the dialer.
+	//
+	// Available on Linux, macOS, FreeBSD, and Windows.
 	DialerTFO bool `json:"dialerTFO,omitzero"`
 
 	// TCPFastOpenFallback enables runtime detection of TCP Fast Open support on the dialer.
@@ -88,8 +103,7 @@ type ClientConfig struct {
 	// Only applicable to Shadowsocks 2022 TCP.
 	AllowSegmentedFixedLengthHeader bool `json:"allowSegmentedFixedLengthHeader,omitzero"`
 
-	// UDP
-
+	// EnableUDP controls whether to enable UDP on the client.
 	EnableUDP bool `json:"enableUDP,omitzero"`
 
 	// AllowFragmentation controls whether to allow fragmented UDP packets.
@@ -110,10 +124,20 @@ type ClientConfig struct {
 	// HTTP is the protocol-specific configuration for "http".
 	HTTP HTTPProxyClientConfig `json:"http,omitzero"`
 
-	// Shadowsocks
+	// PSK specifies the pre-shared key (PSK) in single-user mode,
+	// or the user pre-shared key (uPSK) in multi-user mode for Shadowsocks 2022.
+	PSK []byte `json:"psk,omitzero"`
 
-	PSK           []byte                    `json:"psk,omitzero"`
-	IPSKs         [][]byte                  `json:"iPSKs,omitzero"`
+	// IPSKs specifies the identity pre-shared keys (iPSKs) for Shadowsocks 2022.
+	//
+	// Leave empty for single-user servers.
+	IPSKs [][]byte `json:"iPSKs,omitzero"`
+
+	// PaddingPolicy specifies the padding policy for Shadowsocks 2022 packets.
+	//
+	//  - "PadPlainDNS": Only add padding if the destination port is 53. (default)
+	//  - "PadAll": Always add padding.
+	//  - "NoPadding": Never add padding.
 	PaddingPolicy ss2022.PaddingPolicyField `json:"paddingPolicy,omitzero"`
 
 	// SlidingWindowFilterSize is the size of the sliding window filter.
@@ -125,9 +149,14 @@ type ClientConfig struct {
 
 	cipherConfig *ss2022.ClientCipherConfig
 
-	// Taint
+	// UnsafeRequestStreamPrefix specifies the prefix bytes to prepend to Shadowsocks 2022 request streams.
+	//
+	// The use of this feature "taints" the client.
+	UnsafeRequestStreamPrefix []byte `json:"unsafeRequestStreamPrefix,omitzero"`
 
-	UnsafeRequestStreamPrefix  []byte `json:"unsafeRequestStreamPrefix,omitzero"`
+	// UnsafeResponseStreamPrefix specifies the prefix bytes to prepend to Shadowsocks 2022 response streams.
+	//
+	// The use of this feature "taints" the client.
 	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix,omitzero"`
 
 	tlsCertStore      *tlscerts.Store
