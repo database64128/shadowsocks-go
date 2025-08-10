@@ -11,9 +11,9 @@ import (
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/prefixset"
 	"github.com/database64128/shadowsocks-go/zerocopy"
+	"github.com/gaissmai/bart"
 	"github.com/oschwald/geoip2-golang/v2"
 	"go.uber.org/zap"
-	"go4.org/netipx"
 )
 
 // Config is the configuration for a Router.
@@ -93,10 +93,10 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, res
 		domainSetMap[dsc.Name] = domainSet
 	}
 
-	prefixSetMap := make(map[string]*netipx.IPSet, len(rc.PrefixSets))
+	prefixSetMap := make(map[string]*bart.Lite, len(rc.PrefixSets))
 
 	for _, psc := range rc.PrefixSets {
-		s, err := psc.IPSet()
+		s, err := psc.LoadPrefixSet()
 		if err != nil {
 			return nil, fmt.Errorf("failed to load prefix set %q: %w", psc.Name, err)
 		}

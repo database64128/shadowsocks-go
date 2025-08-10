@@ -17,8 +17,8 @@ import (
 	"github.com/database64128/shadowsocks-go/api/ssm"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/tlscerts"
+	"github.com/gaissmai/bart"
 	"go.uber.org/zap"
-	"go4.org/netipx"
 )
 
 // Config stores the configuration for the RESTful API.
@@ -223,15 +223,10 @@ func (c *Config) NewServer(
 	}
 
 	mux := http.NewServeMux()
-
+	realIP := newRealIPMiddleware(logger, c.TrustedProxies, c.RealIPHeaderKey)
 	basePath := "/"
 	if c.SecretPath != "" {
 		basePath = joinPatternPath(basePath, c.SecretPath)
-	}
-
-	realIP, err := newRealIPMiddleware(logger, c.TrustedProxies, c.RealIPHeaderKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create real IP middleware: %w", err)
 	}
 
 	if c.DebugPprof {
@@ -308,11 +303,11 @@ func joinPatternPath(elem ...string) string {
 // to [http.Request.RemoteAddr] if the request is from a trusted proxy.
 //
 // If realIPHeaderKey is empty, the middleware is a no-op.
-func newRealIPMiddleware(logger *zap.Logger, trustedProxies []netip.Prefix, realIPHeaderKey string) (func(http.Handler) http.Handler, error) {
+func newRealIPMiddleware(logger *zap.Logger, trustedProxies []netip.Prefix, realIPHeaderKey string) func(http.Handler) http.Handler {
 	if realIPHeaderKey == "" {
 		return func(h http.Handler) http.Handler {
 			return h
-		}, nil
+		}
 	}
 
 	realIPHeaderKey = http.CanonicalHeaderKey(realIPHeaderKey)
@@ -329,17 +324,12 @@ func newRealIPMiddleware(logger *zap.Logger, trustedProxies []netip.Prefix, real
 				}
 				h.ServeHTTP(w, r)
 			})
-		}, nil
+		}
 	}
 
-	var sb netipx.IPSetBuilder
+	var proxySet bart.Lite
 	for _, p := range trustedProxies {
-		sb.AddPrefix(p)
-	}
-
-	proxySet, err := sb.IPSet()
-	if err != nil {
-		return nil, fmt.Errorf("failed to build trusted proxy prefix set: %w", err)
+		proxySet.Insert(p)
 	}
 
 	return func(h http.Handler) http.Handler {
@@ -361,7 +351,7 @@ func newRealIPMiddleware(logger *zap.Logger, trustedProxies []netip.Prefix, real
 
 			h.ServeHTTP(w, r)
 		})
-	}, nil
+	}
 }
 
 // logPprofRequests is a middleware that logs pprof requests.

@@ -14,9 +14,9 @@ import (
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/portset"
 	"github.com/database64128/shadowsocks-go/zerocopy"
+	"github.com/gaissmai/bart"
 	"github.com/oschwald/geoip2-golang/v2"
 	"go.uber.org/zap"
-	"go4.org/netipx"
 )
 
 // ErrRejected is a special error that indicates the request is rejected.
@@ -131,7 +131,7 @@ type RouteConfig struct {
 }
 
 // Route creates a route from the RouteConfig.
-func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]netio.StreamClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*netipx.IPSet) (Route, error) {
+func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]netio.StreamClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*bart.Lite) (Route, error) {
 	// Bad name.
 	switch rc.Name {
 	case "", "default":
@@ -254,10 +254,10 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 		var group CriterionGroupOR
 
 		if len(rc.FromPrefixes) > 0 || len(rc.FromPrefixSets) > 0 {
-			var sb netipx.IPSetBuilder
+			var sourcePrefixSet bart.Lite
 
 			for _, prefix := range rc.FromPrefixes {
-				sb.AddPrefix(prefix)
+				sourcePrefixSet.Insert(prefix)
 			}
 
 			for _, prefixSet := range rc.FromPrefixSets {
@@ -265,15 +265,10 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 				if !ok {
 					return Route{}, fmt.Errorf("prefix set not found: %s", prefixSet)
 				}
-				sb.AddSet(s)
+				sourcePrefixSet.Union(s)
 			}
 
-			sourceIPSet, err := sb.IPSet()
-			if err != nil {
-				return Route{}, fmt.Errorf("failed to build sourceIPSet: %w", err)
-			}
-
-			group.AddCriterion((*SourceIPCriterion)(sourceIPSet), rc.InvertFromPrefixes)
+			group.AddCriterion((*SourceIPCriterion)(&sourcePrefixSet), rc.InvertFromPrefixes)
 		}
 
 		if len(rc.FromGeoIPCountries) > 0 {
@@ -353,10 +348,10 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 				var expectedIPCriterionGroup CriterionGroupOR
 
 				if len(rc.ToMatchedDomainExpectedPrefixes) > 0 || len(rc.ToMatchedDomainExpectedPrefixSets) > 0 {
-					var sb netipx.IPSetBuilder
+					var expectedPrefixSet bart.Lite
 
 					for _, prefix := range rc.ToMatchedDomainExpectedPrefixes {
-						sb.AddPrefix(prefix)
+						expectedPrefixSet.Insert(prefix)
 					}
 
 					for _, prefixSet := range rc.ToMatchedDomainExpectedPrefixSets {
@@ -364,15 +359,10 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 						if !ok {
 							return Route{}, fmt.Errorf("prefix set not found: %s", prefixSet)
 						}
-						sb.AddSet(s)
+						expectedPrefixSet.Union(s)
 					}
 
-					expectedIPSet, err := sb.IPSet()
-					if err != nil {
-						return Route{}, fmt.Errorf("failed to build expectedIPSet: %w", err)
-					}
-
-					expectedIPCriterionGroup.AddCriterion(DestResolvedIPCriterion{expectedIPSet, resolvers}, rc.InvertToMatchedDomainExpectedPrefixes)
+					expectedIPCriterionGroup.AddCriterion(DestResolvedIPCriterion{&expectedPrefixSet, resolvers}, rc.InvertToMatchedDomainExpectedPrefixes)
 				}
 
 				if len(rc.ToMatchedDomainExpectedGeoIPCountries) > 0 {
@@ -391,10 +381,10 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 		}
 
 		if len(rc.ToPrefixes) > 0 || len(rc.ToPrefixSets) > 0 {
-			var sb netipx.IPSetBuilder
+			var destPrefixSet bart.Lite
 
 			for _, prefix := range rc.ToPrefixes {
-				sb.AddPrefix(prefix)
+				destPrefixSet.Insert(prefix)
 			}
 
 			for _, prefixSet := range rc.ToPrefixSets {
@@ -402,18 +392,13 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers
 				if !ok {
 					return Route{}, fmt.Errorf("prefix set not found: %s", prefixSet)
 				}
-				sb.AddSet(s)
-			}
-
-			destIPSet, err := sb.IPSet()
-			if err != nil {
-				return Route{}, fmt.Errorf("failed to build destIPSet: %w", err)
+				destPrefixSet.Union(s)
 			}
 
 			if rc.DisableNameResolutionForIPRules {
-				group.AddCriterion((*DestIPCriterion)(destIPSet), rc.InvertToPrefixes)
+				group.AddCriterion((*DestIPCriterion)(&destPrefixSet), rc.InvertToPrefixes)
 			} else {
-				group.AddCriterion(DestResolvedIPCriterion{destIPSet, resolvers}, rc.InvertToPrefixes)
+				group.AddCriterion(DestResolvedIPCriterion{&destPrefixSet, resolvers}, rc.InvertToPrefixes)
 			}
 		}
 
@@ -634,11 +619,11 @@ func (c *SourcePortSetCriterion) Meet(ctx context.Context, network protocol, req
 }
 
 // SourceIPCriterion restricts the source IP address.
-type SourceIPCriterion netipx.IPSet
+type SourceIPCriterion bart.Lite
 
 // Meet implements the Criterion Meet method.
 func (c *SourceIPCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
-	return (*netipx.IPSet)(c).Contains(requestInfo.SourceAddrPort.Addr().Unmap()), nil
+	return (*bart.Lite)(c).Contains(requestInfo.SourceAddrPort.Addr().Unmap()), nil
 }
 
 // SourceGeoIPCountryCriterion restricts the source IP address by GeoIP country.
@@ -704,28 +689,28 @@ func (c DestDomainExpectedIPCriterion) Meet(ctx context.Context, network protoco
 }
 
 // DestIPCriterion restricts the destination IP address.
-type DestIPCriterion netipx.IPSet
+type DestIPCriterion bart.Lite
 
 // Meet implements the Criterion Meet method.
 func (c *DestIPCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	if !requestInfo.TargetAddr.IsIP() {
 		return false, nil
 	}
-	return (*netipx.IPSet)(c).Contains(requestInfo.TargetAddr.IP().Unmap()), nil
+	return (*bart.Lite)(c).Contains(requestInfo.TargetAddr.IP().Unmap()), nil
 }
 
 // DestResolvedIPCriterion restricts the destination IP address or the destination domain's resolved IP address.
 type DestResolvedIPCriterion struct {
-	ipSet     *netipx.IPSet
+	prefixSet *bart.Lite
 	resolvers []dns.SimpleResolver
 }
 
 // Meet implements the Criterion Meet method.
 func (c DestResolvedIPCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	if requestInfo.TargetAddr.IsIP() {
-		return c.ipSet.Contains(requestInfo.TargetAddr.IP().Unmap()), nil
+		return c.prefixSet.Contains(requestInfo.TargetAddr.IP().Unmap()), nil
 	}
-	return matchDomainToIPSet(ctx, c.resolvers, requestInfo.TargetAddr.Domain(), c.ipSet)
+	return matchDomainToPrefixSet(ctx, c.resolvers, requestInfo.TargetAddr.Domain(), c.prefixSet)
 }
 
 // DestGeoIPCountryCriterion restricts the destination IP address by GeoIP country.
@@ -801,10 +786,10 @@ func matchDomainToGeoIPCountries(ctx context.Context, resolvers []dns.SimpleReso
 	return matchAddrToGeoIPCountries(countries, ip, geoip, logger)
 }
 
-func matchDomainToIPSet(ctx context.Context, resolvers []dns.SimpleResolver, domain string, ipSet *netipx.IPSet) (bool, error) {
+func matchDomainToPrefixSet(ctx context.Context, resolvers []dns.SimpleResolver, domain string, prefixSet *bart.Lite) (bool, error) {
 	ip, err := lookup(ctx, resolvers, domain)
 	if err != nil {
 		return false, err
 	}
-	return ipSet.Contains(ip.Unmap()), nil
+	return prefixSet.Contains(ip.Unmap()), nil
 }
