@@ -7,6 +7,8 @@ import (
 
 // SaltPool stores salts for [ReplayWindowDuration] to protect against replay attacks
 // during the replay window.
+//
+// The zero value is ready for use.
 type SaltPool struct {
 	mu         sync.RWMutex
 	nodeBySalt map[[32]byte]*saltNode
@@ -87,6 +89,9 @@ func (p *SaltPool) pruneExpired(now time.Time) {
 
 // insert adds the new salt to the pool.
 func (p *SaltPool) insert(now time.Time, salt [32]byte) {
+	if p.nodeBySalt == nil {
+		p.nodeBySalt = make(map[[32]byte]*saltNode)
+	}
 	node := &saltNode{
 		salt:      salt,
 		expiresAt: now.Add(ReplayWindowDuration),
@@ -98,11 +103,4 @@ func (p *SaltPool) insert(now time.Time, salt [32]byte) {
 		p.head = node
 	}
 	p.tail = node
-}
-
-// NewSaltPool returns a new salt pool.
-func NewSaltPool() *SaltPool {
-	return &SaltPool{
-		nodeBySalt: make(map[[32]byte]*saltNode),
-	}
 }

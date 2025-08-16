@@ -9,7 +9,7 @@ import (
 )
 
 func TestSaltPool(t *testing.T) {
-	pool := ss2022.NewSaltPool()
+	var pool ss2022.SaltPool
 	now := time.Now()
 	b := make([]byte, 64)
 	rand.Read(b)

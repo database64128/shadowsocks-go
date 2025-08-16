@@ -230,7 +230,6 @@ type StreamServerConfig struct {
 // NewStreamServer returns a new Shadowsocks 2022 stream server.
 func (c *StreamServerConfig) NewStreamServer() *StreamServer {
 	return &StreamServer{
-		saltPool:                   *NewSaltPool(),
 		readOnceOrFull:             readOnceOrFullFunc(c.AllowSegmentedFixedLengthHeader),
 		userCipherConfig:           c.UserCipherConfig,
 		identityCipherConfig:       c.IdentityCipherConfig,
