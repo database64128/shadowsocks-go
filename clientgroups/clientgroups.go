@@ -175,13 +175,9 @@ type roundRobinClientSelector[C any] struct {
 	index   atomic.Uintptr
 }
 
-// newRoundRobinClientSelector returns a new round-robin client selector.
-func newRoundRobinClientSelector[C any](clients []C) *roundRobinClientSelector[C] {
-	g := roundRobinClientSelector[C]{
-		clients: clients,
-	}
-	g.index.Store(^uintptr(0))
-	return &g
+func (s *roundRobinClientSelector[C]) init(clients []C) {
+	s.clients = clients
+	s.index.Store(^uintptr(0))
 }
 
 // Select selects a client in a round-robin fashion.
@@ -199,9 +195,9 @@ type roundRobinTCPClientGroup struct {
 
 // newRoundRobinTCPClientGroup returns a new round-robin TCP client group.
 func newRoundRobinTCPClientGroup(clients []tcpClient) *roundRobinTCPClientGroup {
-	return &roundRobinTCPClientGroup{
-		selector: *newRoundRobinClientSelector(clients),
-	}
+	var g roundRobinTCPClientGroup
+	g.selector.init(clients)
+	return &g
 }
 
 // NewStreamDialer implements [netio.StreamClient.NewStreamDialer].
@@ -224,10 +220,10 @@ type roundRobinUDPClientGroup struct {
 
 // newRoundRobinUDPClientGroup returns a new round-robin UDP client group.
 func newRoundRobinUDPClientGroup(clients []zerocopy.UDPClient, info zerocopy.UDPClientInfo) *roundRobinUDPClientGroup {
-	return &roundRobinUDPClientGroup{
-		selector: *newRoundRobinClientSelector(clients),
-		info:     info,
-	}
+	var g roundRobinUDPClientGroup
+	g.selector.init(clients)
+	g.info = info
+	return &g
 }
 
 // Info implements [zerocopy.UDPClient.Info].
@@ -245,13 +241,6 @@ type randomClientSelector[C any] struct {
 	clients []C
 }
 
-// newRandomClientSelector returns a new random client selector.
-func newRandomClientSelector[C any](clients []C) *randomClientSelector[C] {
-	return &randomClientSelector[C]{
-		clients: clients,
-	}
-}
-
 // Select selects a client randomly.
 func (s *randomClientSelector[C]) Select() C {
 	return s.clients[rand.IntN(len(s.clients))]
@@ -267,7 +256,9 @@ type randomTCPClientGroup struct {
 // newRandomTCPClientGroup returns a new random TCP client group.
 func newRandomTCPClientGroup(clients []tcpClient) *randomTCPClientGroup {
 	return &randomTCPClientGroup{
-		selector: *newRandomClientSelector(clients),
+		selector: randomClientSelector[tcpClient]{
+			clients: clients,
+		},
 	}
 }
 
@@ -292,8 +283,10 @@ type randomUDPClientGroup struct {
 // newRandomUDPClientGroup returns a new random UDP client group.
 func newRandomUDPClientGroup(clients []zerocopy.UDPClient, info zerocopy.UDPClientInfo) *randomUDPClientGroup {
 	return &randomUDPClientGroup{
-		selector: *newRandomClientSelector(clients),
-		info:     info,
+		selector: randomClientSelector[zerocopy.UDPClient]{
+			clients: clients,
+		},
+		info: info,
 	}
 }
 

@@ -131,9 +131,8 @@ func (c *TCPConnectivityProbeConfig) newAtomicClientGroup(
 	clients []tcpClient,
 	start func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[tcpClient], pc probeConfig[tcpClient]) error,
 ) (*atomicTCPClientGroup, *ProbeService[tcpClient]) {
-	g := &atomicTCPClientGroup{
-		selector: *newAtomicClientSelector(&clients[0]),
-	}
+	var g atomicTCPClientGroup
+	g.selector.init(&clients[0])
 	pc := c.newProbeConfig(clients)
 	logger = logger.With(
 		zap.String("clientGroup", name),
@@ -145,7 +144,7 @@ func (c *TCPConnectivityProbeConfig) newAtomicClientGroup(
 		zap.Int("concurrency", pc.concurrency),
 		zap.Int("clients", len(pc.clients)),
 	)
-	return g, NewProbeService(zap.String("clientGroupTCPProbe", name), logger, &g.selector, pc, start)
+	return &g, NewProbeService(zap.String("clientGroupTCPProbe", name), logger, &g.selector, pc, start)
 }
 
 func (c *TCPConnectivityProbeConfig) newProbeConfig(clients []tcpClient) probeConfig[tcpClient] {
@@ -240,10 +239,9 @@ func (c *UDPConnectivityProbeConfig) newAtomicClientGroup(
 	info zerocopy.UDPClientInfo,
 	start func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error,
 ) (*atomicUDPClientGroup, *ProbeService[zerocopy.UDPClient]) {
-	g := &atomicUDPClientGroup{
-		selector: *newAtomicClientSelector(&clients[0]),
-		info:     info,
-	}
+	var g atomicUDPClientGroup
+	g.selector.init(&clients[0])
+	g.info = info
 	pc := c.newProbeConfig(logger, clients)
 	logger = logger.With(
 		zap.String("clientGroup", name),
@@ -253,7 +251,7 @@ func (c *UDPConnectivityProbeConfig) newAtomicClientGroup(
 		zap.Int("concurrency", pc.concurrency),
 		zap.Int("clients", len(pc.clients)),
 	)
-	return g, NewProbeService(zap.String("clientGroupUDPProbe", name), logger, &g.selector, pc, start)
+	return &g, NewProbeService(zap.String("clientGroupUDPProbe", name), logger, &g.selector, pc, start)
 }
 
 func (c *UDPConnectivityProbeConfig) newProbeConfig(logger *zap.Logger, clients []zerocopy.UDPClient) probeConfig[zerocopy.UDPClient] {
@@ -336,11 +334,8 @@ type atomicClientSelector[C any] struct {
 	selected atomic.Pointer[C]
 }
 
-// newAtomicClientSelector returns a new atomic client selector.
-func newAtomicClientSelector[C any](initialClient *C) *atomicClientSelector[C] {
-	var s atomicClientSelector[C]
+func (s *atomicClientSelector[C]) init(initialClient *C) {
 	s.selected.Store(initialClient)
-	return &s
 }
 
 // Select returns the selected client.
