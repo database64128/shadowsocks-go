@@ -348,9 +348,7 @@ func (c *DomainCache) ConnAddrFromSlice(b []byte) (conn.Addr, int, error) {
 		domainBytes := b[2:domainEnd]
 		entry, ok := c.handleByDomain.GetEntry(string(domainBytes))
 		if !ok {
-			// Unsafe is required for Go 1.24 and earlier to avoid allocating on lookup.
-			// Drop unsafe when we upgrade to Go 1.25.
-			handle := unique.Make(unsafe.String(unsafe.SliceData(domainBytes), len(domainBytes)))
+			handle := unique.Make(string(domainBytes))
 			domain = handle.Value()
 			c.handleByDomain.InsertUnchecked(domain, handle)
 		} else {

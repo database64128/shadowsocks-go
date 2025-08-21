@@ -144,26 +144,18 @@ func testStreamClientError(
 		cerr, serr error
 	)
 
-	wg.Add(3)
-
-	go func() {
-		defer func() {
-			_ = pl.Close()
-			wg.Done()
-		}()
+	wg.Go(func() {
+		defer pl.Close()
 
 		if len(clientAuthMsg) == 0 {
 			cerr = ClientConnect(pl, clientTargetAddr)
 		} else {
 			cerr = ClientConnectUsernamePassword(pl, clientAuthMsg, clientTargetAddr)
 		}
-	}()
+	})
 
-	go func() {
-		defer func() {
-			_ = pr.CloseRead()
-			wg.Done()
-		}()
+	wg.Go(func() {
+		defer pr.CloseRead()
 
 		b := make([]byte, 1024)
 
@@ -179,20 +171,17 @@ func testStreamClientError(
 				t.Errorf("req = %v, want %v", req, expectedReq)
 			}
 		}
-	}()
+	})
 
-	go func() {
-		defer func() {
-			_ = pr.CloseWrite()
-			wg.Done()
-		}()
+	wg.Go(func() {
+		defer pr.CloseWrite()
 
 		for _, msg := range serverMsgs {
 			if _, serr = pr.Write(msg); serr != nil {
 				return
 			}
 		}
-	}()
+	})
 
 	wg.Wait()
 
@@ -519,26 +508,18 @@ func testStreamServerError(
 		cerr, serr error
 	)
 
-	wg.Add(3)
-
-	go func() {
-		defer func() {
-			_ = pl.CloseWrite()
-			wg.Done()
-		}()
+	wg.Go(func() {
+		defer pl.CloseWrite()
 
 		for _, msg := range clientMsgs {
 			if _, cerr = pl.Write(msg); cerr != nil {
 				return
 			}
 		}
-	}()
+	})
 
-	go func() {
-		defer func() {
-			_ = pl.CloseRead()
-			wg.Done()
-		}()
+	wg.Go(func() {
+		defer pl.CloseRead()
 
 		b := make([]byte, 1024)
 
@@ -554,20 +535,17 @@ func testStreamServerError(
 				t.Errorf("resp = %v, want %v", resp, expectedResp)
 			}
 		}
-	}()
+	})
 
-	go func() {
-		defer func() {
-			_ = pr.Close()
-			wg.Done()
-		}()
+	wg.Go(func() {
+		defer pr.Close()
 
 		if serverUserInfoByUsername == nil {
 			_, _, serr = ServerAccept(pr, logger, serverEnableTCP, serverEnableUDP)
 		} else {
 			_, _, _, serr = ServerAcceptUsernamePassword(pr, logger, serverUserInfoByUsername, serverEnableTCP, serverEnableUDP)
 		}
-	}()
+	})
 
 	wg.Wait()
 

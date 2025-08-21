@@ -148,11 +148,9 @@ func (s *ManagedServer) dequeueSave(ctx context.Context) {
 
 // Start starts the managed server.
 func (s *ManagedServer) Start(ctx context.Context) {
-	s.wg.Add(1)
-	go func() {
+	s.wg.Go(func() {
 		s.dequeueSave(ctx)
-		s.wg.Done()
-	}()
+	})
 }
 
 // Stop stops the managed server.

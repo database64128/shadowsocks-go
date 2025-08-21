@@ -88,9 +88,7 @@ func TestPipeWriteTo(t *testing.T) {
 
 			var wg sync.WaitGroup
 			defer wg.Wait()
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				if _, err := c1.Write(c.payload[0]); err != nil {
 					t.Errorf("c1.Write(c.payload[0]) failed: %v", err)
 					return
@@ -121,7 +119,7 @@ func TestPipeWriteTo(t *testing.T) {
 					t.Errorf("c1.CloseWrite() failed: %v", err)
 					return
 				}
-			}()
+			})
 
 			var buf bytes.Buffer
 			buf.Grow(len(c.expectedBytes))
@@ -154,17 +152,14 @@ func TestPipeCloseRead(t *testing.T) {
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		readHelloWorld(t, c2)
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		if _, err := c2.Write(nil); err != io.ErrClosedPipe {
 			t.Errorf("c2.Write() = %v, want io.ErrClosedPipe", err)
 		}
-	}()
+	})
 
 	if err := c1.CloseRead(); err != nil {
 		t.Errorf("c1.CloseRead() = %v, want nil", err)
@@ -185,19 +180,16 @@ func TestPipeCloseWrite(t *testing.T) {
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if _, err := c2.Read(nil); err != io.EOF {
 			t.Errorf("c2.Read() = %v, want io.EOF", err)
 		}
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		if _, err := c2.Write([]byte("Hello, world!")); err != nil {
 			t.Errorf("c2.Write() = %v, want nil", err)
 		}
-	}()
+	})
 
 	if err := c1.CloseWrite(); err != nil {
 		t.Errorf("c1.CloseWrite() = %v, want nil", err)

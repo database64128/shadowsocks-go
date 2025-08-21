@@ -40,12 +40,10 @@ func BidirectionalCopy(left, right ReadWriter) (nl2r, nr2l int64, err error) {
 		l2rErr error
 	)
 
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		nl2r, l2rErr = io.Copy(right, left)
 		_ = right.CloseWrite()
-		wg.Done()
-	}()
+	})
 
 	nr2l, err = io.Copy(left, right)
 	_ = left.CloseWrite()

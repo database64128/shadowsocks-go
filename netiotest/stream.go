@@ -474,7 +474,6 @@ func testConnPairRoundTrip(t *testing.T, copySize int, c1, c2 netio.Conn) {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(4)
 
 	readFunc := func(name string, c netio.Conn) {
 		var buf bytes.Buffer
@@ -486,10 +485,9 @@ func testConnPairRoundTrip(t *testing.T, copySize int, c1, c2 netio.Conn) {
 		if got := buf.Bytes(); !bytes.Equal(got, want) {
 			t.Error("got != want")
 		}
-		wg.Done()
 	}
-	go readFunc("c1", c1)
-	go readFunc("c2", c2)
+	wg.Go(func() { readFunc("c1", c1) })
+	wg.Go(func() { readFunc("c2", c2) })
 
 	writeFunc := func(name string, c netio.Conn) {
 		r := hideReaderWriteTo(bytes.NewReader(want))
@@ -497,10 +495,9 @@ func testConnPairRoundTrip(t *testing.T, copySize int, c1, c2 netio.Conn) {
 			t.Errorf("Copy %s <- r failed: %v", name, err)
 		}
 		_ = c.CloseWrite()
-		wg.Done()
 	}
-	go writeFunc("c1", c1)
-	go writeFunc("c2", c2)
+	wg.Go(func() { writeFunc("c1", c1) })
+	wg.Go(func() { writeFunc("c2", c2) })
 
 	wg.Wait()
 
@@ -515,15 +512,13 @@ func testConnPairRoundTripBidirectionalCopy(
 	bidirectionalCopy func(left, right netio.ReadWriter) (nl2r, nr2l int64, err error),
 ) {
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		if _, _, err := bidirectionalCopy(c3, c4); err != nil {
 			t.Errorf("Bidirectional copy c3 <-> c4 failed: %v", err)
 		}
 		_ = c3.Close()
 		_ = c4.Close()
-		wg.Done()
-	}()
+	})
 	testConnPairRoundTrip(t, copySize, c1, c2)
 	wg.Wait()
 }
@@ -535,7 +530,6 @@ func testConnPairRoundTripInterleaveReadWriteToWriteReadFrom(t *testing.T, copyS
 	rand.Read(want)
 
 	var wg sync.WaitGroup
-	wg.Add(4)
 
 	// Read the first half, then WriteTo the second half.
 	readFunc := func(name string, c netio.Conn) {
@@ -555,10 +549,9 @@ func testConnPairRoundTripInterleaveReadWriteToWriteReadFrom(t *testing.T, copyS
 		if got2 := buf.Bytes(); !bytes.Equal(got2, want[len(got1):]) {
 			t.Error("got2 != want2")
 		}
-		wg.Done()
 	}
-	go readFunc("c1", c1)
-	go readFunc("c2", c2)
+	wg.Go(func() { readFunc("c1", c1) })
+	wg.Go(func() { readFunc("c2", c2) })
 
 	// Interleave Write and ReadFrom, each writing copySize bytes.
 	writeFunc := func(name string, c netio.Conn) {
@@ -577,10 +570,9 @@ func testConnPairRoundTripInterleaveReadWriteToWriteReadFrom(t *testing.T, copyS
 			}
 		}
 		_ = c.CloseWrite()
-		wg.Done()
 	}
-	go writeFunc("c1", c1)
-	go writeFunc("c2", c2)
+	wg.Go(func() { writeFunc("c1", c1) })
+	wg.Go(func() { writeFunc("c2", c2) })
 
 	wg.Wait()
 
@@ -594,12 +586,10 @@ func bidirectionalCopyNoWriteTo(left, right netio.ReadWriter) (nl2r, nr2l int64,
 		l2rErr error
 	)
 
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		nl2r, l2rErr = copyNoWriteTo(right, left)
 		_ = right.CloseWrite()
-		wg.Done()
-	}()
+	})
 
 	nr2l, err = copyNoWriteTo(left, right)
 	_ = left.CloseWrite()
@@ -954,10 +944,7 @@ func BenchmarkStreamClientDialServerHandle(
 	go func() {
 		var wg sync.WaitGroup
 		for pc := range ch {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-
+			wg.Go(func() {
 				req, err := server.HandleStream(pc, logger)
 				if err != nil {
 					b.Errorf("server.HandleStream failed: %v", err)
@@ -976,7 +963,7 @@ func BenchmarkStreamClientDialServerHandle(
 				}
 
 				_ = serverConn.Close()
-			}()
+			})
 		}
 		wg.Wait()
 	}()

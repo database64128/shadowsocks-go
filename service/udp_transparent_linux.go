@@ -143,12 +143,9 @@ func (s *UDPTransparentRelay) Start(ctx context.Context) error {
 			zap.String("listenAddress", lnc.address),
 		)
 
-		s.mwg.Add(1)
-
-		go func() {
+		s.mwg.Go(func() {
 			s.recvFromServerConnRecvmmsg(ctx, lnc, serverConn.NewRConn())
-			s.mwg.Done()
-		}()
+		})
 
 		lnc.logger.Info("Started UDP transparent relay service listener")
 	}
@@ -266,9 +263,8 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 					logger:        lnc.logger,
 				}
 				s.table[clientAddrPort] = entry
-				s.wg.Add(1)
 
-				go func() {
+				s.wg.Go(func() {
 					var sendChClean bool
 
 					defer func() {
@@ -282,8 +278,6 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 								s.putQueuedPacket(queuedPacket)
 							}
 						}
-
-						s.wg.Done()
 					}()
 
 					c, err := s.router.GetUDPClient(ctx, router.RequestInfo{
@@ -352,9 +346,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 						zap.String("client", clientInfo.Name),
 					)
 
-					s.wg.Add(1)
-
-					go func() {
+					s.wg.Go(func() {
 						s.relayServerConnToNatConnSendmmsg(ctx, transparentUplink{
 							clientName:     clientInfo.Name,
 							clientAddrPort: clientAddrPort,
@@ -367,8 +359,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 						})
 						natConn.Close()
 						clientSession.Close()
-						s.wg.Done()
-					}()
+					})
 
 					s.relayNatConnToTransparentConnSendmmsg(ctx, transparentDownlink{
 						clientName:         clientInfo.Name,
@@ -379,7 +370,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 						relayBatchSize:     lnc.relayBatchSize,
 						logger:             lnc.logger,
 					})
-				}()
+				})
 
 				if ce := lnc.logger.Check(zap.DebugLevel, "New UDP transparent session"); ce != nil {
 					ce.Write(

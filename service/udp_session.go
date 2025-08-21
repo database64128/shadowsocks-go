@@ -165,12 +165,9 @@ func (s *UDPSessionRelay) startGeneric(ctx context.Context, index int, lnc *udpR
 		zap.String("listenAddress", lnc.address),
 	)
 
-	s.mwg.Add(1)
-
-	go func() {
+	s.mwg.Go(func() {
 		s.recvFromServerConnGeneric(ctx, lnc)
-		s.mwg.Done()
-	}()
+	})
 
 	lnc.logger.Info("Started UDP session relay service listener")
 	return
@@ -326,9 +323,8 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 			natConnSendCh := make(chan *sessionQueuedPacket, lnc.sendChannelCapacity)
 			entry.natConnSendCh = natConnSendCh
 			s.table[csid] = entry
-			s.wg.Add(1)
 
-			go func() {
+			s.wg.Go(func() {
 				var sendChClean bool
 
 				defer func() {
@@ -342,8 +338,6 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 							s.putQueuedPacket(queuedPacket)
 						}
 					}
-
-					s.wg.Done()
 				}()
 
 				c, err := s.router.GetUDPClient(ctx, router.RequestInfo{
@@ -438,9 +432,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 					zap.String("client", clientInfo.Name),
 				)
 
-				s.wg.Add(1)
-
-				go func() {
+				s.wg.Go(func() {
 					s.relayServerConnToNatConnGeneric(ctx, sessionUplinkGeneric{
 						csid:          csid,
 						clientName:    clientInfo.Name,
@@ -453,8 +445,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 					})
 					natConn.Close()
 					clientSession.Close()
-					s.wg.Done()
-				}()
+				})
 
 				s.relayNatConnToServerConnGeneric(sessionDownlinkGeneric{
 					csid:               csid,
@@ -469,7 +460,7 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 					username:           entry.username,
 					logger:             lnc.logger,
 				})
-			}()
+			})
 
 			if ce := lnc.logger.Check(zap.DebugLevel, "New UDP session"); ce != nil {
 				ce.Write(

@@ -16,7 +16,6 @@ const (
 	mtu        = 1500
 	packetSize = 1452
 	payloadLen = 1280
-	fwmark     = 10240
 )
 
 // UDP jumbograms.

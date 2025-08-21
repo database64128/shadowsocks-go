@@ -148,13 +148,13 @@ func testAdd(t *testing.T, f *SlidingWindowFilter) {
 func testReset(t *testing.T, f *SlidingWindowFilter) {
 	n := f.Size() * 2
 
-	for i := uint64(0); i < n; i++ {
+	for i := range n {
 		f.MustAdd(i)
 	}
 
 	f.Reset()
 
-	for i := uint64(0); i < n; i++ {
+	for i := range n {
 		if !f.IsOk(i) {
 			t.Error(i, "should be ok.")
 		}

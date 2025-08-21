@@ -133,20 +133,16 @@ func TestStreamClientServerBasicAuthBadCredentials(t *testing.T) {
 		serr error
 	)
 
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for i, clientProxyAuthHeader := range clientProxyAuthHeaders {
 			_, clientErrors[i] = ClientConnect(pl, clientTargetAddr, clientProxyAuthHeader)
 		}
 		_ = pl.CloseWrite()
-	}()
+	})
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_, _, _, serr = ServerHandle(pr, logger, map[string]string{"QWxhZGRpbjpvcGVuIHNlc2FtZQ==": "Aladdin"})
-	}()
+	})
 
 	wg.Wait()
 
@@ -183,11 +179,9 @@ func TestHttpStreamClientReadWriterServerSpeaksFirst(t *testing.T) {
 	)
 
 	// Start client.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		clientConn, clientErr = ClientConnect(pl, clientTargetAddr, "")
-	}()
+	})
 
 	// Read and verify client request.
 	b := make([]byte, 1024)
@@ -228,12 +222,10 @@ func TestHttpStreamClientReadWriterServerSpeaksFirst(t *testing.T) {
 	const clientPayload = "Hear! Hear!"
 
 	// Write client payload.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_, clientErr = clientConn.Write([]byte(clientPayload))
 		_ = clientConn.CloseWrite()
-	}()
+	})
 
 	// Read from server and verify.
 	b = b[:1024]

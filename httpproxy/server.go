@@ -187,14 +187,11 @@ func (c serverNonConnectPendingConn) Proceed() (netio.Conn, error) {
 		respDone := make(chan struct{})
 
 		var wg sync.WaitGroup
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			err := serverForwardRequests(c.req, reqCh, respDone, plbw, c.rwbr, c.logger)
 			pl.CloseWriteWithError(err)
 			close(reqCh)
-		}()
+		})
 
 		err := serverForwardResponses(reqCh, plbr, c.rw, rwbw, rwbwpcw, c.logger)
 		pl.CloseReadWithError(err)
