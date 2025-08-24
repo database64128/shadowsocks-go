@@ -77,7 +77,7 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, res
 			}
 		}()
 
-		geoip, err = geoip2.FromBytes(data)
+		geoip, err = geoip2.OpenBytes(data)
 		if err != nil {
 			return nil, err
 		}
