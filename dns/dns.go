@@ -344,10 +344,10 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 	}
 	defer udpConn.Close()
 
-	go func() {
-		<-ctx.Done()
-		udpConn.SetReadDeadline(conn.ALongTimeAgo)
-	}()
+	stop := context.AfterFunc(ctx, func() {
+		_ = udpConn.SetReadDeadline(conn.ALongTimeAgo)
+	})
+	defer stop()
 
 	// Spin up senders.
 	// Each sender will keep sending at 2s intervals until
@@ -512,7 +512,6 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 
 	dialer, clientInfo := r.tcpClient.NewStreamDialer()
 
-	// Write.
 	c, err := dialer.DialStream(ctx, r.serverAddr, queries)
 	if err != nil {
 		r.logger.Warn("Failed to dial TCP DNS server",
@@ -526,13 +525,11 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 	}
 	defer c.Close()
 
-	// Set read deadline.
-	go func() {
-		<-ctx.Done()
+	stop := context.AfterFunc(ctx, func() {
 		_ = c.SetReadDeadline(conn.ALongTimeAgo)
-	}()
+	})
+	defer stop()
 
-	// Read.
 	lengthBuf := make([]byte, 2)
 
 	for range 2 {

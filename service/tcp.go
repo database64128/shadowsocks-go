@@ -96,9 +96,7 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 			zap.String("listenAddress", lnc.address),
 		)
 
-		s.acceptWg.Add(1)
-
-		go func() {
+		s.acceptWg.Go(func() {
 			for {
 				clientConn, err := lnc.listener.AcceptTCP()
 				if err != nil {
@@ -111,9 +109,7 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 
 				go s.handleConn(ctx, lnc, clientConn)
 			}
-
-			s.acceptWg.Done()
-		}()
+		})
 
 		lnc.logger.Info("Started TCP relay service listener")
 	}

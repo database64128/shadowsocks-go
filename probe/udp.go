@@ -40,9 +40,6 @@ type UDPProbe struct {
 
 // Probe runs the connectivity test.
 func (p UDPProbe) Probe(ctx context.Context, client zerocopy.UDPClient) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	sessionInfo, session, err := client.NewSession(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create client session: %w", err)
@@ -55,10 +52,10 @@ func (p UDPProbe) Probe(ctx context.Context, client zerocopy.UDPClient) error {
 	}
 	defer uc.Close()
 
-	go func() {
-		<-ctx.Done()
+	stop := context.AfterFunc(ctx, func() {
 		_ = uc.SetReadDeadline(conn.ALongTimeAgo)
-	}()
+	})
+	defer stop()
 
 	b := make([]byte, session.MaxPacketSize)
 

@@ -39,19 +39,16 @@ type TCPProbe struct {
 
 // Probe runs the connectivity test.
 func (p TCPProbe) Probe(ctx context.Context, client netio.StreamClient) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	c, err := client.DialStream(ctx, p.addr, p.req)
 	if err != nil {
 		return fmt.Errorf("failed to create remote connection: %w", err)
 	}
 	defer c.Close()
 
-	go func() {
-		<-ctx.Done()
+	stop := context.AfterFunc(ctx, func() {
 		_ = c.SetReadDeadline(conn.ALongTimeAgo)
-	}()
+	})
+	defer stop()
 
 	br := bufio.NewReader(c)
 

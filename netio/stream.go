@@ -64,28 +64,14 @@ type Conn interface {
 // If ctx can be canceled, an interruptor goroutine is spun up to cancel the write operation
 // when ctx is done.
 func ConnWriteContextFunc(ctx context.Context, c Conn, f func(Conn) error) (err error) {
-	if ctxDone := ctx.Done(); ctxDone != nil {
-		done := make(chan struct{})
-		interruptRes := make(chan error)
-
-		defer func() {
-			close(done)
-			if ctxErr := <-interruptRes; ctxErr != nil && err == nil {
-				err = ctxErr
-			}
-		}()
-
-		go func() {
-			select {
-			case <-ctxDone:
-				c.SetWriteDeadline(conn.ALongTimeAgo)
-				interruptRes <- ctx.Err()
-			case <-done:
-				interruptRes <- nil
-			}
-		}()
-	}
-
+	stop := context.AfterFunc(ctx, func() {
+		_ = c.SetWriteDeadline(conn.ALongTimeAgo)
+	})
+	defer func() {
+		if !stop() && err == nil {
+			err = ctx.Err()
+		}
+	}()
 	return f(c)
 }
 
