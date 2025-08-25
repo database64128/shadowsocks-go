@@ -1,7 +1,7 @@
-github.com/database64128/netx-go v0.1.0 h1:4Dgaq1QFBSJWQNH2ACj7SL2slJFlAAbEMJOk9YIGgMA=
-github.com/database64128/netx-go v0.1.0/go.mod h1:ywpvlFnZeN8/9s7tqGvoI+9zSryHBEKPf0FfSsj0H+Y=
-github.com/database64128/tfo-go/v2 v2.3.0 h1:yobIlACG0wZMKSOYYFLP9mWjarG1nHB6LgvMIPJ5KBo=
-github.com/database64128/tfo-go/v2 v2.3.0/go.mod h1:P0mrA11nut9ngh8SiKSIkjW29PCGKgDlXehh+lhJCyM=
+github.com/database64128/netx-go v0.1.1 h1:dT5LG7Gs7zFZBthFBbzWE6K8wAHjSNAaK7wCYZT7NzM=
+github.com/database64128/netx-go v0.1.1/go.mod h1:LNlYVipaYkQArRFDNNJ02VkNV+My9A5XR/IGS7sIBQc=
+github.com/database64128/tfo-go/v2 v2.3.1 h1:EGE+ELd5/AQ0X6YBlQ9RgKs8+kciNhgN3d8lRvfEJQw=
+github.com/database64128/tfo-go/v2 v2.3.1/go.mod h1:k9wcpg/8i5zenspBkc9jUEYehpZZccBnCElzOJB++bU=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/gaissmai/bart v0.24.0 h1:HOq5aXDBa4d376KkuxD+xnS9DQWWJtD4zgDNoGV0KrQ=
