@@ -264,7 +264,7 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 
 	// Try UDP first if available.
 	if r.udpClient != nil {
-		result = r.sendQueriesUDP(ctx, nameString, q4Pkt, q6Pkt)
+		r.sendQueriesUDP(ctx, nameString, q4Pkt, q6Pkt, &result)
 
 		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup sent queries via UDP"); ce != nil {
 			ce.Write(
@@ -286,7 +286,7 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 		binary.BigEndian.PutUint16(q4LenBuf, uint16(len(q4Pkt)))
 		binary.BigEndian.PutUint16(q6LenBuf, uint16(len(q6Pkt)))
 
-		result = r.sendQueriesTCP(ctx, nameString, qBuf[:q6PktEnd])
+		r.sendQueriesTCP(ctx, nameString, qBuf[:q6PktEnd], q4PktEnd, &result)
 
 		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup sent queries via TCP"); ce != nil {
 			ce.Write(
@@ -316,7 +316,7 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 }
 
 // sendQueriesUDP sends queries using the resolver's UDP client and returns the result and whether the lookup was successful.
-func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt, q6Pkt []byte) (result Result) {
+func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt, q6Pkt []byte, result *Result) {
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()
 
@@ -463,7 +463,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 		}
 		msg := recvBuf[payloadStart : payloadStart+payloadLength]
 
-		header, err := result.parseMsg(msg)
+		header, err := result.parseMsg(msg, true)
 		if err != nil {
 			r.logger.Warn("Failed to parse UDP DNS response",
 				zap.String("resolver", r.name),
@@ -485,7 +485,6 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 				)
 			}
 			// Immediately fall back to TCP.
-			result.clearDone()
 			break
 		}
 
@@ -501,17 +500,36 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 			cancel6()
 		}
 	}
-
-	return
 }
 
 // sendQueriesTCP sends queries using the resolver's TCP client and returns the result and whether the lookup was successful.
-func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, queries []byte) (result Result) {
+func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, queries []byte, q4PktEnd int, result *Result) {
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()
 
 	dialer, clientInfo := r.tcpClient.NewStreamDialer()
 
+	// Retry unanswered queries.
+	for !result.isDone() {
+		b := queries
+		switch {
+		case result.v4done:
+			b = b[q4PktEnd:]
+		case result.v6done:
+			b = b[:q4PktEnd]
+		}
+		r.doTCP(ctx, dialer, clientInfo, nameString, b, result)
+	}
+}
+
+func (r *Resolver) doTCP(
+	ctx context.Context,
+	dialer netio.StreamDialer,
+	clientInfo netio.StreamDialerInfo,
+	nameString string,
+	queries []byte,
+	result *Result,
+) {
 	c, err := dialer.DialStream(ctx, r.serverAddr, queries)
 	if err != nil {
 		r.logger.Warn("Failed to dial TCP DNS server",
@@ -532,10 +550,13 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 
 	lengthBuf := make([]byte, 2)
 
-	for range 2 {
+	for {
 		// Read length field.
 		_, err = io.ReadFull(c, lengthBuf)
 		if err != nil {
+			if err == io.EOF {
+				return
+			}
 			r.logger.Warn("Failed to read TCP DNS response length",
 				zap.String("resolver", r.name),
 				zap.String("client", clientInfo.Name),
@@ -571,7 +592,7 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 			return
 		}
 
-		header, err := result.parseMsg(msg)
+		header, err := result.parseMsg(msg, false)
 		if err != nil {
 			r.logger.Warn("Failed to parse TCP DNS response",
 				zap.String("resolver", r.name),
@@ -595,12 +616,14 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 			// TCP DNS responses exceeding 65535 bytes are truncated.
 			// Use the truncated response like how Go std & the glibc resolver do.
 		}
-	}
 
-	return
+		if result.isDone() {
+			break
+		}
+	}
 }
 
-func (r *Result) parseMsg(msg []byte) (dnsmessage.Header, error) {
+func (r *Result) parseMsg(msg []byte, isUDP bool) (dnsmessage.Header, error) {
 	var parser dnsmessage.Parser
 
 	// Parse header.
@@ -688,11 +711,13 @@ func (r *Result) parseMsg(msg []byte) (dnsmessage.Header, error) {
 	}
 
 	// Mark v4 or v6 as done.
-	switch header.ID {
-	case 4:
-		r.v4done = true
-	case 6:
-		r.v6done = true
+	if !header.Truncated || !isUDP {
+		switch header.ID {
+		case 4:
+			r.v4done = true
+		case 6:
+			r.v6done = true
+		}
 	}
 
 	return header, nil
@@ -700,11 +725,6 @@ func (r *Result) parseMsg(msg []byte) (dnsmessage.Header, error) {
 
 func (r *Result) isDone() bool {
 	return r.v4done && r.v6done
-}
-
-func (r *Result) clearDone() {
-	r.v4done = false
-	r.v6done = false
 }
 
 // HasExpired returns true if the result's TTL has expired.
