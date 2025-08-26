@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net"
 	"net/netip"
 	"os"
@@ -120,14 +121,24 @@ func (rc *ResolverConfig) NewSimpleResolver(tcpClientMap map[string]netio.Stream
 
 // Result represents the result of name resolution.
 type Result struct {
-	IPv4 []netip.Addr
-	IPv6 []netip.Addr
+	a         []netip.Addr
+	aaaa      []netip.Addr
+	expiresAt time.Time
+}
 
-	// TTL is the minimum TTL of A and AAAA RRs.
-	TTL time.Time
+// A returns an iterator over the IPv4 addresses in the result.
+func (r *Result) A() iter.Seq[netip.Addr] {
+	return slices.Values(r.a)
+}
 
-	v4done bool
-	v6done bool
+// AAAA returns an iterator over the IPv6 addresses in the result.
+func (r *Result) AAAA() iter.Seq[netip.Addr] {
+	return slices.Values(r.aaaa)
+}
+
+// HasExpired returns true if the result's TTL has expired.
+func (r *Result) HasExpired() bool {
+	return r.expiresAt.Before(time.Now())
 }
 
 type Resolver struct {
@@ -168,7 +179,8 @@ func NewResolver(name string, cacheSize int, serverAddrPort netip.AddrPort, tcpC
 	}
 }
 
-func (r *Resolver) lookup(ctx context.Context, name string) (Result, error) {
+// Lookup looks up name's A and AAAA records and returns the result.
+func (r *Resolver) Lookup(ctx context.Context, name string) (Result, error) {
 	// Lookup cache first.
 	r.mu.Lock()
 	result, ok := r.cache.Get(name)
@@ -179,9 +191,9 @@ func (r *Resolver) lookup(ctx context.Context, name string) (Result, error) {
 			ce.Write(
 				zap.String("resolver", r.name),
 				zap.String("name", name),
-				zap.Time("ttl", result.TTL),
-				zap.Stringers("v4", result.IPv4),
-				zap.Stringers("v6", result.IPv6),
+				zap.Time("ttl", result.expiresAt),
+				zap.Stringers("v4", result.a),
+				zap.Stringers("v6", result.aaaa),
 			)
 		}
 		return result, nil
@@ -191,10 +203,10 @@ func (r *Resolver) lookup(ctx context.Context, name string) (Result, error) {
 	return r.sendQueries(ctx, name)
 }
 
-func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result Result, err error) {
+func (r *Resolver) sendQueries(ctx context.Context, nameString string) (Result, error) {
 	name, err := dnsmessage.NewName(nameString + ".")
 	if err != nil {
-		return
+		return Result{}, err
 	}
 
 	var (
@@ -202,9 +214,8 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 		rb dnsmessage.OPTResource
 	)
 
-	err = rh.SetEDNS0(maxDNSPacketSize, dnsmessage.RCodeSuccess, false)
-	if err != nil {
-		return
+	if err := rh.SetEDNS0(maxDNSPacketSize, dnsmessage.RCodeSuccess, false); err != nil {
+		return Result{}, err
 	}
 
 	qBuf := make([]byte, 2+512+2+512)
@@ -228,10 +239,9 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 			},
 		},
 	}
-	q4Pkt := qBuf[2:2]
-	q4Pkt, err = q4.AppendPack(q4Pkt)
+	q4Pkt, err := q4.AppendPack(qBuf[2:2])
 	if err != nil {
-		return
+		return Result{}, err
 	}
 	q4PktEnd := 2 + len(q4Pkt)
 
@@ -255,12 +265,13 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 		},
 	}
 	q6PktStart := q4PktEnd + 2
-	q6Pkt := qBuf[q6PktStart:q6PktStart]
-	q6Pkt, err = q6.AppendPack(q6Pkt)
+	q6Pkt, err := q6.AppendPack(qBuf[q6PktStart:q6PktStart])
 	if err != nil {
-		return
+		return Result{}, err
 	}
 	q6PktEnd := q6PktStart + len(q6Pkt)
+
+	var result resultBuilder
 
 	// Try UDP first if available.
 	if r.udpClient != nil {
@@ -271,9 +282,9 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Bool("handled", result.isDone()),
-				zap.Stringers("v4", result.IPv4),
-				zap.Stringers("v6", result.IPv6),
-				zap.Time("ttl", result.TTL),
+				zap.Stringers("v4", result.a),
+				zap.Stringers("v6", result.aaaa),
+				zap.Time("ttl", result.expiresAt),
 			)
 		}
 	}
@@ -293,30 +304,29 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (result R
 				zap.String("resolver", r.name),
 				zap.String("name", nameString),
 				zap.Bool("handled", result.isDone()),
-				zap.Stringers("v4", result.IPv4),
-				zap.Stringers("v6", result.IPv6),
-				zap.Time("ttl", result.TTL),
+				zap.Stringers("v4", result.a),
+				zap.Stringers("v6", result.aaaa),
+				zap.Time("ttl", result.expiresAt),
 			)
 		}
 	}
 
 	if !result.isDone() {
-		err = ErrLookup
-		return
+		return Result{}, ErrLookup
 	}
 
 	// Add result to cache if TTL hasn't expired.
 	if !result.HasExpired() {
 		r.mu.Lock()
-		r.cache.Set(nameString, result)
+		r.cache.Set(nameString, result.Result)
 		r.mu.Unlock()
 	}
 
-	return
+	return result.Result, nil
 }
 
 // sendQueriesUDP sends queries using the resolver's UDP client and returns the result and whether the lookup was successful.
-func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt, q6Pkt []byte, result *Result) {
+func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt, q6Pkt []byte, result *resultBuilder) {
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()
 
@@ -503,7 +513,7 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 }
 
 // sendQueriesTCP sends queries using the resolver's TCP client and returns the result and whether the lookup was successful.
-func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, queries []byte, q4PktEnd int, result *Result) {
+func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, queries []byte, q4PktEnd int, result *resultBuilder) {
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()
 
@@ -528,7 +538,7 @@ func (r *Resolver) doTCP(
 	clientInfo netio.StreamDialerInfo,
 	nameString string,
 	queries []byte,
-	result *Result,
+	result *resultBuilder,
 ) {
 	c, err := dialer.DialStream(ctx, r.serverAddr, queries)
 	if err != nil {
@@ -623,7 +633,13 @@ func (r *Resolver) doTCP(
 	}
 }
 
-func (r *Result) parseMsg(msg []byte, isUDP bool) (dnsmessage.Header, error) {
+type resultBuilder struct {
+	Result
+	v4done bool
+	v6done bool
+}
+
+func (r *resultBuilder) parseMsg(msg []byte, isUDP bool) (dnsmessage.Header, error) {
 	var parser dnsmessage.Parser
 
 	// Parse header.
@@ -638,12 +654,12 @@ func (r *Result) parseMsg(msg []byte, isUDP bool) (dnsmessage.Header, error) {
 		if r.v4done {
 			return header, nil
 		}
-		r.IPv4 = r.IPv4[:0]
+		r.a = r.a[:0]
 	case 6:
 		if r.v6done {
 			return header, nil
 		}
-		r.IPv6 = r.IPv6[:0]
+		r.aaaa = r.aaaa[:0]
 	default:
 		return dnsmessage.Header{}, fmt.Errorf("unexpected transaction ID: %d", header.ID)
 	}
@@ -683,8 +699,8 @@ func (r *Result) parseMsg(msg []byte, isUDP bool) (dnsmessage.Header, error) {
 
 		// Set minimum TTL.
 		ttl := time.Now().Add(time.Duration(answerHeader.TTL) * time.Second)
-		if r.TTL.IsZero() || r.TTL.After(ttl) {
-			r.TTL = ttl
+		if r.expiresAt.IsZero() || r.expiresAt.After(ttl) {
+			r.expiresAt = ttl
 		}
 
 		// Skip non-A/AAAA RRs.
@@ -694,14 +710,14 @@ func (r *Result) parseMsg(msg []byte, isUDP bool) (dnsmessage.Header, error) {
 			if err != nil {
 				return dnsmessage.Header{}, fmt.Errorf("failed to parse A resource: %w", err)
 			}
-			r.IPv4 = append(r.IPv4, netip.AddrFrom4(arr.A))
+			r.a = append(r.a, netip.AddrFrom4(arr.A))
 
 		case dnsmessage.TypeAAAA:
 			aaaarr, err := parser.AAAAResource()
 			if err != nil {
 				return dnsmessage.Header{}, fmt.Errorf("failed to parse AAAA resource: %w", err)
 			}
-			r.IPv6 = append(r.IPv6, netip.AddrFrom16(aaaarr.AAAA))
+			r.aaaa = append(r.aaaa, netip.AddrFrom16(aaaarr.AAAA))
 
 		default:
 			if err = parser.SkipAnswer(); err != nil {
@@ -723,34 +739,8 @@ func (r *Result) parseMsg(msg []byte, isUDP bool) (dnsmessage.Header, error) {
 	return header, nil
 }
 
-func (r *Result) isDone() bool {
+func (r *resultBuilder) isDone() bool {
 	return r.v4done && r.v6done
-}
-
-// HasExpired returns true if the result's TTL has expired.
-func (r *Result) HasExpired() bool {
-	return r.TTL.Before(time.Now())
-}
-
-// Clone returns a deep copy of the result.
-// Modifying values in the address slices will not affect the original result.
-func (r *Result) Clone() Result {
-	return Result{
-		IPv4:   slices.Clone(r.IPv4),
-		IPv6:   slices.Clone(r.IPv6),
-		TTL:    r.TTL,
-		v4done: r.v4done,
-		v6done: r.v6done,
-	}
-}
-
-// Lookup looks up [name] and returns the result.
-func (r *Resolver) Lookup(ctx context.Context, name string) (Result, error) {
-	result, err := r.lookup(ctx, name)
-	if err != nil {
-		return Result{}, err
-	}
-	return result.Clone(), nil
 }
 
 // SimpleResolver defines methods that only return the resolved IP addresses.
@@ -764,26 +754,26 @@ type SimpleResolver interface {
 
 // LookupIP implements [SimpleResolver.LookupIP].
 func (r *Resolver) LookupIP(ctx context.Context, name string) (netip.Addr, error) {
-	result, err := r.lookup(ctx, name)
+	result, err := r.Lookup(ctx, name)
 	if err != nil {
 		return netip.Addr{}, err
 	}
-	if len(result.IPv6) > 0 {
-		return result.IPv6[0], nil
+	if len(result.aaaa) > 0 {
+		return result.aaaa[0], nil
 	}
-	if len(result.IPv4) > 0 {
-		return result.IPv4[0], nil
+	if len(result.a) > 0 {
+		return result.a[0], nil
 	}
 	return netip.Addr{}, ErrDomainNoAssociatedIPs
 }
 
 // LookupIPs implements [SimpleResolver.LookupIPs].
 func (r *Resolver) LookupIPs(ctx context.Context, name string) ([]netip.Addr, error) {
-	result, err := r.lookup(ctx, name)
+	result, err := r.Lookup(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	return slices.Concat(result.IPv6, result.IPv4), nil
+	return slices.Concat(result.aaaa, result.a), nil
 }
 
 // SystemResolver resolves names using [net.DefaultResolver].

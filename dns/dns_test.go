@@ -21,10 +21,10 @@ func testResolver(t *testing.T, name string, serverAddrPort netip.AddrPort, tcpC
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(uncachedResult.IPv4) == 0 {
+	if len(uncachedResult.a) == 0 {
 		t.Error("Expected at least one IPv4 address")
 	}
-	if len(uncachedResult.IPv6) == 0 {
+	if len(uncachedResult.aaaa) == 0 {
 		t.Error("Expected at least one IPv6 address")
 	}
 
@@ -34,7 +34,7 @@ func testResolver(t *testing.T, name string, serverAddrPort netip.AddrPort, tcpC
 		t.Fatal(err)
 	}
 
-	if uncachedResult.TTL != cachedResult.TTL {
+	if uncachedResult.expiresAt != cachedResult.expiresAt {
 		t.Error("TTL mismatch")
 	}
 }
