@@ -17,17 +17,19 @@ import (
 )
 
 var (
-	version bool
-	inDlc   string
-	inText  string
-	inGob   string
-	outText string
-	outGob  string
-	tag     string
+	version    bool
+	skipRegexp bool
+	inDlc      string
+	inText     string
+	inGob      string
+	outText    string
+	outGob     string
+	tag        string
 )
 
 func init() {
 	flag.BoolVar(&version, "version", false, "Print the version and exit")
+	flag.BoolVar(&skipRegexp, "skipRegexp", false, "Skip regular expression rules")
 	flag.StringVar(&inDlc, "inDlc", "", "Path to input domain set file in v2fly/dlc format")
 	flag.StringVar(&inText, "inText", "", "Path to input domain set file in plaintext format")
 	flag.StringVar(&inGob, "inGob", "", "Path to input domain set file in gob format")
@@ -94,6 +96,10 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Failed to parse input file:", err)
 		return
+	}
+
+	if skipRegexp {
+		dsb.RegexpMatcherBuilder().Clear()
 	}
 
 	if outText != "" {
