@@ -9,7 +9,7 @@ import (
 // RegexpMatcher adapts [regexp.Regexp] to the [Matcher] interface.
 type RegexpMatcher regexp.Regexp
 
-// Match implements the Matcher Match method.
+// Match implements [Matcher.Match].
 func (rlmp *RegexpMatcher) Match(domain string) bool {
 	return (*regexp.Regexp)(rlmp).MatchString(domain)
 }
@@ -29,22 +29,27 @@ func RegexpMatcherBuilderFromSeq(regexCount int, regexSeq iter.Seq[string]) Rege
 	return slices.AppendSeq(rmb, regexSeq)
 }
 
-// Insert implements the MatcherBuilder Insert method.
+// Insert implements [MatcherBuilder.Insert].
 func (rmbp *RegexpMatcherBuilder) Insert(rule string) {
 	*rmbp = append(*rmbp, rule)
 }
 
-// Rules implements the MatcherBuilder Rules method.
+// Clear implements [MatcherBuilder.Clear].
+func (rmbp *RegexpMatcherBuilder) Clear() {
+	*rmbp = (*rmbp)[:0]
+}
+
+// Rules implements [MatcherBuilder.Rules].
 func (rmb RegexpMatcherBuilder) Rules() (int, iter.Seq[string]) {
 	return len(rmb), slices.Values(rmb)
 }
 
-// MatcherCount implements the MatcherBuilder MatcherCount method.
+// MatcherCount implements the [MatcherBuilder.MatcherCount].
 func (rmb RegexpMatcherBuilder) MatcherCount() int {
 	return len(rmb)
 }
 
-// AppendTo implements the MatcherBuilder AppendTo method.
+// AppendTo implements the [MatcherBuilder.AppendTo].
 func (rmb RegexpMatcherBuilder) AppendTo(matchers []Matcher) ([]Matcher, error) {
 	if len(rmb) == 0 {
 		return matchers, nil

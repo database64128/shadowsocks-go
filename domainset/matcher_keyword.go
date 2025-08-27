@@ -31,17 +31,22 @@ func (klm KeywordLinearMatcher) Match(domain string) bool {
 	return false
 }
 
-// Insert implements the MatcherBuilder Insert method.
+// Insert implements [MatcherBuilder.Insert].
 func (klmp *KeywordLinearMatcher) Insert(rule string) {
 	*klmp = append(*klmp, rule)
 }
 
-// Rules implements the MatcherBuilder Rules method.
+// Clear implements [MatcherBuilder.Clear].
+func (klmp *KeywordLinearMatcher) Clear() {
+	*klmp = (*klmp)[:0]
+}
+
+// Rules implements [MatcherBuilder.Rules].
 func (klm KeywordLinearMatcher) Rules() (int, iter.Seq[string]) {
 	return len(klm), slices.Values(klm)
 }
 
-// MatcherCount implements the MatcherBuilder MatcherCount method.
+// MatcherCount implements [MatcherBuilder.MatcherCount].
 func (klm KeywordLinearMatcher) MatcherCount() int {
 	if len(klm) == 0 {
 		return 0
@@ -49,7 +54,7 @@ func (klm KeywordLinearMatcher) MatcherCount() int {
 	return 1
 }
 
-// AppendTo implements the MatcherBuilder AppendTo method.
+// AppendTo implements [MatcherBuilder.AppendTo].
 func (klmp *KeywordLinearMatcher) AppendTo(matchers []Matcher) ([]Matcher, error) {
 	klm := *klmp
 	if len(klm) == 0 {

@@ -26,7 +26,7 @@ func SuffixLinearMatcherFromSeq(suffixCount int, suffixSeq iter.Seq[string]) Suf
 	return slices.AppendSeq(slm, suffixSeq)
 }
 
-// Match implements the Matcher Match method.
+// Match implements [Matcher.Match].
 func (slm SuffixLinearMatcher) Match(domain string) bool {
 	for _, suffix := range slm {
 		if matchDomainSuffix(domain, suffix) {
@@ -36,17 +36,22 @@ func (slm SuffixLinearMatcher) Match(domain string) bool {
 	return false
 }
 
-// Insert implements the MatcherBuilder Insert method.
+// Insert implements [MatcherBuilder.Insert].
 func (slmp *SuffixLinearMatcher) Insert(rule string) {
 	*slmp = append(*slmp, rule)
 }
 
-// Rules implements the MatcherBuilder Rules method.
+// Clear implements [MatcherBuilder.Clear].
+func (slmp *SuffixLinearMatcher) Clear() {
+	*slmp = (*slmp)[:0]
+}
+
+// Rules implements [MatcherBuilder.Rules].
 func (slm SuffixLinearMatcher) Rules() (int, iter.Seq[string]) {
 	return len(slm), slices.Values(slm)
 }
 
-// MatcherCount implements the MatcherBuilder MatcherCount method.
+// MatcherCount implements [MatcherBuilder.MatcherCount].
 func (slm SuffixLinearMatcher) MatcherCount() int {
 	if len(slm) == 0 {
 		return 0
@@ -54,7 +59,7 @@ func (slm SuffixLinearMatcher) MatcherCount() int {
 	return 1
 }
 
-// AppendTo implements the MatcherBuilder AppendTo method.
+// AppendTo implements [MatcherBuilder.AppendTo].
 func (slmp *SuffixLinearMatcher) AppendTo(matchers []Matcher) ([]Matcher, error) {
 	slm := *slmp
 
@@ -101,7 +106,7 @@ func SuffixMapMatcherFromSeq(suffixCount int, suffixSeq iter.Seq[string]) Suffix
 	return smm
 }
 
-// Match implements the Matcher Match method.
+// Match implements [Matcher.Match].
 func (smm SuffixMapMatcher) Match(domain string) bool {
 	for i := len(domain) - 1; i >= 0; i-- {
 		if domain[i] != '.' {
@@ -115,17 +120,22 @@ func (smm SuffixMapMatcher) Match(domain string) bool {
 	return ok
 }
 
-// Insert implements the MatcherBuilder Insert method.
+// Insert implements [MatcherBuilder.Insert].
 func (smm SuffixMapMatcher) Insert(rule string) {
 	smm[rule] = struct{}{}
 }
 
-// Rules implements the MatcherBuilder Rules method.
+// Clear implements [MatcherBuilder.Clear].
+func (smm SuffixMapMatcher) Clear() {
+	clear(smm)
+}
+
+// Rules implements [MatcherBuilder.Rules].
 func (smm SuffixMapMatcher) Rules() (int, iter.Seq[string]) {
 	return len(smm), maps.Keys(smm)
 }
 
-// MatcherCount implements the MatcherBuilder MatcherCount method.
+// MatcherCount implements [MatcherBuilder.MatcherCount].
 func (smm SuffixMapMatcher) MatcherCount() int {
 	if len(smm) == 0 {
 		return 0
@@ -133,7 +143,7 @@ func (smm SuffixMapMatcher) MatcherCount() int {
 	return 1
 }
 
-// AppendTo implements the MatcherBuilder AppendTo method.
+// AppendTo implements [MatcherBuilder.AppendTo].
 func (smmp *SuffixMapMatcher) AppendTo(matchers []Matcher) ([]Matcher, error) {
 	smm := *smmp
 

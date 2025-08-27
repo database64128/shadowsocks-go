@@ -36,6 +36,11 @@ func (dlmp *DomainLinearMatcher) Insert(rule string) {
 	*dlmp = append(*dlmp, rule)
 }
 
+// Clear implements [MatcherBuilder.Clear].
+func (dlmp *DomainLinearMatcher) Clear() {
+	*dlmp = (*dlmp)[:0]
+}
+
 // Rules implements [MatcherBuilder.Rules].
 func (dlm DomainLinearMatcher) Rules() (int, iter.Seq[string]) {
 	return len(dlm), slices.Values(dlm)
@@ -112,6 +117,11 @@ func (dbsm *DomainBinarySearchMatcher) Insert(rule string) {
 	}
 }
 
+// Clear implements [MatcherBuilder.Clear].
+func (dbsm *DomainBinarySearchMatcher) Clear() {
+	dbsm.domains = dbsm.domains[:0]
+}
+
 // Rules implements [MatcherBuilder.Rules].
 func (dbsm DomainBinarySearchMatcher) Rules() (int, iter.Seq[string]) {
 	return len(dbsm.domains), slices.Values(dbsm.domains)
@@ -171,6 +181,11 @@ func (dmm DomainMapMatcher) Match(domain string) bool {
 // Insert implements [MatcherBuilder.Insert].
 func (dmm DomainMapMatcher) Insert(rule string) {
 	dmm[rule] = struct{}{}
+}
+
+// Clear implements [MatcherBuilder.Clear].
+func (dmm DomainMapMatcher) Clear() {
+	clear(dmm)
 }
 
 // Rules implements [MatcherBuilder.Rules].

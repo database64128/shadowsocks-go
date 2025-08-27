@@ -17,6 +17,9 @@ type MatcherBuilder interface {
 	// the rule string should be "google.com".
 	Insert(rule string)
 
+	// Clear removes all rules from the matcher.
+	Clear()
+
 	// Rules returns the number of rules and an iterator over them.
 	Rules() (int, iter.Seq[string])
 

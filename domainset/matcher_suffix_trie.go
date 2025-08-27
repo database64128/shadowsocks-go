@@ -85,6 +85,11 @@ func (dst DomainSuffixTrie) Match(domain string) bool {
 	return ndst.Children == nil
 }
 
+// Clear implements [MatcherBuilder.Clear].
+func (dst DomainSuffixTrie) Clear() {
+	clear(dst.Children)
+}
+
 // KeySlice returns the keys in the trie as a slice.
 func (dst DomainSuffixTrie) KeySlice() (keys []string) {
 	for s, c := range dst.Children {
