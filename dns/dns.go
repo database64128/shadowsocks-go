@@ -545,7 +545,9 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 		case result.v6done:
 			b = b[:q4PktEnd]
 		}
-		r.doTCP(ctx, dialer, clientInfo, nameString, b, result)
+		if !r.doTCP(ctx, dialer, clientInfo, nameString, b, result) {
+			break
+		}
 	}
 }
 
@@ -556,7 +558,7 @@ func (r *Resolver) doTCP(
 	nameString string,
 	queries []byte,
 	result *resultBuilder,
-) {
+) (ok bool) {
 	c, err := dialer.DialStream(ctx, r.serverAddr, queries)
 	if err != nil {
 		r.logger.Warn("Failed to dial TCP DNS server",
@@ -566,7 +568,7 @@ func (r *Resolver) doTCP(
 			zap.Stringer("serverAddrPort", r.serverAddrPort),
 			zap.Error(err),
 		)
-		return
+		return false
 	}
 	defer c.Close()
 
@@ -582,7 +584,7 @@ func (r *Resolver) doTCP(
 		_, err = io.ReadFull(c, lengthBuf)
 		if err != nil {
 			if err == io.EOF {
-				return
+				return true
 			}
 			r.logger.Warn("Failed to read TCP DNS response length",
 				zap.String("resolver", r.name),
@@ -591,7 +593,7 @@ func (r *Resolver) doTCP(
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Error(err),
 			)
-			return
+			return false
 		}
 
 		msgLen := binary.BigEndian.Uint16(lengthBuf)
@@ -602,7 +604,7 @@ func (r *Resolver) doTCP(
 				zap.String("name", nameString),
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 			)
-			return
+			return false
 		}
 
 		// Read message.
@@ -616,7 +618,7 @@ func (r *Resolver) doTCP(
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Error(err),
 			)
-			return
+			return false
 		}
 
 		header, err := result.parseMsg(msg, false)
@@ -628,7 +630,7 @@ func (r *Resolver) doTCP(
 				zap.Stringer("serverAddrPort", r.serverAddrPort),
 				zap.Error(err),
 			)
-			return
+			return false
 		}
 		if header.Truncated {
 			if ce := r.logger.Check(zap.DebugLevel, "Received truncated TCP DNS response"); ce != nil {
@@ -655,7 +657,7 @@ func (r *Resolver) doTCP(
 		}
 
 		if result.isDone() {
-			break
+			return true
 		}
 	}
 }
