@@ -550,16 +550,18 @@ func (r *Resolver) sendQueriesTCP(ctx context.Context, nameString string, querie
 	dialer, clientInfo := r.tcpClient.NewStreamDialer()
 
 	// Retry unanswered queries.
-	for !result.isDone() {
+	for range 2 {
 		b := queries
 		switch {
+		case result.v4done && result.v6done:
+			return
 		case result.v4done:
 			b = b[q4PktEnd:]
 		case result.v6done:
 			b = b[:q4PktEnd]
 		}
 		if !r.doTCP(ctx, dialer, clientInfo, nameString, b, result) {
-			break
+			return
 		}
 	}
 }
