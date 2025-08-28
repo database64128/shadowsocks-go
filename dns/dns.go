@@ -29,6 +29,13 @@ const (
 
 	lookupTimeout = 20 * time.Second
 
+	// rcodeFailureCachingDuration is the duration to cache responses with
+	// [dnsmessage.RCodeFormatError], [dnsmessage.RCodeServerFailure],
+	// [dnsmessage.RCodeNotImplemented], [dnsmessage.RCodeRefused].
+	//
+	// RFC 9520 section 3.2 states that resolvers MUST cache resolution failures for [1s, 5min].
+	rcodeFailureCachingDuration = 30 * time.Second
+
 	defaultCacheSize = 1024
 )
 
@@ -497,6 +504,16 @@ func (r *Resolver) sendQueriesUDP(ctx context.Context, nameString string, q4Pkt,
 			// Immediately fall back to TCP.
 			break
 		}
+		if header.RCode != dnsmessage.RCodeSuccess {
+			r.logger.Warn("Received non-success UDP DNS response",
+				zap.String("resolver", r.name),
+				zap.String("client", clientInfo.Name),
+				zap.String("name", nameString),
+				zap.Stringer("serverAddrPort", r.serverAddrPort),
+				zap.Uint16("transactionID", header.ID),
+				zap.Stringer("rcode", header.RCode),
+			)
+		}
 
 		// Break out of loop if both v4 and v6 are done.
 		if result.isDone() {
@@ -626,6 +643,16 @@ func (r *Resolver) doTCP(
 			// TCP DNS responses exceeding 65535 bytes are truncated.
 			// Use the truncated response like how Go std & the glibc resolver do.
 		}
+		if header.RCode != dnsmessage.RCodeSuccess {
+			r.logger.Warn("Received non-success TCP DNS response",
+				zap.String("resolver", r.name),
+				zap.String("client", clientInfo.Name),
+				zap.String("name", nameString),
+				zap.Stringer("serverAddrPort", r.serverAddrPort),
+				zap.Uint16("transactionID", header.ID),
+				zap.Stringer("rcode", header.RCode),
+			)
+		}
 
 		if result.isDone() {
 			break
@@ -640,6 +667,7 @@ type resultBuilder struct {
 }
 
 func (r *resultBuilder) parseMsg(msg []byte, isUDP bool) (dnsmessage.Header, error) {
+	now := time.Now()
 	var parser dnsmessage.Parser
 
 	// Parse header.
@@ -678,8 +706,14 @@ func (r *resultBuilder) parseMsg(msg []byte, isUDP bool) (dnsmessage.Header, err
 	}
 
 	// Check RCode.
-	if header.RCode != dnsmessage.RCodeSuccess {
-		return dnsmessage.Header{}, fmt.Errorf("DNS failure: %s", header.RCode)
+	switch header.RCode {
+	case dnsmessage.RCodeSuccess, dnsmessage.RCodeNameError:
+	case dnsmessage.RCodeFormatError, dnsmessage.RCodeServerFailure,
+		dnsmessage.RCodeNotImplemented, dnsmessage.RCodeRefused:
+		// RFC 9520 resolution failure caching.
+		r.expiresAt = now.Add(rcodeFailureCachingDuration)
+	default:
+		return dnsmessage.Header{}, fmt.Errorf("unknown RCode: %d", header.RCode)
 	}
 
 	// Skip questions.
@@ -698,7 +732,7 @@ func (r *resultBuilder) parseMsg(msg []byte, isUDP bool) (dnsmessage.Header, err
 		}
 
 		// Set minimum TTL.
-		ttl := time.Now().Add(time.Duration(answerHeader.TTL) * time.Second)
+		ttl := now.Add(time.Duration(answerHeader.TTL) * time.Second)
 		if r.expiresAt.IsZero() || r.expiresAt.After(ttl) {
 			r.expiresAt = ttl
 		}
@@ -722,6 +756,27 @@ func (r *resultBuilder) parseMsg(msg []byte, isUDP bool) (dnsmessage.Header, err
 		default:
 			if err = parser.SkipAnswer(); err != nil {
 				return dnsmessage.Header{}, fmt.Errorf("failed to skip answer: %w", err)
+			}
+		}
+	}
+
+	if r.expiresAt.IsZero() {
+		// RFC 2308 Negative caching: Parse authorities and use SOA record's TTL.
+		for {
+			authorityHeader, err := parser.AuthorityHeader()
+			if err != nil {
+				if err == dnsmessage.ErrSectionDone {
+					break
+				}
+				return dnsmessage.Header{}, fmt.Errorf("failed to parse authority header: %w", err)
+			}
+
+			if authorityHeader.Type == dnsmessage.TypeSOA {
+				r.expiresAt = now.Add(time.Duration(authorityHeader.TTL) * time.Second)
+			}
+
+			if err := parser.SkipAuthority(); err != nil {
+				return dnsmessage.Header{}, fmt.Errorf("failed to skip authority: %w", err)
 			}
 		}
 	}
