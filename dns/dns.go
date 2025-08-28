@@ -207,13 +207,35 @@ func (r *Resolver) Lookup(ctx context.Context, name string) (Result, error) {
 	}
 
 	// Send queries to upstream server.
-	return r.sendQueries(ctx, name)
+
+	var newResult resultBuilder
+	if err := r.sendQueries(ctx, name, &newResult); err != nil {
+		if ok {
+			// RFC 8767 serve-stale
+			r.logger.Warn("DNS lookup failed, returning expired cached result",
+				zap.String("resolver", r.name),
+				zap.String("name", name),
+				zap.Time("ttl", result.expiresAt),
+			)
+			return result, nil
+		}
+		return Result{}, err
+	}
+	result = newResult.Result
+
+	// Add result to cache.
+	// Permit expired results for serve-stale.
+	r.mu.Lock()
+	r.cache.Set(name, result)
+	r.mu.Unlock()
+
+	return result, nil
 }
 
-func (r *Resolver) sendQueries(ctx context.Context, nameString string) (Result, error) {
+func (r *Resolver) sendQueries(ctx context.Context, nameString string, result *resultBuilder) error {
 	name, err := dnsmessage.NewName(nameString + ".")
 	if err != nil {
-		return Result{}, err
+		return err
 	}
 
 	var (
@@ -222,7 +244,7 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (Result, 
 	)
 
 	if err := rh.SetEDNS0(maxDNSPacketSize, dnsmessage.RCodeSuccess, false); err != nil {
-		return Result{}, err
+		return err
 	}
 
 	qBuf := make([]byte, 2+512+2+512)
@@ -248,7 +270,7 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (Result, 
 	}
 	q4Pkt, err := q4.AppendPack(qBuf[2:2])
 	if err != nil {
-		return Result{}, err
+		return err
 	}
 	q4PktEnd := 2 + len(q4Pkt)
 
@@ -274,15 +296,13 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (Result, 
 	q6PktStart := q4PktEnd + 2
 	q6Pkt, err := q6.AppendPack(qBuf[q6PktStart:q6PktStart])
 	if err != nil {
-		return Result{}, err
+		return err
 	}
 	q6PktEnd := q6PktStart + len(q6Pkt)
 
-	var result resultBuilder
-
 	// Try UDP first if available.
 	if r.udpClient != nil {
-		r.sendQueriesUDP(ctx, nameString, q4Pkt, q6Pkt, &result)
+		r.sendQueriesUDP(ctx, nameString, q4Pkt, q6Pkt, result)
 
 		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup sent queries via UDP"); ce != nil {
 			ce.Write(
@@ -304,7 +324,7 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (Result, 
 		binary.BigEndian.PutUint16(q4LenBuf, uint16(len(q4Pkt)))
 		binary.BigEndian.PutUint16(q6LenBuf, uint16(len(q6Pkt)))
 
-		r.sendQueriesTCP(ctx, nameString, qBuf[:q6PktEnd], q4PktEnd, &result)
+		r.sendQueriesTCP(ctx, nameString, qBuf[:q6PktEnd], q4PktEnd, result)
 
 		if ce := r.logger.Check(zap.DebugLevel, "DNS lookup sent queries via TCP"); ce != nil {
 			ce.Write(
@@ -319,17 +339,10 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string) (Result, 
 	}
 
 	if !result.isDone() {
-		return Result{}, ErrLookup
+		return ErrLookup
 	}
 
-	// Add result to cache if TTL hasn't expired.
-	if !result.HasExpired() {
-		r.mu.Lock()
-		r.cache.Set(nameString, result.Result)
-		r.mu.Unlock()
-	}
-
-	return result.Result, nil
+	return nil
 }
 
 // sendQueriesUDP sends queries using the resolver's UDP client and returns the result and whether the lookup was successful.
