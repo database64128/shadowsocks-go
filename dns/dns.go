@@ -776,7 +776,7 @@ func (r *resultBuilder) parseMsg(msg []byte, isUDP bool) (dnsmessage.Header, err
 	}
 
 	if r.expiresAt.IsZero() {
-		// RFC 2308 Negative caching: Parse authorities and use SOA record's TTL.
+		// RFC 2308 negative caching: Parse authorities and use SOA record's TTL.
 		for {
 			authorityHeader, err := parser.AuthorityHeader()
 			if err != nil {
@@ -794,6 +794,7 @@ func (r *resultBuilder) parseMsg(msg []byte, isUDP bool) (dnsmessage.Header, err
 				return dnsmessage.Header{}, fmt.Errorf("failed to skip authority: %w", err)
 			}
 		}
+		// As recommended in RFC 2308, do nothing about negative responses without SOA records.
 	}
 
 	// Mark v4 or v6 as done.
