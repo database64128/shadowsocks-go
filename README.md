@@ -259,6 +259,22 @@ By default, the router uses the configured DNS server to resolve domain names an
 
 See [docs/config.json](docs/config.json).
 
+## Client Groups
+
+Client groups allow you to combine multiple clients and use them as if they are a single client.
+
+Each client group utilizes a client selection policy to determine the actual client to use for each new session.
+
+### Client Selection Policies
+
+- `"round-robin"`: Selects clients sequentially, cycling through the list.
+- `"random"`: Selects clients randomly.
+- `"availability"`: Selects the first client with the highest availability.
+- `"latency"`: Selects the first client with the lowest average latency.
+- `"min-max-latency"`: Selects the first client with the lowest maximum latency.
+
+When several clients share the same metric value, the selection order is the same as their order in the client group.
+
 ## Domain Sets and IP Geolocation Database
 
 shadowsocks-go has its own domain set file format, because other formats I've seen are all horrible!
