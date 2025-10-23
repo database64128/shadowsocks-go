@@ -66,3 +66,8 @@ func (c *TCPClient) DialStream(ctx context.Context, addr conn.Addr, payload []by
 func NewTCPTransparentProxyServer() (StreamServer, error) {
 	return newTCPTransparentProxyServer()
 }
+
+// NewTCPRedirectServer returns a new TCP redirect server.
+func NewTCPRedirectServer() (StreamServer, error) {
+	return newTCPRedirectServer()
+}

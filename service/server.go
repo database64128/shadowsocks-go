@@ -459,6 +459,12 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		}
 		listenerTransparent = true
 
+	case "redirect":
+		server, err = netio.NewTCPRedirectServer()
+		if err != nil {
+			return nil, err
+		}
+
 	case "none", "plain":
 		server = ssnone.StreamServer{}
 

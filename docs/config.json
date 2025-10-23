@@ -294,6 +294,28 @@
             "mtu": 1500
         },
         {
+            "name": "redirect",
+            "protocol": "redirect",
+            "tcpListeners": [
+                {
+                    "network": "tcp",
+                    "address": ":12346",
+                    "fwmark": 52140,
+                    "trafficClass": 0,
+                    "reusePort": false,
+                    "fastOpen": true,
+                    "fastOpenBacklog": 0,
+                    "fastOpenFallback": false,
+                    "multipath": false,
+                    "deferAcceptSecs": 0,
+                    "userTimeoutMsecs": 0,
+                    "disableInitialPayloadWait": false,
+                    "initialPayloadWaitTimeout": "250ms",
+                    "initialPayloadWaitBufferSize": 1440
+                }
+            ]
+        },
+        {
             "name": "tunnel",
             "protocol": "direct",
             "tcpListeners": [
