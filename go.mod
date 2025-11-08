@@ -9,7 +9,7 @@ require (
 	github.com/oschwald/geoip2-golang/v2 v2.0.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/net v0.46.0
-	golang.org/x/sys v0.37.0
+	golang.org/x/sys v0.38.0
 	lukechampine.com/blake3 v1.4.1
 )
 
