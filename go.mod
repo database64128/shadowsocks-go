@@ -6,7 +6,7 @@ require (
 	github.com/database64128/netx-go v0.1.1
 	github.com/database64128/tfo-go/v2 v2.3.1
 	github.com/gaissmai/bart v0.26.0
-	github.com/oschwald/geoip2-golang/v2 v2.0.0
+	github.com/oschwald/geoip2-golang/v2 v2.0.1
 	go.uber.org/zap v1.27.1
 	golang.org/x/net v0.47.0
 	golang.org/x/sys v0.38.0
@@ -15,6 +15,6 @@ require (
 
 require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
-	github.com/oschwald/maxminddb-golang/v2 v2.0.0 // indirect
+	github.com/oschwald/maxminddb-golang/v2 v2.1.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 )
