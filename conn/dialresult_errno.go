@@ -12,16 +12,11 @@ func dialResultCodeFromError(err error) DialResultCode {
 	if err == nil {
 		return DialResultCodeSuccess
 	}
-
-	var errno syscall.Errno
-	if errors.As(err, &errno) {
+	if errno, ok := errors.AsType[syscall.Errno](err); ok {
 		return dialResultCodeFromSyscallErrno(errno)
 	}
-
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
+	if _, ok := errors.AsType[*net.DNSError](err); ok {
 		return DialResultCodeErrDomainNameLookup
 	}
-
 	return DialResultCodeErrOther
 }

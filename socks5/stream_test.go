@@ -34,8 +34,8 @@ func TestStreamClientError(t *testing.T) {
 				{4, 1},
 			},
 			checkClientErr: func(t *testing.T, err error) {
-				var e UnsupportedVersionError
-				if !errors.As(err, &e) {
+				e, ok := errors.AsType[UnsupportedVersionError](err)
+				if !ok {
 					t.Fatalf("err = %v, want %T", err, e)
 				}
 				if e != 4 {
@@ -53,8 +53,8 @@ func TestStreamClientError(t *testing.T) {
 				{Version, MethodNoAcceptable},
 			},
 			checkClientErr: func(t *testing.T, err error) {
-				var e UnsupportedAuthMethodError
-				if !errors.As(err, &e) {
+				e, ok := errors.AsType[UnsupportedAuthMethodError](err)
+				if !ok {
 					t.Fatalf("err = %v, want %T", err, e)
 				}
 				if e != MethodNoAcceptable {
@@ -74,8 +74,8 @@ func TestStreamClientError(t *testing.T) {
 				{4, 1},
 			},
 			checkClientErr: func(t *testing.T, err error) {
-				var e UnsupportedUsernamePasswordAuthVersionError
-				if !errors.As(err, &e) {
+				e, ok := errors.AsType[UnsupportedUsernamePasswordAuthVersionError](err)
+				if !ok {
 					t.Fatalf("err = %v, want %T", err, e)
 				}
 				if e != 4 {
@@ -112,8 +112,8 @@ func TestStreamClientError(t *testing.T) {
 				{Version, ReplyConnectionRefused, 0, AtypIPv4, 0, 0, 0, 0, 0, 0},
 			},
 			checkClientErr: func(t *testing.T, err error) {
-				var e ReplyError
-				if !errors.As(err, &e) {
+				e, ok := errors.AsType[ReplyError](err)
+				if !ok {
 					t.Fatalf("err = %v, want %T", err, e)
 				}
 				if e != ReplyConnectionRefused {
@@ -214,8 +214,8 @@ func TestStreamServerError(t *testing.T) {
 			serverEnableTCP:          true,
 			serverEnableUDP:          false,
 			checkServerErr: func(t *testing.T, err error) {
-				var e UnsupportedVersionError
-				if !errors.As(err, &e) {
+				e, ok := errors.AsType[UnsupportedVersionError](err)
+				if !ok {
 					t.Fatalf("err = %v, want %T", err, e)
 				}
 				if e != 4 {
@@ -295,8 +295,8 @@ func TestStreamServerError(t *testing.T) {
 			serverEnableTCP: true,
 			serverEnableUDP: false,
 			checkServerErr: func(t *testing.T, err error) {
-				var e UnsupportedUsernamePasswordAuthVersionError
-				if !errors.As(err, &e) {
+				e, ok := errors.AsType[UnsupportedUsernamePasswordAuthVersionError](err)
+				if !ok {
 					t.Fatalf("err = %v, want %T", err, e)
 				}
 				if e != 5 {
@@ -412,8 +412,8 @@ func TestStreamServerError(t *testing.T) {
 			serverEnableTCP:          false,
 			serverEnableUDP:          true,
 			checkServerErr: func(t *testing.T, err error) {
-				var e UnsupportedCommandError
-				if !errors.As(err, &e) {
+				e, ok := errors.AsType[UnsupportedCommandError](err)
+				if !ok {
 					t.Fatalf("err = %v, want %T", err, e)
 				}
 				if e != CmdConnect {
@@ -435,8 +435,8 @@ func TestStreamServerError(t *testing.T) {
 			serverEnableTCP:          true,
 			serverEnableUDP:          true,
 			checkServerErr: func(t *testing.T, err error) {
-				var e UnsupportedCommandError
-				if !errors.As(err, &e) {
+				e, ok := errors.AsType[UnsupportedCommandError](err)
+				if !ok {
 					t.Fatalf("err = %v, want %T", err, e)
 				}
 				if e != CmdBind {
@@ -458,8 +458,8 @@ func TestStreamServerError(t *testing.T) {
 			serverEnableTCP:          true,
 			serverEnableUDP:          false,
 			checkServerErr: func(t *testing.T, err error) {
-				var e UnsupportedCommandError
-				if !errors.As(err, &e) {
+				e, ok := errors.AsType[UnsupportedCommandError](err)
+				if !ok {
 					t.Fatalf("err = %v, want %T", err, e)
 				}
 				if e != CmdUDPAssociate {
@@ -769,8 +769,8 @@ func TestStreamClientServer(t *testing.T) {
 									return
 								}
 
-								var e ReplyError
-								if !errors.As(err, &e) {
+								e, ok := errors.AsType[ReplyError](err)
+								if !ok {
 									t.Errorf("err = %v, want %T", err, e)
 									return
 								}

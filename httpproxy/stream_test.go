@@ -96,8 +96,8 @@ func TestStreamClientServer(t *testing.T) {
 					newClient,
 					server,
 					func(t *testing.T, dialResult conn.DialResult, err error) {
-						var e ConnectNonSuccessfulResponseError
-						if !errors.As(err, &e) {
+						e, ok := errors.AsType[ConnectNonSuccessfulResponseError](err)
+						if !ok {
 							t.Errorf("err = %v, want %T", err, e)
 							return
 						}
@@ -147,8 +147,8 @@ func TestStreamClientServerBasicAuthBadCredentials(t *testing.T) {
 	wg.Wait()
 
 	for i, err := range clientErrors {
-		var respErr ConnectNonSuccessfulResponseError
-		if !errors.As(err, &respErr) {
+		respErr, ok := errors.AsType[ConnectNonSuccessfulResponseError](err)
+		if !ok {
 			t.Fatalf("clientErrors[%d] = %v, want %T", i, err, respErr)
 		}
 		if respErr.StatusCode != http.StatusProxyAuthRequired {
@@ -156,8 +156,8 @@ func TestStreamClientServerBasicAuthBadCredentials(t *testing.T) {
 		}
 	}
 
-	var authErr FailedAuthAttemptsError
-	if !errors.As(serr, &authErr) {
+	authErr, ok := errors.AsType[FailedAuthAttemptsError](serr)
+	if !ok {
 		t.Fatalf("serr = %v, want %T", serr, authErr)
 	}
 	if authErr.Attempts != len(clientProxyAuthHeaders) {

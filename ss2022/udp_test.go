@@ -205,8 +205,8 @@ func testUDPClientServerSessionChangeAndReplay(
 
 	// Server unpacks the same packet again.
 	_, _, _, err = serverUnpacker.UnpackInPlace(pb, replayClientAddrPort, 0, pktl)
-	var sprErr *ShadowPacketReplayError
-	if !errors.As(err, &sprErr) {
+	sprErr, ok := errors.AsType[*ShadowPacketReplayError](err)
+	if !ok {
 		t.Fatalf("err = %v, want %T", err, sprErr)
 	}
 	if sprErr.srcAddr != replayClientAddrPort {
@@ -283,7 +283,8 @@ func testUDPClientServerSessionChangeAndReplay(
 
 	// Client unpacks pb0.
 	_, _, _, err = clientSession.Unpacker.UnpackInPlace(pb0, replayServerAddrPort, 0, len(pb0))
-	if !errors.As(err, &sprErr) {
+	sprErr, ok = errors.AsType[*ShadowPacketReplayError](err)
+	if !ok {
 		t.Fatalf("err = %v, want %T", err, sprErr)
 	}
 	if sprErr.srcAddr != replayServerAddrPort {
@@ -298,7 +299,8 @@ func testUDPClientServerSessionChangeAndReplay(
 
 	// Client unpacks pb1.
 	_, _, _, err = clientSession.Unpacker.UnpackInPlace(pb1, replayServerAddrPort, 0, len(pb1))
-	if !errors.As(err, &sprErr) {
+	sprErr, ok = errors.AsType[*ShadowPacketReplayError](err)
+	if !ok {
 		t.Fatalf("err = %v, want %T", err, sprErr)
 	}
 	if sprErr.srcAddr != replayServerAddrPort {

@@ -9,11 +9,8 @@ func dialResultCodeFromError(err error) DialResultCode {
 	if err == nil {
 		return DialResultCodeSuccess
 	}
-
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
+	if _, ok := errors.AsType[*net.DNSError](err); ok {
 		return DialResultCodeErrDomainNameLookup
 	}
-
 	return DialResultCodeErrOther
 }
