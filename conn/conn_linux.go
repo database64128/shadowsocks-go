@@ -89,17 +89,40 @@ func setTransparent(fd int, network string) error {
 	return nil
 }
 
-func setPMTUD(fd int, network string) error {
+func (fns setFuncSlice) appendSetPMTUDFunc(pmtud PMTUDMode) setFuncSlice {
+	var value int
+	switch pmtud {
+	case PMTUDModeDont:
+		value = unix.IP_PMTUDISC_DONT
+	case PMTUDModeDo:
+		value = unix.IP_PMTUDISC_DO
+	case PMTUDModeProbe:
+		value = unix.IP_PMTUDISC_PROBE
+	case PMTUDModeWant:
+		value = unix.IP_PMTUDISC_WANT
+	case PMTUDModeInterface:
+		value = unix.IP_PMTUDISC_INTERFACE
+	case PMTUDModeOmit:
+		value = unix.IP_PMTUDISC_OMIT
+	default:
+		return fns
+	}
+	return append(fns, func(fd int, network string, _ *SocketInfo) error {
+		return setPMTUD(fd, network, value)
+	})
+}
+
+func setPMTUD(fd int, network string, value int) error {
 	// Set IP_MTU_DISCOVER for both v4 and v6.
-	if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_MTU_DISCOVER, unix.IP_PMTUDISC_DO); err != nil {
-		return fmt.Errorf("failed to set socket option IP_MTU_DISCOVER: %w", err)
+	if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_MTU_DISCOVER, value); err != nil {
+		return fmt.Errorf("failed to set socket option IP_MTU_DISCOVER to %d: %w", value, err)
 	}
 
 	switch network {
 	case "tcp4", "udp4":
 	case "tcp6", "udp6":
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_MTU_DISCOVER, unix.IP_PMTUDISC_DO); err != nil {
-			return fmt.Errorf("failed to set socket option IPV6_MTU_DISCOVER: %w", err)
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_MTU_DISCOVER, value); err != nil {
+			return fmt.Errorf("failed to set socket option IPV6_MTU_DISCOVER to %d: %w", value, err)
 		}
 	default:
 		return fmt.Errorf("unsupported network: %s", network)

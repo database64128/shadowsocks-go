@@ -189,6 +189,11 @@ func (lnc *UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 		return udpRelayServerConn{}, err
 	}
 
+	pmtud := conn.PMTUDModeDo
+	if lnc.AllowFragmentation {
+		pmtud = conn.PMTUDModeDefault
+	}
+
 	natTimeout := lnc.NATTimeout.Value()
 	switch {
 	case natTimeout == 0:
@@ -205,7 +210,7 @@ func (lnc *UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 			TrafficClass:            lnc.TrafficClass,
 			ReusePort:               lnc.ReusePort,
 			Transparent:             transparent,
-			PathMTUDiscovery:        !lnc.AllowFragmentation,
+			PathMTUDiscovery:        pmtud,
 			ReceivePacketInfo:       !transparent,
 			ReceiveOriginalDestAddr: transparent,
 		}),
@@ -581,7 +586,7 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (sha
 			TrafficClass:      sc.ListenerTrafficClass,
 			Transparent:       true,
 			ReusePort:         true,
-			PathMTUDiscovery:  true,
+			PathMTUDiscovery:  conn.PMTUDModeDo,
 		})
 		listenerTransparent = true
 

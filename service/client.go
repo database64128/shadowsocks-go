@@ -386,12 +386,17 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 		return nil, ErrMTUTooSmall
 	}
 
+	pmtud := conn.PMTUDModeDo
+	if cc.AllowFragmentation {
+		pmtud = conn.PMTUDModeDefault
+	}
+
 	listenConfig := cc.listenConfigCache.Get(conn.ListenerSocketOptions{
 		SendBufferSize:    conn.DefaultUDPSocketBufferSize,
 		ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
 		Fwmark:            cc.DialerFwmark,
 		TrafficClass:      cc.DialerTrafficClass,
-		PathMTUDiscovery:  !cc.AllowFragmentation,
+		PathMTUDiscovery:  pmtud,
 	})
 
 	switch cc.Protocol {

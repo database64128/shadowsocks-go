@@ -2,6 +2,7 @@ package conn
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"syscall"
 
@@ -98,6 +99,135 @@ func (lc *ListenConfig) ListenUDP(ctx context.Context, network, address string) 
 	return pc.(*net.UDPConn), info, nil
 }
 
+// PMTUDMode is the Path MTU Discovery mode of a socket.
+type PMTUDMode uint8
+
+const (
+	// PMTUDModeDefault is the default PMTUD mode of the socket.
+	PMTUDModeDefault PMTUDMode = iota
+
+	// PMTUDModeDont sets the socket to not perform Path MTU Discovery.
+	//
+	// DF is never set. Fragmentation happens both locally and on path.
+	//
+	//  - On Linux and Windows, this sets IP{,V6}_MTU_DISCOVER to IP_PMTUDISC_DONT.
+	//  - On macOS and FreeBSD, this sets IP{,V6}_DONTFRAG to 0.
+	//  - On other platforms, this is ignored.
+	PMTUDModeDont
+
+	// PMTUDModeDo sets the socket to always perform Path MTU Discovery.
+	//
+	// DF is always set. Fragmentation is disallowed.
+	//
+	//  - On Linux and Windows, this sets IP{,V6}_MTU_DISCOVER to IP_PMTUDISC_DO.
+	//  - On macOS and FreeBSD, this sets IP{,V6}_DONTFRAG to 1.
+	//  - On other platforms, this is ignored.
+	PMTUDModeDo
+
+	// PMTUDModeProbe is like [PMTUDModeDo], but permits sending packets larger than
+	// the probed path MTU, with DF always set.
+	//
+	//  - On Linux and Windows, this sets IP{,V6}_MTU_DISCOVER to IP_PMTUDISC_PROBE.
+	//  - On other platforms, this is ignored.
+	PMTUDModeProbe
+
+	// PMTUDModeWant sets IP_PMTUDISC_WANT on Linux.
+	//
+	// Fragmentation will happen locally if needed according to the path MTU,
+	// otherwise the DF flag will be set.
+	//
+	// On other platforms, this is ignored.
+	PMTUDModeWant
+
+	// PMTUDModeInterface sets IP_PMTUDISC_INTERFACE on Linux.
+	//
+	// DF is never set. Fragmentation is disallowed locally. Ignore the path MTU and
+	// always use the interface MTU.
+	//
+	// On other platforms, this is ignored.
+	PMTUDModeInterface
+
+	// PMTUDModeOmit sets IP_PMTUDISC_OMIT on Linux.
+	//
+	// This is a weaker version of [PMTUDModeInterface] that permits fragmentation if
+	// interface MTU is exceeded.
+	//
+	// On other platforms, this is ignored.
+	PMTUDModeOmit
+)
+
+// String returns its string representation.
+func (m PMTUDMode) String() string {
+	switch m {
+	case PMTUDModeDefault:
+		return "default"
+	case PMTUDModeDont:
+		return "dont"
+	case PMTUDModeDo:
+		return "do"
+	case PMTUDModeProbe:
+		return "probe"
+	case PMTUDModeWant:
+		return "want"
+	case PMTUDModeInterface:
+		return "interface"
+	case PMTUDModeOmit:
+		return "omit"
+	default:
+		return fmt.Sprintf("invalid(%d)", m)
+	}
+}
+
+// AppendText implements [encoding.TextAppender].
+func (m PMTUDMode) AppendText(b []byte) ([]byte, error) {
+	switch m {
+	case PMTUDModeDefault:
+		return append(b, "default"...), nil
+	case PMTUDModeDont:
+		return append(b, "dont"...), nil
+	case PMTUDModeDo:
+		return append(b, "do"...), nil
+	case PMTUDModeProbe:
+		return append(b, "probe"...), nil
+	case PMTUDModeWant:
+		return append(b, "want"...), nil
+	case PMTUDModeInterface:
+		return append(b, "interface"...), nil
+	case PMTUDModeOmit:
+		return append(b, "omit"...), nil
+	default:
+		return b, fmt.Errorf("invalid PMTUDMode: %d", m)
+	}
+}
+
+// MarshalText implements [encoding.TextMarshaler].
+func (m PMTUDMode) MarshalText() ([]byte, error) {
+	return m.AppendText(nil)
+}
+
+// UnmarshalText implements [encoding.TextUnmarshaler].
+func (m *PMTUDMode) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "default", "":
+		*m = PMTUDModeDefault
+	case "dont":
+		*m = PMTUDModeDont
+	case "do":
+		*m = PMTUDModeDo
+	case "probe":
+		*m = PMTUDModeProbe
+	case "want":
+		*m = PMTUDModeWant
+	case "interface":
+		*m = PMTUDModeInterface
+	case "omit":
+		*m = PMTUDModeOmit
+	default:
+		return fmt.Errorf("invalid PMTUDMode: %q", text)
+	}
+	return nil
+}
+
 // ListenerSocketOptions contains listener-specific socket options.
 type ListenerSocketOptions struct {
 	// SendBufferSize sets the send buffer size of the listener.
@@ -152,10 +282,10 @@ type ListenerSocketOptions struct {
 	// Available on Linux, FreeBSD, and OpenBSD.
 	Transparent bool
 
-	// PathMTUDiscovery enables Path MTU Discovery on the listener.
+	// PathMTUDiscovery sets the Path MTU Discovery mode of the listener.
 	//
 	// Available on Linux, macOS, FreeBSD, and Windows.
-	PathMTUDiscovery bool
+	PathMTUDiscovery PMTUDMode
 
 	// TCPFastOpen enables TCP Fast Open on the listener.
 	//
@@ -239,7 +369,7 @@ var (
 	DefaultUDPServerSocketOptions = ListenerSocketOptions{
 		SendBufferSize:    DefaultUDPSocketBufferSize,
 		ReceiveBufferSize: DefaultUDPSocketBufferSize,
-		PathMTUDiscovery:  true,
+		PathMTUDiscovery:  PMTUDModeDo,
 		ReceivePacketInfo: true,
 	}
 
@@ -250,7 +380,7 @@ var (
 	DefaultUDPClientSocketOptions = ListenerSocketOptions{
 		SendBufferSize:    DefaultUDPSocketBufferSize,
 		ReceiveBufferSize: DefaultUDPSocketBufferSize,
-		PathMTUDiscovery:  true,
+		PathMTUDiscovery:  PMTUDModeDo,
 	}
 
 	// DefaultUDPClientListenConfig is the default [ListenConfig] for UDP clients.
@@ -335,10 +465,10 @@ type DialerSocketOptions struct {
 	// Available on Linux.
 	TCPUserTimeoutMsecs int
 
-	// PathMTUDiscovery enables Path MTU Discovery on the dialer.
+	// PathMTUDiscovery sets the Path MTU Discovery mode of the dialer.
 	//
 	// Available on Linux, macOS, FreeBSD, and Windows.
-	PathMTUDiscovery bool
+	PathMTUDiscovery PMTUDMode
 
 	// TCPFastOpen enables TCP Fast Open on the dialer.
 	//
@@ -403,7 +533,7 @@ var (
 	DefaultUDPDialerSocketOptions = DialerSocketOptions{
 		SendBufferSize:    DefaultUDPSocketBufferSize,
 		ReceiveBufferSize: DefaultUDPSocketBufferSize,
-		PathMTUDiscovery:  true,
+		PathMTUDiscovery:  PMTUDModeDo,
 	}
 
 	// DefaultUDPDialer is the default [Dialer] for UDP clients.

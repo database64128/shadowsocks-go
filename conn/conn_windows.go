@@ -16,20 +16,37 @@ func setRecvBufferSize(fd, size int) error {
 	return nil
 }
 
-func setPMTUD(fd int, network string) error {
+func (fns setFuncSlice) appendSetPMTUDFunc(pmtud PMTUDMode) setFuncSlice {
+	var value int
+	switch pmtud {
+	case PMTUDModeDont:
+		value = windows.IP_PMTUDISC_DONT
+	case PMTUDModeDo:
+		value = windows.IP_PMTUDISC_DO
+	case PMTUDModeProbe:
+		value = windows.IP_PMTUDISC_PROBE
+	default:
+		return fns
+	}
+	return append(fns, func(fd int, network string, _ *SocketInfo) error {
+		return setPMTUD(fd, network, value)
+	})
+}
+
+func setPMTUD(fd int, network string, value int) error {
 	switch network {
 	case "tcp4", "udp4":
-		if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, windows.IP_MTU_DISCOVER, windows.IP_PMTUDISC_DO); err != nil {
-			return fmt.Errorf("failed to set socket option IP_MTU_DISCOVER: %w", err)
+		if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, windows.IP_MTU_DISCOVER, value); err != nil {
+			return fmt.Errorf("failed to set socket option IP_MTU_DISCOVER to %d: %w", value, err)
 		}
 	case "tcp6", "udp6":
 		// For dual-stack IPv6 sockets, both IP_MTU_DISCOVER and IPV6_MTU_DISCOVER need to be set.
 		// However, if IPV6_V6ONLY is set to true, setting IP_MTU_DISCOVER will fail with WSAEINVAL.
-		if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, windows.IP_MTU_DISCOVER, windows.IP_PMTUDISC_DO); err != nil && err != windows.WSAEINVAL {
-			return fmt.Errorf("failed to set socket option IP_MTU_DISCOVER: %w", err)
+		if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, windows.IP_MTU_DISCOVER, value); err != nil && err != windows.WSAEINVAL {
+			return fmt.Errorf("failed to set socket option IP_MTU_DISCOVER to %d: %w", value, err)
 		}
-		if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IPV6, windows.IPV6_MTU_DISCOVER, windows.IP_PMTUDISC_DO); err != nil {
-			return fmt.Errorf("failed to set socket option IPV6_MTU_DISCOVER: %w", err)
+		if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IPV6, windows.IPV6_MTU_DISCOVER, value); err != nil {
+			return fmt.Errorf("failed to set socket option IPV6_MTU_DISCOVER to %d: %w", value, err)
 		}
 	default:
 		return fmt.Errorf("unsupported network: %s", network)
