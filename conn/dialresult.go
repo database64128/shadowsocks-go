@@ -24,6 +24,8 @@ const (
 
 // DialResultCodeFromError parses the error and returns a [DialResultCode].
 func DialResultCodeFromError(err error) DialResultCode {
+	// Inline this once we have Go 1.27, thanks to
+	// https://github.com/golang/go/commit/b5c2bd7e050ceb00b1f240d8759e1ed9ebcfa4c7.
 	return dialResultCodeFromError(err)
 }
 
