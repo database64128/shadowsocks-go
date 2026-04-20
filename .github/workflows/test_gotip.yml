@@ -3,6 +3,9 @@ name: Test with gotip
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   test:
     name: Test
