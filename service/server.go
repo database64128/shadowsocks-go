@@ -47,6 +47,11 @@ type ListenerConfig struct {
 	//
 	// Available on Linux and the BSDs.
 	ReusePort bool `json:"reusePort,omitzero"`
+
+	// PathMTUDiscovery specifies the Path MTU Discovery mode on the listener.
+	//
+	// The default is [PMTUDModeAppDefault], which disables IP fragmentation for better performance and reliability.
+	PathMTUDiscovery PMTUDMode `json:"pathMTUDiscovery,omitzero"`
 }
 
 // TCPListenerConfig is the configuration for a TCP listener.
@@ -144,6 +149,7 @@ func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 			TCPUserTimeoutMsecs: lnc.UserTimeoutMsecs,
 			ReusePort:           lnc.ReusePort,
 			Transparent:         transparent,
+			PathMTUDiscovery:    lnc.PathMTUDiscovery.TCP(),
 			TCPFastOpen:         lnc.FastOpen,
 			TCPFastOpenFallback: lnc.FastOpenFallback,
 			MultipathTCP:        lnc.Multipath,
@@ -174,11 +180,14 @@ type UDPListenerConfig struct {
 	// IP fragmentation does not reliably work over the Internet.
 	// Sending fragmented packets will significantly reduce throughput.
 	// Do not enable this option unless it is absolutely necessary.
+	//
+	// This field is obsolete and will be removed in a future release.
+	// Setting it to true overrides PathMTUDiscovery to [PMTUDModeSystemDefault].
 	AllowFragmentation bool `json:"allowFragmentation,omitzero"`
 }
 
 // Configure returns a UDP server socket configuration.
-func (lnc *UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache, minNATTimeout time.Duration, transparent bool) (udpRelayServerConn, error) {
+func (lnc *UDPListenerConfig) Configure(logger *zap.Logger, serverName string, listenConfigCache conn.ListenConfigCache, minNATTimeout time.Duration, transparent bool) (udpRelayServerConn, error) {
 	switch lnc.Network {
 	case "udp", "udp4", "udp6":
 	default:
@@ -189,9 +198,12 @@ func (lnc *UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 		return udpRelayServerConn{}, err
 	}
 
-	pmtud := conn.PMTUDModeDo
+	pmtud := lnc.PathMTUDiscovery
 	if lnc.AllowFragmentation {
-		pmtud = conn.PMTUDModeDefault
+		pmtud = PMTUDModeSystemDefault
+		logger.Warn("allowFragmentation is obsolete and will be removed in a future release; migrate to pathMTUDiscovery for more granular control",
+			zap.String("server", serverName),
+		)
 	}
 
 	natTimeout := lnc.NATTimeout.Value()
@@ -210,7 +222,7 @@ func (lnc *UDPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 			TrafficClass:            lnc.TrafficClass,
 			ReusePort:               lnc.ReusePort,
 			Transparent:             transparent,
-			PathMTUDiscovery:        pmtud,
+			PathMTUDiscovery:        pmtud.UDP(),
 			ReceivePacketInfo:       !transparent,
 			ReceiveOriginalDestAddr: transparent,
 		}),
@@ -555,7 +567,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
-func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (shadowsocks.Service, error) {
+func (sc *ServerConfig) UDPRelay(logger *zap.Logger, maxClientPackerHeadroom zerocopy.Headroom) (shadowsocks.Service, error) {
 	if len(sc.UDPListeners) == 0 {
 		return nil, errNetworkDisabled
 	}
@@ -621,7 +633,7 @@ func (sc *ServerConfig) UDPRelay(maxClientPackerHeadroom zerocopy.Headroom) (sha
 	listeners := make([]udpRelayServerConn, len(sc.UDPListeners))
 
 	for i := range listeners {
-		listeners[i], err = sc.UDPListeners[i].Configure(sc.listenConfigCache, minNATTimeout, listenerTransparent)
+		listeners[i], err = sc.UDPListeners[i].Configure(logger, sc.Name, sc.listenConfigCache, minNATTimeout, listenerTransparent)
 		if err != nil {
 			return nil, err
 		}

@@ -76,6 +76,11 @@ type ClientConfig struct {
 	// EnableTCP controls whether to enable TCP on the client.
 	EnableTCP bool `json:"enableTCP,omitzero"`
 
+	// TCPPathMTUDiscovery specifies the Path MTU Discovery mode for TCP sockets.
+	//
+	// The default is [PMTUDModeAppDefault], which follows the system default.
+	TCPPathMTUDiscovery PMTUDMode `json:"tcpPathMTUDiscovery,omitzero"`
+
 	// DialerTFO enables TCP Fast Open on the dialer.
 	//
 	// Available on Linux, macOS, FreeBSD, and Windows.
@@ -112,11 +117,19 @@ type ClientConfig struct {
 	// EnableUDP controls whether to enable UDP on the client.
 	EnableUDP bool `json:"enableUDP,omitzero"`
 
+	// UDPPathMTUDiscovery specifies the Path MTU Discovery mode for UDP sockets.
+	//
+	// The default is [PMTUDModeAppDefault], which disables IP fragmentation for better performance and reliability.
+	UDPPathMTUDiscovery PMTUDMode `json:"udpPathMTUDiscovery,omitzero"`
+
 	// AllowFragmentation controls whether to allow fragmented UDP packets.
 	//
 	// IP fragmentation does not reliably work over the Internet.
 	// Sending fragmented packets will significantly reduce throughput.
 	// Do not enable this option unless it is absolutely necessary.
+	//
+	// This field is obsolete and will be removed in a future release.
+	// Setting it to true overrides UDPPathMTUDiscovery to [PMTUDModeSystemDefault].
 	AllowFragmentation bool `json:"allowFragmentation,omitzero"`
 
 	// MTU is the MTU of the client's designated network path.
@@ -274,6 +287,7 @@ func (cc *ClientConfig) initConnDialer() {
 	cc.connDialer = cc.dialerCache.Get(conn.DialerSocketOptions{
 		Fwmark:              cc.DialerFwmark,
 		TrafficClass:        cc.DialerTrafficClass,
+		PathMTUDiscovery:    cc.TCPPathMTUDiscovery.TCP(),
 		TCPFastOpen:         cc.DialerTFO,
 		TCPFastOpenFallback: cc.TCPFastOpenFallback,
 		MultipathTCP:        cc.MultipathTCP,
@@ -386,9 +400,12 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 		return nil, ErrMTUTooSmall
 	}
 
-	pmtud := conn.PMTUDModeDo
+	pmtud := cc.UDPPathMTUDiscovery
 	if cc.AllowFragmentation {
-		pmtud = conn.PMTUDModeDefault
+		pmtud = PMTUDModeSystemDefault
+		cc.logger.Warn("allowFragmentation is obsolete and will be removed in a future release; migrate to udpPathMTUDiscovery for more granular control",
+			zap.String("client", cc.Name),
+		)
 	}
 
 	listenConfig := cc.listenConfigCache.Get(conn.ListenerSocketOptions{
@@ -396,7 +413,7 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 		ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
 		Fwmark:            cc.DialerFwmark,
 		TrafficClass:      cc.DialerTrafficClass,
-		PathMTUDiscovery:  pmtud,
+		PathMTUDiscovery:  pmtud.UDP(),
 	})
 
 	switch cc.Protocol {

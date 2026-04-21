@@ -332,6 +332,23 @@ shadowsocks-go-domain-set-converter -inDlc netflix.txt -outGob ss-go-gob-netflix
 
 shadowsocks-go uses the MaxMind GeoLite2 Country database for IP geolocation. The database can be downloaded from https://github.com/Dreamacro/maxmind-geoip. Arch Linux users can install the [shadowsocks-go-geolite2-country-git](https://aur.archlinux.org/packages/shadowsocks-go-geolite2-country-git/) package from the AUR.
 
+## IP Fragmentation
+
+For better performance and reliability, shadowsocks-go disables IP fragmentation by default. If your network does not work well with this, set `"pathMTUDiscovery"` to one of the modes below.
+
+| Mode | Behavior | Linux | Windows | macOS | FreeBSD | Other OSes |
+| --- | --- | --- | --- | --- | --- | --- |
+| `"default"` | App default (TCP: `"system"`, UDP: `"do"`). | - | - | - | - | - |
+| `"system"` | System default (usually only allows fragmentation for UDP). | - | - | - | - | - |
+| `"dont"` | Disable PMTUD and allow fragmentation. | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `"do"` | Enable PMTUD and drop packets that exceed MTU. | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `"probe"` | Like `"do"`, but permit packets above probed MTU. | ✅ | ✅ | ❌ | ❌ | ❌ |
+| `"want"` | Linux IP_PMTUDISC_WANT behavior. | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `"interface"` | Use interface MTU; no local fragmentation. | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `"omit"` | Like `"interface"`, but permits fragmentation if needed. | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+*Legend: ✅ = supported, ❌ = ignored.*
+
 ## Security
 
 ### 1. Packet Padding Policy

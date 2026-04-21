@@ -43,6 +43,15 @@ func (cfg *Config) Migrate() {
 	for i := range cfg.Servers {
 		sc := &cfg.Servers[i]
 
+		for j := range sc.UDPListeners {
+			ulc := &sc.UDPListeners[j]
+
+			if ulc.AllowFragmentation {
+				ulc.AllowFragmentation = false
+				ulc.PathMTUDiscovery = PMTUDModeSystemDefault
+			}
+		}
+
 		if sc.EnableTCP {
 			sc.TCPListeners = append(sc.TCPListeners, TCPListenerConfig{
 				ListenerConfig: ListenerConfig{
@@ -88,6 +97,15 @@ func (cfg *Config) Migrate() {
 		sc.UDPRelayBatchSize = 0
 		sc.UDPServerRecvBatchSize = 0
 		sc.UDPSendChannelCapacity = 0
+	}
+
+	for i := range cfg.Clients {
+		cc := &cfg.Clients[i]
+
+		if cc.AllowFragmentation {
+			cc.AllowFragmentation = false
+			cc.UDPPathMTUDiscovery = PMTUDModeSystemDefault
+		}
 	}
 
 	cfg.Stats.Enabled = false
@@ -250,7 +268,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 			return nil, fmt.Errorf("failed to create TCP relay service for %q: %w", serverConfig.Name, err)
 		}
 
-		udpRelay, err := serverConfig.UDPRelay(maxClientPackerHeadroom)
+		udpRelay, err := serverConfig.UDPRelay(logger, maxClientPackerHeadroom)
 		switch err {
 		case errNetworkDisabled:
 		case nil:
