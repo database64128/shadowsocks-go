@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/database64128/netx-go v0.1.1
 	github.com/database64128/tfo-go/v2 v2.3.3
-	github.com/gaissmai/bart v0.27.0
+	github.com/gaissmai/bart v0.27.1
 	github.com/oschwald/geoip2-golang/v2 v2.1.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/net v0.54.0
