@@ -8,7 +8,7 @@ require (
 	github.com/gaissmai/bart v0.28.0
 	github.com/oschwald/geoip2-golang/v2 v2.2.0
 	go.uber.org/zap v1.28.0
-	golang.org/x/net v0.54.0
+	golang.org/x/net v0.55.0
 	golang.org/x/sys v0.45.0
 	lukechampine.com/blake3 v1.4.1
 )
