@@ -4,8 +4,8 @@ github.com/database64128/tfo-go/v2 v2.3.3 h1:M0X1SgOirhSvMKI8VQfgUtNVM53L6Rzg9Z+
 github.com/database64128/tfo-go/v2 v2.3.3/go.mod h1:floVt2REc8xeOxFIyttPCvnd6XPIyHPTQ4fDA3EXdUs=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/gaissmai/bart v0.28.0 h1:89yZLo8NmyqD0RYgJ3QO9HhqqGGw+oWhf90cZm69Lko=
-github.com/gaissmai/bart v0.28.0/go.mod h1:GREWQfTLRWz/c5FTOsIw+KkscuFkIV5t8Rp7Nd1Td5c=
+github.com/gaissmai/bart v0.28.1 h1:1YhWqAcQaFklvhRd8x0FHA9qUCmArfqEwaORVkV2s6k=
+github.com/gaissmai/bart v0.28.1/go.mod h1:GREWQfTLRWz/c5FTOsIw+KkscuFkIV5t8Rp7Nd1Td5c=
 github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzhA9Y=
 github.com/klauspost/cpuid/v2 v2.3.0/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
 github.com/oschwald/geoip2-golang/v2 v2.2.0 h1:gdkhpnHQMiH9ymOI+zSB0QKFGH+n4TntNt7vz+TxGPY=
