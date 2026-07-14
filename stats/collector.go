@@ -157,7 +157,7 @@ func (sc *serverCollector) CollectUDPSessionUplink(username string, uplinkPacket
 // Server stores the server's traffic statistics.
 type Server struct {
 	Traffic
-	Users []User `json:"users,omitempty"`
+	Users []User `json:"users,omitzero"`
 }
 
 // Snapshot implements the Collector Snapshot method.
