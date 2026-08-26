@@ -1,13 +1,13 @@
 github.com/database64128/netx-go v0.1.1 h1:dT5LG7Gs7zFZBthFBbzWE6K8wAHjSNAaK7wCYZT7NzM=
 github.com/database64128/netx-go v0.1.1/go.mod h1:LNlYVipaYkQArRFDNNJ02VkNV+My9A5XR/IGS7sIBQc=
-github.com/database64128/tfo-go/v2 v2.3.3 h1:M0X1SgOirhSvMKI8VQfgUtNVM53L6Rzg9Z+DN6fLA50=
-github.com/database64128/tfo-go/v2 v2.3.3/go.mod h1:floVt2REc8xeOxFIyttPCvnd6XPIyHPTQ4fDA3EXdUs=
+github.com/database64128/tfo-go/v2 v2.4.0 h1:FqXQGNh0oPLNXkBnjK20Xt2+Vz2XkXP/PRUYq1gDklw=
+github.com/database64128/tfo-go/v2 v2.4.0/go.mod h1:Pdk7RtWP19hhrI8FvTywGV8JSngV3TVfgmEayWZt+20=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/gaissmai/bart v0.29.0 h1:wO6HGE8g9YE0Wm0bCpYxwRzfQ4+fbJKOhL64e5ACGCI=
 github.com/gaissmai/bart v0.29.0/go.mod h1:GREWQfTLRWz/c5FTOsIw+KkscuFkIV5t8Rp7Nd1Td5c=
-github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzhA9Y=
-github.com/klauspost/cpuid/v2 v2.3.0/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
+github.com/klauspost/cpuid/v2 v2.4.0 h1:S6Hrbc7+ywsr0r+RLapfGBHfyefhCTwEh3A0tV913Dw=
+github.com/klauspost/cpuid/v2 v2.4.0/go.mod h1:19jmZ9mjzoF//ddRSUsv0zfBTJWh3QJh9FNxZTMrGxU=
 github.com/oschwald/geoip2-golang/v2 v2.3.0 h1:hT8/BT137lPJXq0DXwGQUS228k8pEhgBRJ1B70eqyAk=
 github.com/oschwald/geoip2-golang/v2 v2.3.0/go.mod h1:tHUYg65ssvQSSzSCkiFR6LWJPYOvSw/85JiBp8kXz0U=
 github.com/oschwald/maxminddb-golang/v2 v2.5.0 h1:WvEHCE8HwFS5pKWhW8nvvRxNzczuRUOGBLn2L03VlEQ=
