@@ -1,12 +1,21 @@
 package conn
 
-import "net"
+import (
+	"net"
+	"os"
+	"syscall"
+)
 
 var dialResultTestCases = [...]dialResultTestCase{
 	{
 		name:                   "Success",
 		err:                    nil,
 		expectedDialResultCode: DialResultCodeSuccess,
+	},
+	{
+		name:                   "ETIMEDOUT",
+		err:                    &net.OpError{Op: "dial", Net: "tcp", Source: nil, Addr: nil, Err: os.NewSyscallError("connect", syscall.ETIMEDOUT)},
+		expectedDialResultCode: DialResultCodeETIMEDOUT,
 	},
 	{
 		name:                   "ErrDomainNameLookup",

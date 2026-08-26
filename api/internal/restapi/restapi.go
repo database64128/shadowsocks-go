@@ -1,7 +1,7 @@
 package restapi
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 )
@@ -32,12 +32,12 @@ func EncodeResponse(w http.ResponseWriter, status int, data any) (int, error) {
 	case []byte:
 		_, err = w.Write(v)
 	default:
-		err = json.NewEncoder(w).Encode(v)
+		err = json.MarshalWrite(w, v)
 	}
 	return status, err
 }
 
 // DecodeRequest decodes the request body as JSON into the provided value.
 func DecodeRequest(r *http.Request, v any) error {
-	return json.NewDecoder(r.Body).Decode(v)
+	return json.UnmarshalRead(r.Body, v)
 }

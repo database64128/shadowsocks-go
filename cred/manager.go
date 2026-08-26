@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"iter"
@@ -99,11 +100,10 @@ func (s *ManagedServer) saveToFile() error {
 		uPSKMap[username] = uc.uPSK
 	}
 
-	b, err := json.MarshalIndent(uPSKMap, "", "    ")
+	b, err := json.Marshal(uPSKMap, jsontext.Multiline(true))
 	if err != nil {
 		return err
 	}
-	b = append(b, '\n') // b has plenty of unused capacity.
 
 	if err = os.WriteFile(s.path, b, 0644); err != nil {
 		return err
@@ -275,10 +275,9 @@ func (s *ManagedServer) LoadFromFile() error {
 	}
 
 	r := strings.NewReader(content)
-	d := json.NewDecoder(r)
-	d.DisallowUnknownFields()
+	d := jsontext.NewDecoder(r, json.RejectUnknownMembers(true))
 	var uPSKMap map[string][]byte
-	if err = d.Decode(&uPSKMap); err != nil {
+	if err = json.UnmarshalDecode(d, &uPSKMap); err != nil {
 		s.mu.Unlock()
 		return err
 	}
