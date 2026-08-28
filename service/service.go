@@ -54,12 +54,10 @@ func (cfg *Config) Migrate() {
 
 		if sc.EnableTCP {
 			sc.TCPListeners = append(sc.TCPListeners, TCPListenerConfig{
-				ListenerConfig: ListenerConfig{
-					Network:      "tcp",
-					Address:      sc.Listen,
-					Fwmark:       sc.ListenerFwmark,
-					TrafficClass: sc.ListenerTrafficClass,
-				},
+				Network:                   "tcp",
+				Address:                   sc.Listen,
+				Fwmark:                    sc.ListenerFwmark,
+				TrafficClass:              sc.ListenerTrafficClass,
 				FastOpen:                  sc.ListenerTFO,
 				DisableInitialPayloadWait: sc.DisableInitialPayloadWait,
 			})
@@ -67,19 +65,15 @@ func (cfg *Config) Migrate() {
 
 		if sc.EnableUDP {
 			sc.UDPListeners = append(sc.UDPListeners, UDPListenerConfig{
-				ListenerConfig: ListenerConfig{
-					Network:      "udp",
-					Address:      sc.Listen,
-					Fwmark:       sc.ListenerFwmark,
-					TrafficClass: sc.ListenerTrafficClass,
-				},
-				UDPPerfConfig: UDPPerfConfig{
-					BatchMode:           sc.UDPBatchMode,
-					RelayBatchSize:      sc.UDPRelayBatchSize,
-					ServerRecvBatchSize: sc.UDPServerRecvBatchSize,
-					SendChannelCapacity: sc.UDPSendChannelCapacity,
-				},
-				NATTimeout: jsoncfg.Duration(time.Duration(sc.NatTimeoutSec) * time.Second),
+				Network:             "udp",
+				Address:             sc.Listen,
+				Fwmark:              sc.ListenerFwmark,
+				TrafficClass:        sc.ListenerTrafficClass,
+				BatchMode:           sc.UDPBatchMode,
+				RelayBatchSize:      sc.UDPRelayBatchSize,
+				ServerRecvBatchSize: sc.UDPServerRecvBatchSize,
+				SendChannelCapacity: sc.UDPSendChannelCapacity,
+				NATTimeout:          jsoncfg.Duration(time.Duration(sc.NatTimeoutSec) * time.Second),
 			})
 		}
 
@@ -144,6 +138,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 
 	listenConfigCache := conn.NewListenConfigCache()
 	dialerCache := conn.NewDialerCache()
+	unixDomainSocketConfigCache := conn.NewUnixDomainSocketConfigCache()
 	clientIndexByName := make(map[string]int, len(sc.Clients))
 	tcpClientMap := make(map[string]netio.StreamClient, len(sc.Clients))
 	udpClientMap := make(map[string]zerocopy.UDPClient, len(sc.Clients))
@@ -255,7 +250,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	for i := range sc.Servers {
 		serverConfig := &sc.Servers[i]
 
-		if err := serverConfig.Initialize(tlsCertStore, listenConfigCache, statsConfig, router, logger, i); err != nil {
+		if err := serverConfig.Initialize(tlsCertStore, listenConfigCache, unixDomainSocketConfigCache, statsConfig, router, logger, i); err != nil {
 			return nil, fmt.Errorf("failed to initialize server %q: %w", serverConfig.Name, err)
 		}
 

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"os/user"
+	"strconv"
 	"time"
 
 	"github.com/database64128/shadowsocks-go"
@@ -24,15 +26,26 @@ import (
 	"go.uber.org/zap"
 )
 
-// ListenerConfig is the shared part of TCP listener and UDP server socket configurations.
+// ListenerConfig contains configuration options shared by all types of listeners.
 type ListenerConfig struct {
-	// Network is the network type.
-	// Valid values include "tcp", "tcp4", "tcp6", "udp", "udp4", "udp6".
+	// Network specifies the address family of the listener.
+	//
+	//  - "tcp": TCP listener. Dual-stack on supported platforms. IPv4 on platforms without IPV6_V6ONLY.
+	//  - "tcp4": IPv4 TCP listener.
+	//  - "tcp6": IPv6-only TCP listener.
+	//  - "udp": UDP listener. Dual-stack on supported platforms. IPv4 on platforms without IPV6_V6ONLY.
+	//  - "udp4": IPv4 UDP listener.
+	//  - "udp6": IPv6-only UDP listener.
+	//  - "unix": SOCK_STREAM Unix domain socket listener.
+	//  - "unixpacket": SOCK_SEQPACKET Unix domain socket listener.
 	Network string `json:"network"`
 
 	// Address is the address to listen on.
 	Address string `json:"address"`
+}
 
+// IPListenerConfig contains configuration options shared by listeners that directly or indirectly utilize the IP stack.
+type IPListenerConfig struct {
 	// Fwmark sets the listener's fwmark on Linux, or user cookie on FreeBSD.
 	//
 	// Available on Linux and FreeBSD.
@@ -54,10 +67,121 @@ type ListenerConfig struct {
 	PathMTUDiscovery PMTUDMode `json:"pathMTUDiscovery,omitzero"`
 }
 
+// UnixDomainSocketPermissionsConfig configures the permissions of a Unix domain socket.
+type UnixDomainSocketPermissionsConfig struct {
+	// Owner optionally sets the owner of the Unix domain socket.
+	// It can be an integer user ID or a string username.
+	Owner jsoncfg.IntOrString `json:"owner,omitzero"`
+
+	// Group optionally sets the group of the Unix domain socket.
+	// It can be an integer group ID or a string group name.
+	Group jsoncfg.IntOrString `json:"group,omitzero"`
+
+	// Mode optionally sets the file mode of the Unix domain socket.
+	// It must be an octal number in a string (e.g., "0660").
+	Mode jsoncfg.FileMode `json:"mode,omitzero"`
+}
+
+// Build returns a [conn.UnixDomainSocketPermissions] from the configuration.
+func (cfg *UnixDomainSocketPermissionsConfig) Build() (conn.UnixDomainSocketPermissions, error) {
+	perms := conn.UnixDomainSocketPermissions{
+		UID:  -1,
+		GID:  -1,
+		Mode: cfg.Mode.Value(),
+	}
+
+	if cfg.Owner.IsValid() || cfg.Group.IsValid() {
+		switch cfg.Owner.Kind() {
+		case jsoncfg.IntOrStringKindInt:
+			perms.UID = cfg.Owner.Int()
+
+		case jsoncfg.IntOrStringKindString:
+			username := cfg.Owner.String()
+			owner, err := user.Lookup(username)
+			if err != nil {
+				return conn.UnixDomainSocketPermissions{}, fmt.Errorf("failed to lookup user %q: %w", username, err)
+			}
+
+			perms.UID, err = strconv.Atoi(owner.Uid)
+			if err != nil {
+				return conn.UnixDomainSocketPermissions{}, fmt.Errorf("failed to parse UID for user %q: %w", username, err)
+			}
+
+		default:
+			panic("unreachable")
+		}
+
+		switch cfg.Group.Kind() {
+		case jsoncfg.IntOrStringKindInt:
+			perms.GID = cfg.Group.Int()
+
+		case jsoncfg.IntOrStringKindString:
+			groupName := cfg.Group.String()
+			group, err := user.LookupGroup(groupName)
+			if err != nil {
+				return conn.UnixDomainSocketPermissions{}, fmt.Errorf("failed to lookup group %q: %w", groupName, err)
+			}
+
+			perms.GID, err = strconv.Atoi(group.Gid)
+			if err != nil {
+				return conn.UnixDomainSocketPermissions{}, fmt.Errorf("failed to parse GID for group %q: %w", groupName, err)
+			}
+
+		default:
+			panic("unreachable")
+		}
+	}
+
+	return perms, nil
+}
+
+// InitialPayloadWaitConfig configures how a stream relay service handles the initial payload from an accepted connection.
+type InitialPayloadWaitConfig struct {
+	// DisableInitialPayloadWait disables the brief wait for initial payload.
+	//
+	// Setting it to true is useful when the listener only relays server-speaks-first protocols.
+	DisableInitialPayloadWait bool `json:"disableInitialPayloadWait,omitzero"`
+
+	// InitialPayloadWaitTimeout is the read timeout for the initial payload.
+	//
+	// The default value is 250ms.
+	InitialPayloadWaitTimeout jsoncfg.Duration `json:"initialPayloadWaitTimeout,omitzero"`
+
+	// InitialPayloadWaitBufferSize is the read buffer size for the initial payload.
+	//
+	// The default value is 1440.
+	InitialPayloadWaitBufferSize int `json:"initialPayloadWaitBufferSize,omitzero"`
+}
+
+// Configure returns a stream relay initial payload wait configuration.
+func (cfg InitialPayloadWaitConfig) Configure(serverNativeInitialPayload bool) (streamRelayInitialPayloadWaitConfig, error) {
+	initialPayloadWaitTimeout := cfg.InitialPayloadWaitTimeout.Value()
+	switch {
+	case initialPayloadWaitTimeout == 0:
+		initialPayloadWaitTimeout = defaultInitialPayloadWaitTimeout
+	case initialPayloadWaitTimeout < 0:
+		return streamRelayInitialPayloadWaitConfig{}, fmt.Errorf("negative initial payload wait timeout: %s", initialPayloadWaitTimeout)
+	}
+
+	initialPayloadWaitBufferSize := cfg.InitialPayloadWaitBufferSize
+	switch {
+	case initialPayloadWaitBufferSize == 0:
+		initialPayloadWaitBufferSize = defaultInitialPayloadWaitBufferSize
+	case initialPayloadWaitBufferSize < 0:
+		return streamRelayInitialPayloadWaitConfig{}, fmt.Errorf("negative initial payload wait buffer size: %d", initialPayloadWaitBufferSize)
+	}
+
+	return streamRelayInitialPayloadWaitConfig{
+		waitForInitialPayload:        !serverNativeInitialPayload && !cfg.DisableInitialPayloadWait,
+		initialPayloadWaitTimeout:    initialPayloadWaitTimeout,
+		initialPayloadWaitBufferSize: initialPayloadWaitBufferSize,
+	}, nil
+}
+
 // TCPListenerConfig is the configuration for a TCP listener.
 type TCPListenerConfig struct {
-	// ListenerConfig is the shared part of TCP listener and UDP server socket configurations.
 	ListenerConfig
+	IPListenerConfig
 
 	// FastOpen enables TCP Fast Open on the listener.
 	//
@@ -83,20 +207,6 @@ type TCPListenerConfig struct {
 	// Available on platforms supported by Go std's MPTCP implementation.
 	Multipath bool `json:"multipath,omitzero"`
 
-	// DisableInitialPayloadWait disables the brief wait for initial payload.
-	// Setting it to true is useful when the listener only relays server-speaks-first protocols.
-	DisableInitialPayloadWait bool `json:"disableInitialPayloadWait,omitzero"`
-
-	// InitialPayloadWaitTimeout is the read timeout when waiting for the initial payload.
-	//
-	// The default value is 250ms.
-	InitialPayloadWaitTimeout jsoncfg.Duration `json:"initialPayloadWaitTimeout,omitzero"`
-
-	// InitialPayloadWaitBufferSize is the read buffer size when waiting for the initial payload.
-	//
-	// The default value is 1440.
-	InitialPayloadWaitBufferSize int `json:"initialPayloadWaitBufferSize,omitzero"`
-
 	// FastOpenBacklog specifies the maximum number of pending TFO connections on Linux.
 	// If the value is 0, Go std's listen(2) backlog is used.
 	//
@@ -114,33 +224,24 @@ type TCPListenerConfig struct {
 	//
 	// Available on Linux.
 	UserTimeoutMsecs int `json:"userTimeoutMsecs,omitzero"`
+
+	InitialPayloadWaitConfig
 }
 
 // Configure returns a TCP listener configuration.
-func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache, transparent, serverNativeInitialPayload bool) (tcpRelayListener, error) {
+func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache, transparent, serverNativeInitialPayload bool) (streamRelayTCPListener, error) {
 	switch lnc.Network {
 	case "tcp", "tcp4", "tcp6":
 	default:
-		return tcpRelayListener{}, fmt.Errorf("invalid network: %q", lnc.Network)
+		return streamRelayTCPListener{}, fmt.Errorf("invalid network: %q", lnc.Network)
 	}
 
-	initialPayloadWaitTimeout := lnc.InitialPayloadWaitTimeout.Value()
-	switch {
-	case initialPayloadWaitTimeout == 0:
-		initialPayloadWaitTimeout = defaultInitialPayloadWaitTimeout
-	case initialPayloadWaitTimeout < 0:
-		return tcpRelayListener{}, fmt.Errorf("negative initial payload wait timeout: %s", initialPayloadWaitTimeout)
+	ipwCfg, err := lnc.InitialPayloadWaitConfig.Configure(serverNativeInitialPayload)
+	if err != nil {
+		return streamRelayTCPListener{}, err
 	}
 
-	initialPayloadWaitBufferSize := lnc.InitialPayloadWaitBufferSize
-	switch {
-	case initialPayloadWaitBufferSize == 0:
-		initialPayloadWaitBufferSize = defaultInitialPayloadWaitBufferSize
-	case initialPayloadWaitBufferSize < 0:
-		return tcpRelayListener{}, fmt.Errorf("negative initial payload wait buffer size: %d", initialPayloadWaitBufferSize)
-	}
-
-	return tcpRelayListener{
+	return streamRelayTCPListener{
 		listenConfig: listenConfigCache.Get(conn.ListenerSocketOptions{
 			Fwmark:              lnc.Fwmark,
 			TrafficClass:        lnc.TrafficClass,
@@ -154,20 +255,56 @@ func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 			TCPFastOpenFallback: lnc.FastOpenFallback,
 			MultipathTCP:        lnc.Multipath,
 		}),
-		waitForInitialPayload:        !serverNativeInitialPayload && !lnc.DisableInitialPayloadWait,
-		initialPayloadWaitTimeout:    initialPayloadWaitTimeout,
-		initialPayloadWaitBufferSize: initialPayloadWaitBufferSize,
-		network:                      lnc.Network,
-		address:                      lnc.Address,
+		network:                  lnc.Network,
+		address:                  lnc.Address,
+		initialPayloadWaitConfig: ipwCfg,
 	}, nil
+}
+
+// UnixListenerConfig contains configuration options for a SOCK_STREAM or SOCK_SEQPACKET Unix domain socket listener.
+type UnixListenerConfig struct {
+	ListenerConfig
+	UnixDomainSocketPermissionsConfig
+	InitialPayloadWaitConfig
+}
+
+// Configure applies the configuration.
+func (cfg *UnixListenerConfig) Configure(
+	lnc *streamRelayUnixListener,
+	socketConfigCache conn.UnixDomainSocketConfigCache,
+	serverNativeInitialPayload bool,
+) error {
+	switch cfg.Network {
+	case "unix", "unixpacket":
+	default:
+		return fmt.Errorf("invalid network: %q", cfg.Network)
+	}
+
+	perms, err := cfg.UnixDomainSocketPermissionsConfig.Build()
+	if err != nil {
+		return err
+	}
+
+	ipwCfg, err := cfg.InitialPayloadWaitConfig.Configure(serverNativeInitialPayload)
+	if err != nil {
+		return err
+	}
+
+	*lnc = streamRelayUnixListener{
+		listenConfig:             conn.DefaultUnixDomainSocketConfig,
+		network:                  cfg.Network,
+		address:                  cfg.Address,
+		permissions:              perms,
+		initialPayloadWaitConfig: ipwCfg,
+	}
+
+	return nil
 }
 
 // UDPListenerConfig is the configuration for a UDP server socket.
 type UDPListenerConfig struct {
-	// ListenerConfig is the shared part of TCP listener and UDP server socket configurations.
 	ListenerConfig
-
-	// UDPPerfConfig exposes performance tuning options.
+	IPListenerConfig
 	UDPPerfConfig
 
 	// NATTimeout is the duration after which an inactive NAT mapping expires.
@@ -257,6 +394,9 @@ type ServerConfig struct {
 
 	// UDPListeners is the list of UDP listeners.
 	UDPListeners []UDPListenerConfig `json:"udpListeners,omitzero"`
+
+	// UnixListeners is the list of SOCK_STREAM and SOCK_SEQPACKET Unix domain socket listeners.
+	UnixListeners []UnixListenerConfig `json:"unixListeners,omitzero"`
 
 	// MTU is the MTU of the server's designated network path.
 	// The value is used for calculating UDP receive buffer size.
@@ -364,17 +504,18 @@ type ServerConfig struct {
 	// The use of this feature "taints" the server.
 	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix,omitzero"`
 
-	tlsCertStore      *tlscerts.Store
-	listenConfigCache conn.ListenConfigCache
-	collector         stats.Collector
-	router            *router.Router
-	logger            *zap.Logger
-	index             int
+	tlsCertStore                *tlscerts.Store
+	listenConfigCache           conn.ListenConfigCache
+	unixDomainSocketConfigCache conn.UnixDomainSocketConfigCache
+	collector                   stats.Collector
+	router                      *router.Router
+	logger                      *zap.Logger
+	index                       int
 }
 
 // Initialize initializes the server configuration.
-func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCache conn.ListenConfigCache, statsConfig stats.Config, router *router.Router, logger *zap.Logger, index int) error {
-	sc.tcpEnabled = sc.EnableTCP || len(sc.TCPListeners) > 0
+func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCache conn.ListenConfigCache, unixDomainSocketConfigCache conn.UnixDomainSocketConfigCache, statsConfig stats.Config, router *router.Router, logger *zap.Logger, index int) error {
+	sc.tcpEnabled = sc.EnableTCP || len(sc.TCPListeners) > 0 || len(sc.UnixListeners) > 0
 	sc.udpEnabled = sc.EnableUDP || len(sc.UDPListeners) > 0
 
 	switch sc.Protocol {
@@ -409,12 +550,10 @@ func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCac
 
 	if sc.EnableTCP {
 		sc.TCPListeners = append(sc.TCPListeners, TCPListenerConfig{
-			ListenerConfig: ListenerConfig{
-				Network:      "tcp",
-				Address:      sc.Listen,
-				Fwmark:       sc.ListenerFwmark,
-				TrafficClass: sc.ListenerTrafficClass,
-			},
+			Network:                   "tcp",
+			Address:                   sc.Listen,
+			Fwmark:                    sc.ListenerFwmark,
+			TrafficClass:              sc.ListenerTrafficClass,
 			FastOpen:                  sc.ListenerTFO,
 			DisableInitialPayloadWait: sc.DisableInitialPayloadWait,
 		})
@@ -422,19 +561,15 @@ func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCac
 
 	if sc.EnableUDP {
 		sc.UDPListeners = append(sc.UDPListeners, UDPListenerConfig{
-			ListenerConfig: ListenerConfig{
-				Network:      "udp",
-				Address:      sc.Listen,
-				Fwmark:       sc.ListenerFwmark,
-				TrafficClass: sc.ListenerTrafficClass,
-			},
-			UDPPerfConfig: UDPPerfConfig{
-				BatchMode:           sc.UDPBatchMode,
-				RelayBatchSize:      sc.UDPRelayBatchSize,
-				ServerRecvBatchSize: sc.UDPServerRecvBatchSize,
-				SendChannelCapacity: sc.UDPSendChannelCapacity,
-			},
-			NATTimeout: jsoncfg.Duration(time.Duration(sc.NatTimeoutSec) * time.Second),
+			Network:             "udp",
+			Address:             sc.Listen,
+			Fwmark:              sc.ListenerFwmark,
+			TrafficClass:        sc.ListenerTrafficClass,
+			BatchMode:           sc.UDPBatchMode,
+			RelayBatchSize:      sc.UDPRelayBatchSize,
+			ServerRecvBatchSize: sc.UDPServerRecvBatchSize,
+			SendChannelCapacity: sc.UDPSendChannelCapacity,
+			NATTimeout:          jsoncfg.Duration(time.Duration(sc.NatTimeoutSec) * time.Second),
 		})
 	}
 
@@ -446,6 +581,7 @@ func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCac
 
 	sc.tlsCertStore = tlsCertStore
 	sc.listenConfigCache = listenConfigCache
+	sc.unixDomainSocketConfigCache = unixDomainSocketConfigCache
 	sc.collector = statsConfig.Collector()
 	sc.router = router
 	sc.logger = logger
@@ -455,7 +591,7 @@ func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCac
 
 // TCPRelay creates a TCP relay service from the ServerConfig.
 func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
-	if len(sc.TCPListeners) == 0 {
+	if len(sc.TCPListeners) == 0 && len(sc.UnixListeners) == 0 {
 		return nil, errNetworkDisabled
 	}
 
@@ -554,16 +690,23 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 	}
 
 	serverInfo := server.StreamServerInfo()
-	listeners := make([]tcpRelayListener, len(sc.TCPListeners))
 
-	for i := range listeners {
-		listeners[i], err = sc.TCPListeners[i].Configure(sc.listenConfigCache, listenerTransparent, serverInfo.NativeInitialPayload)
+	tcpListeners := make([]streamRelayTCPListener, len(sc.TCPListeners))
+	for i := range tcpListeners {
+		tcpListeners[i], err = sc.TCPListeners[i].Configure(sc.listenConfigCache, listenerTransparent, serverInfo.NativeInitialPayload)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	return NewTCPRelay(sc.index, sc.Name, listeners, server, sc.collector, sc.router, sc.logger), nil
+	unixListeners := make([]streamRelayUnixListener, len(sc.UnixListeners))
+	for i := range unixListeners {
+		if err := sc.UnixListeners[i].Configure(&unixListeners[i], sc.unixDomainSocketConfigCache, serverInfo.NativeInitialPayload); err != nil {
+			return nil, err
+		}
+	}
+
+	return NewTCPRelay(sc.index, sc.Name, tcpListeners, unixListeners, server, sc.collector, sc.router, sc.logger), nil
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.

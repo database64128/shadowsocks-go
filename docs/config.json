@@ -365,6 +365,18 @@
                     "natTimeout": "17s"
                 }
             ],
+            "unixListeners": [
+                {
+                    "network": "unix",
+                    "address": "/run/shadowsocks-go-tunnel.sock",
+                    "owner": "http",
+                    "group": "http",
+                    "mode": "0660",
+                    "disableInitialPayloadWait": false,
+                    "initialPayloadWaitTimeout": "250ms",
+                    "initialPayloadWaitBufferSize": 1440
+                }
+            ],
             "mtu": 1500,
             "tunnelRemoteAddress": "[2606:4700:4700::1111]:53",
             "tunnelUDPTargetOnly": false

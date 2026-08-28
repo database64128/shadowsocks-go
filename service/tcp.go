@@ -23,16 +23,31 @@ const (
 	defaultInitialPayloadWaitTimeout    = 250 * time.Millisecond
 )
 
-// tcpRelayListener configures the TCP listener for a relay service.
-type tcpRelayListener struct {
-	logger                       *zap.Logger
-	listener                     *net.TCPListener
-	listenConfig                 conn.ListenConfig
+type streamRelayInitialPayloadWaitConfig struct {
 	waitForInitialPayload        bool
 	initialPayloadWaitTimeout    time.Duration
 	initialPayloadWaitBufferSize int
-	network                      string
-	address                      string
+}
+
+// streamRelayTCPListener is the configuration for a stream relay TCP listener.
+type streamRelayTCPListener struct {
+	logger                   *zap.Logger
+	listener                 *net.TCPListener
+	listenConfig             conn.ListenConfig
+	network                  string
+	address                  string
+	initialPayloadWaitConfig streamRelayInitialPayloadWaitConfig
+}
+
+// streamRelayUnixListener is the configuration for a stream relay Unix domain socket listener.
+type streamRelayUnixListener struct {
+	logger                   *zap.Logger
+	listener                 *net.UnixListener
+	listenConfig             conn.UnixDomainSocketConfig
+	network                  string
+	address                  string
+	permissions              conn.UnixDomainSocketPermissions
+	initialPayloadWaitConfig streamRelayInitialPayloadWaitConfig
 }
 
 // TCPRelay is a relay service for TCP traffic.
@@ -42,33 +57,36 @@ type tcpRelayListener struct {
 //
 // TCPRelay implements the Service interface.
 type TCPRelay struct {
-	serverIndex int
-	serverName  string
-	listeners   []tcpRelayListener
-	acceptWg    sync.WaitGroup
-	server      netio.StreamServer
-	collector   stats.Collector
-	router      *router.Router
-	logger      *zap.Logger
+	serverIndex   int
+	serverName    string
+	tcpListeners  []streamRelayTCPListener
+	unixListeners []streamRelayUnixListener
+	acceptWg      sync.WaitGroup
+	server        netio.StreamServer
+	collector     stats.Collector
+	router        *router.Router
+	logger        *zap.Logger
 }
 
 func NewTCPRelay(
 	serverIndex int,
 	serverName string,
-	listeners []tcpRelayListener,
+	tcpListeners []streamRelayTCPListener,
+	unixListeners []streamRelayUnixListener,
 	server netio.StreamServer,
 	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
 ) *TCPRelay {
 	return &TCPRelay{
-		serverIndex: serverIndex,
-		serverName:  serverName,
-		listeners:   listeners,
-		server:      server,
-		collector:   collector,
-		router:      router,
-		logger:      logger,
+		serverIndex:   serverIndex,
+		serverName:    serverName,
+		tcpListeners:  tcpListeners,
+		unixListeners: unixListeners,
+		server:        server,
+		collector:     collector,
+		router:        router,
+		logger:        logger,
 	}
 }
 
@@ -81,9 +99,8 @@ func (s *TCPRelay) ZapField() zap.Field {
 
 // Start implements [shadowsocks.Service.Start].
 func (s *TCPRelay) Start(ctx context.Context) error {
-	for i := range s.listeners {
-		index := i
-		lnc := &s.listeners[index]
+	for i := range s.tcpListeners {
+		lnc := &s.tcpListeners[i]
 
 		l, _, err := lnc.listenConfig.ListenTCP(ctx, lnc.network, lnc.address)
 		if err != nil {
@@ -93,7 +110,7 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 		lnc.address = l.Addr().String()
 		lnc.logger = s.logger.With(
 			zap.String("server", s.serverName),
-			zap.Int("listener", index),
+			zap.Int("tcpListener", i),
 			zap.String("listenAddress", lnc.address),
 		)
 
@@ -108,17 +125,56 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 					continue
 				}
 
-				go s.handleConn(ctx, lnc, clientConn)
+				go s.handleConn(ctx, lnc.logger, lnc.initialPayloadWaitConfig, clientConn)
 			}
 		})
 
-		lnc.logger.Info("Started TCP relay service listener")
+		lnc.logger.Info("Started stream relay service TCP listener")
 	}
+
+	for i := range s.unixListeners {
+		lnc := &s.unixListeners[i]
+
+		l, err := lnc.listenConfig.Listen(ctx, lnc.network, lnc.address, lnc.permissions)
+		if err != nil {
+			return err
+		}
+		lnc.listener = l
+		lnc.address = l.Addr().String()
+		lnc.logger = s.logger.With(
+			zap.String("server", s.serverName),
+			zap.Int("unixListener", i),
+			zap.String("listenAddress", lnc.address),
+		)
+
+		s.acceptWg.Go(func() {
+			for {
+				clientConn, err := lnc.listener.AcceptUnix()
+				if err != nil {
+					if errors.Is(err, os.ErrDeadlineExceeded) {
+						break
+					}
+					lnc.logger.Error("Failed to accept Unix connection", zap.Error(err))
+					continue
+				}
+
+				go s.handleConn(ctx, lnc.logger, lnc.initialPayloadWaitConfig, clientConn)
+			}
+		})
+
+		lnc.logger.Info("Started stream relay service Unix listener")
+	}
+
 	return nil
 }
 
 // handleConn handles an accepted TCP connection.
-func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, acceptedConn netio.Conn) {
+func (s *TCPRelay) handleConn(
+	ctx context.Context,
+	logger *zap.Logger,
+	ipwCfg streamRelayInitialPayloadWaitConfig,
+	acceptedConn netio.Conn,
+) {
 	var inConn netio.Conn
 	defer func() {
 		if inConn != nil {
@@ -141,7 +197,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, accept
 		clientAddress = clientAddr.String()
 	}
 
-	logger := lnc.logger.With(
+	logger = logger.With(
 		zap.String("clientAddress", clientAddress),
 	)
 
@@ -199,16 +255,16 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, accept
 	// 2. server does not have native support
 	// 3. server did not return initial payload
 	// 4. client has native support
-	if len(req.Payload) == 0 && clientInfo.NativeInitialPayload && lnc.waitForInitialPayload {
+	if len(req.Payload) == 0 && clientInfo.NativeInitialPayload && ipwCfg.waitForInitialPayload {
 		inConn, err = req.PendingConn.Proceed()
 		if err != nil {
 			logger.Warn("Failed to proceed with pending connection", zap.Error(err))
 			return
 		}
 
-		req.Payload = make([]byte, lnc.initialPayloadWaitBufferSize)
+		req.Payload = make([]byte, ipwCfg.initialPayloadWaitBufferSize)
 
-		if err = inConn.SetReadDeadline(time.Now().Add(lnc.initialPayloadWaitTimeout)); err != nil {
+		if err = inConn.SetReadDeadline(time.Now().Add(ipwCfg.initialPayloadWaitTimeout)); err != nil {
 			logger.Error("Failed to set read deadline to initial payload wait timeout", zap.Error(err))
 			return
 		}
@@ -297,8 +353,8 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, accept
 
 // Stop implements [shadowsocks.Service.Stop].
 func (s *TCPRelay) Stop() error {
-	for i := range s.listeners {
-		lnc := &s.listeners[i]
+	for i := range s.tcpListeners {
+		lnc := &s.tcpListeners[i]
 		if err := lnc.listener.SetDeadline(conn.ALongTimeAgo); err != nil {
 			lnc.logger.Error("Failed to set deadline on listener", zap.Error(err))
 		}
@@ -306,8 +362,8 @@ func (s *TCPRelay) Stop() error {
 
 	s.acceptWg.Wait()
 
-	for i := range s.listeners {
-		lnc := &s.listeners[i]
+	for i := range s.tcpListeners {
+		lnc := &s.tcpListeners[i]
 		if err := lnc.listener.Close(); err != nil {
 			lnc.logger.Error("Failed to close listener", zap.Error(err))
 		}
