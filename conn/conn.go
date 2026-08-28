@@ -3,7 +3,9 @@ package conn
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"net"
+	"os"
 	"syscall"
 
 	"github.com/database64128/tfo-go/v2"
@@ -519,6 +521,129 @@ func (dso DialerSocketOptions) Build() Dialer {
 	return d
 }
 
+// UnixDomainSocketOptions contains socket options for Unix domain sockets.
+type UnixDomainSocketOptions struct {
+	// SendBufferSize sets the send buffer size of the socket.
+	//
+	// This is best-effort and does not return an error if the operation fails.
+	//
+	// Available on POSIX systems.
+	SendBufferSize int
+
+	// ReceiveBufferSize sets the receive buffer size of the socket.
+	//
+	// This is best-effort and does not return an error if the operation fails.
+	//
+	// Available on POSIX systems.
+	ReceiveBufferSize int
+}
+
+// Build returns a [UnixDomainSocketConfig] that sets the socket options.
+func (opts UnixDomainSocketOptions) Build() UnixDomainSocketConfig {
+	fns := opts.buildSetFns()
+	return UnixDomainSocketConfig{
+		controlContext: fns.controlContextFunc(nil),
+		control:        fns.controlFunc(nil),
+	}
+}
+
+// UnixDomainSocketPermissions specifies the file permissions of a Unix domain socket.
+type UnixDomainSocketPermissions struct {
+	// UID is the user ID of the socket file.
+	//
+	// If -1, the UID is not changed.
+	UID int
+
+	// GID is the group ID of the socket file.
+	//
+	// If -1, the GID is not changed.
+	GID int
+
+	// Mode is the file mode of the socket file.
+	//
+	// If 0, the mode is not changed.
+	Mode fs.FileMode
+}
+
+// Apply applies the permissions to the given socket file path.
+func (p UnixDomainSocketPermissions) Apply(path string) error {
+	if p.UID != -1 || p.GID != -1 {
+		if err := os.Chown(path, p.UID, p.GID); err != nil {
+			return fmt.Errorf("failed to chown %q to uid=%d, gid=%d: %w", path, p.UID, p.GID, err)
+		}
+	}
+
+	if p.Mode != 0 {
+		if err := os.Chmod(path, p.Mode); err != nil {
+			return fmt.Errorf("failed to chmod %q to %o: %w", path, p.Mode, err)
+		}
+	}
+
+	return nil
+}
+
+// UnixDomainSocketConfig is the constructed configuration for opening Unix domain sockets.
+type UnixDomainSocketConfig struct {
+	controlContext func(ctx context.Context, network, address string, c syscall.RawConn) error
+	control        func(network, address string, c syscall.RawConn) error
+}
+
+// Listen wraps [net.ListenConfig.Listen] and returns a [*net.UnixListener] directly.
+func (cfg UnixDomainSocketConfig) Listen(ctx context.Context, network, address string, perms UnixDomainSocketPermissions) (*net.UnixListener, error) {
+	switch network {
+	case "unix", "unixpacket":
+	default:
+		return nil, net.UnknownNetworkError(network)
+	}
+
+	lc := net.ListenConfig{
+		Control: cfg.control,
+	}
+	ln, err := lc.Listen(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	uln := ln.(*net.UnixListener)
+
+	if err := perms.Apply(address); err != nil {
+		_ = uln.Close()
+		return nil, err
+	}
+
+	return uln, nil
+}
+
+// ListenPacket wraps [net.ListenConfig.ListenPacket] and returns a [*net.UnixConn] directly.
+func (cfg UnixDomainSocketConfig) ListenPacket(ctx context.Context, network, address string, perms UnixDomainSocketPermissions) (*net.UnixConn, error) {
+	if network != "unixgram" {
+		return nil, net.UnknownNetworkError(network)
+	}
+
+	lc := net.ListenConfig{
+		Control: cfg.control,
+	}
+	pc, err := lc.ListenPacket(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	uc := pc.(*net.UnixConn)
+
+	if err := perms.Apply(address); err != nil {
+		_ = uc.Close()
+		return nil, err
+	}
+
+	return uc, nil
+}
+
+// Dial wraps [net.Dialer.DialUnix].
+func (cfg UnixDomainSocketConfig) Dial(ctx context.Context, network string, laddr, raddr *net.UnixAddr) (*net.UnixConn, error) {
+	dialer := net.Dialer{
+		ControlContext: cfg.controlContext,
+	}
+	return dialer.DialUnix(ctx, network, laddr, raddr)
+}
+
 var (
 	// DefaultTCPDialerSocketOptions is the default [DialerSocketOptions] for TCP clients.
 	DefaultTCPDialerSocketOptions = DialerSocketOptions{
@@ -538,6 +663,12 @@ var (
 
 	// DefaultUDPDialer is the default [Dialer] for UDP clients.
 	DefaultUDPDialer = DefaultUDPDialerSocketOptions.Build()
+
+	// DefaultUnixDomainSocketOptions is the default [UnixDomainSocketOptions] for Unix domain sockets.
+	DefaultUnixDomainSocketOptions = UnixDomainSocketOptions{}
+
+	// DefaultUnixDomainSocketConfig is the default [UnixDomainSocketConfig] for Unix domain sockets.
+	DefaultUnixDomainSocketConfig = DefaultUnixDomainSocketOptions.Build()
 )
 
 // ListenConfigCache caches [ListenConfig] instances for [ListenerSocketOptions].
@@ -563,6 +694,18 @@ func NewDialerCache() DialerCache {
 		socketConfigByOptions: map[DialerSocketOptions]Dialer{
 			DefaultTCPDialerSocketOptions: DefaultTCPDialer,
 			DefaultUDPDialerSocketOptions: DefaultUDPDialer,
+		},
+	}
+}
+
+// UnixDomainSocketConfigCache caches [UnixDomainSocketConfig] instances for [UnixDomainSocketOptions].
+type UnixDomainSocketConfigCache = socketConfigCache[UnixDomainSocketOptions, UnixDomainSocketConfig]
+
+// NewUnixDomainSocketConfigCache creates a new cache for [UnixDomainSocketConfig] with default entries.
+func NewUnixDomainSocketConfigCache() UnixDomainSocketConfigCache {
+	return UnixDomainSocketConfigCache{
+		socketConfigByOptions: map[UnixDomainSocketOptions]UnixDomainSocketConfig{
+			DefaultUnixDomainSocketOptions: DefaultUnixDomainSocketConfig,
 		},
 	}
 }
