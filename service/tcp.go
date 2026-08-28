@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"sync"
 	"time"
@@ -117,28 +118,38 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 }
 
 // handleConn handles an accepted TCP connection.
-func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, clientTCPConn *net.TCPConn) {
-	var clientConn netio.Conn
+func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, acceptedConn netio.Conn) {
+	var inConn netio.Conn
 	defer func() {
-		if clientConn != nil {
-			_ = clientConn.Close()
+		if inConn != nil {
+			_ = inConn.Close()
 		} else {
-			_ = clientTCPConn.Close()
+			_ = acceptedConn.Close()
 		}
 	}()
 
-	// Get client address.
-	clientAddrPort := clientTCPConn.RemoteAddr().(*net.TCPAddr).AddrPort()
-	clientAddress := clientAddrPort.String()
+	var (
+		clientAddrPort netip.AddrPort
+		clientAddress  string
+	)
+	clientAddr := acceptedConn.RemoteAddr()
+	if clientTCPAddr, ok := clientAddr.(*net.TCPAddr); ok {
+		clientAddrPort = clientTCPAddr.AddrPort()
+		// Unlike net.TCPAddr.String, netip.AddrPort.String preserves IPv4-mapped IPv6 addresses.
+		clientAddress = clientAddrPort.String()
+	} else {
+		clientAddress = clientAddr.String()
+	}
+
 	logger := lnc.logger.With(
 		zap.String("clientAddress", clientAddress),
 	)
 
 	// Handshake.
-	req, err := s.server.HandleStream(clientTCPConn, logger)
+	req, err := s.server.HandleStream(acceptedConn, logger)
 	if err != nil {
 		if err == netio.ErrHandleStreamDone {
-			logger.Debug("Handled TCP connection without bidirectional copy")
+			logger.Debug("Handled stream connection without bidirectional copy")
 			return
 		}
 		logger.Warn("Failed to complete handshake with client", zap.Error(err))
@@ -189,7 +200,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 	// 3. server did not return initial payload
 	// 4. client has native support
 	if len(req.Payload) == 0 && clientInfo.NativeInitialPayload && lnc.waitForInitialPayload {
-		clientConn, err = req.PendingConn.Proceed()
+		inConn, err = req.PendingConn.Proceed()
 		if err != nil {
 			logger.Warn("Failed to proceed with pending connection", zap.Error(err))
 			return
@@ -197,12 +208,12 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 
 		req.Payload = make([]byte, lnc.initialPayloadWaitBufferSize)
 
-		if err = clientConn.SetReadDeadline(time.Now().Add(lnc.initialPayloadWaitTimeout)); err != nil {
+		if err = inConn.SetReadDeadline(time.Now().Add(lnc.initialPayloadWaitTimeout)); err != nil {
 			logger.Error("Failed to set read deadline to initial payload wait timeout", zap.Error(err))
 			return
 		}
 
-		payloadLength, err := clientConn.Read(req.Payload)
+		payloadLength, err := inConn.Read(req.Payload)
 		switch {
 		case err == nil:
 			if ce := logger.Check(zap.DebugLevel, "Got initial payload"); ce != nil {
@@ -230,20 +241,20 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 
 		req.Payload = req.Payload[:payloadLength]
 
-		if err = clientConn.SetReadDeadline(time.Time{}); err != nil {
+		if err = inConn.SetReadDeadline(time.Time{}); err != nil {
 			logger.Error("Failed to reset read deadline", zap.Error(err))
 			return
 		}
 	}
 
-	// Create remote connection.
-	remoteConn, err := dialer.DialStream(ctx, req.Addr, req.Payload)
+	// Open outgoing connection to destination address.
+	outConn, err := dialer.DialStream(ctx, req.Addr, req.Payload)
 	if err != nil {
-		logger.Warn("Failed to create remote connection",
+		logger.Warn("Failed to open outgoing connection",
 			zap.Int("initialPayloadLength", len(req.Payload)),
 			zap.Error(err),
 		)
-		if clientConn == nil {
+		if inConn == nil {
 			dialResult := conn.DialResultFromError(err)
 			if err = req.Abort(dialResult); err != nil {
 				logger.Warn("Failed to abort pending connection", zap.Error(err))
@@ -251,10 +262,10 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 		}
 		return
 	}
-	defer remoteConn.Close()
+	defer outConn.Close()
 
-	if clientConn == nil {
-		clientConn, err = req.PendingConn.Proceed()
+	if inConn == nil {
+		inConn, err = req.PendingConn.Proceed()
 		if err != nil {
 			logger.Warn("Failed to proceed with pending connection", zap.Error(err))
 			return
@@ -266,7 +277,7 @@ func (s *TCPRelay) handleConn(ctx context.Context, lnc *tcpRelayListener, client
 	)
 
 	// Bidirectional copy.
-	nl2r, nr2l, err := netio.BidirectionalCopy(clientConn, remoteConn)
+	nl2r, nr2l, err := netio.BidirectionalCopy(inConn, outConn)
 	nl2r += int64(len(req.Payload))
 	s.collector.CollectTCPSession(req.Username, uint64(nr2l), uint64(nl2r))
 	if err != nil {
