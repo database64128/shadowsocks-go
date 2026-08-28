@@ -333,8 +333,8 @@ type ListenerSocketOptions struct {
 	ReceiveOriginalDestAddr bool
 }
 
-// ListenConfig returns a [ListenConfig] that sets the socket options.
-func (lso ListenerSocketOptions) ListenConfig() ListenConfig {
+// Build returns a [ListenConfig] that sets the socket options.
+func (lso ListenerSocketOptions) Build() ListenConfig {
 	lc := ListenConfig{
 		tlc: tfo.ListenConfig{
 			Backlog:    lso.TCPFastOpenBacklog,
@@ -363,7 +363,7 @@ var (
 	}
 
 	// DefaultTCPListenConfig is the default [ListenConfig] for TCP listeners.
-	DefaultTCPListenConfig = DefaultTCPListenerSocketOptions.ListenConfig()
+	DefaultTCPListenConfig = DefaultTCPListenerSocketOptions.Build()
 
 	// DefaultUDPServerSocketOptions is the default [ListenerSocketOptions] for UDP servers.
 	DefaultUDPServerSocketOptions = ListenerSocketOptions{
@@ -374,7 +374,7 @@ var (
 	}
 
 	// DefaultUDPServerListenConfig is the default [ListenConfig] for UDP servers.
-	DefaultUDPServerListenConfig = DefaultUDPServerSocketOptions.ListenConfig()
+	DefaultUDPServerListenConfig = DefaultUDPServerSocketOptions.Build()
 
 	// DefaultUDPClientSocketOptions is the default [ListenerSocketOptions] for UDP clients.
 	DefaultUDPClientSocketOptions = ListenerSocketOptions{
@@ -384,7 +384,7 @@ var (
 	}
 
 	// DefaultUDPClientListenConfig is the default [ListenConfig] for UDP clients.
-	DefaultUDPClientListenConfig = DefaultUDPClientSocketOptions.ListenConfig()
+	DefaultUDPClientListenConfig = DefaultUDPClientSocketOptions.Build()
 )
 
 // Dialer wraps a [tfo.Dialer] and provides a subjectively nicer API.
@@ -506,8 +506,8 @@ type DialerSocketOptions struct {
 	UDPGenericReceiveOffload bool
 }
 
-// Dialer returns a [Dialer] with a control function that sets the socket options.
-func (dso DialerSocketOptions) Dialer() Dialer {
+// Build returns a [Dialer] with a control function that sets the socket options.
+func (dso DialerSocketOptions) Build() Dialer {
 	d := Dialer{
 		td: tfo.Dialer{
 			DisableTFO: !dso.TCPFastOpen,
@@ -527,7 +527,7 @@ var (
 	}
 
 	// DefaultTCPDialer is the default [Dialer] for TCP clients.
-	DefaultTCPDialer = DefaultTCPDialerSocketOptions.Dialer()
+	DefaultTCPDialer = DefaultTCPDialerSocketOptions.Build()
 
 	// DefaultUDPDialerSocketOptions is the default [DialerSocketOptions] for UDP clients.
 	DefaultUDPDialerSocketOptions = DialerSocketOptions{
@@ -537,50 +537,52 @@ var (
 	}
 
 	// DefaultUDPDialer is the default [Dialer] for UDP clients.
-	DefaultUDPDialer = DefaultUDPDialerSocketOptions.Dialer()
+	DefaultUDPDialer = DefaultUDPDialerSocketOptions.Build()
 )
 
-// ListenConfigCache is a map of [ListenerSocketOptions] to [ListenConfig].
-type ListenConfigCache map[ListenerSocketOptions]ListenConfig
+// ListenConfigCache caches [ListenConfig] instances for [ListenerSocketOptions].
+type ListenConfigCache = socketConfigCache[ListenerSocketOptions, ListenConfig]
 
 // NewListenConfigCache creates a new cache for [ListenConfig] with a few default entries.
 func NewListenConfigCache() ListenConfigCache {
 	return ListenConfigCache{
-		DefaultTCPListenerSocketOptions: DefaultTCPListenConfig,
-		DefaultUDPServerSocketOptions:   DefaultUDPServerListenConfig,
-		DefaultUDPClientSocketOptions:   DefaultUDPClientListenConfig,
+		socketConfigByOptions: map[ListenerSocketOptions]ListenConfig{
+			DefaultTCPListenerSocketOptions: DefaultTCPListenConfig,
+			DefaultUDPServerSocketOptions:   DefaultUDPServerListenConfig,
+			DefaultUDPClientSocketOptions:   DefaultUDPClientListenConfig,
+		},
 	}
 }
 
-// Get returns a [ListenConfig] for the given [ListenerSocketOptions].
-func (cache ListenConfigCache) Get(lso ListenerSocketOptions) (lc ListenConfig) {
-	lc, ok := cache[lso]
-	if ok {
-		return
-	}
-	lc = lso.ListenConfig()
-	cache[lso] = lc
-	return
-}
+// DialerCache caches [Dialer] instances for [DialerSocketOptions].
+type DialerCache = socketConfigCache[DialerSocketOptions, Dialer]
 
-// DialerCache is a map of [DialerSocketOptions] to [Dialer].
-type DialerCache map[DialerSocketOptions]Dialer
-
-// NewDialerCache creates a new cache for [Dialer] with a few default entries.
+// NewDialerCache creates a new cache for [Dialer] with default entries.
 func NewDialerCache() DialerCache {
 	return DialerCache{
-		DefaultTCPDialerSocketOptions: DefaultTCPDialer,
-		DefaultUDPDialerSocketOptions: DefaultUDPDialer,
+		socketConfigByOptions: map[DialerSocketOptions]Dialer{
+			DefaultTCPDialerSocketOptions: DefaultTCPDialer,
+			DefaultUDPDialerSocketOptions: DefaultUDPDialer,
+		},
 	}
 }
 
-// Get returns a [Dialer] for the given [DialerSocketOptions].
-func (cache DialerCache) Get(dso DialerSocketOptions) (d Dialer) {
-	d, ok := cache[dso]
+type socketConfigBuilder[SocketConfig any] interface {
+	comparable
+	Build() SocketConfig
+}
+
+type socketConfigCache[SocketOptions socketConfigBuilder[SocketConfig], SocketConfig any] struct {
+	socketConfigByOptions map[SocketOptions]SocketConfig
+}
+
+// Get returns a [SocketConfig] for the given [SocketOptions].
+func (cache socketConfigCache[SocketOptions, SocketConfig]) Get(opts SocketOptions) (cfg SocketConfig) {
+	cfg, ok := cache.socketConfigByOptions[opts]
 	if ok {
-		return
+		return cfg
 	}
-	d = dso.Dialer()
-	cache[dso] = d
-	return
+	cfg = opts.Build()
+	cache.socketConfigByOptions[opts] = cfg
+	return cfg
 }
