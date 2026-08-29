@@ -149,24 +149,24 @@ func NewPipe() (pl, pr *PipeConn) {
 	oe2 := newOnceError()
 
 	return &PipeConn{
-			rdRx: cb1, rdTx: cn1,
-			wrTx: cb2, wrRx: cn2,
-			localDone: done1, remoteDone: done2,
-			closeLocalDone: closeDone1, closeRemoteDone: closeDone2,
-			readError:     oe1,
-			writeError:    oe2,
-			readDeadline:  makePipeDeadline(),
-			writeDeadline: makePipeDeadline(),
-		}, &PipeConn{
-			rdRx: cb2, rdTx: cn2,
-			wrTx: cb1, wrRx: cn1,
-			localDone: done2, remoteDone: done1,
-			closeLocalDone: closeDone2, closeRemoteDone: closeDone1,
-			readError:     oe2,
-			writeError:    oe1,
-			readDeadline:  makePipeDeadline(),
-			writeDeadline: makePipeDeadline(),
-		}
+		rdRx: cb1, rdTx: cn1,
+		wrTx: cb2, wrRx: cn2,
+		localDone: done1, remoteDone: done2,
+		closeLocalDone: closeDone1, closeRemoteDone: closeDone2,
+		readError:     oe1,
+		writeError:    oe2,
+		readDeadline:  makePipeDeadline(),
+		writeDeadline: makePipeDeadline(),
+	}, &PipeConn{
+		rdRx: cb2, rdTx: cn2,
+		wrTx: cb1, wrRx: cn1,
+		localDone: done2, remoteDone: done1,
+		closeLocalDone: closeDone2, closeRemoteDone: closeDone1,
+		readError:     oe2,
+		writeError:    oe1,
+		readDeadline:  makePipeDeadline(),
+		writeDeadline: makePipeDeadline(),
+	}
 }
 
 // LocalAddr implements [Conn.LocalAddr].

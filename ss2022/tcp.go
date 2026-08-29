@@ -176,11 +176,9 @@ func (c *StreamClient) DialStream(ctx context.Context, targetAddr conn.Addr, pay
 	}
 
 	clientConn = &ShadowStreamClientConn{
-		ShadowStreamConn: ShadowStreamConn{
-			Conn:        innerConn,
-			writeBuf:    writeBuf,
-			writeCipher: shadowStreamCipher,
-		},
+		Conn:                       innerConn,
+		writeBuf:                   writeBuf,
+		writeCipher:                shadowStreamCipher,
 		readOnceOrFull:             c.readOnceOrFull,
 		unsafeResponseStreamPrefix: c.unsafeResponseStreamPrefix,
 		cipherConfig:               c.cipherConfig,
@@ -413,11 +411,9 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 	}
 
 	req.PendingConn = netio.NopPendingConn(&ShadowStreamServerConn{
-		ShadowStreamConn: ShadowStreamConn{
-			Conn:       rawRW,
-			readCipher: shadowStreamCipher,
-			writeBuf:   writeBuf,
-		},
+		Conn:                       rawRW,
+		readCipher:                 shadowStreamCipher,
+		writeBuf:                   writeBuf,
 		unsafeResponseStreamPrefix: s.unsafeResponseStreamPrefix,
 		cipherConfig:               userCipherConfig,
 		requestSalt:                extendedSalt,

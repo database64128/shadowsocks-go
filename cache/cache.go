@@ -158,7 +158,8 @@ func (c *BoundedCache[K, V]) insert(key K, value V) {
 
 	node := &boundedNode[K, V]{
 		prev:  c.tail,
-		Entry: Entry[K, V]{Key: key, Value: value},
+		Key:   key,
+		Value: value,
 	}
 
 	c.nodeByKey[key] = node

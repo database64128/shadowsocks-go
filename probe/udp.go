@@ -75,10 +75,8 @@ func (p UDPProbe) Probe(ctx context.Context, client zerocopy.UDPClient) error {
 
 	const rrTypeHTTPS = 65
 	msg := dnsmessage.Message{
-		Header: dnsmessage.Header{
-			ID:               uint16(rand.Uint64()),
-			RecursionDesired: true,
-		},
+		ID:               uint16(rand.Uint64()),
+		RecursionDesired: true,
 		Questions: []dnsmessage.Question{
 			{
 				Name:  name,

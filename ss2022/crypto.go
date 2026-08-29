@@ -153,9 +153,7 @@ func clientPSKHashes(iPSKs [][]byte, psk []byte) [][IdentityHeaderLength]byte {
 // NewClientCipherConfig returns a new ClientCipherConfig.
 func NewClientCipherConfig(psk []byte, iPSKs [][]byte, enableUDP bool) (c *ClientCipherConfig, err error) {
 	c = &ClientCipherConfig{
-		UserCipherConfig: UserCipherConfig{
-			PSK: psk,
-		},
+		PSK:          psk,
 		iPSKs:        iPSKs,
 		eihPSKHashes: clientPSKHashes(iPSKs, psk),
 	}

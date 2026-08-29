@@ -250,10 +250,8 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string, result *r
 	qBuf := make([]byte, 2+512+2+512)
 
 	q4 := dnsmessage.Message{
-		Header: dnsmessage.Header{
-			ID:               4,
-			RecursionDesired: true,
-		},
+		ID:               4,
+		RecursionDesired: true,
 		Questions: []dnsmessage.Question{
 			{
 				Name:  name,
@@ -275,10 +273,8 @@ func (r *Resolver) sendQueries(ctx context.Context, nameString string, result *r
 	q4PktEnd := 2 + len(q4Pkt)
 
 	q6 := dnsmessage.Message{
-		Header: dnsmessage.Header{
-			ID:               6,
-			RecursionDesired: true,
-		},
+		ID:               6,
+		RecursionDesired: true,
 		Questions: []dnsmessage.Question{
 			{
 				Name:  name,
