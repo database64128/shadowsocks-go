@@ -4,33 +4,21 @@ package conn
 
 import (
 	"context"
-	"net"
 )
 
-// ListenUDPMmsgConn is like [ListenUDP] but wraps the [*net.UDPConn] in a [MmsgConn] for
-// reading and writing multiple messages using the recvmmsg(2) and sendmmsg(2) system calls.
-func (lc *ListenConfig) ListenUDPMmsgConn(ctx context.Context, network, address string) (c MmsgConn, info SocketInfo, err error) {
-	info.MaxUDPGSOSegments = 1
-	nlc := lc.tlc.ListenConfig
-	nlc.Control = lc.fns.controlFunc(&info)
-	pc, err := nlc.ListenPacket(ctx, network, address)
+// ListenUDPMmsgConn is like [UDPSocketConfig.Listen] but wraps the [*net.UDPConn] in a [MmsgConn]
+// for reading and writing multiple messages using the recvmmsg(2) and sendmmsg(2) system calls.
+func ListenUDPMmsgConn(ctx context.Context, network, address string, info *SocketInfo, cfg UDPSocketConfig) (MmsgConn, error) {
+	uc, err := cfg.Listen(ctx, network, address, info)
 	if err != nil {
-		return MmsgConn{}, info, err
+		return MmsgConn{}, err
 	}
-	c, err = NewMmsgConn(pc.(*net.UDPConn))
-	return c, info, err
-}
 
-// DialUDPMmsgConn is like [DialUDP] but wraps the [*net.UDPConn] in a [MmsgConn] for
-// reading and writing multiple messages using the recvmmsg(2) and sendmmsg(2) system calls.
-func (d *Dialer) DialUDPMmsgConn(ctx context.Context, network, address string) (c MmsgConn, info SocketInfo, err error) {
-	info.MaxUDPGSOSegments = 1
-	nd := d.td.Dialer
-	nd.ControlContext = d.fns.controlContextFunc(&info)
-	nc, err := nd.DialContext(ctx, network, address)
+	mc, err := NewMmsgConn(uc)
 	if err != nil {
-		return MmsgConn{}, info, err
+		_ = uc.Close()
+		return MmsgConn{}, err
 	}
-	c, err = NewMmsgConn(nc.(*net.UDPConn))
-	return c, info, err
+
+	return mc, nil
 }

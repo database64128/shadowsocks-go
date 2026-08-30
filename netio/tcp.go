@@ -19,7 +19,7 @@ type TCPClientConfig struct {
 	Network string
 
 	// Dialer is the dialer used to establish connections.
-	Dialer conn.Dialer
+	Dialer conn.TCPDialer
 }
 
 // NewTCPClient returns a new TCP client.
@@ -37,7 +37,7 @@ func (c *TCPClientConfig) NewTCPClient() *TCPClient {
 type TCPClient struct {
 	name    string
 	network string
-	dialer  conn.Dialer
+	dialer  conn.TCPDialer
 }
 
 var (
@@ -55,7 +55,7 @@ func (c *TCPClient) NewStreamDialer() (StreamDialer, StreamDialerInfo) {
 
 // DialStream implements [StreamDialer.DialStream].
 func (c *TCPClient) DialStream(ctx context.Context, addr conn.Addr, payload []byte) (Conn, error) {
-	tc, _, err := c.dialer.DialTCP(ctx, c.network, addr.String(), payload)
+	tc, err := c.dialer.Dial(ctx, c.network, addr.String(), payload)
 	if err != nil {
 		return nil, err
 	}

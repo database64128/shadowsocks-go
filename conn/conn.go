@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"net/netip"
 	"os"
 	"syscall"
 
@@ -62,43 +63,6 @@ func (fns setFuncSlice) controlFunc(info *SocketInfo) func(network, address stri
 		}
 		return
 	}
-}
-
-// ListenConfig wraps a [tfo.ListenConfig] and provides a subjectively nicer API.
-type ListenConfig struct {
-	tlc tfo.ListenConfig
-	fns setFuncSlice
-}
-
-// Listen wraps [tfo.ListenConfig.Listen].
-func (lc *ListenConfig) Listen(ctx context.Context, network, address string) (ln net.Listener, info SocketInfo, err error) {
-	tlc := lc.tlc
-	tlc.Control = lc.fns.controlFunc(&info)
-	ln, err = tlc.Listen(ctx, network, address)
-	return
-}
-
-// ListenTCP wraps [tfo.ListenConfig.Listen] and returns a [*net.TCPListener] directly.
-func (lc *ListenConfig) ListenTCP(ctx context.Context, network, address string) (tln *net.TCPListener, info SocketInfo, err error) {
-	tlc := lc.tlc
-	tlc.Control = lc.fns.controlFunc(&info)
-	ln, err := tlc.Listen(ctx, network, address)
-	if err != nil {
-		return nil, info, err
-	}
-	return ln.(*net.TCPListener), info, nil
-}
-
-// ListenUDP wraps [net.ListenConfig.ListenPacket] and returns a [*net.UDPConn] directly.
-func (lc *ListenConfig) ListenUDP(ctx context.Context, network, address string) (uc *net.UDPConn, info SocketInfo, err error) {
-	info.MaxUDPGSOSegments = 1
-	nlc := lc.tlc.ListenConfig
-	nlc.Control = lc.fns.controlFunc(&info)
-	pc, err := nlc.ListenPacket(ctx, network, address)
-	if err != nil {
-		return nil, info, err
-	}
-	return pc.(*net.UDPConn), info, nil
 }
 
 // PMTUDMode is the Path MTU Discovery mode of a socket.
@@ -230,28 +194,28 @@ func (m *PMTUDMode) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// ListenerSocketOptions contains listener-specific socket options.
-type ListenerSocketOptions struct {
-	// SendBufferSize sets the send buffer size of the listener.
+// TCPListenSocketOptions contains socket options for TCP listeners.
+type TCPListenSocketOptions struct {
+	// SendBufferSize sets the send buffer size of the socket.
 	//
 	// This is best-effort and does not return an error if the operation fails.
 	//
 	// Available on POSIX systems.
 	SendBufferSize int
 
-	// ReceiveBufferSize sets the receive buffer size of the listener.
+	// ReceiveBufferSize sets the receive buffer size of the socket.
 	//
 	// This is best-effort and does not return an error if the operation fails.
 	//
 	// Available on POSIX systems.
 	ReceiveBufferSize int
 
-	// Fwmark sets the listener's fwmark on Linux, or user cookie on FreeBSD.
+	// Fwmark sets the socket's fwmark on Linux, or user cookie on FreeBSD.
 	//
 	// Available on Linux and FreeBSD.
 	Fwmark int
 
-	// TrafficClass sets the traffic class of the listener.
+	// TrafficClass sets the traffic class of the socket.
 	//
 	// Available on most platforms except Windows.
 	TrafficClass int
@@ -264,45 +228,45 @@ type ListenerSocketOptions struct {
 	// On all platforms, a negative value disables TFO.
 	TCPFastOpenBacklog int
 
-	// TCPDeferAcceptSecs sets TCP_DEFER_ACCEPT to the given number of seconds on the listener.
+	// TCPDeferAcceptSecs sets TCP_DEFER_ACCEPT to the given number of seconds on the socket.
 	//
 	// Available on Linux.
 	TCPDeferAcceptSecs int
 
-	// TCPUserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the listener.
+	// TCPUserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the socket.
 	//
 	// Available on Linux.
 	TCPUserTimeoutMsecs int
 
-	// ReusePort enables SO_REUSEPORT on the listener.
+	// ReusePort enables SO_REUSEPORT on the socket.
 	//
 	// Available on Linux and the BSDs.
 	ReusePort bool
 
-	// Transparent enables transparent proxy on the listener.
+	// Transparent enables transparent proxy on the socket.
 	//
 	// Available on Linux, FreeBSD, and OpenBSD.
 	Transparent bool
 
-	// PathMTUDiscovery sets the Path MTU Discovery mode of the listener.
+	// PathMTUDiscovery sets the Path MTU Discovery mode of the socket.
 	//
 	// Available on Linux, macOS, FreeBSD, and Windows.
 	PathMTUDiscovery PMTUDMode
 
-	// TCPFastOpen enables TCP Fast Open on the listener.
+	// TCPFastOpen enables TCP Fast Open on the socket.
 	//
 	// Available on Linux, macOS, FreeBSD, and Windows.
 	TCPFastOpen bool
 
-	// TCPFastOpenFallback enables runtime detection of TCP Fast Open support on the listener.
+	// TCPFastOpenFallback enables runtime detection of TCP Fast Open support on the socket.
 	//
-	// When enabled, the listener will start without TFO if TFO is not available on the system.
-	// When disabled, the listener will abort if TFO cannot be enabled on the socket.
+	// When enabled, the socket will start without TFO if TFO is not available on the system.
+	// When disabled, the socket will abort if TFO cannot be enabled on the socket.
 	//
 	// Available on all platforms.
 	TCPFastOpenFallback bool
 
-	// MultipathTCP enables multipath TCP on the listener.
+	// MultipathTCP enables multipath TCP on the socket.
 	//
 	// Unlike Go std, we make MPTCP strictly opt-in.
 	// That is, if this field is false, MPTCP will be explicitly disabled.
@@ -312,41 +276,224 @@ type ListenerSocketOptions struct {
 	//
 	// Available on platforms supported by Go std's MPTCP implementation.
 	MultipathTCP bool
+}
+
+// DefaultTCPListenSocketOptions returns a [TCPListenSocketOptions] with our defaults for TCP listeners.
+func DefaultTCPListenSocketOptions() TCPListenSocketOptions {
+	return TCPListenSocketOptions{
+		TCPFastOpen:         true,
+		TCPFastOpenFallback: true,
+	}
+}
+
+// Build returns a [TCPListenConfig] that sets the socket options.
+func (opts TCPListenSocketOptions) Build() TCPListenConfig {
+	cfg := TCPListenConfig{
+		listenConfig: tfo.ListenConfig{
+			Control:    opts.buildSetFns().controlFunc(nil),
+			Backlog:    opts.TCPFastOpenBacklog,
+			DisableTFO: !opts.TCPFastOpen,
+			Fallback:   opts.TCPFastOpenFallback,
+		},
+	}
+	cfg.listenConfig.SetMultipathTCP(opts.MultipathTCP)
+	return cfg
+}
+
+// TCPListenConfig is the constructed configuration for opening TCP listeners.
+type TCPListenConfig struct {
+	listenConfig tfo.ListenConfig
+}
+
+// Listen wraps [tfo.ListenConfig.Listen] and returns a [*net.TCPListener] directly.
+func (cfg *TCPListenConfig) Listen(ctx context.Context, network, address string) (*net.TCPListener, error) {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+	default:
+		return nil, &net.OpError{Op: "listen", Net: network, Err: net.UnknownNetworkError(network)}
+	}
+
+	ln, err := cfg.listenConfig.Listen(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	return ln.(*net.TCPListener), nil
+}
+
+// TCPConnectSocketOptions contains socket options for outgoing TCP connections.
+type TCPConnectSocketOptions struct {
+	// SendBufferSize sets the send buffer size of the socket.
+	//
+	// This is best-effort and does not return an error if the operation fails.
+	//
+	// Available on POSIX systems.
+	SendBufferSize int
+
+	// ReceiveBufferSize sets the receive buffer size of the socket.
+	//
+	// This is best-effort and does not return an error if the operation fails.
+	//
+	// Available on POSIX systems.
+	ReceiveBufferSize int
+
+	// Fwmark sets the socket's fwmark on Linux, or user cookie on FreeBSD.
+	//
+	// Available on Linux and FreeBSD.
+	Fwmark int
+
+	// TrafficClass sets the traffic class of the socket.
+	//
+	// Available on most platforms except Windows.
+	TrafficClass int
+
+	// TCPUserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the socket.
+	//
+	// Available on Linux.
+	TCPUserTimeoutMsecs int
+
+	// PathMTUDiscovery sets the Path MTU Discovery mode of the socket.
+	//
+	// Available on Linux, macOS, FreeBSD, and Windows.
+	PathMTUDiscovery PMTUDMode
+
+	// TCPFastOpen enables TCP Fast Open on the socket.
+	//
+	// Available on Linux, macOS, FreeBSD, and Windows.
+	TCPFastOpen bool
+
+	// TCPFastOpenFallback enables runtime detection of TCP Fast Open support on the socket.
+	//
+	// When enabled, the socket will connect without TFO if TFO is not available on the system.
+	// When disabled, the socket will abort if TFO cannot be enabled on the socket.
+	//
+	// Available on all platforms.
+	TCPFastOpenFallback bool
+
+	// MultipathTCP enables multipath TCP on the socket.
+	//
+	// Unlike Go std, we make MPTCP strictly opt-in.
+	// That is, if this field is false, MPTCP will be explicitly disabled.
+	// This ensures that if Go std suddenly decides to enable MPTCP by default,
+	// existing configurations won't encounter issues due to missing features in the kernel MPTCP stack,
+	// such as TCP keepalive (as of Linux 6.5), and failed connect attempts won't always be retried once.
+	//
+	// Available on platforms supported by Go std's MPTCP implementation.
+	MultipathTCP bool
+}
+
+// DefaultTCPConnectSocketOptions returns a [TCPConnectSocketOptions] with our defaults for outgoing TCP connections.
+func DefaultTCPConnectSocketOptions() TCPConnectSocketOptions {
+	return TCPConnectSocketOptions{
+		TCPFastOpen:         true,
+		TCPFastOpenFallback: true,
+	}
+}
+
+// Build returns a [TCPDialer] that sets the socket options.
+func (opts TCPConnectSocketOptions) Build() TCPDialer {
+	cfg := TCPDialer{
+		dialer: tfo.Dialer{
+			ControlContext: opts.buildSetFns().controlContextFunc(nil),
+			DisableTFO:     !opts.TCPFastOpen,
+			Fallback:       opts.TCPFastOpenFallback,
+		},
+	}
+	cfg.dialer.SetMultipathTCP(opts.MultipathTCP)
+	return cfg
+}
+
+// TCPDialer is the constructed configuration for opening TCP connections.
+type TCPDialer struct {
+	dialer tfo.Dialer
+}
+
+// WithResolver returns a copy of the configuration with the resolver replaced.
+func (cfg TCPDialer) WithResolver(resolver *net.Resolver) TCPDialer {
+	cfg.dialer.Resolver = resolver
+	return cfg
+}
+
+// TFO returns true if the next Dial call will attempt to enable TFO.
+func (cfg *TCPDialer) TFO() bool {
+	return cfg.dialer.TFO()
+}
+
+// Dial wraps [tfo.Dialer.DialContext] and returns a [*net.TCPConn] directly.
+func (cfg *TCPDialer) Dial(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+	default:
+		return nil, &net.OpError{Op: "dial", Net: network, Err: net.UnknownNetworkError(network)}
+	}
+
+	c, err := cfg.dialer.DialContext(ctx, network, address, b)
+	if err != nil {
+		return nil, err
+	}
+	return c.(*net.TCPConn), nil
+}
+
+// UDPSocketOptions contains socket options for UDP sockets.
+type UDPSocketOptions struct {
+	// SendBufferSize sets the send buffer size of the socket.
+	//
+	// This is best-effort and does not return an error if the operation fails.
+	//
+	// Available on POSIX systems.
+	SendBufferSize int
+
+	// ReceiveBufferSize sets the receive buffer size of the socket.
+	//
+	// This is best-effort and does not return an error if the operation fails.
+	//
+	// Available on POSIX systems.
+	ReceiveBufferSize int
+
+	// Fwmark sets the socket's fwmark on Linux, or user cookie on FreeBSD.
+	//
+	// Available on Linux and FreeBSD.
+	Fwmark int
+
+	// TrafficClass sets the traffic class of the socket.
+	//
+	// Available on most platforms except Windows.
+	TrafficClass int
+
+	// ReusePort enables SO_REUSEPORT on the socket.
+	//
+	// Available on Linux and the BSDs.
+	ReusePort bool
+
+	// Transparent enables transparent proxy on the socket.
+	//
+	// Available on Linux, FreeBSD, and OpenBSD.
+	Transparent bool
+
+	// PathMTUDiscovery sets the Path MTU Discovery mode of the socket.
+	//
+	// Available on Linux, macOS, FreeBSD, and Windows.
+	PathMTUDiscovery PMTUDMode
 
 	// ProbeUDPGSOSupport enables best-effort probing of
-	// UDP Generic Segmentation Offload (GSO) support on the listener.
+	// UDP Generic Segmentation Offload (GSO) support on the socket.
 	//
 	// Available on Linux and Windows.
 	ProbeUDPGSOSupport bool
 
-	// UDPGenericReceiveOffload enables UDP Generic Receive Offload (GRO) on the listener.
+	// UDPGenericReceiveOffload enables UDP Generic Receive Offload (GRO) on the socket.
 	//
 	// Available on Linux and Windows.
 	UDPGenericReceiveOffload bool
 
-	// ReceivePacketInfo enables the reception of packet information control messages on the listener.
+	// ReceivePacketInfo enables the reception of packet information control messages on the socket.
 	//
 	// Available on POSIX systems.
 	ReceivePacketInfo bool
 
-	// ReceiveOriginalDestAddr enables the reception of original destination address control messages on the listener.
+	// ReceiveOriginalDestAddr enables the reception of original destination address control messages on the socket.
 	//
 	// Available on Linux, FreeBSD, and OpenBSD.
 	ReceiveOriginalDestAddr bool
-}
-
-// Build returns a [ListenConfig] that sets the socket options.
-func (lso ListenerSocketOptions) Build() ListenConfig {
-	lc := ListenConfig{
-		tlc: tfo.ListenConfig{
-			Backlog:    lso.TCPFastOpenBacklog,
-			DisableTFO: !lso.TCPFastOpen,
-			Fallback:   lso.TCPFastOpenFallback,
-		},
-		fns: lso.buildSetFns(),
-	}
-	lc.tlc.SetMultipathTCP(lso.MultipathTCP)
-	return lc
 }
 
 // DefaultUDPSocketBufferSize is the default send and receive buffer size of UDP sockets.
@@ -358,167 +505,79 @@ func (lso ListenerSocketOptions) Build() ListenConfig {
 // Other platforms may return an error, which we simply ignore.
 const DefaultUDPSocketBufferSize = 7 << 20
 
-var (
-	// DefaultTCPListenerSocketOptions is the default [ListenerSocketOptions] for TCP servers.
-	DefaultTCPListenerSocketOptions = ListenerSocketOptions{
-		TCPFastOpen: true,
-	}
-
-	// DefaultTCPListenConfig is the default [ListenConfig] for TCP listeners.
-	DefaultTCPListenConfig = DefaultTCPListenerSocketOptions.Build()
-
-	// DefaultUDPServerSocketOptions is the default [ListenerSocketOptions] for UDP servers.
-	DefaultUDPServerSocketOptions = ListenerSocketOptions{
+// DefaultUDPServerSocketOptions returns a [UDPSocketOptions] with our defaults for UDP servers.
+func DefaultUDPServerSocketOptions() UDPSocketOptions {
+	return UDPSocketOptions{
 		SendBufferSize:    DefaultUDPSocketBufferSize,
 		ReceiveBufferSize: DefaultUDPSocketBufferSize,
 		PathMTUDiscovery:  PMTUDModeDo,
 		ReceivePacketInfo: true,
 	}
+}
 
-	// DefaultUDPServerListenConfig is the default [ListenConfig] for UDP servers.
-	DefaultUDPServerListenConfig = DefaultUDPServerSocketOptions.Build()
-
-	// DefaultUDPClientSocketOptions is the default [ListenerSocketOptions] for UDP clients.
-	DefaultUDPClientSocketOptions = ListenerSocketOptions{
+// DefaultUDPClientSocketOptions returns a [UDPSocketOptions] with our defaults for UDP clients.
+func DefaultUDPClientSocketOptions() UDPSocketOptions {
+	return UDPSocketOptions{
 		SendBufferSize:    DefaultUDPSocketBufferSize,
 		ReceiveBufferSize: DefaultUDPSocketBufferSize,
 		PathMTUDiscovery:  PMTUDModeDo,
 	}
+}
 
-	// DefaultUDPClientListenConfig is the default [ListenConfig] for UDP clients.
-	DefaultUDPClientListenConfig = DefaultUDPClientSocketOptions.Build()
-)
+// Build returns a [UDPSocketConfig] that sets the socket options.
+func (opts UDPSocketOptions) Build() UDPSocketConfig {
+	return UDPSocketConfig{
+		fns: opts.buildSetFns(),
+	}
+}
 
-// Dialer wraps a [tfo.Dialer] and provides a subjectively nicer API.
-type Dialer struct {
-	td  tfo.Dialer
+// UDPSocketConfig is the constructed configuration for opening UDP sockets.
+type UDPSocketConfig struct {
 	fns setFuncSlice
 }
 
-// TFO returns true if the next DialTCP call will attempt to enable TFO.
-func (d *Dialer) TFO() bool {
-	return d.td.TFO()
-}
+// Listen wraps [net.ListenConfig.ListenPacket] and returns a [*net.UDPConn] directly.
+func (cfg UDPSocketConfig) Listen(ctx context.Context, network, address string, info *SocketInfo) (*net.UDPConn, error) {
+	switch network {
+	case "udp", "udp4", "udp6":
+	default:
+		return nil, &net.OpError{Op: "listen", Net: network, Err: net.UnknownNetworkError(network)}
+	}
 
-// SetResolver sets an alternate resolver to use.
-func (d *Dialer) SetResolver(resolver *net.Resolver) {
-	d.td.Resolver = resolver
-}
+	if info != nil {
+		*info = SocketInfo{
+			MaxUDPGSOSegments: 1,
+		}
+	}
 
-// Dial wraps [tfo.Dialer.DialContext].
-func (d *Dialer) Dial(ctx context.Context, network, address string, b []byte) (c net.Conn, info SocketInfo, err error) {
-	td := d.td
-	td.ControlContext = d.fns.controlContextFunc(&info)
-	c, err = td.DialContext(ctx, network, address, b)
-	return c, info, err
-}
-
-// DialTCP wraps [tfo.Dialer.DialContext] and returns a [*net.TCPConn] directly.
-func (d *Dialer) DialTCP(ctx context.Context, network, address string, b []byte) (tc *net.TCPConn, info SocketInfo, err error) {
-	td := d.td
-	td.ControlContext = d.fns.controlContextFunc(&info)
-	c, err := td.DialContext(ctx, network, address, b)
+	lc := net.ListenConfig{
+		Control: cfg.fns.controlFunc(info),
+	}
+	pc, err := lc.ListenPacket(ctx, network, address)
 	if err != nil {
-		return nil, info, err
+		return nil, err
 	}
-	return c.(*net.TCPConn), info, nil
+	return pc.(*net.UDPConn), nil
 }
 
-// DialUDP wraps [net.Dialer.DialContext] and returns a [*net.UDPConn] directly.
-func (d *Dialer) DialUDP(ctx context.Context, network, address string) (uc *net.UDPConn, info SocketInfo, err error) {
-	info.MaxUDPGSOSegments = 1
-	nd := d.td.Dialer
-	nd.ControlContext = d.fns.controlContextFunc(&info)
-	c, err := nd.DialContext(ctx, network, address)
-	if err != nil {
-		return nil, info, err
+// Dial wraps [net.Dialer.DialUDP].
+func (cfg UDPSocketConfig) Dial(ctx context.Context, network string, laddr, raddr netip.AddrPort, info *SocketInfo) (*net.UDPConn, error) {
+	switch network {
+	case "udp", "udp4", "udp6":
+	default:
+		return nil, &net.OpError{Op: "dial", Net: network, Err: net.UnknownNetworkError(network)}
 	}
-	return c.(*net.UDPConn), info, nil
-}
 
-// DialerSocketOptions contains dialer-specific socket options.
-type DialerSocketOptions struct {
-	// SendBufferSize sets the send buffer size of the dialer.
-	//
-	// This is best-effort and does not return an error if the operation fails.
-	//
-	// Available on POSIX systems.
-	SendBufferSize int
-
-	// ReceiveBufferSize sets the receive buffer size of the dialer.
-	//
-	// This is best-effort and does not return an error if the operation fails.
-	//
-	// Available on POSIX systems.
-	ReceiveBufferSize int
-
-	// Fwmark sets the dialer's fwmark on Linux, or user cookie on FreeBSD.
-	//
-	// Available on Linux and FreeBSD.
-	Fwmark int
-
-	// TrafficClass sets the traffic class of the dialer.
-	//
-	// Available on most platforms except Windows.
-	TrafficClass int
-
-	// TCPUserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the dialer.
-	//
-	// Available on Linux.
-	TCPUserTimeoutMsecs int
-
-	// PathMTUDiscovery sets the Path MTU Discovery mode of the dialer.
-	//
-	// Available on Linux, macOS, FreeBSD, and Windows.
-	PathMTUDiscovery PMTUDMode
-
-	// TCPFastOpen enables TCP Fast Open on the dialer.
-	//
-	// Available on Linux, macOS, FreeBSD, and Windows.
-	TCPFastOpen bool
-
-	// TCPFastOpenFallback enables runtime detection of TCP Fast Open support on the dialer.
-	//
-	// When enabled, the dialer will connect without TFO if TFO is not available on the system.
-	// When disabled, the dialer will abort if TFO cannot be enabled on the socket.
-	//
-	// Available on all platforms.
-	TCPFastOpenFallback bool
-
-	// MultipathTCP enables multipath TCP on the dialer.
-	//
-	// Unlike Go std, we make MPTCP strictly opt-in.
-	// That is, if this field is false, MPTCP will be explicitly disabled.
-	// This ensures that if Go std suddenly decides to enable MPTCP by default,
-	// existing configurations won't encounter issues due to missing features in the kernel MPTCP stack,
-	// such as TCP keepalive (as of Linux 6.5), and failed connect attempts won't always be retried once.
-	//
-	// Available on platforms supported by Go std's MPTCP implementation.
-	MultipathTCP bool
-
-	// ProbeUDPGSOSupport enables best-effort probing of
-	// UDP Generic Segmentation Offload (GSO) support on the dialer.
-	//
-	// Available on Linux and Windows.
-	ProbeUDPGSOSupport bool
-
-	// UDPGenericReceiveOffload enables UDP Generic Receive Offload (GRO) on the dialer.
-	//
-	// Available on Linux and Windows.
-	UDPGenericReceiveOffload bool
-}
-
-// Build returns a [Dialer] with a control function that sets the socket options.
-func (dso DialerSocketOptions) Build() Dialer {
-	d := Dialer{
-		td: tfo.Dialer{
-			DisableTFO: !dso.TCPFastOpen,
-			Fallback:   dso.TCPFastOpenFallback,
-		},
-		fns: dso.buildSetFns(),
+	if info != nil {
+		*info = SocketInfo{
+			MaxUDPGSOSegments: 1,
+		}
 	}
-	d.td.SetMultipathTCP(dso.MultipathTCP)
-	return d
+
+	dialer := net.Dialer{
+		ControlContext: cfg.fns.controlContextFunc(info),
+	}
+	return dialer.DialUDP(ctx, network, laddr, raddr)
 }
 
 // UnixDomainSocketOptions contains socket options for Unix domain sockets.
@@ -536,6 +595,11 @@ type UnixDomainSocketOptions struct {
 	//
 	// Available on POSIX systems.
 	ReceiveBufferSize int
+}
+
+// DefaultUnixDomainSocketOptions returns a [UnixDomainSocketOptions] with our defaults.
+func DefaultUnixDomainSocketOptions() UnixDomainSocketOptions {
+	return UnixDomainSocketOptions{}
 }
 
 // Build returns a [UnixDomainSocketConfig] that sets the socket options.
@@ -563,6 +627,14 @@ type UnixDomainSocketPermissions struct {
 	//
 	// If 0, the mode is not changed.
 	Mode fs.FileMode
+}
+
+// DefaultUnixDomainSocketPermissions returns a [UnixDomainSocketPermissions] with unspecified permissions.
+func DefaultUnixDomainSocketPermissions() UnixDomainSocketPermissions {
+	return UnixDomainSocketPermissions{
+		UID: -1,
+		GID: -1,
+	}
 }
 
 // Apply applies the permissions to the given socket file path.
@@ -593,7 +665,7 @@ func (cfg UnixDomainSocketConfig) Listen(ctx context.Context, network, address s
 	switch network {
 	case "unix", "unixpacket":
 	default:
-		return nil, net.UnknownNetworkError(network)
+		return nil, &net.OpError{Op: "listen", Net: network, Err: net.UnknownNetworkError(network)}
 	}
 
 	lc := net.ListenConfig{
@@ -607,7 +679,7 @@ func (cfg UnixDomainSocketConfig) Listen(ctx context.Context, network, address s
 
 	if err := perms.Apply(address); err != nil {
 		_ = uln.Close()
-		return nil, err
+		return nil, &net.OpError{Op: "listen", Net: network, Addr: uln.Addr(), Err: err}
 	}
 
 	return uln, nil
@@ -616,7 +688,7 @@ func (cfg UnixDomainSocketConfig) Listen(ctx context.Context, network, address s
 // ListenPacket wraps [net.ListenConfig.ListenPacket] and returns a [*net.UnixConn] directly.
 func (cfg UnixDomainSocketConfig) ListenPacket(ctx context.Context, network, address string, perms UnixDomainSocketPermissions) (*net.UnixConn, error) {
 	if network != "unixgram" {
-		return nil, net.UnknownNetworkError(network)
+		return nil, &net.OpError{Op: "listen", Net: network, Err: net.UnknownNetworkError(network)}
 	}
 
 	lc := net.ListenConfig{
@@ -630,7 +702,7 @@ func (cfg UnixDomainSocketConfig) ListenPacket(ctx context.Context, network, add
 
 	if err := perms.Apply(address); err != nil {
 		_ = uc.Close()
-		return nil, err
+		return nil, &net.OpError{Op: "listen", Net: network, Addr: uc.LocalAddr(), Err: err}
 	}
 
 	return uc, nil
@@ -644,70 +716,75 @@ func (cfg UnixDomainSocketConfig) Dial(ctx context.Context, network string, ladd
 	return dialer.DialUnix(ctx, network, laddr, raddr)
 }
 
-var (
-	// DefaultTCPDialerSocketOptions is the default [DialerSocketOptions] for TCP clients.
-	DefaultTCPDialerSocketOptions = DialerSocketOptions{
-		TCPFastOpen:         true,
-		TCPFastOpenFallback: true,
-	}
+// Dialer is [TCPDialer], [UDPSocketConfig], and [UnixDomainSocketConfig] combined into a universal dialer
+// that can open outgoing TCP, UDP, and Unix domain socket connections, each with their own socket options.
+type Dialer struct {
+	resolver                       *net.Resolver
+	tcpDialerControlContext        func(ctx context.Context, network, address string, c syscall.RawConn) error
+	udpSocketConfig                UDPSocketConfig
+	unixDomainSocketControlContext func(ctx context.Context, network, address string, c syscall.RawConn) error
+}
 
-	// DefaultTCPDialer is the default [Dialer] for TCP clients.
-	DefaultTCPDialer = DefaultTCPDialerSocketOptions.Build()
-
-	// DefaultUDPDialerSocketOptions is the default [DialerSocketOptions] for UDP clients.
-	DefaultUDPDialerSocketOptions = DialerSocketOptions{
-		SendBufferSize:    DefaultUDPSocketBufferSize,
-		ReceiveBufferSize: DefaultUDPSocketBufferSize,
-		PathMTUDiscovery:  PMTUDModeDo,
-	}
-
-	// DefaultUDPDialer is the default [Dialer] for UDP clients.
-	DefaultUDPDialer = DefaultUDPDialerSocketOptions.Build()
-
-	// DefaultUnixDomainSocketOptions is the default [UnixDomainSocketOptions] for Unix domain sockets.
-	DefaultUnixDomainSocketOptions = UnixDomainSocketOptions{}
-
-	// DefaultUnixDomainSocketConfig is the default [UnixDomainSocketConfig] for Unix domain sockets.
-	DefaultUnixDomainSocketConfig = DefaultUnixDomainSocketOptions.Build()
-)
-
-// ListenConfigCache caches [ListenConfig] instances for [ListenerSocketOptions].
-type ListenConfigCache = socketConfigCache[ListenerSocketOptions, ListenConfig]
-
-// NewListenConfigCache creates a new cache for [ListenConfig] with a few default entries.
-func NewListenConfigCache() ListenConfigCache {
-	return ListenConfigCache{
-		socketConfigByOptions: map[ListenerSocketOptions]ListenConfig{
-			DefaultTCPListenerSocketOptions: DefaultTCPListenConfig,
-			DefaultUDPServerSocketOptions:   DefaultUDPServerListenConfig,
-			DefaultUDPClientSocketOptions:   DefaultUDPClientListenConfig,
-		},
+// NewDialer returns a new universal dialer.
+//
+// Name resolution uses the resolver of tcpDialer.
+func NewDialer(tcpDialer TCPDialer, udpSocketConfig UDPSocketConfig, unixDomainSocketConfig UnixDomainSocketConfig) Dialer {
+	return Dialer{
+		resolver:                       tcpDialer.dialer.Resolver,
+		tcpDialerControlContext:        tcpDialer.dialer.ControlContext,
+		udpSocketConfig:                udpSocketConfig,
+		unixDomainSocketControlContext: unixDomainSocketConfig.controlContext,
 	}
 }
 
-// DialerCache caches [Dialer] instances for [DialerSocketOptions].
-type DialerCache = socketConfigCache[DialerSocketOptions, Dialer]
-
-// NewDialerCache creates a new cache for [Dialer] with default entries.
-func NewDialerCache() DialerCache {
-	return DialerCache{
-		socketConfigByOptions: map[DialerSocketOptions]Dialer{
-			DefaultTCPDialerSocketOptions: DefaultTCPDialer,
-			DefaultUDPDialerSocketOptions: DefaultUDPDialer,
-		},
+// Dial opens a connection to the given network and address, using the appropriate socket options for the network type.
+func (d *Dialer) Dial(ctx context.Context, network, address string) (net.Conn, error) {
+	dialer := net.Dialer{
+		Resolver: d.resolver,
 	}
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		dialer.ControlContext = d.tcpDialerControlContext
+	case "udp", "udp4", "udp6":
+		dialer.ControlContext = d.udpSocketConfig.fns.controlContextFunc(nil)
+	case "unix", "unixpacket", "unixgram":
+		dialer.ControlContext = d.unixDomainSocketControlContext
+	default:
+		return nil, &net.OpError{Op: "dial", Net: network, Err: net.UnknownNetworkError(network)}
+	}
+	return dialer.DialContext(ctx, network, address)
 }
 
-// UnixDomainSocketConfigCache caches [UnixDomainSocketConfig] instances for [UnixDomainSocketOptions].
+// TCPListenConfigCache caches [TCPListenConfig] instances by [TCPListenSocketOptions].
+type TCPListenConfigCache = socketConfigCache[TCPListenSocketOptions, TCPListenConfig]
+
+// NewTCPListenConfigCache creates a new cache for [TCPListenConfig] with default entries.
+func NewTCPListenConfigCache() TCPListenConfigCache {
+	return newSocketConfigCache[TCPListenSocketOptions]()
+}
+
+// TCPDialerCache caches [TCPDialer] instances by [TCPConnectSocketOptions].
+type TCPDialerCache = socketConfigCache[TCPConnectSocketOptions, TCPDialer]
+
+// NewTCPDialerCache creates a new cache for [TCPDialer] with default entries.
+func NewTCPDialerCache() TCPDialerCache {
+	return newSocketConfigCache[TCPConnectSocketOptions]()
+}
+
+// UDPSocketConfigCache caches [UDPSocketConfig] instances by [UDPSocketOptions].
+type UDPSocketConfigCache = socketConfigCache[UDPSocketOptions, UDPSocketConfig]
+
+// NewUDPSocketConfigCache creates a new cache for [UDPSocketConfig] with default entries.
+func NewUDPSocketConfigCache() UDPSocketConfigCache {
+	return newSocketConfigCache[UDPSocketOptions]()
+}
+
+// UnixDomainSocketConfigCache caches [UnixDomainSocketConfig] instances by [UnixDomainSocketOptions].
 type UnixDomainSocketConfigCache = socketConfigCache[UnixDomainSocketOptions, UnixDomainSocketConfig]
 
 // NewUnixDomainSocketConfigCache creates a new cache for [UnixDomainSocketConfig] with default entries.
 func NewUnixDomainSocketConfigCache() UnixDomainSocketConfigCache {
-	return UnixDomainSocketConfigCache{
-		socketConfigByOptions: map[UnixDomainSocketOptions]UnixDomainSocketConfig{
-			DefaultUnixDomainSocketOptions: DefaultUnixDomainSocketConfig,
-		},
-	}
+	return newSocketConfigCache[UnixDomainSocketOptions]()
 }
 
 type socketConfigBuilder[SocketConfig any] interface {
@@ -717,6 +794,12 @@ type socketConfigBuilder[SocketConfig any] interface {
 
 type socketConfigCache[SocketOptions socketConfigBuilder[SocketConfig], SocketConfig any] struct {
 	socketConfigByOptions map[SocketOptions]SocketConfig
+}
+
+func newSocketConfigCache[SocketOptions socketConfigBuilder[SocketConfig], SocketConfig any]() socketConfigCache[SocketOptions, SocketConfig] {
+	return socketConfigCache[SocketOptions, SocketConfig]{
+		socketConfigByOptions: make(map[SocketOptions]SocketConfig),
+	}
 }
 
 // Get returns a [SocketConfig] for the given [SocketOptions].

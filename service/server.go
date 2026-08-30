@@ -229,7 +229,7 @@ type TCPListenerConfig struct {
 }
 
 // Configure returns a TCP listener configuration.
-func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache, transparent, serverNativeInitialPayload bool) (streamRelayTCPListener, error) {
+func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.TCPListenConfigCache, transparent, serverNativeInitialPayload bool) (streamRelayTCPListener, error) {
 	switch lnc.Network {
 	case "tcp", "tcp4", "tcp6":
 	default:
@@ -242,7 +242,7 @@ func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.ListenConfigCache
 	}
 
 	return streamRelayTCPListener{
-		listenConfig: listenConfigCache.Get(conn.ListenerSocketOptions{
+		listenConfig: listenConfigCache.Get(conn.TCPListenSocketOptions{
 			Fwmark:              lnc.Fwmark,
 			TrafficClass:        lnc.TrafficClass,
 			TCPFastOpenBacklog:  lnc.FastOpenBacklog,
@@ -291,7 +291,7 @@ func (cfg *UnixListenerConfig) Configure(
 	}
 
 	*lnc = streamRelayUnixListener{
-		listenConfig:             conn.DefaultUnixDomainSocketConfig,
+		listenConfig:             socketConfigCache.Get(conn.UnixDomainSocketOptions{}),
 		network:                  cfg.Network,
 		address:                  cfg.Address,
 		permissions:              perms,
@@ -324,7 +324,7 @@ type UDPListenerConfig struct {
 }
 
 // Configure returns a UDP server socket configuration.
-func (lnc *UDPListenerConfig) Configure(logger *zap.Logger, serverName string, listenConfigCache conn.ListenConfigCache, minNATTimeout time.Duration, transparent bool) (udpRelayServerConn, error) {
+func (lnc *UDPListenerConfig) Configure(logger *zap.Logger, serverName string, socketConfigCache conn.UDPSocketConfigCache, minNATTimeout time.Duration, transparent bool) (udpRelayServerConn, error) {
 	switch lnc.Network {
 	case "udp", "udp4", "udp6":
 	default:
@@ -352,7 +352,7 @@ func (lnc *UDPListenerConfig) Configure(logger *zap.Logger, serverName string, l
 	}
 
 	return udpRelayServerConn{
-		listenConfig: listenConfigCache.Get(conn.ListenerSocketOptions{
+		socketConfig: socketConfigCache.Get(conn.UDPSocketOptions{
 			SendBufferSize:          conn.DefaultUDPSocketBufferSize,
 			ReceiveBufferSize:       conn.DefaultUDPSocketBufferSize,
 			Fwmark:                  lnc.Fwmark,
@@ -505,7 +505,8 @@ type ServerConfig struct {
 	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix,omitzero"`
 
 	tlsCertStore                *tlscerts.Store
-	listenConfigCache           conn.ListenConfigCache
+	tcpListenConfigCache        conn.TCPListenConfigCache
+	udpSocketConfigCache        conn.UDPSocketConfigCache
 	unixDomainSocketConfigCache conn.UnixDomainSocketConfigCache
 	collector                   stats.Collector
 	router                      *router.Router
@@ -514,7 +515,7 @@ type ServerConfig struct {
 }
 
 // Initialize initializes the server configuration.
-func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCache conn.ListenConfigCache, unixDomainSocketConfigCache conn.UnixDomainSocketConfigCache, statsConfig stats.Config, router *router.Router, logger *zap.Logger, index int) error {
+func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, tcpListenConfigCache conn.TCPListenConfigCache, udpSocketConfigCache conn.UDPSocketConfigCache, unixDomainSocketConfigCache conn.UnixDomainSocketConfigCache, statsConfig stats.Config, router *router.Router, logger *zap.Logger, index int) error {
 	sc.tcpEnabled = sc.EnableTCP || len(sc.TCPListeners) > 0 || len(sc.UnixListeners) > 0
 	sc.udpEnabled = sc.EnableUDP || len(sc.UDPListeners) > 0
 
@@ -580,7 +581,8 @@ func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCac
 	}
 
 	sc.tlsCertStore = tlsCertStore
-	sc.listenConfigCache = listenConfigCache
+	sc.tcpListenConfigCache = tcpListenConfigCache
+	sc.udpSocketConfigCache = udpSocketConfigCache
 	sc.unixDomainSocketConfigCache = unixDomainSocketConfigCache
 	sc.collector = statsConfig.Collector()
 	sc.router = router
@@ -693,7 +695,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 
 	tcpListeners := make([]streamRelayTCPListener, len(sc.TCPListeners))
 	for i := range tcpListeners {
-		tcpListeners[i], err = sc.TCPListeners[i].Configure(sc.listenConfigCache, listenerTransparent, serverInfo.NativeInitialPayload)
+		tcpListeners[i], err = sc.TCPListeners[i].Configure(sc.tcpListenConfigCache, listenerTransparent, serverInfo.NativeInitialPayload)
 		if err != nil {
 			return nil, err
 		}
@@ -723,7 +725,7 @@ func (sc *ServerConfig) UDPRelay(logger *zap.Logger, maxClientPackerHeadroom zer
 		natServer                   zerocopy.UDPNATServer
 		sessionServer               zerocopy.UDPSessionServer
 		serverUnpackerHeadroom      zerocopy.Headroom
-		transparentConnListenConfig conn.ListenConfig
+		transparentConnSocketConfig conn.UDPSocketConfig
 		minNATTimeout               time.Duration
 		err                         error
 		listenerTransparent         bool
@@ -734,7 +736,7 @@ func (sc *ServerConfig) UDPRelay(logger *zap.Logger, maxClientPackerHeadroom zer
 		natServer = direct.NewDirectUDPNATServer(sc.TunnelRemoteAddress, sc.TunnelUDPTargetOnly)
 
 	case "tproxy":
-		transparentConnListenConfig = sc.listenConfigCache.Get(conn.ListenerSocketOptions{
+		transparentConnSocketConfig = sc.udpSocketConfigCache.Get(conn.UDPSocketOptions{
 			SendBufferSize:    conn.DefaultUDPSocketBufferSize,
 			ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
 			Fwmark:            sc.ListenerFwmark,
@@ -776,7 +778,7 @@ func (sc *ServerConfig) UDPRelay(logger *zap.Logger, maxClientPackerHeadroom zer
 	listeners := make([]udpRelayServerConn, len(sc.UDPListeners))
 
 	for i := range listeners {
-		listeners[i], err = sc.UDPListeners[i].Configure(logger, sc.Name, sc.listenConfigCache, minNATTimeout, listenerTransparent)
+		listeners[i], err = sc.UDPListeners[i].Configure(logger, sc.Name, sc.udpSocketConfigCache, minNATTimeout, listenerTransparent)
 		if err != nil {
 			return nil, err
 		}
@@ -788,7 +790,7 @@ func (sc *ServerConfig) UDPRelay(logger *zap.Logger, maxClientPackerHeadroom zer
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
 		return NewUDPSessionRelay(sc.Name, sc.index, sc.MTU, packetBufHeadroom.Front, packetBufRecvSize, packetBufSize, listeners, sessionServer, sc.collector, sc.router, sc.logger), nil
 	case "tproxy":
-		return NewUDPTransparentRelay(sc.Name, sc.index, sc.MTU, packetBufHeadroom.Front, packetBufRecvSize, packetBufSize, listeners, transparentConnListenConfig, sc.collector, sc.router, sc.logger)
+		return NewUDPTransparentRelay(sc.Name, sc.index, sc.MTU, packetBufHeadroom.Front, packetBufRecvSize, packetBufSize, listeners, transparentConnSocketConfig, sc.collector, sc.router, sc.logger)
 	default:
 		return nil, fmt.Errorf("invalid protocol: %s", sc.Protocol)
 	}

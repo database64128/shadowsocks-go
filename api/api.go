@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"net/netip"
@@ -158,7 +159,7 @@ type EncryptedClientHelloKey struct {
 // NewServer returns a new API server from the config.
 func (c *Config) NewServer(
 	logger *zap.Logger,
-	listenConfigCache conn.ListenConfigCache,
+	tcpListenConfigCache conn.TCPListenConfigCache,
 	tlsCertStore *tlscerts.Store,
 	serverByName map[string]ssm.Server,
 	serverNames []string,
@@ -171,7 +172,7 @@ func (c *Config) NewServer(
 	for i := range c.Listeners {
 		lnc := &c.Listeners[i]
 		lcs[i] = listenConfig{
-			listenConfig: listenConfigCache.Get(conn.ListenerSocketOptions{
+			listenConfig: tcpListenConfigCache.Get(conn.TCPListenSocketOptions{
 				Fwmark:              lnc.Fwmark,
 				TrafficClass:        lnc.TrafficClass,
 				TCPFastOpenBacklog:  lnc.FastOpenBacklog,
@@ -399,7 +400,7 @@ func logFileServerRequests(logger *zap.Logger, h http.Handler) http.Handler {
 }
 
 type listenConfig struct {
-	listenConfig conn.ListenConfig
+	listenConfig conn.TCPListenConfig
 	network      string
 	address      string
 	tlsConfig    *tls.Config
@@ -425,7 +426,9 @@ func (*Server) ZapField() zap.Field {
 func (s *Server) Start(ctx context.Context) error {
 	for i := range s.lcs {
 		lc := &s.lcs[i]
-		ln, _, err := lc.listenConfig.Listen(ctx, lc.network, lc.address)
+
+		var ln net.Listener
+		ln, err := lc.listenConfig.Listen(ctx, lc.network, lc.address)
 		if err != nil {
 			return err
 		}

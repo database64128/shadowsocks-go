@@ -178,14 +178,13 @@ type ClientConfig struct {
 	// The use of this feature "taints" the client.
 	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix,omitzero"`
 
-	tlsCertStore      *tlscerts.Store
-	listenConfigCache conn.ListenConfigCache
-	dialerCache       conn.DialerCache
-	logger            *zap.Logger
+	tlsCertStore *tlscerts.Store
+	logger       *zap.Logger
 
-	networkTCP  string
-	connDialer  conn.Dialer
-	innerClient *netio.TCPClient
+	networkTCP      string
+	tcpDialer       conn.TCPDialer
+	udpSocketConfig conn.UDPSocketConfig
+	innerClient     *netio.TCPClient
 }
 
 func (cc *ClientConfig) checkAddresses() error {
@@ -219,7 +218,7 @@ func (cc *ClientConfig) checkAddresses() error {
 }
 
 // Initialize initializes the client configuration.
-func (cc *ClientConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCache conn.ListenConfigCache, dialerCache conn.DialerCache, logger *zap.Logger) (err error) {
+func (cc *ClientConfig) Initialize(tlsCertStore *tlscerts.Store, tcpDialerCache conn.TCPDialerCache, udpSocketConfigCache conn.UDPSocketConfigCache, logger *zap.Logger) (err error) {
 	switch cc.Network {
 	case "":
 		cc.Network = "ip"
@@ -257,14 +256,53 @@ func (cc *ClientConfig) Initialize(tlsCertStore *tlscerts.Store, listenConfigCac
 	}
 
 	cc.tlsCertStore = tlsCertStore
-	cc.listenConfigCache = listenConfigCache
-	cc.dialerCache = dialerCache
 	cc.logger = logger
+
+	if cc.EnableTCP && cc.OverrideResolverDialAddress != "" || cc.EnableUDP {
+		pmtud := cc.UDPPathMTUDiscovery
+		if cc.AllowFragmentation {
+			pmtud = PMTUDModeSystemDefault
+			cc.logger.Warn("allowFragmentation is obsolete and will be removed in a future release; migrate to udpPathMTUDiscovery for more granular control",
+				zap.String("client", cc.Name),
+			)
+		}
+
+		cc.udpSocketConfig = udpSocketConfigCache.Get(conn.UDPSocketOptions{
+			SendBufferSize:    conn.DefaultUDPSocketBufferSize,
+			ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
+			Fwmark:            cc.DialerFwmark,
+			TrafficClass:      cc.DialerTrafficClass,
+			PathMTUDiscovery:  pmtud.UDP(),
+		})
+	}
 
 	if cc.EnableTCP || cc.EnableUDP && cc.Protocol == "socks5" {
 		cc.networkTCP = cc.tcpNetwork()
-		cc.initConnDialer()
-		cc.initInnerClient()
+
+		cc.tcpDialer = tcpDialerCache.Get(conn.TCPConnectSocketOptions{
+			Fwmark:              cc.DialerFwmark,
+			TrafficClass:        cc.DialerTrafficClass,
+			PathMTUDiscovery:    cc.TCPPathMTUDiscovery.TCP(),
+			TCPFastOpen:         cc.DialerTFO,
+			TCPFastOpenFallback: cc.TCPFastOpenFallback,
+			MultipathTCP:        cc.MultipathTCP,
+		})
+		if cc.OverrideResolverDialAddress != "" {
+			resolverDialer := conn.NewDialer(cc.tcpDialer, cc.udpSocketConfig, conn.UnixDomainSocketConfig{})
+			cc.tcpDialer = cc.tcpDialer.WithResolver(&net.Resolver{
+				PreferGo: true,
+				Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+					return resolverDialer.Dial(ctx, network, cc.OverrideResolverDialAddress)
+				},
+			})
+		}
+
+		tcc := netio.TCPClientConfig{
+			Name:    cc.Name,
+			Network: cc.networkTCP,
+			Dialer:  cc.tcpDialer,
+		}
+		cc.innerClient = tcc.NewTCPClient()
 	}
 
 	return nil
@@ -281,35 +319,6 @@ func (cc *ClientConfig) tcpNetwork() string {
 	default:
 		panic("unreachable")
 	}
-}
-
-func (cc *ClientConfig) initConnDialer() {
-	cc.connDialer = cc.dialerCache.Get(conn.DialerSocketOptions{
-		Fwmark:              cc.DialerFwmark,
-		TrafficClass:        cc.DialerTrafficClass,
-		PathMTUDiscovery:    cc.TCPPathMTUDiscovery.TCP(),
-		TCPFastOpen:         cc.DialerTFO,
-		TCPFastOpenFallback: cc.TCPFastOpenFallback,
-		MultipathTCP:        cc.MultipathTCP,
-	})
-	if cc.OverrideResolverDialAddress != "" {
-		cc.connDialer.SetResolver(&net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				c, _, err := cc.connDialer.Dial(ctx, network, cc.OverrideResolverDialAddress, nil)
-				return c, err
-			},
-		})
-	}
-}
-
-func (cc *ClientConfig) initInnerClient() {
-	tcc := netio.TCPClientConfig{
-		Name:    cc.Name,
-		Network: cc.networkTCP,
-		Dialer:  cc.connDialer,
-	}
-	cc.innerClient = tcc.NewTCPClient()
 }
 
 // TCPClient returns a new [netio.StreamClient] from the configuration.
@@ -400,27 +409,11 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 		return nil, ErrMTUTooSmall
 	}
 
-	pmtud := cc.UDPPathMTUDiscovery
-	if cc.AllowFragmentation {
-		pmtud = PMTUDModeSystemDefault
-		cc.logger.Warn("allowFragmentation is obsolete and will be removed in a future release; migrate to udpPathMTUDiscovery for more granular control",
-			zap.String("client", cc.Name),
-		)
-	}
-
-	listenConfig := cc.listenConfigCache.Get(conn.ListenerSocketOptions{
-		SendBufferSize:    conn.DefaultUDPSocketBufferSize,
-		ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
-		Fwmark:            cc.DialerFwmark,
-		TrafficClass:      cc.DialerTrafficClass,
-		PathMTUDiscovery:  pmtud.UDP(),
-	})
-
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewDirectUDPClient(cc.Name, cc.Network, cc.MTU, listenConfig), nil
+		return direct.NewDirectUDPClient(cc.Name, cc.Network, cc.MTU, cc.udpSocketConfig), nil
 	case "none", "plain":
-		return direct.NewShadowsocksNoneUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.MTU, listenConfig), nil
+		return direct.NewShadowsocksNoneUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.MTU, cc.udpSocketConfig), nil
 	case "socks5":
 		s5ucc := direct.Socks5UDPClientConfig{
 			Logger:       cc.logger,
@@ -428,14 +421,14 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 			NetworkTCP:   cc.networkTCP,
 			NetworkIP:    cc.Network,
 			Address:      cc.UDPAddress.String(),
-			Dialer:       cc.connDialer,
+			TCPDialer:    cc.tcpDialer,
 			MTU:          cc.MTU,
-			ListenConfig: listenConfig,
+			SocketConfig: cc.udpSocketConfig,
 			AuthMsg:      cc.socks5AuthMsg,
 		}
 		return s5ucc.NewClient(), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		return ss2022.NewUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.MTU, listenConfig, cc.SlidingWindowFilterSize, cc.cipherConfig, cc.PaddingPolicy.Policy()), nil
+		return ss2022.NewUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.MTU, cc.udpSocketConfig, cc.SlidingWindowFilterSize, cc.cipherConfig, cc.PaddingPolicy.Policy()), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}

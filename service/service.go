@@ -136,8 +136,9 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		return nil, fmt.Errorf("failed to create TLS certificate store: %w", err)
 	}
 
-	listenConfigCache := conn.NewListenConfigCache()
-	dialerCache := conn.NewDialerCache()
+	tcpListenConfigCache := conn.NewTCPListenConfigCache()
+	tcpDialerCache := conn.NewTCPDialerCache()
+	udpSocketConfigCache := conn.NewUDPSocketConfigCache()
 	unixDomainSocketConfigCache := conn.NewUnixDomainSocketConfigCache()
 	clientIndexByName := make(map[string]int, len(sc.Clients))
 	tcpClientMap := make(map[string]netio.StreamClient, len(sc.Clients))
@@ -152,7 +153,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		}
 		clientIndexByName[clientConfig.Name] = i
 
-		if err := clientConfig.Initialize(tlsCertStore, listenConfigCache, dialerCache, logger); err != nil {
+		if err := clientConfig.Initialize(tlsCertStore, tcpDialerCache, udpSocketConfigCache, logger); err != nil {
 			return nil, fmt.Errorf("failed to initialize client %q: %w", clientConfig.Name, err)
 		}
 
@@ -250,7 +251,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	for i := range sc.Servers {
 		serverConfig := &sc.Servers[i]
 
-		if err := serverConfig.Initialize(tlsCertStore, listenConfigCache, unixDomainSocketConfigCache, statsConfig, router, logger, i); err != nil {
+		if err := serverConfig.Initialize(tlsCertStore, tcpListenConfigCache, udpSocketConfigCache, unixDomainSocketConfigCache, statsConfig, router, logger, i); err != nil {
 			return nil, fmt.Errorf("failed to initialize server %q: %w", serverConfig.Name, err)
 		}
 
@@ -278,7 +279,7 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	}
 
 	if sc.API.Enabled {
-		apiServer, err := sc.API.NewServer(logger, listenConfigCache, tlsCertStore, serverByName, serverNames)
+		apiServer, err := sc.API.NewServer(logger, tcpListenConfigCache, tlsCertStore, serverByName, serverNames)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create API server: %w", err)
 		}

@@ -51,11 +51,8 @@ type PacketClientSessionInfo struct {
 	// MaxPacketSize is the maximum size of outgoing packets.
 	MaxPacketSize int
 
-	// ListenConfig is the [conn.ListenConfig] for opening unconnected client sockets.
-	ListenConfig conn.ListenConfig
-
-	// Dialer is the [conn.Dialer] for opening connected client sockets.
-	Dialer conn.Dialer
+	// SocketConfig is the [conn.UDPSocketConfig] for opening client sockets.
+	SocketConfig conn.UDPSocketConfig
 
 	// ConnectAddr is the address for the client socket to connect to.
 	ConnectAddr conn.Addr

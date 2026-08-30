@@ -2,11 +2,15 @@
 
 package conn
 
-func (ListenerSocketOptions) buildSetFns() setFuncSlice {
+func (TCPListenSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}
 }
 
-func (DialerSocketOptions) buildSetFns() setFuncSlice {
+func (TCPConnectSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}
+}
+
+func (UDPSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}
 }
 

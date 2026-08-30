@@ -1,16 +1,21 @@
-package conn
+package conn_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/conntest"
+)
 
 func TestListenUDP(t *testing.T) {
-	for _, lcc := range []struct {
+	for _, scc := range []struct {
 		name string
-		lc   ListenConfig
+		sc   conn.UDPSocketConfig
 	}{
-		{"DefaultUDPServerListenConfig", DefaultUDPServerListenConfig},
-		{"DefaultUDPClientListenConfig", DefaultUDPClientListenConfig},
+		{"DefaultUDPServerSocketConfig", conntest.DefaultUDPServerSocketConfig()},
+		{"DefaultUDPClientSocketConfig", conntest.DefaultUDPClientSocketConfig()},
 	} {
-		t.Run(lcc.name, func(t *testing.T) {
+		t.Run(scc.name, func(t *testing.T) {
 			for _, nac := range []struct {
 				name    string
 				network string
@@ -25,7 +30,7 @@ func TestListenUDP(t *testing.T) {
 				{"udp6+loopback6", "udp6", "[::1]:"},
 			} {
 				t.Run(nac.name, func(t *testing.T) {
-					uc, _, err := lcc.lc.ListenUDP(t.Context(), nac.network, nac.address)
+					uc, err := scc.sc.Listen(t.Context(), nac.network, nac.address, nil)
 					if err != nil {
 						t.Fatal(err)
 					}

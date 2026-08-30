@@ -46,7 +46,7 @@ func (p UDPProbe) Probe(ctx context.Context, client zerocopy.UDPClient) error {
 	}
 	defer session.Close()
 
-	uc, _, err := sessionInfo.ListenConfig.ListenUDP(ctx, "udp", "")
+	uc, err := sessionInfo.SocketConfig.Listen(ctx, "udp", "", nil)
 	if err != nil {
 		return fmt.Errorf("failed to create UDP socket: %w", err)
 	}

@@ -2,9 +2,9 @@
 
 package conn
 
-func (dso DialerSocketOptions) buildSetFns() setFuncSlice {
+func (opts TCPConnectSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
-		appendSetSendBufferSize(dso.SendBufferSize).
-		appendSetRecvBufferSize(dso.ReceiveBufferSize).
-		appendSetTrafficClassFunc(dso.TrafficClass)
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetTrafficClassFunc(opts.TrafficClass)
 }

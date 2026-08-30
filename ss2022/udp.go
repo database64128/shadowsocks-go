@@ -26,7 +26,7 @@ type UDPClient struct {
 }
 
 // NewUDPClient creates a new Shadowsocks 2022 UDP client.
-func NewUDPClient(name, network string, addr conn.Addr, mtu int, listenConfig conn.ListenConfig, filterSize uint64, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
+func NewUDPClient(name, network string, addr conn.Addr, mtu int, socketConfig conn.UDPSocketConfig, filterSize uint64, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
 	if filterSize == 0 {
 		filterSize = DefaultSlidingWindowFilterSize
 	}
@@ -40,7 +40,7 @@ func NewUDPClient(name, network string, addr conn.Addr, mtu int, listenConfig co
 			Name:           name,
 			PackerHeadroom: ShadowPacketClientMessageHeadroom(identityHeadersLen),
 			MTU:            mtu,
-			ListenConfig:   listenConfig,
+			SocketConfig:   socketConfig,
 		},
 		nonAEADHeaderLen: UDPSeparateHeaderLength + identityHeadersLen,
 		filterSize:       filterSize,

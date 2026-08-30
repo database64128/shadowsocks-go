@@ -33,7 +33,7 @@ type streamRelayInitialPayloadWaitConfig struct {
 type streamRelayTCPListener struct {
 	logger                   *zap.Logger
 	listener                 *net.TCPListener
-	listenConfig             conn.ListenConfig
+	listenConfig             conn.TCPListenConfig
 	network                  string
 	address                  string
 	initialPayloadWaitConfig streamRelayInitialPayloadWaitConfig
@@ -102,7 +102,7 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 	for i := range s.tcpListeners {
 		lnc := &s.tcpListeners[i]
 
-		l, _, err := lnc.listenConfig.ListenTCP(ctx, lnc.network, lnc.address)
+		l, err := lnc.listenConfig.Listen(ctx, lnc.network, lnc.address)
 		if err != nil {
 			return err
 		}

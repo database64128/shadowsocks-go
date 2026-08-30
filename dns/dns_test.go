@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/conntest"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/netiotest"
@@ -48,10 +49,10 @@ func TestResolver(t *testing.T) {
 	tcpClientConfig := netio.TCPClientConfig{
 		Name:    "direct",
 		Network: "tcp",
-		Dialer:  conn.DefaultTCPDialer,
+		Dialer:  conntest.DefaultTCPDialer(),
 	}
 	tcpClient := tcpClientConfig.NewTCPClient()
-	udpClient := direct.NewDirectUDPClient("direct", "ip", 1500, conn.DefaultUDPClientListenConfig)
+	udpClient := direct.NewDirectUDPClient("direct", "ip", 1500, conntest.DefaultUDPClientSocketConfig())
 
 	t.Run("UDP", func(t *testing.T) {
 		testResolver(t, "UDP", serverAddrPort, nil, udpClient, logger)

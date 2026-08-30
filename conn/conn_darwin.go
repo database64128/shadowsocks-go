@@ -1,19 +1,28 @@
 package conn
 
-func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
+func (opts TCPListenSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
-		appendSetSendBufferSize(lso.SendBufferSize).
-		appendSetRecvBufferSize(lso.ReceiveBufferSize).
-		appendSetTrafficClassFunc(lso.TrafficClass).
-		appendSetReusePortFunc(lso.ReusePort).
-		appendSetPMTUDFunc(lso.PathMTUDiscovery).
-		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo)
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetReusePortFunc(opts.ReusePort).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery)
 }
 
-func (dso DialerSocketOptions) buildSetFns() setFuncSlice {
+func (opts TCPConnectSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
-		appendSetSendBufferSize(dso.SendBufferSize).
-		appendSetRecvBufferSize(dso.ReceiveBufferSize).
-		appendSetTrafficClassFunc(dso.TrafficClass).
-		appendSetPMTUDFunc(dso.PathMTUDiscovery)
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery)
+}
+
+func (opts UDPSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}.
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetReusePortFunc(opts.ReusePort).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery).
+		appendSetRecvPktinfoFunc(opts.ReceivePacketInfo)
 }

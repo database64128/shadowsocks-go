@@ -63,13 +63,17 @@ func probeUDPGSOSupport(fd int, info *SocketInfo) {
 		// UDP_MAX_SEGMENTS as defined in linux/udp.h was originally 64.
 		// It got bumped to 128 in Linux 6.9: https://github.com/torvalds/linux/commit/1382e3b6a3500c245e5278c66d210c02926f804f
 		// The receive path still only supports 64 segments, so 64 it is.
-		info.MaxUDPGSOSegments = 64
+		if info != nil {
+			info.MaxUDPGSOSegments = 64
+		}
 	}
 }
 
 func setUDPGenericReceiveOffload(fd int, info *SocketInfo) {
 	if err := unix.SetsockoptInt(fd, unix.IPPROTO_UDP, unix.UDP_GRO, 1); err == nil {
-		info.UDPGenericReceiveOffload = true
+		if info != nil {
+			info.UDPGenericReceiveOffload = true
+		}
 	}
 }
 
@@ -184,31 +188,40 @@ func (fns setFuncSlice) appendSetTCPUserTimeoutFunc(userTimeoutMsecs int) setFun
 	return fns
 }
 
-func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
+func (opts TCPListenSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
-		appendSetSendBufferSize(lso.SendBufferSize).
-		appendSetRecvBufferSize(lso.ReceiveBufferSize).
-		appendSetFwmarkFunc(lso.Fwmark).
-		appendSetTrafficClassFunc(lso.TrafficClass).
-		appendSetTCPDeferAcceptFunc(lso.TCPDeferAcceptSecs).
-		appendSetTCPUserTimeoutFunc(lso.TCPUserTimeoutMsecs).
-		appendSetReusePortFunc(lso.ReusePort).
-		appendSetTransparentFunc(lso.Transparent).
-		appendSetPMTUDFunc(lso.PathMTUDiscovery).
-		appendProbeUDPGSOSupportFunc(lso.ProbeUDPGSOSupport).
-		appendSetUDPGenericReceiveOffloadFunc(lso.UDPGenericReceiveOffload).
-		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo).
-		appendSetRecvOrigDstAddrFunc(lso.ReceiveOriginalDestAddr)
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetFwmarkFunc(opts.Fwmark).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetTCPDeferAcceptFunc(opts.TCPDeferAcceptSecs).
+		appendSetTCPUserTimeoutFunc(opts.TCPUserTimeoutMsecs).
+		appendSetReusePortFunc(opts.ReusePort).
+		appendSetTransparentFunc(opts.Transparent).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery)
 }
 
-func (dso DialerSocketOptions) buildSetFns() setFuncSlice {
+func (opts TCPConnectSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
-		appendSetSendBufferSize(dso.SendBufferSize).
-		appendSetRecvBufferSize(dso.ReceiveBufferSize).
-		appendSetFwmarkFunc(dso.Fwmark).
-		appendSetTrafficClassFunc(dso.TrafficClass).
-		appendSetTCPUserTimeoutFunc(dso.TCPUserTimeoutMsecs).
-		appendSetPMTUDFunc(dso.PathMTUDiscovery).
-		appendProbeUDPGSOSupportFunc(dso.ProbeUDPGSOSupport).
-		appendSetUDPGenericReceiveOffloadFunc(dso.UDPGenericReceiveOffload)
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetFwmarkFunc(opts.Fwmark).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetTCPUserTimeoutFunc(opts.TCPUserTimeoutMsecs).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery)
+}
+
+func (opts UDPSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}.
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetFwmarkFunc(opts.Fwmark).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetReusePortFunc(opts.ReusePort).
+		appendSetTransparentFunc(opts.Transparent).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery).
+		appendProbeUDPGSOSupportFunc(opts.ProbeUDPGSOSupport).
+		appendSetUDPGenericReceiveOffloadFunc(opts.UDPGenericReceiveOffload).
+		appendSetRecvPktinfoFunc(opts.ReceivePacketInfo).
+		appendSetRecvOrigDstAddrFunc(opts.ReceiveOriginalDestAddr)
 }

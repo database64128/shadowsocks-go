@@ -23,12 +23,12 @@ type DirectUDPClient struct {
 }
 
 // NewDirectUDPClient creates a new UDP client that makes no changes to the packets.
-func NewDirectUDPClient(name, network string, mtu int, listenConfig conn.ListenConfig) *DirectUDPClient {
+func NewDirectUDPClient(name, network string, mtu int, socketConfig conn.UDPSocketConfig) *DirectUDPClient {
 	return &DirectUDPClient{
 		info: zerocopy.UDPClientSessionInfo{
 			Name:         name,
 			MTU:          mtu,
-			ListenConfig: listenConfig,
+			SocketConfig: socketConfig,
 		},
 		session: zerocopy.UDPClientSession{
 			MaxPacketSize: zerocopy.MaxPacketSizeForAddr(mtu, netip.IPv4Unspecified()),
@@ -61,7 +61,7 @@ type ShadowsocksNoneUDPClient struct {
 }
 
 // NewShadowsocksNoneUDPClient creates a new Shadowsocks none UDP client.
-func NewShadowsocksNoneUDPClient(name, network string, addr conn.Addr, mtu int, listenConfig conn.ListenConfig) *ShadowsocksNoneUDPClient {
+func NewShadowsocksNoneUDPClient(name, network string, addr conn.Addr, mtu int, socketConfig conn.UDPSocketConfig) *ShadowsocksNoneUDPClient {
 	return &ShadowsocksNoneUDPClient{
 		network: network,
 		addr:    addr,
@@ -69,7 +69,7 @@ func NewShadowsocksNoneUDPClient(name, network string, addr conn.Addr, mtu int, 
 			Name:           name,
 			PackerHeadroom: ShadowsocksNonePacketClientMessageHeadroom,
 			MTU:            mtu,
-			ListenConfig:   listenConfig,
+			SocketConfig:   socketConfig,
 		},
 	}
 }
@@ -124,13 +124,13 @@ type Socks5UDPClientConfig struct {
 	Address string
 
 	// Dialer is the dialer used to establish TCP connections.
-	Dialer conn.Dialer
+	TCPDialer conn.TCPDialer
 
 	// MTU is the MTU of the client's designated network path.
 	MTU int
 
-	// ListenConfig is the [conn.ListenConfig] for opening client sockets.
-	ListenConfig conn.ListenConfig
+	// SocketConfig is the [conn.UDPSocketConfig] for opening client sockets.
+	SocketConfig conn.UDPSocketConfig
 
 	// AuthMsg is the serialized username/password authentication message.
 	AuthMsg []byte
@@ -143,12 +143,12 @@ func (c *Socks5UDPClientConfig) NewClient() zerocopy.UDPClient {
 		networkTCP: c.NetworkTCP,
 		networkIP:  c.NetworkIP,
 		address:    c.Address,
-		dialer:     c.Dialer,
+		tcpDialer:  c.TCPDialer,
 		info: zerocopy.UDPClientSessionInfo{
 			Name:           c.Name,
 			PackerHeadroom: Socks5PacketClientMessageHeadroom,
 			MTU:            c.MTU,
-			ListenConfig:   c.ListenConfig,
+			SocketConfig:   c.SocketConfig,
 		},
 	}
 
@@ -170,7 +170,7 @@ type Socks5UDPClient struct {
 	networkTCP string
 	networkIP  string
 	address    string
-	dialer     conn.Dialer
+	tcpDialer  conn.TCPDialer
 	info       zerocopy.UDPClientSessionInfo
 }
 
@@ -184,7 +184,7 @@ func (c *Socks5UDPClient) Info() zerocopy.UDPClientInfo {
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
 func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
-	tc, _, err := c.dialer.DialTCP(ctx, c.networkTCP, c.address, nil)
+	tc, err := c.tcpDialer.Dial(ctx, c.networkTCP, c.address, nil)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to dial SOCKS5 server: %w", err)
 	}
@@ -244,7 +244,7 @@ func (c *Socks5AuthUDPClient) Info() zerocopy.UDPClientInfo {
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
 func (c *Socks5AuthUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
-	tc, _, err := c.plainClient.dialer.DialTCP(ctx, c.plainClient.networkTCP, c.plainClient.address, nil)
+	tc, err := c.plainClient.tcpDialer.Dial(ctx, c.plainClient.networkTCP, c.plainClient.address, nil)
 	if err != nil {
 		return c.plainClient.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to dial SOCKS5 server: %w", err)
 	}

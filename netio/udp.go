@@ -52,11 +52,8 @@ type UDPClientConfig struct {
 	// It serves as a hint for calculating buffer sizes.
 	MTU int
 
-	// ListenConfig is the [conn.ListenConfig] for opening unconnected client sockets.
-	ListenConfig conn.ListenConfig
-
-	// Dialer is the [conn.Dialer] for opening connected client sockets.
-	Dialer conn.Dialer
+	// SocketConfig is the [conn.UDPSocketConfig] for opening client sockets.
+	SocketConfig conn.UDPSocketConfig
 }
 
 // NewUDPClient returns a new UDP client.
@@ -66,8 +63,7 @@ func (c *UDPClientConfig) NewUDPClient() *UDPClient {
 		name:          c.Name,
 		network:       c.Network,
 		maxPacketSize: MaxUDPPayloadSize(c.MTU, is4),
-		listenConfig:  c.ListenConfig,
-		dialer:        c.Dialer,
+		socketConfig:  c.SocketConfig,
 	}
 }
 
@@ -78,8 +74,7 @@ type UDPClient struct {
 	name          string
 	network       string
 	maxPacketSize int
-	listenConfig  conn.ListenConfig
-	dialer        conn.Dialer
+	socketConfig  conn.UDPSocketConfig
 }
 
 var _ PacketClient = (*UDPClient)(nil)
@@ -90,14 +85,14 @@ func (c *UDPClient) NewSession(ctx context.Context, connectAddr conn.Addr) (Pack
 		return UDPClientConnectedSession{}, PacketClientSessionInfo{
 			Name:          c.name,
 			MaxPacketSize: c.maxPacketSize,
-			Dialer:        c.dialer,
+			SocketConfig:  c.socketConfig,
 			ConnectAddr:   connectAddr,
 		}, nil
 	}
 	return &UDPClientSession{network: c.network}, PacketClientSessionInfo{
 		Name:          c.name,
 		MaxPacketSize: c.maxPacketSize,
-		ListenConfig:  c.listenConfig,
+		SocketConfig:  c.socketConfig,
 	}, nil
 }
 

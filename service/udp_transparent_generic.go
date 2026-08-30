@@ -16,7 +16,7 @@ func NewUDPTransparentRelay(
 	serverName string,
 	serverIndex, mtu, packetBufFrontHeadroom, packetBufRecvSize, packetBufSize int,
 	listeners []udpRelayServerConn,
-	transparentConnListenConfig conn.ListenConfig,
+	transparentConnSocketConfig conn.UDPSocketConfig,
 	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,

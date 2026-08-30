@@ -36,13 +36,22 @@ func setRecvOrigDstAddr(fd int, network string) error {
 	return nil
 }
 
-func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
+func (opts TCPListenSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
-		appendSetSendBufferSize(lso.SendBufferSize).
-		appendSetRecvBufferSize(lso.ReceiveBufferSize).
-		appendSetTrafficClassFunc(lso.TrafficClass).
-		appendSetReusePortFunc(lso.ReusePort).
-		appendSetTransparentFunc(lso.Transparent).
-		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo).
-		appendSetRecvOrigDstAddrFunc(lso.ReceiveOriginalDestAddr)
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetReusePortFunc(opts.ReusePort).
+		appendSetTransparentFunc(opts.Transparent)
+}
+
+func (opts UDPSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}.
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetReusePortFunc(opts.ReusePort).
+		appendSetTransparentFunc(opts.Transparent).
+		appendSetRecvPktinfoFunc(opts.ReceivePacketInfo).
+		appendSetRecvOrigDstAddrFunc(opts.ReceiveOriginalDestAddr)
 }

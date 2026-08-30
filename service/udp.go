@@ -101,7 +101,7 @@ func (c *UDPPerfConfig) CheckAndApplyDefaults() error {
 type udpRelayServerConn struct {
 	logger              *zap.Logger
 	serverConn          *net.UDPConn
-	listenConfig        conn.ListenConfig
+	socketConfig        conn.UDPSocketConfig
 	network             string
 	address             string
 	batchMode           string

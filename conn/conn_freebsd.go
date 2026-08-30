@@ -8,7 +8,7 @@ import (
 
 func setFwmark(fd, fwmark int) error {
 	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_USER_COOKIE, fwmark); err != nil {
-		return fmt.Errorf("failed to set socket option SO_MARK: %w", err)
+		return fmt.Errorf("failed to set socket option SO_USER_COOKIE: %w", err)
 	}
 	return nil
 }
@@ -46,24 +46,35 @@ func setRecvOrigDstAddr(fd int, network string) error {
 	return nil
 }
 
-func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
+func (opts TCPListenSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
-		appendSetSendBufferSize(lso.SendBufferSize).
-		appendSetRecvBufferSize(lso.ReceiveBufferSize).
-		appendSetFwmarkFunc(lso.Fwmark).
-		appendSetTrafficClassFunc(lso.TrafficClass).
-		appendSetReusePortFunc(lso.ReusePort).
-		appendSetTransparentFunc(lso.Transparent).
-		appendSetPMTUDFunc(lso.PathMTUDiscovery).
-		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo).
-		appendSetRecvOrigDstAddrFunc(lso.ReceiveOriginalDestAddr)
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetFwmarkFunc(opts.Fwmark).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetReusePortFunc(opts.ReusePort).
+		appendSetTransparentFunc(opts.Transparent).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery)
 }
 
-func (dso DialerSocketOptions) buildSetFns() setFuncSlice {
+func (opts TCPConnectSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
-		appendSetSendBufferSize(dso.SendBufferSize).
-		appendSetRecvBufferSize(dso.ReceiveBufferSize).
-		appendSetFwmarkFunc(dso.Fwmark).
-		appendSetTrafficClassFunc(dso.TrafficClass).
-		appendSetPMTUDFunc(dso.PathMTUDiscovery)
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetFwmarkFunc(opts.Fwmark).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery)
+}
+
+func (opts UDPSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}.
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetFwmarkFunc(opts.Fwmark).
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetReusePortFunc(opts.ReusePort).
+		appendSetTransparentFunc(opts.Transparent).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery).
+		appendSetRecvPktinfoFunc(opts.ReceivePacketInfo).
+		appendSetRecvOrigDstAddrFunc(opts.ReceiveOriginalDestAddr)
 }

@@ -27,8 +27,8 @@ type UDPClientSessionInfo struct {
 	// MTU is the MTU of the client's designated network path.
 	MTU int
 
-	// ListenConfig is the [conn.ListenConfig] for opening client sockets.
-	ListenConfig conn.ListenConfig
+	// SocketConfig is the [conn.UDPSocketConfig] for opening client sockets.
+	SocketConfig conn.UDPSocketConfig
 }
 
 // UDPClientSession is a client session for handling UDP packets.

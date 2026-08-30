@@ -61,14 +61,18 @@ func setPMTUD(fd int, network string, value int) error {
 func probeUDPGSOSupport(fd int, info *SocketInfo) {
 	if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_UDP, windows.UDP_SEND_MSG_SIZE, 0); err == nil {
 		// As "empirically found on Windows 11 x64" by quinn.
-		info.MaxUDPGSOSegments = 512
+		if info != nil {
+			info.MaxUDPGSOSegments = 512
+		}
 	}
 }
 
 func setUDPGenericReceiveOffload(fd int, info *SocketInfo) {
 	// Both quinn and msquic set this to 65535.
 	if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_UDP, windows.UDP_RECV_MAX_COALESCED_SIZE, 65535); err == nil {
-		info.UDPGenericReceiveOffload = true
+		if info != nil {
+			info.UDPGenericReceiveOffload = true
+		}
 	}
 }
 
@@ -93,21 +97,26 @@ func setRecvPktinfo(fd int, network string) error {
 	return nil
 }
 
-func (lso ListenerSocketOptions) buildSetFns() setFuncSlice {
+func (opts TCPListenSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
-		appendSetSendBufferSize(lso.SendBufferSize).
-		appendSetRecvBufferSize(lso.ReceiveBufferSize).
-		appendSetPMTUDFunc(lso.PathMTUDiscovery).
-		appendProbeUDPGSOSupportFunc(lso.ProbeUDPGSOSupport).
-		appendSetUDPGenericReceiveOffloadFunc(lso.UDPGenericReceiveOffload).
-		appendSetRecvPktinfoFunc(lso.ReceivePacketInfo)
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery)
 }
 
-func (dso DialerSocketOptions) buildSetFns() setFuncSlice {
+func (opts TCPConnectSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
-		appendSetSendBufferSize(dso.SendBufferSize).
-		appendSetRecvBufferSize(dso.ReceiveBufferSize).
-		appendSetPMTUDFunc(dso.PathMTUDiscovery).
-		appendProbeUDPGSOSupportFunc(dso.ProbeUDPGSOSupport).
-		appendSetUDPGenericReceiveOffloadFunc(dso.UDPGenericReceiveOffload)
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery)
+}
+
+func (opts UDPSocketOptions) buildSetFns() setFuncSlice {
+	return setFuncSlice{}.
+		appendSetSendBufferSize(opts.SendBufferSize).
+		appendSetRecvBufferSize(opts.ReceiveBufferSize).
+		appendSetPMTUDFunc(opts.PathMTUDiscovery).
+		appendProbeUDPGSOSupportFunc(opts.ProbeUDPGSOSupport).
+		appendSetUDPGenericReceiveOffloadFunc(opts.UDPGenericReceiveOffload).
+		appendSetRecvPktinfoFunc(opts.ReceivePacketInfo)
 }

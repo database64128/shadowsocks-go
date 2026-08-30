@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/conntest"
 )
 
 const (
@@ -45,7 +46,7 @@ func testUDPClientServer(
 	clientShouldPad, serverShouldPad PaddingPolicy,
 	mtu, packetSize, payloadLen int,
 ) {
-	c := NewUDPClient(name, "ip", serverAddr, mtu, conn.DefaultUDPClientListenConfig, DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
+	c := NewUDPClient(name, "ip", serverAddr, mtu, conntest.DefaultUDPClientSocketConfig(), DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
 	s := NewUDPServer(DefaultSlidingWindowFilterSize, userCipherConfig, identityCipherConfig, serverShouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 	ctx := t.Context()
@@ -155,7 +156,7 @@ func testUDPClientServerSessionChangeAndReplay(
 	clientShouldPad, serverShouldPad PaddingPolicy,
 	mtu, packetSize, payloadLen int,
 ) {
-	c := NewUDPClient(name, "ip", serverAddr, mtu, conn.DefaultUDPClientListenConfig, DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
+	c := NewUDPClient(name, "ip", serverAddr, mtu, conntest.DefaultUDPClientSocketConfig(), DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
 	s := NewUDPServer(DefaultSlidingWindowFilterSize, userCipherConfig, identityCipherConfig, serverShouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 	ctx := t.Context()

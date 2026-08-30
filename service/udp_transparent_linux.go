@@ -76,7 +76,7 @@ type UDPTransparentRelay struct {
 	packetBufFrontHeadroom      int
 	packetBufRecvSize           int
 	listeners                   []udpRelayServerConn
-	transparentConnListenConfig conn.ListenConfig
+	transparentConnSocketConfig conn.UDPSocketConfig
 	collector                   stats.Collector
 	router                      *router.Router
 	logger                      *zap.Logger
@@ -91,7 +91,7 @@ func NewUDPTransparentRelay(
 	serverName string,
 	serverIndex, mtu, packetBufFrontHeadroom, packetBufRecvSize, packetBufSize int,
 	listeners []udpRelayServerConn,
-	transparentConnListenConfig conn.ListenConfig,
+	transparentConnSocketConfig conn.UDPSocketConfig,
 	collector stats.Collector,
 	router *router.Router,
 	logger *zap.Logger,
@@ -103,7 +103,7 @@ func NewUDPTransparentRelay(
 		packetBufFrontHeadroom:      packetBufFrontHeadroom,
 		packetBufRecvSize:           packetBufRecvSize,
 		listeners:                   listeners,
-		transparentConnListenConfig: transparentConnListenConfig,
+		transparentConnSocketConfig: transparentConnSocketConfig,
 		collector:                   collector,
 		router:                      router,
 		logger:                      logger,
@@ -131,7 +131,7 @@ func (s *UDPTransparentRelay) Start(ctx context.Context) error {
 		index := i
 		lnc := &s.listeners[index]
 
-		serverConn, _, err := lnc.listenConfig.ListenUDPMmsgConn(ctx, lnc.network, lnc.address)
+		serverConn, err := conn.ListenUDPMmsgConn(ctx, lnc.network, lnc.address, nil, lnc.socketConfig)
 		if err != nil {
 			return err
 		}
@@ -305,7 +305,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 						return
 					}
 
-					natConn, _, err := clientInfo.ListenConfig.ListenUDPMmsgConn(ctx, "udp", "")
+					natConn, err := conn.ListenUDPMmsgConn(ctx, "udp", "", nil, clientInfo.SocketConfig)
 					if err != nil {
 						lnc.logger.Warn("Failed to create UDP socket for new NAT session",
 							zap.Stringer("clientAddress", clientAddrPort),
@@ -558,7 +558,7 @@ type transparentConn struct {
 }
 
 func (s *UDPTransparentRelay) newTransparentConn(ctx context.Context, address string, relayBatchSize int, name *byte, namelen uint32) (*transparentConn, error) {
-	c, _, err := s.transparentConnListenConfig.ListenUDPMmsgConn(ctx, "udp", address)
+	c, err := conn.ListenUDPMmsgConn(ctx, "udp", address, nil, s.transparentConnSocketConfig)
 	if err != nil {
 		return nil, err
 	}
