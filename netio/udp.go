@@ -48,6 +48,11 @@ type UDPClientConfig struct {
 	//  - "ip6": Resolve to IPv6 addresses.
 	Network string
 
+	// Resolver optionally specifies a resolver for resolving domain name destination addresses.
+	//
+	// If nil, [net.DefaultResolver] is used.
+	Resolver conn.Resolver
+
 	// MTU is the MTU of the client's designated network path.
 	// It serves as a hint for calculating buffer sizes.
 	MTU int
@@ -62,6 +67,7 @@ func (c *UDPClientConfig) NewUDPClient() *UDPClient {
 	return &UDPClient{
 		name:          c.Name,
 		network:       c.Network,
+		resolver:      c.Resolver,
 		maxPacketSize: MaxUDPPayloadSize(c.MTU, is4),
 		socketConfig:  c.SocketConfig,
 	}
@@ -73,6 +79,7 @@ func (c *UDPClientConfig) NewUDPClient() *UDPClient {
 type UDPClient struct {
 	name          string
 	network       string
+	resolver      conn.Resolver
 	maxPacketSize int
 	socketConfig  conn.UDPSocketConfig
 }
@@ -89,7 +96,10 @@ func (c *UDPClient) NewSession(ctx context.Context, connectAddr conn.Addr) (Pack
 			ConnectAddr:   connectAddr,
 		}, nil
 	}
-	return &UDPClientSession{network: c.network}, PacketClientSessionInfo{
+	return &UDPClientSession{
+		network:  c.network,
+		resolver: c.resolver,
+	}, PacketClientSessionInfo{
 		Name:          c.name,
 		MaxPacketSize: c.maxPacketSize,
 		SocketConfig:  c.socketConfig,
@@ -102,6 +112,7 @@ func (c *UDPClient) NewSession(ctx context.Context, connectAddr conn.Addr) (Pack
 type UDPClientSession struct {
 	ipByDomain *cache.BoundedCache[string, netip.Addr]
 	network    string
+	resolver   conn.Resolver
 }
 
 // AppendPack implements [PacketClientSession.AppendPack].
@@ -117,7 +128,7 @@ func (s *UDPClientSession) AppendPack(ctx context.Context, b, payload []byte, de
 		domain := destAddr.Domain()
 		ip, ok := s.ipByDomain.Get(domain)
 		if !ok {
-			ip, err = destAddr.ResolveIP(ctx, s.network)
+			ip, err = destAddr.ResolveIP(ctx, s.network, s.resolver)
 			if err != nil {
 				return nil, netip.AddrPort{}, err
 			}

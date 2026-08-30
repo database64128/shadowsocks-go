@@ -46,7 +46,7 @@ func testUDPClientServer(
 	clientShouldPad, serverShouldPad PaddingPolicy,
 	mtu, packetSize, payloadLen int,
 ) {
-	c := NewUDPClient(name, "ip", serverAddr, mtu, conntest.DefaultUDPClientSocketConfig(), DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
+	c := NewUDPClient(name, "ip", serverAddr, nil, mtu, conntest.DefaultUDPClientSocketConfig(), DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
 	s := NewUDPServer(DefaultSlidingWindowFilterSize, userCipherConfig, identityCipherConfig, serverShouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 	ctx := t.Context()
@@ -156,7 +156,7 @@ func testUDPClientServerSessionChangeAndReplay(
 	clientShouldPad, serverShouldPad PaddingPolicy,
 	mtu, packetSize, payloadLen int,
 ) {
-	c := NewUDPClient(name, "ip", serverAddr, mtu, conntest.DefaultUDPClientSocketConfig(), DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
+	c := NewUDPClient(name, "ip", serverAddr, nil, mtu, conntest.DefaultUDPClientSocketConfig(), DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
 	s := NewUDPServer(DefaultSlidingWindowFilterSize, userCipherConfig, identityCipherConfig, serverShouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 	ctx := t.Context()

@@ -23,7 +23,7 @@ type DirectUDPClient struct {
 }
 
 // NewDirectUDPClient creates a new UDP client that makes no changes to the packets.
-func NewDirectUDPClient(name, network string, mtu int, socketConfig conn.UDPSocketConfig) *DirectUDPClient {
+func NewDirectUDPClient(name, network string, resolver conn.Resolver, mtu int, socketConfig conn.UDPSocketConfig) *DirectUDPClient {
 	return &DirectUDPClient{
 		info: zerocopy.UDPClientSessionInfo{
 			Name:         name,
@@ -32,7 +32,7 @@ func NewDirectUDPClient(name, network string, mtu int, socketConfig conn.UDPSock
 		},
 		session: zerocopy.UDPClientSession{
 			MaxPacketSize: zerocopy.MaxPacketSizeForAddr(mtu, netip.IPv4Unspecified()),
-			Packer:        NewDirectPacketClientPacker(network, mtu),
+			Packer:        NewDirectPacketClientPacker(network, resolver, mtu),
 			Unpacker:      DirectPacketClientUnpacker{},
 			Close:         zerocopy.NoopClose,
 		},
@@ -55,16 +55,18 @@ func (c *DirectUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSes
 //
 // ShadowsocksNoneUDPClient implements [zerocopy.UDPClient].
 type ShadowsocksNoneUDPClient struct {
-	network string
-	addr    conn.Addr
-	info    zerocopy.UDPClientSessionInfo
+	network  string
+	addr     conn.Addr
+	resolver conn.Resolver
+	info     zerocopy.UDPClientSessionInfo
 }
 
 // NewShadowsocksNoneUDPClient creates a new Shadowsocks none UDP client.
-func NewShadowsocksNoneUDPClient(name, network string, addr conn.Addr, mtu int, socketConfig conn.UDPSocketConfig) *ShadowsocksNoneUDPClient {
+func NewShadowsocksNoneUDPClient(name, network string, addr conn.Addr, resolver conn.Resolver, mtu int, socketConfig conn.UDPSocketConfig) *ShadowsocksNoneUDPClient {
 	return &ShadowsocksNoneUDPClient{
-		network: network,
-		addr:    addr,
+		network:  network,
+		addr:     addr,
+		resolver: resolver,
 		info: zerocopy.UDPClientSessionInfo{
 			Name:           name,
 			PackerHeadroom: ShadowsocksNonePacketClientMessageHeadroom,
@@ -84,7 +86,7 @@ func (c *ShadowsocksNoneUDPClient) Info() zerocopy.UDPClientInfo {
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
 func (c *ShadowsocksNoneUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
-	addrPort, err := c.addr.ResolveIPPort(ctx, c.network)
+	addrPort, err := c.addr.ResolveIPPort(ctx, c.network, c.resolver)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
 	}
@@ -200,7 +202,7 @@ func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSes
 }
 
 func (c *Socks5UDPClient) newSession(ctx context.Context, tc *net.TCPConn, addr conn.Addr) (zerocopy.UDPClientSession, error) {
-	addrPort, err := addr.ResolveIPPort(ctx, c.networkIP)
+	addrPort, err := addr.ResolveIPPort(ctx, c.networkIP, c.tcpDialer.Resolver())
 	if err != nil {
 		_ = tc.Close()
 		return zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)

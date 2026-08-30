@@ -413,6 +413,11 @@ func (cfg TCPDialer) WithResolver(resolver *net.Resolver) TCPDialer {
 	return cfg
 }
 
+// Resolver returns the resolver used by the dialer.
+func (cfg *TCPDialer) Resolver() *net.Resolver {
+	return cfg.dialer.Resolver
+}
+
 // TFO returns true if the next Dial call will attempt to enable TFO.
 func (cfg *TCPDialer) TFO() bool {
 	return cfg.dialer.TFO()

@@ -2,7 +2,9 @@ package conn
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
+	"net"
 	"net/netip"
 	"slices"
 	"strings"
@@ -168,51 +170,77 @@ func TestAddrIPPort(t *testing.T) {
 	mustPanic(t, func() { _ = addrDomain.IPPort() }, "addrDomain.IPPort()")
 }
 
+type fakeResolver map[string][]netip.Addr
+
+func (r fakeResolver) LookupNetIP(_ context.Context, network, host string) ([]netip.Addr, error) {
+	switch network {
+	case "ip", "ip4", "ip6":
+	default:
+		return nil, net.UnknownNetworkError(network)
+	}
+
+	ips, ok := r[host]
+	if !ok {
+		return nil, &net.DNSError{Err: "no such host", Name: host}
+	}
+	return ips, nil
+}
+
+var addrFakeResolver = fakeResolver{
+	"example.com": {
+		addrIPAddr,
+		netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+	},
+}
+
 func TestAddrResolveIP(t *testing.T) {
 	ctx := t.Context()
 
-	ip, err := addrIP.ResolveIP(ctx, "ip")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ip != addrIPAddr {
-		t.Errorf("%q.ResolveIP() = %q, want %q", addrIP, ip, addrIPAddr)
+	for _, c := range [...]struct {
+		name       string
+		addr       Addr
+		expectedIP netip.Addr
+	}{
+		{"IP", addrIP, addrIPAddr},
+		{"Domain", addrDomain, addrIPAddr},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ip, err := c.addr.ResolveIP(ctx, "ip", addrFakeResolver)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ip != c.expectedIP {
+				t.Errorf("%q.ResolveIP() = %q, want %q", c.addr, ip, c.expectedIP)
+			}
+		})
 	}
 
-	ip, err = addrDomain.ResolveIP(ctx, "ip")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ip.IsValid() {
-		t.Errorf("%q.ResolveIP().IsValid() = false, want true", addrDomain)
-	}
-
-	mustPanic(t, func() { _, _ = addrZero.ResolveIP(ctx, "ip") }, "addrZero.ResolveIP()")
+	mustPanic(t, func() { _, _ = addrZero.ResolveIP(ctx, "ip", addrFakeResolver) }, "addrZero.ResolveIP()")
 }
 
 func TestAddrResolveIPPort(t *testing.T) {
 	ctx := t.Context()
 
-	ipPort, err := addrIP.ResolveIPPort(ctx, "ip")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ipPort != addrIPAddrPort {
-		t.Errorf("%q.ResolveIPPort() = %q, want %q", addrIP, ipPort, addrIPAddrPort)
+	for _, c := range [...]struct {
+		name           string
+		addr           Addr
+		expectedIPPort netip.AddrPort
+	}{
+		{"IP", addrIP, addrIPAddrPort},
+		{"Domain", addrDomain, netip.AddrPortFrom(addrIPAddr, addrDomainPort)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ipPort, err := c.addr.ResolveIPPort(ctx, "ip", addrFakeResolver)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ipPort != c.expectedIPPort {
+				t.Errorf("%q.ResolveIPPort() = %q, want %q", c.addr, ipPort, c.expectedIPPort)
+			}
+		})
 	}
 
-	ipPort, err = addrDomain.ResolveIPPort(ctx, "ip")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ipPort.Addr().IsValid() {
-		t.Errorf("%q.ResolveIPPort().Addr().IsValid() = false, want true", addrDomain)
-	}
-	if ipPort.Port() != addrDomainPort {
-		t.Errorf("%q.ResolveIPPort() = %q, want port %d", addrDomain, ipPort, addrDomainPort)
-	}
-
-	mustPanic(t, func() { _, _ = addrZero.ResolveIPPort(ctx, "ip") }, "addrZero.ResolveIPPort()")
+	mustPanic(t, func() { _, _ = addrZero.ResolveIPPort(ctx, "ip", addrFakeResolver) }, "addrZero.ResolveIPPort()")
 }
 
 func TestAddrHost(t *testing.T) {

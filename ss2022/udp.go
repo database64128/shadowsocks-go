@@ -18,6 +18,7 @@ import (
 type UDPClient struct {
 	network          string
 	addr             conn.Addr
+	resolver         conn.Resolver
 	info             zerocopy.UDPClientSessionInfo
 	nonAEADHeaderLen int
 	filterSize       uint64
@@ -26,7 +27,7 @@ type UDPClient struct {
 }
 
 // NewUDPClient creates a new Shadowsocks 2022 UDP client.
-func NewUDPClient(name, network string, addr conn.Addr, mtu int, socketConfig conn.UDPSocketConfig, filterSize uint64, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
+func NewUDPClient(name, network string, addr conn.Addr, resolver conn.Resolver, mtu int, socketConfig conn.UDPSocketConfig, filterSize uint64, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
 	if filterSize == 0 {
 		filterSize = DefaultSlidingWindowFilterSize
 	}
@@ -34,8 +35,9 @@ func NewUDPClient(name, network string, addr conn.Addr, mtu int, socketConfig co
 	identityHeadersLen := IdentityHeaderLength * len(cipherConfig.iPSKs)
 
 	return &UDPClient{
-		network: network,
-		addr:    addr,
+		network:  network,
+		addr:     addr,
+		resolver: resolver,
 		info: zerocopy.UDPClientSessionInfo{
 			Name:           name,
 			PackerHeadroom: ShadowPacketClientMessageHeadroom(identityHeadersLen),
@@ -59,7 +61,7 @@ func (c *UDPClient) Info() zerocopy.UDPClientInfo {
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
 func (c *UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
-	addrPort, err := c.addr.ResolveIPPort(ctx, c.network)
+	addrPort, err := c.addr.ResolveIPPort(ctx, c.network, c.resolver)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
 	}

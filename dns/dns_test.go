@@ -52,7 +52,7 @@ func TestResolver(t *testing.T) {
 		Dialer:  conntest.DefaultTCPDialer(),
 	}
 	tcpClient := tcpClientConfig.NewTCPClient()
-	udpClient := direct.NewDirectUDPClient("direct", "ip", 1500, conntest.DefaultUDPClientSocketConfig())
+	udpClient := direct.NewDirectUDPClient("direct", "ip", nil, 1500, conntest.DefaultUDPClientSocketConfig())
 
 	t.Run("UDP", func(t *testing.T) {
 		testResolver(t, "UDP", serverAddrPort, nil, udpClient, logger)

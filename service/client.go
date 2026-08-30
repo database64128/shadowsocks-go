@@ -411,9 +411,9 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewDirectUDPClient(cc.Name, cc.Network, cc.MTU, cc.udpSocketConfig), nil
+		return direct.NewDirectUDPClient(cc.Name, cc.Network, cc.tcpDialer.Resolver(), cc.MTU, cc.udpSocketConfig), nil
 	case "none", "plain":
-		return direct.NewShadowsocksNoneUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.MTU, cc.udpSocketConfig), nil
+		return direct.NewShadowsocksNoneUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.tcpDialer.Resolver(), cc.MTU, cc.udpSocketConfig), nil
 	case "socks5":
 		s5ucc := direct.Socks5UDPClientConfig{
 			Logger:       cc.logger,
@@ -428,7 +428,7 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 		}
 		return s5ucc.NewClient(), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		return ss2022.NewUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.MTU, cc.udpSocketConfig, cc.SlidingWindowFilterSize, cc.cipherConfig, cc.PaddingPolicy.Policy()), nil
+		return ss2022.NewUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.tcpDialer.Resolver(), cc.MTU, cc.udpSocketConfig, cc.SlidingWindowFilterSize, cc.cipherConfig, cc.PaddingPolicy.Policy()), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}

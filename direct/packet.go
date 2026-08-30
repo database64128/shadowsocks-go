@@ -23,15 +23,19 @@ type DirectPacketClientPacker struct {
 	// network controls the address family of a domain target's resolved IP address.
 	network string
 
+	// resolver is used to resolve domain target addresses to IP addresses.
+	resolver conn.Resolver
+
 	// mtu is used in the PackInPlace method to determine whether the payload is too big.
 	mtu int
 }
 
 // NewDirectPacketClientPacker creates a packet packer for direct connection.
-func NewDirectPacketClientPacker(network string, mtu int) *DirectPacketClientPacker {
+func NewDirectPacketClientPacker(network string, resolver conn.Resolver, mtu int) *DirectPacketClientPacker {
 	return &DirectPacketClientPacker{
-		network: network,
-		mtu:     mtu,
+		network:  network,
+		resolver: resolver,
+		mtu:      mtu,
 	}
 }
 
@@ -42,7 +46,7 @@ func (DirectPacketClientPacker) ClientPackerInfo() zerocopy.ClientPackerInfo {
 
 func (p *DirectPacketClientPacker) updateDomainIPCache(ctx context.Context, targetAddr conn.Addr) error {
 	if p.cachedDomain != targetAddr.Domain() {
-		ip, err := targetAddr.ResolveIP(ctx, p.network)
+		ip, err := targetAddr.ResolveIP(ctx, p.network, p.resolver)
 		if err != nil {
 			return err
 		}
