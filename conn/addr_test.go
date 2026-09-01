@@ -315,7 +315,7 @@ func TestAddrStringAllocs(t *testing.T) {
 	}{
 		{"Zero", addrZero, 0},
 		{"IP", addrIP, 1},
-		{"Domain", addrDomain, 3},
+		{"Domain", addrDomain, 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			n := testing.AllocsPerRun(10, func() {
@@ -332,9 +332,6 @@ func TestAddrAppendToAllocs(t *testing.T) {
 	b := make([]byte, 0, maxTestAddrTextLen)
 	for _, c := range addrTextCases {
 		t.Run(c.name, func(t *testing.T) {
-			if c.name == "Domain" {
-				t.Skip("TODO optimization")
-			}
 			if n := testing.AllocsPerRun(10, func() {
 				b = c.addr.AppendTo(b[:0])
 			}); n > 0 {
@@ -348,9 +345,6 @@ func TestAddrAppendTextAllocs(t *testing.T) {
 	b := make([]byte, 0, maxTestAddrTextLen)
 	for _, c := range addrTextCases {
 		t.Run(c.name, func(t *testing.T) {
-			if c.name == "Domain" {
-				t.Skip("TODO optimization")
-			}
 			if n := testing.AllocsPerRun(10, func() {
 				b, _ = c.addr.AppendText(b[:0])
 			}); n > 0 {
@@ -415,9 +409,6 @@ func TestAddrMarshalAndUnmarshalText(t *testing.T) {
 func TestAddrMarshalTextAllocs(t *testing.T) {
 	for _, c := range addrTextCases {
 		t.Run(c.name, func(t *testing.T) {
-			if c.name == "Domain" {
-				t.Skip("TODO optimization")
-			}
 			if n := testing.AllocsPerRun(10, func() {
 				_, _ = c.addr.MarshalText()
 			}); n > 1 {

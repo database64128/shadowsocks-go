@@ -153,7 +153,7 @@ func ResolveIP(ctx context.Context, network, host string, resolver Resolver) (ne
 //
 // If resolver is nil, [net.DefaultResolver] is used.
 //
-// If the address is zero value, this method panics.
+// If the address is the zero value, this method panics.
 func (a Addr) ResolveIP(ctx context.Context, network string, resolver Resolver) (netip.Addr, error) {
 	switch a.af {
 	case addressFamilyNetip:
@@ -172,7 +172,7 @@ func (a Addr) ResolveIP(ctx context.Context, network string, resolver Resolver) 
 //
 // If resolver is nil, [net.DefaultResolver] is used.
 //
-// If the address is zero value, this method panics.
+// If the address is the zero value, this method panics.
 func (a Addr) ResolveIPPort(ctx context.Context, network string, resolver Resolver) (netip.AddrPort, error) {
 	switch a.af {
 	case addressFamilyNetip:
@@ -190,7 +190,7 @@ func (a Addr) ResolveIPPort(ctx context.Context, network string, resolver Resolv
 
 // Host returns the string representation of the IP address or the domain name.
 //
-// If the address is zero value, this method panics.
+// If the address is the zero value, this method panics.
 func (a Addr) Host() string {
 	switch a.af {
 	case addressFamilyNetip:
@@ -204,32 +204,44 @@ func (a Addr) Host() string {
 
 // String returns the string representation of the address.
 //
-// If the address is zero value, an empty string is returned.
+// If the address is the zero value, an empty string is returned.
 func (a Addr) String() string {
 	switch a.af {
 	case addressFamilyNetip:
 		return a.ipPort().String()
 	case addressFamilyDomain:
-		return fmt.Sprintf("%s:%d", a.domain(), a.port)
+		b := make([]byte, 0, 255+1+5) // domain + ':' + port
+		b = a.appendTextDomain(b)
+		return string(b)
 	default:
 		return ""
 	}
 }
 
-// AppendTo appends the string representation of the address to the provided buffer.
+// AppendTo appends the textual representation of the address to b and returns the updated slice.
 //
-// If the address is zero value, nothing is appended.
+// If the address is the zero value, b is returned unchanged.
 func (a Addr) AppendTo(b []byte) []byte {
 	switch a.af {
 	case addressFamilyNetip:
 		return a.ipPort().AppendTo(b)
 	case addressFamilyDomain:
-		return fmt.Appendf(b, "%s:%d", a.domain(), a.port)
+		return a.appendTextDomain(b)
 	default:
 		return b
 	}
 }
 
+func (a Addr) appendTextDomain(b []byte) []byte {
+	b = append(b, a.domain()...)
+	b = append(b, ':')
+	return strconv.AppendUint(b, uint64(a.port), 10)
+}
+
+// AppendText appends the textual representation of the address to b and returns the updated slice.
+//
+// If the address is the zero value, b is returned unchanged.
+//
 // AppendText implements [encoding.TextAppender].
 func (a Addr) AppendText(b []byte) ([]byte, error) {
 	return a.AppendTo(b), nil
@@ -241,7 +253,8 @@ func (a Addr) MarshalText() ([]byte, error) {
 	case addressFamilyNetip:
 		return a.ipPort().MarshalText()
 	case addressFamilyDomain:
-		return fmt.Appendf(nil, "%s:%d", a.domain(), a.port), nil
+		b := make([]byte, 0, a.addr.hi+1+5) // domain + ':' + port
+		return a.appendTextDomain(b), nil
 	default:
 		return nil, nil
 	}
