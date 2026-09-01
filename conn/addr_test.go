@@ -6,34 +6,29 @@ import (
 	"crypto/rand"
 	"net"
 	"net/netip"
-	"slices"
 	"strings"
 	"testing"
 )
 
-// Test zero value.
+const (
+	addrZeroPort     = 0
+	addrZeroString   = ""
+	addrIPHost       = "2001:db8:fad6:572:acbe:7143:14e5:7a6e"
+	addrIPPort       = 1080
+	addrIPString     = "[2001:db8:fad6:572:acbe:7143:14e5:7a6e]:1080"
+	addrDomainHost   = "example.com"
+	addrDomainPort   = 443
+	addrDomainString = "example.com:443"
+
+	maxTestAddrTextLen = max(len(addrZeroString), len(addrIPString), len(addrDomainString))
+)
+
 var (
 	addrZero       Addr
-	addrZeroPort   uint16
-	addrZeroString string
-)
-
-// Test IP address.
-var (
-	addrIP                = AddrFromIPPort(addrIPAddrPort)
-	addrIPAddr            = netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e})
-	addrIPPort     uint16 = 1080
-	addrIPAddrPort        = netip.AddrPortFrom(addrIPAddr, addrIPPort)
-	addrIPHost            = "2001:db8:fad6:572:acbe:7143:14e5:7a6e"
-	addrIPString          = "[2001:db8:fad6:572:acbe:7143:14e5:7a6e]:1080"
-)
-
-// Test domain name.
-var (
-	addrDomain              = MustAddrFromDomainPort(addrDomainHost, addrDomainPort)
-	addrDomainHost          = "example.com"
-	addrDomainPort   uint16 = 443
-	addrDomainString        = "example.com:443"
+	addrIP         = AddrFromIPPort(addrIPAddrPort)
+	addrIPAddr     = netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e})
+	addrIPAddrPort = netip.AddrPortFrom(addrIPAddr, addrIPPort)
+	addrDomain     = MustAddrFromDomainPort(addrDomainHost, addrDomainPort)
 )
 
 func TestAddrEquals(t *testing.T) {
@@ -255,17 +250,20 @@ func TestAddrHost(t *testing.T) {
 	mustPanic(t, func() { _ = addrZero.Host() }, "addrZero.Host()")
 }
 
+var addrTextCases = [...]struct {
+	name string
+	addr Addr
+	text string
+}{
+	{"Zero", addrZero, addrZeroString},
+	{"IP", addrIP, addrIPString},
+	{"Domain", addrDomain, addrDomainString},
+}
+
 func TestAddrString(t *testing.T) {
-	for _, c := range []struct {
-		a Addr
-		s string
-	}{
-		{addrZero, addrZeroString},
-		{addrIP, addrIPString},
-		{addrDomain, addrDomainString},
-	} {
-		if s := c.a.String(); s != c.s {
-			t.Errorf("%q.String() = %q, want %q", c.a, s, c.s)
+	for _, c := range addrTextCases {
+		if s := c.addr.String(); s != c.text {
+			t.Errorf("%q.String() = %q, want %q", c.addr, s, c.text)
 		}
 	}
 }
@@ -274,22 +272,16 @@ func TestAddrAppendTo(t *testing.T) {
 	head := make([]byte, 64)
 	rand.Read(head)
 
-	b := slices.Grow(head, 64)
+	b := make([]byte, 64, 128)
+	_ = copy(b, head)
 
-	for _, c := range []struct {
-		a Addr
-		s string
-	}{
-		{addrZero, addrZeroString},
-		{addrIP, addrIPString},
-		{addrDomain, addrDomainString},
-	} {
-		full := c.a.AppendTo(b)
+	for _, c := range addrTextCases {
+		full := c.addr.AppendTo(b)
 		if !bytes.Equal(full[:len(b)], head) {
-			t.Errorf("%q.AppendTo() modified b[:len(b)]", c.a)
+			t.Errorf("%q.AppendTo() modified b[:len(b)]", c.addr)
 		}
-		if tail := full[len(b):]; string(tail) != c.s {
-			t.Errorf("%q.AppendTo() = %q, want %q", c.a, tail, c.s)
+		if tail := full[len(b):]; string(tail) != c.text {
+			t.Errorf("%q.AppendTo() = %q, want %q", c.addr, tail, c.text)
 		}
 	}
 }
@@ -298,53 +290,154 @@ func TestAddrAppendText(t *testing.T) {
 	head := make([]byte, 64)
 	rand.Read(head)
 
-	b := slices.Grow(head, 64)
+	b := make([]byte, 64, 128)
+	_ = copy(b, head)
 
-	for _, c := range []struct {
-		a Addr
-		s string
-	}{
-		{addrZero, addrZeroString},
-		{addrIP, addrIPString},
-		{addrDomain, addrDomainString},
-	} {
-		full, err := c.a.AppendText(b)
+	for _, c := range addrTextCases {
+		full, err := c.addr.AppendText(b)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(full[:len(b)], head) {
-			t.Errorf("%q.AppendText() modified b[:len(b)]", c.a)
+			t.Errorf("%q.AppendText() modified b[:len(b)]", c.addr)
 		}
-		if tail := full[len(b):]; string(tail) != c.s {
-			t.Errorf("%q.AppendText() = %q, want %q", c.a, tail, c.s)
+		if tail := full[len(b):]; string(tail) != c.text {
+			t.Errorf("%q.AppendText() = %q, want %q", c.addr, tail, c.text)
 		}
 	}
 }
 
-func TestAddrMarshalAndUnmarshalText(t *testing.T) {
-	for _, c := range []struct {
-		a Addr
-		s string
+func TestAddrStringAllocs(t *testing.T) {
+	for _, c := range [...]struct {
+		name   string
+		addr   Addr
+		allocs int
 	}{
-		{addrZero, addrZeroString},
-		{addrIP, addrIPString},
-		{addrDomain, addrDomainString},
+		{"Zero", addrZero, 0},
+		{"IP", addrIP, 1},
+		{"Domain", addrDomain, 3},
 	} {
-		text, err := c.a.MarshalText()
+		t.Run(c.name, func(t *testing.T) {
+			n := testing.AllocsPerRun(10, func() {
+				_ = c.addr.String()
+			})
+			if n != float64(c.allocs) {
+				t.Errorf("%q.String() allocs = %f, want %d", c.addr, n, c.allocs)
+			}
+		})
+	}
+}
+
+func TestAddrAppendToAllocs(t *testing.T) {
+	b := make([]byte, 0, maxTestAddrTextLen)
+	for _, c := range addrTextCases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.name == "Domain" {
+				t.Skip("TODO optimization")
+			}
+			if n := testing.AllocsPerRun(10, func() {
+				b = c.addr.AppendTo(b[:0])
+			}); n > 0 {
+				t.Errorf("%q.AppendTo() allocs = %f, want 0", c.addr, n)
+			}
+		})
+	}
+}
+
+func TestAddrAppendTextAllocs(t *testing.T) {
+	b := make([]byte, 0, maxTestAddrTextLen)
+	for _, c := range addrTextCases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.name == "Domain" {
+				t.Skip("TODO optimization")
+			}
+			if n := testing.AllocsPerRun(10, func() {
+				b, _ = c.addr.AppendText(b[:0])
+			}); n > 0 {
+				t.Errorf("%q.AppendText() allocs = %f, want 0", c.addr, n)
+			}
+		})
+	}
+}
+
+func BenchmarkAddrString(b *testing.B) {
+	for _, c := range addrTextCases {
+		b.Run(c.name, func(b *testing.B) {
+			for b.Loop() {
+				_ = c.addr.String()
+			}
+		})
+	}
+}
+
+func BenchmarkAddrAppendTo(b *testing.B) {
+	buf := make([]byte, 0, maxTestAddrTextLen)
+	for _, c := range addrTextCases {
+		b.Run(c.name, func(b *testing.B) {
+			for b.Loop() {
+				buf = c.addr.AppendTo(buf[:0])
+			}
+		})
+	}
+}
+
+func BenchmarkAddrAppendText(b *testing.B) {
+	buf := make([]byte, 0, maxTestAddrTextLen)
+	for _, c := range addrTextCases {
+		b.Run(c.name, func(b *testing.B) {
+			for b.Loop() {
+				buf, _ = c.addr.AppendText(buf[:0])
+			}
+		})
+	}
+}
+
+func TestAddrMarshalAndUnmarshalText(t *testing.T) {
+	for _, c := range addrTextCases {
+		text, err := c.addr.MarshalText()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(text) != c.s {
-			t.Errorf("%q.MarshalText() = %q, want %q", c.a, text, c.s)
+		if string(text) != c.text {
+			t.Errorf("%q.MarshalText() = %q, want %q", c.addr, text, c.text)
 		}
 
-		var a Addr
-		if err = a.UnmarshalText(text); err != nil {
+		var addr Addr
+		if err = addr.UnmarshalText(text); err != nil {
 			t.Fatal(err)
 		}
-		if !a.Equals(c.a) {
-			t.Errorf("%q.UnmarshalText(%q) = %q, want %q", c.a, text, a, c.a)
+		if !addr.Equals(c.addr) {
+			t.Errorf("addr.UnmarshalText(%q) = %q, want %q", text, addr, c.addr)
 		}
+	}
+}
+
+func TestAddrMarshalTextAllocs(t *testing.T) {
+	for _, c := range addrTextCases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.name == "Domain" {
+				t.Skip("TODO optimization")
+			}
+			if n := testing.AllocsPerRun(10, func() {
+				_, _ = c.addr.MarshalText()
+			}); n > 1 {
+				t.Errorf("%q.MarshalText() allocs = %f, want <= 1", c.addr, n)
+			}
+		})
+	}
+}
+
+func BenchmarkAddrUnmarshalText(b *testing.B) {
+	for _, c := range addrTextCases {
+		b.Run(c.name, func(b *testing.B) {
+			var addr Addr
+			text := []byte(c.text)
+			for b.Loop() {
+				if err := addr.UnmarshalText(text); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
 
@@ -365,7 +458,21 @@ func TestAddrFromDomainPort(t *testing.T) {
 	}
 }
 
+func TestAddrFromDomainPortAllocs(t *testing.T) {
+	if n := testing.AllocsPerRun(10, func() {
+		_, _ = AddrFromDomainPort(addrDomainHost, addrDomainPort)
+	}); n > 0 {
+		t.Errorf("AddrFromDomainPort(%q, %d) allocs = %f, want 0", addrDomainHost, addrDomainPort, n)
+	}
+}
+
 func TestAddrFromHostPort(t *testing.T) {
+	t.Run("EmptyHost", func(t *testing.T) {
+		if _, err := AddrFromHostPort("", addrZeroPort); err == nil {
+			t.Error("AddrFromHostPort(\"\", addrZeroPort) did not return an error")
+		}
+	})
+
 	for _, c := range []struct {
 		name         string
 		host         string
@@ -384,6 +491,17 @@ func TestAddrFromHostPort(t *testing.T) {
 				t.Errorf("AddrFromHostPort(%q, %d) = %q, want %q", c.host, c.port, addr, c.expectedAddr)
 			}
 		})
+	}
+}
+
+func TestAddrFromHostPortAllocs(t *testing.T) {
+	// Currently we can only guarantee zero allocations for IP hosts.
+	// For domain hosts, [netip.ParseAddr] allocates an error.
+	// See https://github.com/golang/go/issues/76766.
+	if n := testing.AllocsPerRun(10, func() {
+		_, _ = AddrFromHostPort(addrIPHost, addrIPPort)
+	}); n > 0 {
+		t.Errorf("AddrFromHostPort(%q, %d) allocs = %f, want 0", addrIPHost, addrIPPort, n)
 	}
 }
 
@@ -411,6 +529,14 @@ func TestAddrParsing(t *testing.T) {
 				t.Errorf("ParseAddr(%q) = %q, want %q", c.text, addr, c.expectedAddr)
 			}
 		})
+	}
+}
+
+func TestAddrParsingAllocs(t *testing.T) {
+	if n := testing.AllocsPerRun(10, func() {
+		_, _ = ParseAddr(addrIPString)
+	}); n > 0 {
+		t.Errorf("ParseAddr(%q) allocs = %f, want 0", addrIPString, n)
 	}
 }
 
