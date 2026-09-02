@@ -5,10 +5,12 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/pprof"
 	"net/netip"
+	"os"
 	"path"
 	"strings"
 
@@ -29,6 +31,10 @@ type Config struct {
 
 	// DebugPprof enables pprof endpoints for debugging and profiling.
 	DebugPprof bool `json:"debugPprof,omitzero"`
+
+	// StaticAllowEscapingSymlinks controls whether to allow serving static files
+	// that escape the static path via symlinks.
+	StaticAllowEscapingSymlinks bool `json:"staticAllowEscapingSymlinks,omitzero"`
 
 	// TrustedProxies specifies the IP address prefixes of trusted proxies.
 	// Requests from these proxies will be trusted to contain the real IP address
@@ -263,8 +269,20 @@ func (c *Config) NewServer(
 		mux.Handle(pattern, realIP(logAPIRequests(logger, handler)))
 	})
 
+	var staticFileRoot *os.Root
 	if c.StaticPath != "" {
-		mux.Handle("GET /", realIP(logFileServerRequests(logger, http.FileServer(http.Dir(c.StaticPath)))))
+		var fsys fs.FS
+		if !c.StaticAllowEscapingSymlinks {
+			var err error
+			staticFileRoot, err = os.OpenRoot(c.StaticPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to open static path: %w", err)
+			}
+			fsys = staticFileRoot.FS()
+		} else {
+			fsys = os.DirFS(c.StaticPath)
+		}
+		mux.Handle("GET /", realIP(logFileServerRequests(logger, http.FileServerFS(fsys))))
 	}
 
 	errorLog, err := zap.NewStdLogAt(logger, zap.ErrorLevel)
@@ -273,8 +291,9 @@ func (c *Config) NewServer(
 	}
 
 	return &Server{
-		logger: logger,
-		lcs:    lcs,
+		logger:         logger,
+		lcs:            lcs,
+		staticFileRoot: staticFileRoot,
 		server: http.Server{
 			Handler:  mux,
 			ErrorLog: errorLog,
@@ -408,9 +427,10 @@ type listenConfig struct {
 
 // Server is the RESTful API server.
 type Server struct {
-	logger *zap.Logger
-	lcs    []listenConfig
-	server http.Server
+	logger         *zap.Logger
+	lcs            []listenConfig
+	server         http.Server
+	staticFileRoot *os.Root
 }
 
 var _ shadowsocks.Service = (*Server)(nil)
@@ -454,6 +474,11 @@ func (s *Server) Start(ctx context.Context) error {
 func (s *Server) Stop() error {
 	if err := s.server.Close(); err != nil {
 		return err
+	}
+	if s.staticFileRoot != nil {
+		if err := s.staticFileRoot.Close(); err != nil {
+			return err
+		}
 	}
 	s.logger.Info("Stopped API server")
 	return nil
