@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"os"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"go.uber.org/zap"
@@ -108,12 +108,11 @@ type Socks5UDPClientConfig struct {
 	// Name is the name of the SOCKS5 client.
 	Name string
 
-	// Network controls the address family when resolving the server's TCP address.
-	//
-	// - "tcp": System default, likely dual-stack.
-	// - "tcp4": Resolve to IPv4 addresses.
-	// - "tcp6": Resolve to IPv6 addresses.
-	NetworkTCP string
+	// StreamDialer is the TCP dialer for establishing the initial TCP connection to the SOCKS5 server.
+	StreamDialer netio.StreamDialer
+
+	// Addr is the SOCKS5 server's TCP address.
+	Addr conn.Addr
 
 	// NetworkIP controls the address family when resolving the server's UDP bound address.
 	//
@@ -122,11 +121,10 @@ type Socks5UDPClientConfig struct {
 	// - "ip6": Resolve to IPv6 addresses.
 	NetworkIP string
 
-	// Address is the SOCKS5 server's TCP address.
-	Address string
-
-	// Dialer is the dialer used to establish TCP connections.
-	TCPDialer conn.TCPDialer
+	// Resolver is the resolver used to resolve the server's UDP bound address.
+	//
+	// If nil, the default resolver is used.
+	Resolver conn.Resolver
 
 	// MTU is the MTU of the client's designated network path.
 	MTU int
@@ -141,11 +139,11 @@ type Socks5UDPClientConfig struct {
 // NewClient creates a new SOCKS5 UDP client.
 func (c *Socks5UDPClientConfig) NewClient() zerocopy.UDPClient {
 	client := Socks5UDPClient{
-		logger:     c.Logger,
-		networkTCP: c.NetworkTCP,
-		networkIP:  c.NetworkIP,
-		address:    c.Address,
-		tcpDialer:  c.TCPDialer,
+		logger:       c.Logger,
+		streamDialer: c.StreamDialer,
+		addr:         c.Addr,
+		networkIP:    c.NetworkIP,
+		resolver:     c.Resolver,
 		info: zerocopy.UDPClientSessionInfo{
 			Name:           c.Name,
 			PackerHeadroom: Socks5PacketClientMessageHeadroom,
@@ -168,12 +166,12 @@ func (c *Socks5UDPClientConfig) NewClient() zerocopy.UDPClient {
 //
 // Socks5UDPClient implements [zerocopy.UDPClient].
 type Socks5UDPClient struct {
-	logger     *zap.Logger
-	networkTCP string
-	networkIP  string
-	address    string
-	tcpDialer  conn.TCPDialer
-	info       zerocopy.UDPClientSessionInfo
+	logger       *zap.Logger
+	streamDialer netio.StreamDialer
+	addr         conn.Addr
+	networkIP    string
+	resolver     conn.Resolver
+	info         zerocopy.UDPClientSessionInfo
 }
 
 // Info implements [zerocopy.UDPClient.Info].
@@ -186,7 +184,7 @@ func (c *Socks5UDPClient) Info() zerocopy.UDPClientInfo {
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
 func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
-	tc, err := c.tcpDialer.Dial(ctx, c.networkTCP, c.address, nil)
+	tc, err := c.streamDialer.DialStream(ctx, c.addr, nil)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to dial SOCKS5 server: %w", err)
 	}
@@ -201,8 +199,8 @@ func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSes
 	return c.info, session, err
 }
 
-func (c *Socks5UDPClient) newSession(ctx context.Context, tc *net.TCPConn, addr conn.Addr) (zerocopy.UDPClientSession, error) {
-	addrPort, err := addr.ResolveIPPort(ctx, c.networkIP, c.tcpDialer.Resolver())
+func (c *Socks5UDPClient) newSession(ctx context.Context, tc netio.Conn, addr conn.Addr) (zerocopy.UDPClientSession, error) {
+	addrPort, err := addr.ResolveIPPort(ctx, c.networkIP, c.resolver)
 	if err != nil {
 		_ = tc.Close()
 		return zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
@@ -246,7 +244,7 @@ func (c *Socks5AuthUDPClient) Info() zerocopy.UDPClientInfo {
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
 func (c *Socks5AuthUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
-	tc, err := c.plainClient.tcpDialer.Dial(ctx, c.plainClient.networkTCP, c.plainClient.address, nil)
+	tc, err := c.plainClient.streamDialer.DialStream(ctx, c.plainClient.addr, nil)
 	if err != nil {
 		return c.plainClient.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to dial SOCKS5 server: %w", err)
 	}

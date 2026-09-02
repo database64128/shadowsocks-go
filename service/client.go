@@ -181,9 +181,8 @@ type ClientConfig struct {
 	tlsCertStore *tlscerts.Store
 	logger       *zap.Logger
 
-	networkTCP      string
-	tcpDialer       conn.TCPDialer
 	udpSocketConfig conn.UDPSocketConfig
+	resolver        conn.Resolver
 	innerClient     *netio.TCPClient
 }
 
@@ -277,9 +276,7 @@ func (cc *ClientConfig) Initialize(tlsCertStore *tlscerts.Store, tcpDialerCache 
 	}
 
 	if cc.EnableTCP || cc.EnableUDP && cc.Protocol == "socks5" {
-		cc.networkTCP = cc.tcpNetwork()
-
-		cc.tcpDialer = tcpDialerCache.Get(conn.TCPConnectSocketOptions{
+		tcpDialer := tcpDialerCache.Get(conn.TCPConnectSocketOptions{
 			Fwmark:              cc.DialerFwmark,
 			TrafficClass:        cc.DialerTrafficClass,
 			PathMTUDiscovery:    cc.TCPPathMTUDiscovery.TCP(),
@@ -288,19 +285,21 @@ func (cc *ClientConfig) Initialize(tlsCertStore *tlscerts.Store, tcpDialerCache 
 			MultipathTCP:        cc.MultipathTCP,
 		})
 		if cc.OverrideResolverDialAddress != "" {
-			resolverDialer := conn.NewDialer(cc.tcpDialer, cc.udpSocketConfig, conn.UnixDomainSocketConfig{})
-			cc.tcpDialer = cc.tcpDialer.WithResolver(&net.Resolver{
+			resolverDialer := conn.NewDialer(tcpDialer, cc.udpSocketConfig, conn.UnixDomainSocketConfig{})
+			resolver := &net.Resolver{
 				PreferGo: true,
 				Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 					return resolverDialer.Dial(ctx, network, cc.OverrideResolverDialAddress)
 				},
-			})
+			}
+			cc.resolver = resolver
+			tcpDialer = tcpDialer.WithResolver(resolver)
 		}
 
 		tcc := netio.TCPClientConfig{
 			Name:    cc.Name,
-			Network: cc.networkTCP,
-			Dialer:  cc.tcpDialer,
+			Network: cc.tcpNetwork(),
+			Dialer:  tcpDialer,
 		}
 		cc.innerClient = tcc.NewTCPClient()
 	}
@@ -411,24 +410,24 @@ func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
 
 	switch cc.Protocol {
 	case "direct":
-		return direct.NewDirectUDPClient(cc.Name, cc.Network, cc.tcpDialer.Resolver(), cc.MTU, cc.udpSocketConfig), nil
+		return direct.NewDirectUDPClient(cc.Name, cc.Network, cc.resolver, cc.MTU, cc.udpSocketConfig), nil
 	case "none", "plain":
-		return direct.NewShadowsocksNoneUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.tcpDialer.Resolver(), cc.MTU, cc.udpSocketConfig), nil
+		return direct.NewShadowsocksNoneUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.resolver, cc.MTU, cc.udpSocketConfig), nil
 	case "socks5":
 		s5ucc := direct.Socks5UDPClientConfig{
 			Logger:       cc.logger,
 			Name:         cc.Name,
-			NetworkTCP:   cc.networkTCP,
+			StreamDialer: cc.innerClient,
+			Addr:         cc.UDPAddress,
 			NetworkIP:    cc.Network,
-			Address:      cc.UDPAddress.String(),
-			TCPDialer:    cc.tcpDialer,
+			Resolver:     cc.resolver,
 			MTU:          cc.MTU,
 			SocketConfig: cc.udpSocketConfig,
 			AuthMsg:      cc.socks5AuthMsg,
 		}
 		return s5ucc.NewClient(), nil
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		return ss2022.NewUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.tcpDialer.Resolver(), cc.MTU, cc.udpSocketConfig, cc.SlidingWindowFilterSize, cc.cipherConfig, cc.PaddingPolicy.Policy()), nil
+		return ss2022.NewUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.resolver, cc.MTU, cc.udpSocketConfig, cc.SlidingWindowFilterSize, cc.cipherConfig, cc.PaddingPolicy.Policy()), nil
 	default:
 		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
 	}
