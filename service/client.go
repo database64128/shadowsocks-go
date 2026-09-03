@@ -284,37 +284,42 @@ func (cc *ClientConfig) Initialize(tlsCertStore *tlscerts.Store, tcpDialerCache 
 			TCPFastOpenFallback: cc.TCPFastOpenFallback,
 			MultipathTCP:        cc.MultipathTCP,
 		})
+
+		var resolver conn.Resolver
 		if cc.OverrideResolverDialAddress != "" {
 			resolverDialer := conn.NewDialer(tcpDialer, cc.udpSocketConfig, conn.UnixDomainSocketConfig{})
-			resolver := &net.Resolver{
+			resolver = &net.Resolver{
 				PreferGo: true,
 				Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 					return resolverDialer.Dial(ctx, network, cc.OverrideResolverDialAddress)
 				},
 			}
 			cc.resolver = resolver
-			tcpDialer = tcpDialer.WithResolver(resolver)
 		}
 
 		tcc := netio.TCPClientConfig{
-			Name:    cc.Name,
-			Network: cc.tcpNetwork(),
-			Dialer:  tcpDialer,
+			Name:                    cc.Name,
+			AddressFamilyPreference: cc.addressFamilyPreference(),
+			Dialer:                  tcpDialer,
+			Resolver:                resolver,
 		}
-		cc.innerClient = tcc.NewTCPClient()
+		cc.innerClient, err = tcc.NewTCPClient()
+		if err != nil {
+			return fmt.Errorf("failed to create TCP client: %w", err)
+		}
 	}
 
 	return nil
 }
 
-func (cc *ClientConfig) tcpNetwork() string {
+func (cc *ClientConfig) addressFamilyPreference() netio.AddressFamilyPreference {
 	switch cc.Network {
 	case "ip":
-		return "tcp"
+		return netio.AddressFamilyPreferenceDefault
 	case "ip4":
-		return "tcp4"
+		return netio.AddressFamilyPreferenceIPv4Only
 	case "ip6":
-		return "tcp6"
+		return netio.AddressFamilyPreferenceIPv6Only
 	default:
 		panic("unreachable")
 	}

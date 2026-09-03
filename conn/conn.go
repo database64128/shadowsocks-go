@@ -423,19 +423,9 @@ func (cfg *TCPDialer) TFO() bool {
 	return cfg.dialer.TFO()
 }
 
-// Dial wraps [tfo.Dialer.DialContext] and returns a [*net.TCPConn] directly.
-func (cfg *TCPDialer) Dial(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
-	switch network {
-	case "tcp", "tcp4", "tcp6":
-	default:
-		return nil, &net.OpError{Op: "dial", Net: network, Err: net.UnknownNetworkError(network)}
-	}
-
-	c, err := cfg.dialer.DialContext(ctx, network, address, b)
-	if err != nil {
-		return nil, err
-	}
-	return c.(*net.TCPConn), nil
+// Dial wraps [tfo.Dialer.DialTCP].
+func (cfg *TCPDialer) Dial(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
+	return cfg.dialer.DialTCP(ctx, network, laddr, raddr, b)
 }
 
 // UDPSocketOptions contains socket options for UDP sockets.
