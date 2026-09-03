@@ -667,7 +667,7 @@ type DestDomainCriterion []domainset.DomainSet
 
 // Meet implements the Criterion Meet method.
 func (c DestDomainCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
-	if requestInfo.TargetAddr.IsIP() {
+	if !requestInfo.TargetAddr.IsDomain() {
 		return false, nil
 	}
 	return matchDomainToDomainSets(c, requestInfo.TargetAddr.Domain()), nil
@@ -710,7 +710,10 @@ func (c DestResolvedIPCriterion) Meet(ctx context.Context, network protocol, req
 	if requestInfo.TargetAddr.IsIP() {
 		return c.prefixSet.Contains(requestInfo.TargetAddr.IP().Unmap()), nil
 	}
-	return matchDomainToPrefixSet(ctx, c.resolvers, requestInfo.TargetAddr.Domain(), c.prefixSet)
+	if requestInfo.TargetAddr.IsDomain() {
+		return matchDomainToPrefixSet(ctx, c.resolvers, requestInfo.TargetAddr.Domain(), c.prefixSet)
+	}
+	return false, nil
 }
 
 // DestGeoIPCountryCriterion restricts the destination IP address by GeoIP country.
@@ -741,7 +744,10 @@ func (c DestResolvedGeoIPCountryCriterion) Meet(ctx context.Context, network pro
 	if requestInfo.TargetAddr.IsIP() {
 		return matchAddrToGeoIPCountries(c.countries, requestInfo.TargetAddr.IP(), c.geoip, c.logger)
 	}
-	return matchDomainToGeoIPCountries(ctx, c.resolvers, requestInfo.TargetAddr.Domain(), c.countries, c.geoip, c.logger)
+	if requestInfo.TargetAddr.IsDomain() {
+		return matchDomainToGeoIPCountries(ctx, c.resolvers, requestInfo.TargetAddr.Domain(), c.countries, c.geoip, c.logger)
+	}
+	return false, nil
 }
 
 func matchAddrToGeoIPCountries(countries []string, addr netip.Addr, geoip *geoip2.Reader, logger *zap.Logger) (bool, error) {
