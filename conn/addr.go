@@ -2,6 +2,7 @@ package conn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -16,6 +17,33 @@ const (
 	addressFamilyNetip
 	addressFamilyDomain
 )
+
+// UnsupportedAddressKindError is the error type for unsupported address kinds.
+type UnsupportedAddressKindError struct {
+	af addressFamily
+}
+
+// UnsupportedAddressKindErrorFromAddr returns an [UnsupportedAddressKindError] for the given address.
+func UnsupportedAddressKindErrorFromAddr(addr Addr) UnsupportedAddressKindError {
+	return UnsupportedAddressKindError{af: addr.af}
+}
+
+func (e UnsupportedAddressKindError) Error() string {
+	switch e.af {
+	case addressFamilyNone:
+		return "unsupported address kind: none"
+	case addressFamilyNetip:
+		return "unsupported address kind: netip"
+	case addressFamilyDomain:
+		return "unsupported address kind: domain"
+	default:
+		return fmt.Sprintf("unsupported address kind: invalid(%d)", e.af)
+	}
+}
+
+func (e UnsupportedAddressKindError) Is(target error) bool {
+	return target == errors.ErrUnsupported
+}
 
 type netipAddrHeader struct {
 	hi uint64
