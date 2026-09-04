@@ -407,17 +407,6 @@ type TCPDialer struct {
 	dialer tfo.Dialer
 }
 
-// WithResolver returns a copy of the configuration with the resolver replaced.
-func (cfg TCPDialer) WithResolver(resolver *net.Resolver) TCPDialer {
-	cfg.dialer.Resolver = resolver
-	return cfg
-}
-
-// Resolver returns the resolver used by the dialer.
-func (cfg *TCPDialer) Resolver() *net.Resolver {
-	return cfg.dialer.Resolver
-}
-
 // TFO returns true if the next Dial call will attempt to enable TFO.
 func (cfg *TCPDialer) TFO() bool {
 	return cfg.dialer.TFO()
