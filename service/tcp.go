@@ -356,7 +356,13 @@ func (s *TCPRelay) Stop() error {
 	for i := range s.tcpListeners {
 		lnc := &s.tcpListeners[i]
 		if err := lnc.listener.SetDeadline(conn.ALongTimeAgo); err != nil {
-			lnc.logger.Error("Failed to set deadline on listener", zap.Error(err))
+			lnc.logger.Error("Failed to set deadline on TCP listener", zap.Error(err))
+		}
+	}
+	for i := range s.unixListeners {
+		lnc := &s.unixListeners[i]
+		if err := lnc.listener.SetDeadline(conn.ALongTimeAgo); err != nil {
+			lnc.logger.Error("Failed to set deadline on Unix listener", zap.Error(err))
 		}
 	}
 
@@ -365,10 +371,16 @@ func (s *TCPRelay) Stop() error {
 	for i := range s.tcpListeners {
 		lnc := &s.tcpListeners[i]
 		if err := lnc.listener.Close(); err != nil {
-			lnc.logger.Error("Failed to close listener", zap.Error(err))
+			lnc.logger.Error("Failed to close TCP listener", zap.Error(err))
+		}
+	}
+	for i := range s.unixListeners {
+		lnc := &s.unixListeners[i]
+		if err := lnc.listener.Close(); err != nil {
+			lnc.logger.Error("Failed to close Unix listener", zap.Error(err))
 		}
 	}
 
-	s.logger.Info("Stopped TCP relay service", zap.String("server", s.serverName))
+	s.logger.Info("Stopped stream relay service", zap.String("server", s.serverName))
 	return nil
 }
