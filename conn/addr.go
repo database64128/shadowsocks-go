@@ -246,6 +246,28 @@ func (a Addr) String() string {
 	}
 }
 
+// MaxTextLen returns the maximum number of bytes its textual representation can take up.
+func (a Addr) MaxTextLen() int {
+	switch a.af {
+	case addressFamilyNetip:
+		ip := a.ip()
+		switch {
+		case ip.Is4():
+			return len("255.255.255.255:65535")
+		case ip.Is4In6():
+			return len("[::ffff:255.255.255.255%enp5s0]:65535")
+		case ip.Is6():
+			return len("[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff%enp5s0]:65535")
+		default:
+			return 0
+		}
+	case addressFamilyDomain:
+		return int(a.addr.hi) + 1 + 5 // domain + ':' + port
+	default:
+		return 0
+	}
+}
+
 // AppendTo appends the textual representation of the address to b and returns the updated slice.
 //
 // If the address is the zero value, b is returned unchanged.

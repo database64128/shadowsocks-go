@@ -268,6 +268,24 @@ func TestAddrString(t *testing.T) {
 	}
 }
 
+func TestAddrMaxTextLen(t *testing.T) {
+	for _, c := range [...]struct {
+		name string
+		addr Addr
+		want int
+	}{
+		{"Zero", addrZero, 0},
+		{"IP", addrIP, len("[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff%enp5s0]:65535")},
+		{"Domain", addrDomain, len(addrDomainHost + ":65535")},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.addr.MaxTextLen(); got != c.want {
+				t.Errorf("%q.MaxTextLen() = %d, want %d", c.addr, got, c.want)
+			}
+		})
+	}
+}
+
 func TestAddrAppendTo(t *testing.T) {
 	head := make([]byte, 64)
 	rand.Read(head)
