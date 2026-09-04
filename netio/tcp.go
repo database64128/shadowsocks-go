@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -327,24 +328,9 @@ func (c *TCPClient) resolveAndDialDomainWithResolutionDelay(
 				j++
 			}
 		}
-
-		if lookupSecondaryDone {
-			return
-		}
-
-		select {
-		case lookupResultSecondary = <-lookupResultCh:
-		case <-attemptCtxDone:
-			return
-		}
-
-		for _, ip := range lookupResultSecondary.IPs {
-			if !yield(ip) {
-				return
-			}
-		}
 	}
 
+dial:
 	for ip := range ips {
 		go func() {
 			laddr := c.localAddr(ip)
@@ -369,6 +355,26 @@ func (c *TCPClient) resolveAndDialDomainWithResolutionDelay(
 		case <-attemptCtxDone:
 			return nil, attemptCtx.Err()
 		case <-ticker.C:
+		}
+	}
+
+	if !lookupSecondaryDone {
+		for {
+			select {
+			case result := <-resultCh:
+				if result.Err == nil {
+					cancelAttempts()
+					return result.TCPConn, nil
+				}
+				errs = append(errs, result.Err)
+			case lookupResultSecondary = <-lookupResultCh:
+				ips = slices.Values(lookupResultSecondary.IPs)
+				lookupSecondaryDone = true
+				ticker.Reset(c.connectionAttemptDelay)
+				goto dial
+			case <-attemptCtxDone:
+				return nil, attemptCtx.Err()
+			}
 		}
 	}
 
