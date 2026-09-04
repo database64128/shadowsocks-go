@@ -3,6 +3,7 @@ package httpproxy
 import (
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/netip"
@@ -240,6 +241,16 @@ func TestHttpStreamClientReadWriterServerSpeaksFirst(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestWriteConnectRequestAllocs(t *testing.T) {
+	targetAddr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 80)
+	const proxyAuthHeader = "\r\nProxy-Authorization: Basic aGVsbG86d29ybGQ="
+	if n := testing.AllocsPerRun(10, func() {
+		_, _ = writeConnectRequest(io.Discard, targetAddr, proxyAuthHeader)
+	}); n > 1 {
+		t.Errorf("writeConnectRequest() allocs = %f, want <= 1", n)
+	}
 }
 
 func TestHostHeaderToAddr(t *testing.T) {

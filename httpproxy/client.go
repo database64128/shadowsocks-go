@@ -27,14 +27,8 @@ func (e ConnectNonSuccessfulResponseError) Error() string {
 
 // ClientConnect writes a HTTP/1.1 CONNECT request to rw and returns the encapsulated stream or an error.
 func ClientConnect(rw netio.Conn, targetAddr conn.Addr, proxyAuthHeader string) (netio.Conn, error) {
-	targetAddress := targetAddr.String()
-
-	// Write CONNECT.
-	//
-	// Some clients include Proxy-Connection: Keep-Alive in proxy requests.
-	// This is discouraged by RFC 9112 as stated in appendix C.2.2, so we don't include it.
-	_, err := fmt.Fprintf(rw, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: shadowsocks-go/"+shadowsocks.Version+"%s\r\n\r\n", targetAddress, targetAddress, proxyAuthHeader)
-	if err != nil {
+	// Write CONNECT request.
+	if _, err := writeConnectRequest(rw, targetAddr, proxyAuthHeader); err != nil {
 		return nil, err
 	}
 
@@ -56,6 +50,36 @@ func ClientConnect(rw netio.Conn, targetAddr conn.Addr, proxyAuthHeader string) 
 	}
 
 	return rw, nil
+}
+
+func writeConnectRequest(w io.Writer, targetAddr conn.Addr, proxyAuthHeader string) (int, error) {
+	// Some clients include Proxy-Connection: Keep-Alive in proxy requests.
+	// This is discouraged by RFC 9112 as stated in appendix C.2.2, so we don't include it.
+
+	const (
+		connectRequestPart0 = http.MethodConnect + " "
+		connectRequestPart1 = " HTTP/1.1\r\nHost: "
+		connectRequestPart2 = "\r\nUser-Agent: shadowsocks-go/" + shadowsocks.Version
+		connectRequestPart3 = "\r\n\r\n"
+	)
+
+	targetAddrMaxTextLen := targetAddr.MaxTextLen()
+
+	b := make([]byte, 0,
+		len(connectRequestPart0)+targetAddrMaxTextLen+
+			len(connectRequestPart1)+targetAddrMaxTextLen+
+			len(connectRequestPart2)+len(proxyAuthHeader)+
+			len(connectRequestPart3))
+	b = append(b, connectRequestPart0...)
+	b = targetAddr.AppendTo(b)
+	targetAddrText := b[len(connectRequestPart0):]
+	b = append(b, connectRequestPart1...)
+	b = append(b, targetAddrText...)
+	b = append(b, connectRequestPart2...)
+	b = append(b, proxyAuthHeader...)
+	b = append(b, connectRequestPart3...)
+
+	return w.Write(b)
 }
 
 // readBufferedNetioConn embeds a [netio.Conn], but redirects reads to a paired [*bufio.Reader].
