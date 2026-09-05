@@ -26,7 +26,7 @@ func (e ConnectNonSuccessfulResponseError) Error() string {
 }
 
 // ClientConnect writes a HTTP/1.1 CONNECT request to rw and returns the encapsulated stream or an error.
-func ClientConnect(rw netio.Conn, targetAddr conn.Addr, proxyAuthHeader string) (netio.Conn, error) {
+func ClientConnect(rw netio.Conn, targetAddr conn.Addr, proxyAuthHeader []byte) (netio.Conn, error) {
 	// Write CONNECT request.
 	if _, err := writeConnectRequest(rw, targetAddr, proxyAuthHeader); err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func ClientConnect(rw netio.Conn, targetAddr conn.Addr, proxyAuthHeader string) 
 	return rw, nil
 }
 
-func writeConnectRequest(w io.Writer, targetAddr conn.Addr, proxyAuthHeader string) (int, error) {
+func writeConnectRequest(w io.Writer, targetAddr conn.Addr, proxyAuthHeader []byte) (int, error) {
 	// Some clients include Proxy-Connection: Keep-Alive in proxy requests.
 	// This is discouraged by RFC 9112 as stated in appendix C.2.2, so we don't include it.
 

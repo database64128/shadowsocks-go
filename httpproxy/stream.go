@@ -8,7 +8,6 @@ import (
 	"errors"
 	"slices"
 	"strings"
-	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
@@ -72,7 +71,7 @@ type ProxyClient struct {
 
 	tlsConfig *tls.Config
 
-	proxyAuthHeader string
+	proxyAuthHeader []byte
 }
 
 var (
@@ -82,14 +81,9 @@ var (
 
 // NewProxyClient creates a new HTTP proxy client.
 func (c *ClientConfig) NewProxyClient() (*ProxyClient, error) {
-	client := ProxyClient{
-		name:        c.Name,
-		innerClient: c.InnerClient,
-		serverAddr:  c.Addr,
-	}
-
+	var tlsConfig *tls.Config
 	if c.UseTLS {
-		client.tlsConfig = &tls.Config{
+		tlsConfig = &tls.Config{
 			Certificates:                   c.Certificates,
 			GetClientCertificate:           c.GetClientCertificate,
 			RootCAs:                        c.RootCAs,
@@ -98,6 +92,7 @@ func (c *ClientConfig) NewProxyClient() (*ProxyClient, error) {
 		}
 	}
 
+	var proxyAuthHeader []byte
 	if c.UseBasicAuth {
 		if strings.IndexByte(c.Username, ':') >= 0 {
 			return nil, errUsernameContainsColon
@@ -105,13 +100,18 @@ func (c *ClientConfig) NewProxyClient() (*ProxyClient, error) {
 
 		const proxyAuthHeaderPrefix = "\r\nProxy-Authorization: Basic "
 		length := len(proxyAuthHeaderPrefix) + base64.StdEncoding.EncodedLen(len(c.Username)+1+len(c.Password))
-		b := make([]byte, length)
-		_ = copy(b, proxyAuthHeaderPrefix)
-		base64.StdEncoding.Encode(b[len(proxyAuthHeaderPrefix):], []byte(c.Username+":"+c.Password))
-		client.proxyAuthHeader = unsafe.String(unsafe.SliceData(b), length)
+		proxyAuthHeader = make([]byte, length)
+		_ = copy(proxyAuthHeader, proxyAuthHeaderPrefix)
+		base64.StdEncoding.Encode(proxyAuthHeader[len(proxyAuthHeaderPrefix):], []byte(c.Username+":"+c.Password))
 	}
 
-	return &client, nil
+	return &ProxyClient{
+		name:            c.Name,
+		innerClient:     c.InnerClient,
+		serverAddr:      c.Addr,
+		tlsConfig:       tlsConfig,
+		proxyAuthHeader: proxyAuthHeader,
+	}, nil
 }
 
 // NewStreamDialer implements [netio.StreamClient.NewStreamDialer].

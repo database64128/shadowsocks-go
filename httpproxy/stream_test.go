@@ -136,7 +136,7 @@ func TestStreamClientServerBasicAuthBadCredentials(t *testing.T) {
 
 	wg.Go(func() {
 		for i, clientProxyAuthHeader := range clientProxyAuthHeaders {
-			_, clientErrors[i] = ClientConnect(pl, clientTargetAddr, clientProxyAuthHeader)
+			_, clientErrors[i] = ClientConnect(pl, clientTargetAddr, []byte(clientProxyAuthHeader))
 		}
 		_ = pl.CloseWrite()
 	})
@@ -181,7 +181,7 @@ func TestHttpStreamClientReadWriterServerSpeaksFirst(t *testing.T) {
 
 	// Start client.
 	wg.Go(func() {
-		clientConn, clientErr = ClientConnect(pl, clientTargetAddr, "")
+		clientConn, clientErr = ClientConnect(pl, clientTargetAddr, nil)
 	})
 
 	// Read and verify client request.
@@ -247,7 +247,7 @@ func TestWriteConnectRequestAllocs(t *testing.T) {
 	targetAddr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 80)
 	const proxyAuthHeader = "\r\nProxy-Authorization: Basic aGVsbG86d29ybGQ="
 	if n := testing.AllocsPerRun(10, func() {
-		_, _ = writeConnectRequest(io.Discard, targetAddr, proxyAuthHeader)
+		_, _ = writeConnectRequest(io.Discard, targetAddr, []byte(proxyAuthHeader))
 	}); n > 1 {
 		t.Errorf("writeConnectRequest() allocs = %f, want <= 1", n)
 	}
