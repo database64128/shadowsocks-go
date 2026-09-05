@@ -2,6 +2,7 @@ package prefixset
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"net/netip"
@@ -42,7 +43,16 @@ func PrefixSetFromText(text string) (*bart.Lite, error) {
 
 		prefix, err := netip.ParsePrefix(line)
 		if err != nil {
-			return nil, err
+			// As of Go 1.27, [netip.ParsePrefix] escapes the input string by using
+			// an unexported error type that embeds the input string directly. When
+			// our input string is from an mmapped file, the returned error will
+			// become invalid when we unmap the file.
+			//
+			// Because of the escaping, we can't pass a stack copy of the string.
+			// And because the error type is unexported, we can't change the string
+			// embedded in the returned error. What we can do here, is to get the
+			// error string and wrap it in a new error.
+			return nil, errors.New(err.Error())
 		}
 
 		s.Insert(prefix)

@@ -2,6 +2,8 @@ package prefixset
 
 import (
 	"net/netip"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 )
@@ -95,4 +97,23 @@ func TestPrefixSet(t *testing.T) {
 	if !slices.Equal(got, sortedTestPrefixes[:]) {
 		t.Errorf("s.AllSorted() = %v, want %v", got, sortedTestPrefixes[:])
 	}
+}
+
+func TestConfigLoadPrefixSetError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "broken-prefixset.txt")
+	if err := os.WriteFile(path, []byte("I'm not a prefix set!\n"), 0644); err != nil {
+		t.Fatalf("os.WriteFile(%q) failed: %v", path, err)
+	}
+
+	cfg := Config{
+		Name: "broken",
+		Path: path,
+	}
+	_, err := cfg.LoadPrefixSet()
+	if err == nil {
+		t.Fatal("cfg.LoadPrefixSet() did not return an error")
+	}
+
+	// Dereference the error string to make sure it does not cause a panic.
+	t.Logf("cfg.LoadPrefixSet() returned error: %v", err)
 }
