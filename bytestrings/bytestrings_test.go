@@ -48,3 +48,32 @@ func TestNonEmptyLines(t *testing.T) {
 		t.Errorf("Expected lines %v, got %v", expectedLines, lines)
 	}
 }
+
+const longLines = "\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n" +
+	"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n\n" +
+	"ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\r\n\r\n" +
+	"ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\n"
+
+func TestNextNonEmptyLineAllocs(t *testing.T) {
+	if n := testing.AllocsPerRun(10, func() {
+		for text := longLines; len(text) > 0; {
+			_, text = NextNonEmptyLine(text)
+		}
+	}); n > 0 {
+		t.Errorf("NextNonEmptyLine() allocs = %f, want 0", n)
+	}
+}
+
+func TestNonEmptyLinesAllocs(t *testing.T) {
+	if n := testing.AllocsPerRun(10, func() {
+		var lineCount int
+		for range NonEmptyLines(longLines) {
+			lineCount++
+		}
+		if lineCount != 4 {
+			t.Errorf("lineCount = %d, want 4", lineCount)
+		}
+	}); n > 0 {
+		t.Errorf("NonEmptyLines() allocs = %f, want 0", n)
+	}
+}

@@ -6,6 +6,9 @@ import (
 	"unsafe"
 )
 
+// Implementation note: As of Go 1.27, zero-copy string->[]byte conversion
+// does not apply if we use bytes.IndexByte([]byte(text), '\n').
+
 // NextNonEmptyLine returns the next non-empty line and the remaining text.
 // The line has its line feed ('\n') and carriage return ('\r') characters removed.
 func NextNonEmptyLine[T ~[]byte | ~string](text T) (T, T) {
