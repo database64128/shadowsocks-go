@@ -1,11 +1,14 @@
 package prefixset
 
 import (
+	"bytes"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/gaissmai/bart"
 )
 
 const testPrefixSetText = `# Private prefixes.
@@ -23,11 +26,20 @@ const testPrefixSetText = `# Private prefixes.
 198.51.100.0/24
 203.0.113.0/24
 224.0.0.0/3
+::/128
 ::1/128
 fc00::/7
 fe80::/10
 ff00::/8
 `
+
+var testPrefixSet bart.Lite
+
+func init() {
+	for _, prefix := range sortedTestPrefixes {
+		testPrefixSet.Insert(prefix)
+	}
+}
 
 var sortedTestPrefixes = [...]netip.Prefix{
 	netip.PrefixFrom(netip.IPv4Unspecified(), 8),
@@ -44,6 +56,7 @@ var sortedTestPrefixes = [...]netip.Prefix{
 	netip.PrefixFrom(netip.AddrFrom4([4]byte{198, 51, 100, 0}), 24),
 	netip.PrefixFrom(netip.AddrFrom4([4]byte{203, 0, 113, 0}), 24),
 	netip.PrefixFrom(netip.AddrFrom4([4]byte{224, 0, 0, 0}), 3),
+	netip.PrefixFrom(netip.IPv6Unspecified(), 128),
 	netip.PrefixFrom(netip.IPv6Loopback(), 128),
 	netip.PrefixFrom(netip.AddrFrom16([16]byte{0xfc}), 7),
 	netip.PrefixFrom(netip.AddrFrom16([16]byte{0xfe, 0x80}), 10),
@@ -75,13 +88,16 @@ var testPrefixSetContainsCases = [...]struct {
 	{netip.AddrFrom16([16]byte{0: 0xfe, 1: 0x80, 15: 1}), true},
 	{netip.AddrFrom16([16]byte{0: 0xff, 15: 1}), true},
 	{netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e}), false},
-	{netip.IPv6Unspecified(), false},
+	{netip.IPv6Unspecified(), true},
 }
 
-func TestPrefixSet(t *testing.T) {
+func TestPrefixSetText(t *testing.T) {
 	s, err := PrefixSetFromText(testPrefixSetText)
 	if err != nil {
 		t.Fatalf("PrefixSetFromText(testPrefixSetText) failed: %v", err)
+	}
+	if !s.Equal(&testPrefixSet) {
+		t.Errorf("s.Equals(&testPrefixSet) = false, want true")
 	}
 
 	for _, cc := range testPrefixSetContainsCases {
@@ -96,6 +112,31 @@ func TestPrefixSet(t *testing.T) {
 	}
 	if !slices.Equal(got, sortedTestPrefixes[:]) {
 		t.Errorf("s.AllSorted() = %v, want %v", got, sortedTestPrefixes[:])
+	}
+}
+
+func TestPrefixSetBinary(t *testing.T) {
+	length := 24 + len(sortedTestPrefixes)
+	for _, prefix := range sortedTestPrefixes {
+		length += (prefix.Bits() + 7) / 8
+	}
+
+	bw := bytes.NewBuffer(make([]byte, 0, length))
+	if err := MarshalWriteBinary(bw, &testPrefixSet); err != nil {
+		t.Fatalf("MarshalWriteBinary(bw, &testPrefixSet) failed: %v", err)
+	}
+	if got := bw.Len(); got != length {
+		t.Errorf("bw.Len() = %d, want %d", got, length)
+	}
+
+	t.Logf("bw.Bytes() = %#v", bw.Bytes())
+
+	var s bart.Lite
+	if err := UnmarshalReadBinary(bw, &s); err != nil {
+		t.Fatalf("UnmarshalReadBinary(bw, &s) failed: %v", err)
+	}
+	if !s.Equal(&testPrefixSet) {
+		t.Errorf("s.Equals(&testPrefixSet) = false, want true")
 	}
 }
 
