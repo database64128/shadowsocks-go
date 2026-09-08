@@ -323,11 +323,15 @@ func (m *Manager) Run(ctx context.Context) bool {
 		runningSvcs = append(runningSvcs, s)
 	}
 
+	var stopReason zap.Field
 	if ok {
 		<-ctx.Done()
+		stopReason = zap.NamedError("reason", context.Cause(ctx))
 	} else {
 		cancel()
+		stopReason = zap.String("reason", "one or more services failed to start")
 	}
+	m.logger.Info("Stopping services", stopReason)
 
 	for _, s := range runningSvcs {
 		if err := s.Stop(); err != nil {

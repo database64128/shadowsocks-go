@@ -77,15 +77,14 @@ func runService(name string, args []string) int {
 	}
 	defer m.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-
-	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		sig := <-sigCh
-		logger.Info("Received exit signal", zap.Stringer("signal", sig))
-		signal.Stop(sigCh)
-		cancel()
+	ctx, stopSig := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	stopAF := context.AfterFunc(ctx, func() {
+		stopSig()
+	})
+	defer func() {
+		if stopAF() {
+			stopSig()
+		}
 	}()
 
 	if !m.Run(ctx) {
