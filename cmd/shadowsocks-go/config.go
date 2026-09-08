@@ -10,6 +10,18 @@ import (
 	"go.uber.org/zap"
 )
 
+const usageConfig = `Manage configuration files
+
+Usage: %s [-format] [-test] [path]...
+
+Arguments:
+  [path]...   Paths to the config files (default: "config.json")
+
+Flags:
+  -format     Format the config files
+  -test       Test the config files
+`
+
 func runConfig(name string, args []string) int {
 	var (
 		fs     flag.FlagSet
@@ -18,12 +30,11 @@ func runConfig(name string, args []string) int {
 	)
 
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Manage configuration files\n\nUsage: %s [-format] [-test] <path>...\n", name)
-		fs.PrintDefaults()
+		fmt.Fprintf(fs.Output(), usageConfig, name)
 	}
 	fs.Init(name, flag.ExitOnError)
-	fs.BoolVar(&format, "format", false, "Format the config files")
-	fs.BoolVar(&test, "test", false, "Test the config files")
+	fs.BoolVar(&format, "format", false, "format the config files")
+	fs.BoolVar(&test, "test", false, "test the config files")
 	fs.Parse(args)
 
 	if !format && !test {
@@ -33,8 +44,7 @@ func runConfig(name string, args []string) int {
 
 	paths := fs.Args()
 	if len(paths) == 0 {
-		fmt.Fprintf(fs.Output(), "Please specify at least one config file path\nRun '%s -h' for usage.\n", name)
-		return 2
+		paths = []string{"config.json"}
 	}
 
 	var exitCode int

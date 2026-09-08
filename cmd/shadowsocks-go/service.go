@@ -16,28 +16,34 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const usageService = `Run service
+
+Usage: %s [options] [path]...
+
+Arguments:
+  [path]...   Paths to the config files (default: "config.json")
+
+Flags:
+  -zapConf    Preset name or path to the JSON config file for building the zap logger (default: "console")
+              Available presets: console, console-nocolor, console-notime, systemd, production, development
+  -logLevel   Log level for the console and systemd presets (default: info)
+              Available levels: debug, info, warn, error, dpanic, panic, fatal
+`
+
 func runService(name string, args []string) int {
 	var (
 		fs       flag.FlagSet
-		confPath string
 		zapConf  string
 		logLevel zapcore.Level
 	)
 
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Run service\n\nUsage of %s:\n", name)
-		fs.PrintDefaults()
+		fmt.Fprintf(fs.Output(), usageService, name)
 	}
 	fs.Init(name, flag.ExitOnError)
-	fs.StringVar(&confPath, "confPath", "config.json", "`path` to the JSON configuration file")
-	fs.StringVar(&zapConf, "zapConf", "console", "preset name or path to the JSON configuration file for building the zap logger\navailable presets: console, console-nocolor, console-notime, systemd, production, development")
+	fs.StringVar(&zapConf, "zapConf", "console", "preset name or path to the JSON config file for building the zap logger\navailable presets: console, console-nocolor, console-notime, systemd, production, development")
 	fs.TextVar(&logLevel, "logLevel", zapcore.InfoLevel, "log `level` for the console and systemd presets\navailable levels: debug, info, warn, error, dpanic, panic, fatal")
 	fs.Parse(args)
-
-	if fs.NArg() > 0 {
-		fmt.Fprintf(fs.Output(), "Unexpected arguments: %v\nRun '%s -h' for usage.\n", fs.Args(), name)
-		return 2
-	}
 
 	logger, err := logging.NewZapLogger(zapConf, logLevel)
 	if err != nil {
@@ -48,21 +54,25 @@ func runService(name string, args []string) int {
 
 	logger.Info("shadowsocks-go", zap.String("version", shadowsocks.Version))
 
-	var sc service.Config
-	if err = jsoncfg.Load(confPath, &sc); err != nil {
-		logger.Error("Failed to load config",
-			zap.String("confPath", confPath),
-			zap.Error(err),
-		)
-		return 1
+	paths := fs.Args()
+	if len(paths) == 0 {
+		paths = []string{"config.json"}
 	}
 
-	m, err := sc.Manager(logger)
+	var svcCfg service.Config
+	for _, path := range paths {
+		if err = jsoncfg.Load(path, &svcCfg); err != nil {
+			logger.Error("Failed to load config",
+				zap.String("path", path),
+				zap.Error(err),
+			)
+			return 1
+		}
+	}
+
+	m, err := svcCfg.Manager(logger)
 	if err != nil {
-		logger.Error("Failed to create service manager",
-			zap.String("confPath", confPath),
-			zap.Error(err),
-		)
+		logger.Error("Failed to create service manager", zap.Error(err))
 		return 1
 	}
 	defer m.Close()

@@ -13,8 +13,7 @@ import (
 
 const usageDomainSet = `Manage domain set files
 
-Usage of %s:
-  %s [command]
+Usage: %s [command]
 
 Commands:
   convert     Convert domain set files between different formats
@@ -23,7 +22,7 @@ Run '%s [command] -h' for more information on a command.
 `
 
 func printUsageDomainSet(name string) {
-	fmt.Fprintf(os.Stderr, usageDomainSet, name, name, name)
+	fmt.Fprintf(os.Stderr, usageDomainSet, name, name)
 }
 
 func runDomainSet(name string, args []string) int {
@@ -38,7 +37,7 @@ func runDomainSet(name string, args []string) int {
 		printUsageDomainSet(name)
 		return 0
 	default:
-		printUsageDomainSet(name)
+		fmt.Fprintf(os.Stderr, "Unknown command: %q\nRun '%s -h' for usage.\n", args[0], name)
 		return 2
 	}
 }

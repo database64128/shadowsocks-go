@@ -4,7 +4,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/shadowsocks-go -confPath /etc/shadowsocks-go/%i.json -zapConf systemd
+ExecStart=/usr/bin/shadowsocks-go -zapConf systemd /etc/shadowsocks-go/%i.json
 ExecReload=/usr/bin/kill -USR1 $MAINPID
 
 [Install]

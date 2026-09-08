@@ -12,8 +12,7 @@ import (
 
 const usage = `A versatile and efficient proxy platform for secure communications
 
-Usage of %s:
-  %s [command]
+Usage: %s [command]
 
 Commands:
   config      Manage configuration files
@@ -28,7 +27,7 @@ Run '%s [command] -h' for more information on a command.
 `
 
 func printUsage(name string) {
-	fmt.Fprintf(os.Stderr, usage, name, name, name)
+	fmt.Fprintf(os.Stderr, usage, name, name)
 }
 
 func main() {
@@ -62,7 +61,7 @@ func main() {
 		case "--help", "-help", "-h":
 			printUsage(name)
 		default:
-			printUsage(name)
+			fmt.Fprintf(os.Stderr, "Unknown command: %q\nRun '%s -h' for usage.\n", command, name)
 			exitCode = 2
 		}
 	}
