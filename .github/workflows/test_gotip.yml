@@ -32,13 +32,11 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           gotip build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go
-          gotip build -v -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go-domain-set-converter
 
       - name: Build with tag tfogo_checklinkname0
         if: matrix.os == 'windows-latest'
         run: |
           gotip build -v -trimpath -ldflags '-s -w -checklinkname=0' -tags tfogo_checklinkname0 ./cmd/shadowsocks-go
-          gotip build -v -trimpath -ldflags '-s -w -checklinkname=0' -tags tfogo_checklinkname0 ./cmd/shadowsocks-go-domain-set-converter
 
       - name: Test
         run: gotip test -v ./...

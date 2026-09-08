@@ -37,14 +37,12 @@ Build and install the latest version using Go:
 
 ```sh
 go install github.com/database64128/shadowsocks-go/cmd/shadowsocks-go@latest
-go install github.com/database64128/shadowsocks-go/cmd/shadowsocks-go-domain-set-converter@latest
 ```
 
 Or clone the repository and build it manually:
 
 ```sh
 go build -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go
-go build -trimpath -ldflags '-s -w' ./cmd/shadowsocks-go-domain-set-converter
 ```
 
 ## Configuration
@@ -279,9 +277,9 @@ When several clients share the same metric value, the selection order is the sam
 
 shadowsocks-go has its own domain set file format, because other formats I've seen are all horrible!
 
-And don't worry, we have a simple conversion tool to convert between different formats: [shadowsocks-go-domain-set-converter](cmd/shadowsocks-go-domain-set-converter/main.go)
+And don't worry, the CLI has the `domain-set` command for viewing domain set files and converting between formats.
 
-A domain set text file optionally starts with a capacity hint comment. The conversion tool can automatically generate a capacity hint for you. There are 4 types of domain matching rules:
+A domain set text file optionally starts with a capacity hint comment. The `domain-set convert` command can automatically generate a capacity hint for you. There are 4 types of domain matching rules:
 
 - `domain:` Match the domain.
 - `suffix:` Match the domain and its subdomains.
@@ -321,11 +319,11 @@ To generate domain sets using https://github.com/v2fly/domain-list-community as 
 ./domain-list-community -exportlists 'google,netflix'
 ```
 
-Use `shadowsocks-go-domain-set-converter` to convert the plaintext lists to domain set files:
+Use `shadowsocks-go domain-set convert` to convert the plaintext lists to domain set files:
 
 ```bash
-shadowsocks-go-domain-set-converter -inDlc google.txt -outGob ss-go-gob-google
-shadowsocks-go-domain-set-converter -inDlc netflix.txt -outGob ss-go-gob-netflix
+shadowsocks-go domain-set convert -inDlc google.txt -outGob ss-go-gob-google
+shadowsocks-go domain-set convert -inDlc netflix.txt -outGob ss-go-gob-netflix
 ```
 
 ### IP Geolocation Database

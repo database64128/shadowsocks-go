@@ -1,52 +1,77 @@
-// Domain set converter takes a domain set file in v2fly/dlc, plaintext or gob format,
-// and converts it to an optimized domain set file in plaintext or gob format.
-
 package main
 
 import (
 	"flag"
 	"fmt"
 	"os"
-	"runtime/debug"
 	"strings"
 
-	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/bytestrings"
 	"github.com/database64128/shadowsocks-go/domainset"
 	"github.com/database64128/shadowsocks-go/mmap"
 )
 
-var (
-	version    bool
-	skipRegexp bool
-	inDlc      string
-	inText     string
-	inGob      string
-	outText    string
-	outGob     string
-	tag        string
-)
+const usageDomainSet = `Manage domain set files
 
-func init() {
-	flag.BoolVar(&version, "version", false, "Print the version and exit")
-	flag.BoolVar(&skipRegexp, "skipRegexp", false, "Skip regular expression rules")
-	flag.StringVar(&inDlc, "inDlc", "", "Path to input domain set file in v2fly/dlc format")
-	flag.StringVar(&inText, "inText", "", "Path to input domain set file in plaintext format")
-	flag.StringVar(&inGob, "inGob", "", "Path to input domain set file in gob format")
-	flag.StringVar(&outText, "outText", "", "Path to output domain set file in plaintext format")
-	flag.StringVar(&outGob, "outGob", "", "Path to output domain set file in gob format")
-	flag.StringVar(&tag, "tag", "", "Select lines with the specified tag. If empty, select all lines. Only applicable to v2fly/dlc format.")
+Usage of %s:
+  %s [command]
+
+Commands:
+  convert     Convert domain set files between different formats
+
+Run '%s [command] -h' for more information on a command.
+`
+
+func printUsageDomainSet(name string) {
+	fmt.Fprintf(os.Stderr, usageDomainSet, name, name, name)
 }
 
-func main() {
-	flag.Parse()
+func runDomainSet(name string, args []string) int {
+	if len(args) == 0 {
+		printUsageDomainSet(name)
+		return 2
+	}
+	switch args[0] {
+	case "convert":
+		return runDomainSetConvert(name+" convert", args[1:])
+	case "--help", "-help", "-h":
+		printUsageDomainSet(name)
+		return 0
+	default:
+		printUsageDomainSet(name)
+		return 2
+	}
+}
 
-	if version {
-		os.Stdout.WriteString("shadowsocks-go-domain-set-converter " + shadowsocks.Version + "\n")
-		if info, ok := debug.ReadBuildInfo(); ok {
-			os.Stdout.WriteString(info.String())
-		}
-		return
+func runDomainSetConvert(name string, args []string) int {
+	var (
+		fs         flag.FlagSet
+		inDlc      string
+		inText     string
+		inGob      string
+		outText    string
+		outGob     string
+		tag        string
+		skipRegexp bool
+	)
+
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), "Convert domain set files between different formats\n\nUsage of %s:\n", name)
+		fs.PrintDefaults()
+	}
+	fs.Init(name, flag.ExitOnError)
+	fs.StringVar(&inDlc, "inDlc", "", "`path` to input domain set file in v2fly/domain-list-community format")
+	fs.StringVar(&inText, "inText", "", "`path` to input domain set file in plaintext format")
+	fs.StringVar(&inGob, "inGob", "", "`path` to input domain set file in gob format")
+	fs.StringVar(&outText, "outText", "", "`path` to output domain set file in plaintext format")
+	fs.StringVar(&outGob, "outGob", "", "`path` to output domain set file in gob format")
+	fs.StringVar(&tag, "tag", "", "with -inDlc, select rules with the specified `attribute` (without the leading '@') rather than all rules")
+	fs.BoolVar(&skipRegexp, "skipRegexp", false, "skip regular expression rules")
+	fs.Parse(args)
+
+	if fs.NArg() > 0 {
+		fmt.Fprintf(fs.Output(), "Unexpected arguments: %v\nRun '%s -h' for usage.\n", fs.Args(), name)
+		return 2
 	}
 
 	var (
@@ -58,7 +83,9 @@ func main() {
 	if inDlc != "" {
 		inCount++
 		inPath = inDlc
-		inFunc = DomainSetBuilderFromDlc
+		inFunc = func(text string) (domainset.Builder, error) {
+			return domainSetBuilderFromDlc(text, tag)
+		}
 	}
 
 	if inText != "" {
@@ -74,28 +101,26 @@ func main() {
 	}
 
 	if inCount != 1 {
-		fmt.Fprintln(os.Stderr, "Exactly one of -inDlc, -inText, -inGob must be specified.")
-		flag.Usage()
-		os.Exit(1)
+		fmt.Fprintf(fs.Output(), "Exactly one of -inDlc, -inText, -inGob must be specified.\nRun '%s -h' for usage.\n", name)
+		return 2
 	}
 
 	if outText == "" && outGob == "" {
-		fmt.Fprintln(os.Stderr, "Specify output file paths with -outText and/or -outGob.")
-		flag.Usage()
-		os.Exit(1)
+		fmt.Fprintf(fs.Output(), "Specify output file paths with -outText and/or -outGob.\nRun '%s -h' for usage.\n", name)
+		return 2
 	}
 
 	data, close, err := mmap.ReadFile[string](inPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Failed to read input file:", err)
-		os.Exit(1)
+		return 1
 	}
 	defer close()
 
 	dsb, err := inFunc(data)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Failed to parse input file:", err)
-		return
+		return 1
 	}
 
 	if skipRegexp {
@@ -106,14 +131,14 @@ func main() {
 		fout, err := os.Create(outText)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Failed to create output file:", err)
-			return
+			return 1
 		}
 		defer fout.Close()
 
 		err = dsb.WriteText(fout)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Failed to write output file:", err)
-			return
+			return 1
 		}
 	}
 
@@ -121,19 +146,21 @@ func main() {
 		fout, err := os.Create(outGob)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Failed to create output file:", err)
-			return
+			return 1
 		}
 		defer fout.Close()
 
 		err = dsb.WriteGob(fout)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Failed to write output file:", err)
-			return
+			return 1
 		}
 	}
+
+	return 0
 }
 
-func DomainSetBuilderFromDlc(text string) (domainset.Builder, error) {
+func domainSetBuilderFromDlc(text, tag string) (domainset.Builder, error) {
 	const (
 		domainPrefix     = "full:"
 		suffixPrefix     = "domain:"
