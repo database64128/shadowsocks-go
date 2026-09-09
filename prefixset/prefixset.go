@@ -67,6 +67,7 @@ import (
 	"io"
 	"net/netip"
 	"strings"
+	"unsafe"
 
 	"github.com/database64128/shadowsocks-go/bytestrings"
 	"github.com/database64128/shadowsocks-go/mmap"
@@ -98,24 +99,23 @@ func (psc Config) LoadPrefixSet() (*bart.Lite, error) {
 	}
 	defer close()
 
+	var s bart.Lite
 	switch psc.Type {
 	case "text", "":
-		return PrefixSetFromText(data)
+		err = UnmarshalText(data, &s)
 	case "binary":
-		var s bart.Lite
-		if err := UnmarshalReadBinary(strings.NewReader(data), &s); err != nil {
-			return nil, err
-		}
-		return &s, nil
+		err = UnmarshalReadBinary(strings.NewReader(data), &s)
 	default:
 		return nil, fmt.Errorf("unknown prefix set type: %q", psc.Type)
 	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
 
-// PrefixSetFromText parses prefixes from the text and builds a prefix set.
-func PrefixSetFromText(text string) (*bart.Lite, error) {
-	var s bart.Lite
-
+// UnmarshalText parses prefixes from the text and builds a prefix set.
+func UnmarshalText(text string, s *bart.Lite) error {
 	for line := range bytestrings.NonEmptyLines(text) {
 		if line[0] == '#' {
 			continue
@@ -132,22 +132,29 @@ func PrefixSetFromText(text string) (*bart.Lite, error) {
 			// And because the error type is unexported, we can't change the string
 			// embedded in the returned error. What we can do here, is to get the
 			// error string and wrap it in a new error.
-			return nil, errors.New(err.Error())
+			return errors.New(err.Error())
 		}
 
+		// As of Go 1.27, the nilcheck at this call site cannot be eliminated,
+		// unless we get rid of the iterator.
 		s.Insert(prefix)
 	}
 
-	return &s, nil
+	return nil
 }
 
-// PrefixSetToText returns the text representation of the prefix set.
-func PrefixSetToText(s *bart.Lite) []byte {
+// MarshalText returns the text representation of the prefix set.
+func MarshalText(s *bart.Lite) []byte {
 	const (
 		prefix4LineLen = len("255.255.255.255/32\n")
 		prefix6LineLen = len("ffff:ffff:ffff:ffff::/64\n")
 	)
 	b := make([]byte, 0, prefix4LineLen*s.Size4()+prefix6LineLen*s.Size6())
+	return AppendText(b, s)
+}
+
+// AppendText appends the prefix set serialized in text format to b and returns the updated slice.
+func AppendText(b []byte, s *bart.Lite) []byte {
 	for prefix := range s.All() {
 		b = prefix.AppendTo(b)
 		b = append(b, '\n')
@@ -155,11 +162,26 @@ func PrefixSetToText(s *bart.Lite) []byte {
 	return b
 }
 
-// PrefixSetWriteText writes the prefix set to the given writer in text format.
-func PrefixSetWriteText(s *bart.Lite, w io.Writer) error {
+// MarshalWriteText serializes the prefix set to w in text format.
+func MarshalWriteText(w io.Writer, s *bart.Lite) (err error) {
+	bw, ok := w.(interface {
+		io.Writer
+		io.ByteWriter
+		Available() int
+		AvailableBuffer() []byte
+	})
+	if !ok {
+		b := bufio.NewWriterSize(w, 128*1024)
+		defer func() {
+			if flushErr := b.Flush(); flushErr != nil && err == nil {
+				err = flushErr
+			}
+		}()
+		bw = b
+	}
+
 	const maxLineLen = len("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128\n")
 	b := make([]byte, 0, maxLineLen)
-	bw := bufio.NewWriterSize(w, 128*1024)
 
 	for prefix := range s.All() {
 		// When the buffered writer is nearly full, use a small temporary buffer
@@ -178,7 +200,56 @@ func PrefixSetWriteText(s *bart.Lite, w io.Writer) error {
 		}
 	}
 
-	return bw.Flush()
+	return nil
+}
+
+// UnmarshalReadText deserializes a prefix set from r in text format.
+//
+// This function takes a [*bufio.Reader] because it's easy to make it do page-aligned reads,
+// unlike [*bufio.Scanner], with which subsequent reads tend to be unaligned.
+func UnmarshalReadText(br *bufio.Reader, s *bart.Lite) error {
+	if s == nil {
+		panic("prefixset.UnmarshalReadText: prefix set is nil")
+	}
+
+	const maxLineLen = len("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128")
+	var b []byte
+
+	for lineNum := 1; ; {
+		line, isPrefix, err := br.ReadLine()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("failed to read line: %w", err)
+		}
+		if len(b)+len(line) > maxLineLen {
+			return fmt.Errorf("line %d: line too long", lineNum)
+		}
+		if len(b) > 0 || isPrefix {
+			b = append(b, line...)
+		}
+		if isPrefix {
+			continue
+		}
+		if len(b) > 0 {
+			line = b
+			b = b[:0]
+		}
+		lineNum++
+
+		if len(line) == 0 || line[0] == '#' {
+			continue
+		}
+
+		prefix, err := netip.ParsePrefix(unsafe.String(unsafe.SliceData(line), len(line)))
+		if err != nil {
+			return fmt.Errorf("invalid line %d: %q", lineNum, line)
+		}
+		s.Insert(prefix)
+	}
+
+	return nil
 }
 
 const (
@@ -188,13 +259,19 @@ const (
 )
 
 // MarshalWriteBinary serializes the prefix set to w in binary format.
-func MarshalWriteBinary(w io.Writer, s *bart.Lite) error {
+func MarshalWriteBinary(w io.Writer, s *bart.Lite) (err error) {
 	bw, ok := w.(interface {
 		io.Writer
 		io.ByteWriter
 	})
 	if !ok {
-		bw = bufio.NewWriterSize(w, 128*1024)
+		b := bufio.NewWriterSize(w, 128*1024)
+		defer func() {
+			if flushErr := b.Flush(); flushErr != nil && err == nil {
+				err = flushErr
+			}
+		}()
+		bw = b
 	}
 
 	b := make([]byte, 24)
@@ -234,6 +311,10 @@ func MarshalWriteBinary(w io.Writer, s *bart.Lite) error {
 
 // UnmarshalReadBinary deserializes a prefix set from r in binary format.
 func UnmarshalReadBinary(r io.Reader, s *bart.Lite) error {
+	if s == nil {
+		panic("prefixset.UnmarshalReadBinary: prefix set is nil")
+	}
+
 	br, ok := r.(interface {
 		io.Reader
 		io.ByteReader
@@ -244,7 +325,7 @@ func UnmarshalReadBinary(r io.Reader, s *bart.Lite) error {
 
 	b := make([]byte, 24)
 	if _, err := io.ReadFull(br, b); err != nil {
-		return fmt.Errorf("failed to read header: %w", err)
+		return fmt.Errorf("failed to read header: %w", toUnexpectedEOF(err))
 	}
 	if magic := binary.BigEndian.Uint64(b); magic != binaryBigEndianMagic {
 		return fmt.Errorf("invalid magic number: %#x", magic)
@@ -267,7 +348,7 @@ func UnmarshalReadBinary(r io.Reader, s *bart.Lite) error {
 		if bits <= 128 {
 			addrLen := (bits + 7) / 8
 			if _, err := io.ReadFull(br, b[:addrLen]); err != nil {
-				return fmt.Errorf("failed to read IPv6 address bytes: %w", err)
+				return fmt.Errorf("failed to read IPv6 address bytes: %w", toUnexpectedEOF(err))
 			}
 			ip = netip.AddrFrom16([16]byte(b))
 		} else {
@@ -280,7 +361,7 @@ func UnmarshalReadBinary(r io.Reader, s *bart.Lite) error {
 				return fmt.Errorf("invalid prefix length: %d", bits)
 			}
 			if _, err := io.ReadFull(br, b[:addrLen]); err != nil {
-				return fmt.Errorf("failed to read IPv4 address bytes: %w", err)
+				return fmt.Errorf("failed to read IPv4 address bytes: %w", toUnexpectedEOF(err))
 			}
 			ip = netip.AddrFrom4([4]byte(b))
 		}
@@ -297,4 +378,12 @@ func UnmarshalReadBinary(r io.Reader, s *bart.Lite) error {
 	}
 
 	return nil
+}
+
+// toUnexpectedEOF converts [io.EOF] to [io.ErrUnexpectedEOF].
+func toUnexpectedEOF(err error) error {
+	if err == io.EOF {
+		return io.ErrUnexpectedEOF
+	}
+	return err
 }

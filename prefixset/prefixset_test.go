@@ -1,13 +1,19 @@
-package prefixset
+package prefixset_test
 
 import (
+	"bufio"
 	"bytes"
+	"errors"
+	"fmt"
+	"io"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/database64128/shadowsocks-go/prefixset"
 	"github.com/gaissmai/bart"
 )
 
@@ -91,27 +97,77 @@ var testPrefixSetContainsCases = [...]struct {
 	{netip.IPv6Unspecified(), true},
 }
 
-func TestPrefixSetText(t *testing.T) {
-	s, err := PrefixSetFromText(testPrefixSetText)
-	if err != nil {
-		t.Fatalf("PrefixSetFromText(testPrefixSetText) failed: %v", err)
-	}
-	if !s.Equal(&testPrefixSet) {
-		t.Errorf("s.Equals(&testPrefixSet) = false, want true")
-	}
-
+func TestPrefixSet(t *testing.T) {
 	for _, cc := range testPrefixSetContainsCases {
-		if got := s.Contains(cc.addr); got != cc.want {
-			t.Errorf("s.Contains(%q) = %v, want %v", cc.addr, got, cc.want)
+		if got := testPrefixSet.Contains(cc.addr); got != cc.want {
+			t.Errorf("testPrefixSet.Contains(%q) = %v, want %v", cc.addr, got, cc.want)
 		}
 	}
 
-	got := make([]netip.Prefix, 0, s.Size())
-	for prefix := range s.AllSorted() {
+	got := make([]netip.Prefix, 0, testPrefixSet.Size())
+	for prefix := range testPrefixSet.AllSorted() {
 		got = append(got, prefix)
 	}
 	if !slices.Equal(got, sortedTestPrefixes[:]) {
-		t.Errorf("s.AllSorted() = %v, want %v", got, sortedTestPrefixes[:])
+		t.Errorf("testPrefixSet.AllSorted() = %v, want %v", got, sortedTestPrefixes[:])
+	}
+}
+
+func TestPrefixSetMarshalText(t *testing.T) {
+	text := prefixset.MarshalText(&testPrefixSet)
+	var s bart.Lite
+	if err := prefixset.UnmarshalText(string(text), &s); err != nil {
+		t.Fatalf("UnmarshalText(text, &s) failed: %v", err)
+	}
+	if !s.Equal(&testPrefixSet) {
+		t.Errorf("s.Equal(&testPrefixSet) = false, want true")
+	}
+}
+
+func TestPrefixSetUnmarshalText(t *testing.T) {
+	var s bart.Lite
+	if err := prefixset.UnmarshalText(testPrefixSetText, &s); err != nil {
+		t.Fatalf("UnmarshalText(testPrefixSetText, &s) failed: %v", err)
+	}
+	if !s.Equal(&testPrefixSet) {
+		t.Errorf("s.Equal(&testPrefixSet) = false, want true")
+	}
+}
+
+func TestPrefixSetMarshalWriteText(t *testing.T) {
+	for _, c := range [...]struct {
+		name string
+		buf  interface {
+			io.Writer
+			fmt.Stringer
+		}
+	}{
+		{"bytes.Buffer", &bytes.Buffer{}}, // has Available{,Buffer} methods
+		{"strings.Builder", &strings.Builder{}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if err := prefixset.MarshalWriteText(c.buf, &testPrefixSet); err != nil {
+				t.Fatalf("MarshalWriteText(c.buf, &testPrefixSet) failed: %v", err)
+			}
+			var s bart.Lite
+			if err := prefixset.UnmarshalText(c.buf.String(), &s); err != nil {
+				t.Fatalf("UnmarshalText(c.buf.String(), &s) failed: %v", err)
+			}
+			if !s.Equal(&testPrefixSet) {
+				t.Errorf("s.Equal(&testPrefixSet) = false, want true")
+			}
+		})
+	}
+}
+
+func TestPrefixSetUnmarshalReadText(t *testing.T) {
+	var s bart.Lite
+	br := bufio.NewReader(strings.NewReader(testPrefixSetText))
+	if err := prefixset.UnmarshalReadText(br, &s); err != nil {
+		t.Fatalf("UnmarshalReadText(br, &s) failed: %v", err)
+	}
+	if !s.Equal(&testPrefixSet) {
+		t.Errorf("s.Equal(&testPrefixSet) = false, want true")
 	}
 }
 
@@ -122,7 +178,7 @@ func TestPrefixSetBinary(t *testing.T) {
 	}
 
 	bw := bytes.NewBuffer(make([]byte, 0, length))
-	if err := MarshalWriteBinary(bw, &testPrefixSet); err != nil {
+	if err := prefixset.MarshalWriteBinary(bw, &testPrefixSet); err != nil {
 		t.Fatalf("MarshalWriteBinary(bw, &testPrefixSet) failed: %v", err)
 	}
 	if got := bw.Len(); got != length {
@@ -132,11 +188,158 @@ func TestPrefixSetBinary(t *testing.T) {
 	t.Logf("bw.Bytes() = %#v", bw.Bytes())
 
 	var s bart.Lite
-	if err := UnmarshalReadBinary(bw, &s); err != nil {
+	if err := prefixset.UnmarshalReadBinary(bw, &s); err != nil {
 		t.Fatalf("UnmarshalReadBinary(bw, &s) failed: %v", err)
 	}
 	if !s.Equal(&testPrefixSet) {
-		t.Errorf("s.Equals(&testPrefixSet) = false, want true")
+		t.Errorf("s.Equal(&testPrefixSet) = false, want true")
+	}
+}
+
+func TestPrefixSetMarshalWriteBinaryNonByteWriter(t *testing.T) {
+	type readWriter struct {
+		io.ReadWriter
+	}
+	rw := readWriter{&bytes.Buffer{}}
+	if err := prefixset.MarshalWriteBinary(rw, &testPrefixSet); err != nil {
+		t.Fatalf("MarshalWriteBinary(rw, &testPrefixSet) failed: %v", err)
+	}
+
+	var s bart.Lite
+	if err := prefixset.UnmarshalReadBinary(rw, &s); err != nil {
+		t.Fatalf("UnmarshalReadBinary(rw, &s) failed: %v", err)
+	}
+	if !s.Equal(&testPrefixSet) {
+		t.Errorf("s.Equal(&testPrefixSet) = false, want true")
+	}
+}
+
+func TestPrefixSetUnmarshalReadBinaryError(t *testing.T) {
+	var buf bytes.Buffer
+	if err := prefixset.MarshalWriteBinary(&buf, &testPrefixSet); err != nil {
+		t.Fatalf("MarshalWriteBinary(&buf, &testPrefixSet) failed: %v", err)
+	}
+
+	truncateModifyBuf := func(n int) func([]byte) []byte {
+		return func(b []byte) []byte {
+			if len(b) > n {
+				return b[:n]
+			}
+			return b
+		}
+	}
+
+	firstPrefixLenModifyBuf := func(bits byte) func([]byte) []byte {
+		return func(b []byte) []byte {
+			if len(b) >= 25 {
+				b[24] = bits
+			}
+			return b
+		}
+	}
+
+	expectErrUnexpectedEOF := func(t *testing.T, err error) {
+		if !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Errorf("err = %v, want io.ErrUnexpectedEOF", err)
+		}
+	}
+
+	expectNonNilErr := func(t *testing.T, err error) {
+		if err == nil {
+			t.Errorf("err = nil, want non-nil error")
+		}
+	}
+
+	for _, c := range [...]struct {
+		name      string
+		modifyBuf func([]byte) []byte
+		checkErr  func(*testing.T, error)
+	}{
+		{
+			name:      "MagicNumberTruncated",
+			modifyBuf: truncateModifyBuf(4),
+			checkErr:  expectErrUnexpectedEOF,
+		},
+		{
+			name:      "IPv4CountTruncated",
+			modifyBuf: truncateModifyBuf(12),
+			checkErr:  expectErrUnexpectedEOF,
+		},
+		{
+			name:      "IPv6CountTruncated",
+			modifyBuf: truncateModifyBuf(20),
+			checkErr:  expectErrUnexpectedEOF,
+		},
+		{
+			name:      "AddressBytesTruncated",
+			modifyBuf: truncateModifyBuf(buf.Len() - 1),
+			checkErr:  expectErrUnexpectedEOF,
+		},
+		{
+			name: "InvalidMagicNumber",
+			modifyBuf: func(b []byte) []byte {
+				if len(b) >= 8 {
+					b[0] = 0x13
+					b[1] = 0x37
+					b[2] = 0x42
+					b[3] = 0x69
+					b[4] = 0xde
+					b[5] = 0xad
+					b[6] = 0xbe
+					b[7] = 0xef
+				}
+				return b
+			},
+			checkErr: expectNonNilErr,
+		},
+		{
+			name: "InvalidIPv4Count",
+			modifyBuf: func(b []byte) []byte {
+				if len(b) >= 16 {
+					b[15]++
+				}
+				return b
+			},
+			checkErr: expectNonNilErr,
+		},
+		{
+			name: "InvalidIPv6Count",
+			modifyBuf: func(b []byte) []byte {
+				if len(b) >= 24 {
+					b[23]++
+				}
+				return b
+			},
+			checkErr: expectNonNilErr,
+		},
+		{
+			name:      "InvalidPrefixLength/129",
+			modifyBuf: firstPrefixLenModifyBuf(129),
+			checkErr:  expectNonNilErr,
+		},
+		{
+			name:      "InvalidPrefixLength/191",
+			modifyBuf: firstPrefixLenModifyBuf(191),
+			checkErr:  expectNonNilErr,
+		},
+		{
+			name:      "InvalidPrefixLength/225",
+			modifyBuf: firstPrefixLenModifyBuf(225),
+			checkErr:  expectNonNilErr,
+		},
+		{
+			name:      "InvalidPrefixLength/255",
+			modifyBuf: firstPrefixLenModifyBuf(255),
+			checkErr:  expectNonNilErr,
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			b := slices.Clone(buf.Bytes())
+			b = c.modifyBuf(b)
+			var s bart.Lite
+			err := prefixset.UnmarshalReadBinary(bytes.NewReader(b), &s)
+			c.checkErr(t, err)
+		})
 	}
 }
 
@@ -146,7 +349,7 @@ func TestConfigLoadPrefixSetError(t *testing.T) {
 		t.Fatalf("os.WriteFile(%q) failed: %v", path, err)
 	}
 
-	cfg := Config{
+	cfg := prefixset.Config{
 		Name: "broken",
 		Path: path,
 	}
