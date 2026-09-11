@@ -1,7 +1,6 @@
 package prefixset_test
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
 	"flag"
@@ -164,9 +163,9 @@ func TestPrefixSetMarshalWriteText(t *testing.T) {
 
 func TestPrefixSetUnmarshalReadText(t *testing.T) {
 	var s bart.Lite
-	br := bufio.NewReader(strings.NewReader(testPrefixSetText))
-	if err := prefixset.UnmarshalReadText(br, &s); err != nil {
-		t.Fatalf("UnmarshalReadText(br, &s) failed: %v", err)
+	r := strings.NewReader(testPrefixSetText)
+	if err := prefixset.UnmarshalReadText(r, &s); err != nil {
+		t.Fatalf("UnmarshalReadText(r, &s) failed: %v", err)
 	}
 	if !s.Equal(testPrefixSet) {
 		t.Errorf("s.Equal(testPrefixSet) = false, want true")
@@ -399,8 +398,7 @@ func unmarshalReadInText(t testing.TB, s *bart.Lite) {
 	}
 	defer f.Close()
 
-	br := bufio.NewReaderSize(f, 128*1024)
-	if err := prefixset.UnmarshalReadText(br, s); err != nil {
+	if err := prefixset.UnmarshalReadText(f, s); err != nil {
 		t.Fatalf("prefixset.UnmarshalReadText(%q) failed: %v", inText, err)
 	}
 }

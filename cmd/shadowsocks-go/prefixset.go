@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -138,10 +137,7 @@ func runPrefixSetConvert(name string, args []string) int {
 	}
 	fs.Init(name, flag.ExitOnError)
 	fs.Func("inText", "`path` to input prefix set file in text format", func(s string) error {
-		return setJobInput(s, func(r io.Reader, s *bart.Lite) error {
-			br := bufio.NewReaderSize(r, 128*1024)
-			return prefixset.UnmarshalReadText(br, s)
-		})
+		return setJobInput(s, prefixset.UnmarshalReadText)
 	})
 	fs.Func("inBinary", "`path` to input prefix set file in binary format", func(s string) error {
 		return setJobInput(s, prefixset.UnmarshalReadBinary)

@@ -61,10 +61,12 @@ package prefixset
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/netip"
 	"strings"
 	"unsafe"
@@ -204,52 +206,115 @@ func MarshalWriteText(w io.Writer, s *bart.Lite) (err error) {
 }
 
 // UnmarshalReadText deserializes a prefix set from r in text format.
-//
-// This function takes a [*bufio.Reader] because it's easy to make it do page-aligned reads,
-// unlike [*bufio.Scanner], with which subsequent reads tend to be unaligned.
-func UnmarshalReadText(br *bufio.Reader, s *bart.Lite) error {
+func UnmarshalReadText(r io.Reader, s *bart.Lite) error {
 	if s == nil {
 		panic("prefixset.UnmarshalReadText: prefix set is nil")
 	}
 
 	const maxLineLen = len("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128")
 	var b []byte
+	br := newLineReader(r)
 
-	for lineNum := 1; ; {
-		line, isPrefix, err := br.ReadLine()
-		if err != nil {
-			if err == io.EOF {
-				break
+	for lineNum := 1; ; lineNum++ {
+		dst, line, err := br.ReadLine(b)
+		if len(line) > 0 && line[0] != '#' {
+			if len(line) > maxLineLen {
+				return fmt.Errorf("line %d: line too long", lineNum)
 			}
-			return fmt.Errorf("failed to read line: %w", err)
-		}
-		if len(b)+len(line) > maxLineLen {
-			return fmt.Errorf("line %d: line too long", lineNum)
-		}
-		if len(b) > 0 || isPrefix {
-			b = append(b, line...)
-		}
-		if isPrefix {
-			continue
-		}
-		if len(b) > 0 {
-			line = b
-			b = b[:0]
-		}
-		lineNum++
 
-		if len(line) == 0 || line[0] == '#' {
-			continue
+			prefix, err := netip.ParsePrefix(unsafe.String(unsafe.SliceData(line), len(line)))
+			if err != nil {
+				return fmt.Errorf("line %d: invalid prefix %q", lineNum, line)
+			}
+			s.Insert(prefix)
 		}
-
-		prefix, err := netip.ParsePrefix(unsafe.String(unsafe.SliceData(line), len(line)))
 		if err != nil {
-			return fmt.Errorf("invalid line %d: %q", lineNum, line)
+			switch err {
+			case io.EOF:
+				return nil
+			case io.ErrShortBuffer:
+				return fmt.Errorf("line %d: line too long", lineNum)
+			default:
+				return fmt.Errorf("line %d: %w", lineNum, err)
+			}
 		}
-		s.Insert(prefix)
+		b = dst[:0]
 	}
+}
 
-	return nil
+// lineReader provides efficient read access to newline-delimited text.
+//
+// Unlike [bufio.Reader.ReadLine] and [bufio.Scanner], lineReader guarantees
+// that all reads from the underlying reader are page-aligned.
+type lineReader struct {
+	buf   []byte
+	r, w  int
+	err   error
+	inner io.Reader
+}
+
+func newLineReader(r io.Reader) *lineReader {
+	return &lineReader{
+		buf:   make([]byte, readBufferSize(r)),
+		inner: r,
+	}
+}
+
+// ReadLine returns the updated dst buffer, the next line with the trailing
+// '\n' or '\r\n' bytes removed, and any error encountered.
+//
+// The returned line references either dst or the internal buffer.
+//
+// Callers must first process the returned line before checking the error.
+func (lr *lineReader) ReadLine(dst []byte) ([]byte, []byte, error) {
+	for searchStart := 0; ; {
+		b := lr.buf[lr.r:lr.w]
+
+		if len(b) > searchStart {
+			if i := bytes.IndexByte(b[searchStart:], '\n'); i >= 0 {
+				i += searchStart
+				line := b[:i] // without '\n'
+				lr.r += i + 1
+				return lr.concatLine(dst, line)
+			}
+		}
+
+		if lr.err != nil {
+			lr.r = lr.w
+			return lr.concatLine(dst, b)
+		}
+
+		switch lr.w {
+		case lr.r:
+			if lr.r != 0 {
+				lr.r, lr.w = 0, 0
+			}
+		case len(lr.buf):
+			if lr.r != 0 {
+				dst = append(dst, b...)
+				lr.r, lr.w = 0, 0
+			} else {
+				// Line is longer than buf.
+				return dst, nil, io.ErrShortBuffer
+			}
+		}
+
+		searchStart = lr.w - lr.r
+		n, err := lr.inner.Read(lr.buf[lr.w:])
+		lr.w += n
+		lr.err = err
+	}
+}
+
+func (lr *lineReader) concatLine(dst, line []byte) ([]byte, []byte, error) {
+	if len(dst) > 0 {
+		dst = append(dst, line...)
+		line = dst
+	}
+	if len(line) > 0 && line[len(line)-1] == '\r' {
+		line = line[:len(line)-1]
+	}
+	return dst, line, lr.err
 }
 
 const (
@@ -320,7 +385,7 @@ func UnmarshalReadBinary(r io.Reader, s *bart.Lite) error {
 		io.ByteReader
 	})
 	if !ok {
-		br = bufio.NewReaderSize(r, 128*1024)
+		br = bufio.NewReaderSize(r, readBufferSize(r))
 	}
 
 	b := make([]byte, 24)
@@ -378,6 +443,16 @@ func UnmarshalReadBinary(r io.Reader, s *bart.Lite) error {
 	}
 
 	return nil
+}
+
+func readBufferSize(r io.Reader) int {
+	const defaultReadBufferSize = 128 * 1024
+	if f, ok := r.(fs.File); ok {
+		if fi, err := f.Stat(); err == nil {
+			return int(min(fi.Size(), defaultReadBufferSize))
+		}
+	}
+	return defaultReadBufferSize
 }
 
 // toUnexpectedEOF converts [io.EOF] to [io.ErrUnexpectedEOF].
