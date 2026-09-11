@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/netip"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/database64128/shadowsocks-go/mmap"
 	"github.com/database64128/shadowsocks-go/prefixset"
 	"github.com/gaissmai/bart"
 )
@@ -39,13 +41,13 @@ fe80::/10
 ff00::/8
 `
 
-var testPrefixSet bart.Lite
-
-func init() {
+var testPrefixSet = func() *bart.Lite {
+	var s bart.Lite
 	for _, prefix := range sortedTestPrefixes {
-		testPrefixSet.Insert(prefix)
+		s.Insert(prefix)
 	}
-}
+	return &s
+}()
 
 var sortedTestPrefixes = [...]netip.Prefix{
 	netip.PrefixFrom(netip.IPv4Unspecified(), 8),
@@ -114,13 +116,13 @@ func TestPrefixSet(t *testing.T) {
 }
 
 func TestPrefixSetMarshalText(t *testing.T) {
-	text := prefixset.MarshalText(&testPrefixSet)
+	text := prefixset.MarshalText(testPrefixSet)
 	var s bart.Lite
 	if err := prefixset.UnmarshalText(string(text), &s); err != nil {
 		t.Fatalf("UnmarshalText(text, &s) failed: %v", err)
 	}
-	if !s.Equal(&testPrefixSet) {
-		t.Errorf("s.Equal(&testPrefixSet) = false, want true")
+	if !s.Equal(testPrefixSet) {
+		t.Errorf("s.Equal(testPrefixSet) = false, want true")
 	}
 }
 
@@ -129,8 +131,8 @@ func TestPrefixSetUnmarshalText(t *testing.T) {
 	if err := prefixset.UnmarshalText(testPrefixSetText, &s); err != nil {
 		t.Fatalf("UnmarshalText(testPrefixSetText, &s) failed: %v", err)
 	}
-	if !s.Equal(&testPrefixSet) {
-		t.Errorf("s.Equal(&testPrefixSet) = false, want true")
+	if !s.Equal(testPrefixSet) {
+		t.Errorf("s.Equal(testPrefixSet) = false, want true")
 	}
 }
 
@@ -146,15 +148,15 @@ func TestPrefixSetMarshalWriteText(t *testing.T) {
 		{"strings.Builder", &strings.Builder{}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if err := prefixset.MarshalWriteText(c.buf, &testPrefixSet); err != nil {
-				t.Fatalf("MarshalWriteText(c.buf, &testPrefixSet) failed: %v", err)
+			if err := prefixset.MarshalWriteText(c.buf, testPrefixSet); err != nil {
+				t.Fatalf("MarshalWriteText(c.buf, testPrefixSet) failed: %v", err)
 			}
 			var s bart.Lite
 			if err := prefixset.UnmarshalText(c.buf.String(), &s); err != nil {
 				t.Fatalf("UnmarshalText(c.buf.String(), &s) failed: %v", err)
 			}
-			if !s.Equal(&testPrefixSet) {
-				t.Errorf("s.Equal(&testPrefixSet) = false, want true")
+			if !s.Equal(testPrefixSet) {
+				t.Errorf("s.Equal(testPrefixSet) = false, want true")
 			}
 		})
 	}
@@ -166,8 +168,8 @@ func TestPrefixSetUnmarshalReadText(t *testing.T) {
 	if err := prefixset.UnmarshalReadText(br, &s); err != nil {
 		t.Fatalf("UnmarshalReadText(br, &s) failed: %v", err)
 	}
-	if !s.Equal(&testPrefixSet) {
-		t.Errorf("s.Equal(&testPrefixSet) = false, want true")
+	if !s.Equal(testPrefixSet) {
+		t.Errorf("s.Equal(testPrefixSet) = false, want true")
 	}
 }
 
@@ -178,8 +180,8 @@ func TestPrefixSetBinary(t *testing.T) {
 	}
 
 	bw := bytes.NewBuffer(make([]byte, 0, length))
-	if err := prefixset.MarshalWriteBinary(bw, &testPrefixSet); err != nil {
-		t.Fatalf("MarshalWriteBinary(bw, &testPrefixSet) failed: %v", err)
+	if err := prefixset.MarshalWriteBinary(bw, testPrefixSet); err != nil {
+		t.Fatalf("MarshalWriteBinary(bw, testPrefixSet) failed: %v", err)
 	}
 	if got := bw.Len(); got != length {
 		t.Errorf("bw.Len() = %d, want %d", got, length)
@@ -191,8 +193,8 @@ func TestPrefixSetBinary(t *testing.T) {
 	if err := prefixset.UnmarshalReadBinary(bw, &s); err != nil {
 		t.Fatalf("UnmarshalReadBinary(bw, &s) failed: %v", err)
 	}
-	if !s.Equal(&testPrefixSet) {
-		t.Errorf("s.Equal(&testPrefixSet) = false, want true")
+	if !s.Equal(testPrefixSet) {
+		t.Errorf("s.Equal(testPrefixSet) = false, want true")
 	}
 }
 
@@ -201,23 +203,23 @@ func TestPrefixSetMarshalWriteBinaryNonByteWriter(t *testing.T) {
 		io.ReadWriter
 	}
 	rw := readWriter{&bytes.Buffer{}}
-	if err := prefixset.MarshalWriteBinary(rw, &testPrefixSet); err != nil {
-		t.Fatalf("MarshalWriteBinary(rw, &testPrefixSet) failed: %v", err)
+	if err := prefixset.MarshalWriteBinary(rw, testPrefixSet); err != nil {
+		t.Fatalf("MarshalWriteBinary(rw, testPrefixSet) failed: %v", err)
 	}
 
 	var s bart.Lite
 	if err := prefixset.UnmarshalReadBinary(rw, &s); err != nil {
 		t.Fatalf("UnmarshalReadBinary(rw, &s) failed: %v", err)
 	}
-	if !s.Equal(&testPrefixSet) {
-		t.Errorf("s.Equal(&testPrefixSet) = false, want true")
+	if !s.Equal(testPrefixSet) {
+		t.Errorf("s.Equal(testPrefixSet) = false, want true")
 	}
 }
 
 func TestPrefixSetUnmarshalReadBinaryError(t *testing.T) {
 	var buf bytes.Buffer
-	if err := prefixset.MarshalWriteBinary(&buf, &testPrefixSet); err != nil {
-		t.Fatalf("MarshalWriteBinary(&buf, &testPrefixSet) failed: %v", err)
+	if err := prefixset.MarshalWriteBinary(&buf, testPrefixSet); err != nil {
+		t.Fatalf("MarshalWriteBinary(&buf, testPrefixSet) failed: %v", err)
 	}
 
 	truncateModifyBuf := func(n int) func([]byte) []byte {
@@ -360,4 +362,132 @@ func TestConfigLoadPrefixSetError(t *testing.T) {
 
 	// Dereference the error string to make sure it does not cause a panic.
 	t.Logf("cfg.LoadPrefixSet() returned error: %v", err)
+}
+
+var (
+	inText   string
+	inBinary string
+)
+
+func init() {
+	flag.StringVar(&inText, "inText", "", "`path` to input prefix set file in text format")
+	flag.StringVar(&inBinary, "inBinary", "", "`path` to input prefix set file in binary format")
+}
+
+func TestPrefixSetUnmarshalReadInputFiles(t *testing.T) {
+	if inText == "" || inBinary == "" {
+		t.Skip("input files not specified")
+	}
+
+	var sInText bart.Lite
+	unmarshalReadInText(t, &sInText)
+
+	var sInBinary bart.Lite
+	unmarshalReadInBinary(t, &sInBinary)
+
+	if !sInText.Equal(&sInBinary) {
+		t.Fatal("prefix sets from text and binary input files are not equal")
+	}
+}
+
+func unmarshalReadInText(t testing.TB, s *bart.Lite) {
+	t.Helper()
+
+	f, err := os.Open(inText)
+	if err != nil {
+		t.Fatalf("os.Open(%q) failed: %v", inText, err)
+	}
+	defer f.Close()
+
+	br := bufio.NewReaderSize(f, 128*1024)
+	if err := prefixset.UnmarshalReadText(br, s); err != nil {
+		t.Fatalf("prefixset.UnmarshalReadText(%q) failed: %v", inText, err)
+	}
+}
+
+func unmarshalReadInBinary(t testing.TB, s *bart.Lite) {
+	t.Helper()
+
+	f, err := os.Open(inBinary)
+	if err != nil {
+		t.Fatalf("os.Open(%q) failed: %v", inBinary, err)
+	}
+	defer f.Close()
+
+	if err := prefixset.UnmarshalReadBinary(f, s); err != nil {
+		t.Fatalf("prefixset.UnmarshalReadBinary(%q) failed: %v", inBinary, err)
+	}
+}
+
+func BenchmarkPrefixSetUnmarshalReadText(b *testing.B) {
+	if inText == "" {
+		b.Skip("input text file not specified")
+	}
+
+	// Populate the prefix set so that insertions
+	// during the actual benchmarks are no-ops.
+	var s bart.Lite
+	unmarshalReadInText(b, &s)
+
+	b.Run("bufio", func(b *testing.B) {
+		for b.Loop() {
+			unmarshalReadInText(b, &s)
+		}
+	})
+
+	b.Run("mmap", func(b *testing.B) {
+		for b.Loop() {
+			unmarshalInTextMmap(b, &s)
+		}
+	})
+}
+
+func BenchmarkPrefixSetUnmarshalReadBinary(b *testing.B) {
+	if inBinary == "" {
+		b.Skip("input binary file not specified")
+	}
+
+	var s bart.Lite
+	unmarshalReadInBinary(b, &s)
+
+	b.Run("bufio", func(b *testing.B) {
+		for b.Loop() {
+			unmarshalReadInBinary(b, &s)
+		}
+	})
+
+	b.Run("mmap", func(b *testing.B) {
+		for b.Loop() {
+			unmarshalInBinaryMmap(b, &s)
+		}
+	})
+}
+
+func unmarshalInTextMmap(t testing.TB, s *bart.Lite) {
+	t.Helper()
+
+	data, close, err := mmap.ReadFile[string](inText)
+	if err != nil {
+		t.Fatalf("mmap.ReadFile(%q) failed: %v", inText, err)
+	}
+	defer close()
+
+	if err := prefixset.UnmarshalText(data, s); err != nil {
+		t.Fatalf("prefixset.UnmarshalText(%q) failed: %v", inText, err)
+	}
+}
+
+func unmarshalInBinaryMmap(t testing.TB, s *bart.Lite) {
+	t.Helper()
+
+	data, close, err := mmap.ReadFile[string](inBinary)
+	if err != nil {
+		t.Fatalf("mmap.ReadFile(%q) failed: %v", inBinary, err)
+	}
+	defer close()
+
+	r := strings.NewReader(data)
+	if err := prefixset.UnmarshalReadBinary(r, s); err != nil {
+		t.Fatalf("prefixset.UnmarshalReadBinary(%q) failed: %v", inBinary, err)
+	}
 }
