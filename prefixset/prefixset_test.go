@@ -6,12 +6,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/database64128/shadowsocks-go/mmap"
 	"github.com/database64128/shadowsocks-go/prefixset"
@@ -39,6 +41,27 @@ fc00::/7
 fe80::/10
 ff00::/8
 `
+
+const testPrefixSetTextCRLF = "# Private prefixes.\r\n" +
+	"0.0.0.0/8\r\n" +
+	"10.0.0.0/8\r\n" +
+	"100.64.0.0/10\r\n" +
+	"127.0.0.0/8\r\n" +
+	"169.254.0.0/16\r\n" +
+	"172.16.0.0/12\r\n" +
+	"192.0.0.0/24\r\n" +
+	"192.0.2.0/24\r\n" +
+	"192.88.99.0/24\r\n" +
+	"192.168.0.0/16\r\n" +
+	"198.18.0.0/15\r\n" +
+	"198.51.100.0/24\r\n" +
+	"203.0.113.0/24\r\n" +
+	"224.0.0.0/3\r\n" +
+	"::/128\r\n" +
+	"::1/128\r\n" +
+	"fc00::/7\r\n" +
+	"fe80::/10\r\n" +
+	"ff00::/8\r\n"
 
 var testPrefixSet = func() *bart.Lite {
 	var s bart.Lite
@@ -162,15 +185,108 @@ func TestPrefixSetMarshalWriteText(t *testing.T) {
 }
 
 func TestPrefixSetUnmarshalReadText(t *testing.T) {
-	var s bart.Lite
-	r := strings.NewReader(testPrefixSetText)
-	if err := prefixset.UnmarshalReadText(r, &s); err != nil {
-		t.Fatalf("UnmarshalReadText(r, &s) failed: %v", err)
-	}
-	if !s.Equal(testPrefixSet) {
-		t.Errorf("s.Equal(testPrefixSet) = false, want true")
+	for _, c := range [...]struct {
+		name          string
+		r             io.Reader
+		wantPrefixSet func() *bart.Lite
+	}{
+		{
+			name: "strings.Reader",
+			r:    strings.NewReader(testPrefixSetText),
+			wantPrefixSet: func() *bart.Lite {
+				return testPrefixSet
+			},
+		},
+		{
+			name: "eagerEOFStringsReader",
+			r:    newEagerEOFStringsReader(testPrefixSetText),
+			wantPrefixSet: func() *bart.Lite {
+				return testPrefixSet
+			},
+		},
+		{
+			name: "emptyFile",
+			r:    newFakeFile(""),
+			wantPrefixSet: func() *bart.Lite {
+				return &bart.Lite{}
+			},
+		},
+		{
+			name: "noNewline",
+			r:    strings.NewReader("::1/128"),
+			wantPrefixSet: func() *bart.Lite {
+				var s bart.Lite
+				s.Insert(netip.PrefixFrom(netip.IPv6Loopback(), 128))
+				return &s
+			},
+		},
+		{
+			name: "noNewlineFile",
+			r:    newFakeFile("::1/128"),
+			wantPrefixSet: func() *bart.Lite {
+				var s bart.Lite
+				s.Insert(netip.PrefixFrom(netip.IPv6Loopback(), 128))
+				return &s
+			},
+		},
+		{
+			name: "CRLF",
+			r:    strings.NewReader(testPrefixSetTextCRLF),
+			wantPrefixSet: func() *bart.Lite {
+				return testPrefixSet
+			},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var s bart.Lite
+			if err := prefixset.UnmarshalReadText(c.r, &s); err != nil {
+				t.Fatalf("UnmarshalReadText(c.r, &s) failed: %v", err)
+			}
+			if want := c.wantPrefixSet(); !s.Equal(want) {
+				t.Errorf("s.Equal(want) = false, want true")
+			}
+		})
 	}
 }
+
+// eagerEOFStringsReader is like [strings.Reader], but returns (n > 0, io.EOF)
+// rather than (n > 0, nil) when a non-empty read reaches the end of the string.
+type eagerEOFStringsReader struct {
+	strings.Reader
+}
+
+func newEagerEOFStringsReader(s string) *eagerEOFStringsReader {
+	r := eagerEOFStringsReader{}
+	r.Reset(s)
+	return &r
+}
+
+func (r *eagerEOFStringsReader) Read(p []byte) (n int, err error) {
+	n, err = r.Reader.Read(p)
+	if err == nil && r.Reader.Len() <= 0 {
+		err = io.EOF
+	}
+	return n, err
+}
+
+type fakeFile struct {
+	strings.Reader
+}
+
+func newFakeFile(s string) *fakeFile {
+	f := fakeFile{}
+	f.Reset(s)
+	return &f
+}
+
+func (f *fakeFile) Stat() (fs.FileInfo, error) { return f, nil }
+func (*fakeFile) Close() error                 { return nil }
+func (*fakeFile) Name() string                 { return "" }
+func (f *fakeFile) Size() int64                { return f.Reader.Size() }
+func (*fakeFile) Mode() fs.FileMode            { return 0 }
+func (*fakeFile) ModTime() time.Time           { return time.Time{} }
+func (*fakeFile) IsDir() bool                  { return false }
+func (*fakeFile) Sys() any                     { return nil }
 
 func TestPrefixSetBinary(t *testing.T) {
 	length := 24 + len(sortedTestPrefixes)

@@ -173,7 +173,7 @@ func MarshalWriteText(w io.Writer, s *bart.Lite) (err error) {
 		AvailableBuffer() []byte
 	})
 	if !ok {
-		b := bufio.NewWriterSize(w, 128*1024)
+		b := bufio.NewWriterSize(w, defaultBufferSize)
 		defer func() {
 			if flushErr := b.Flush(); flushErr != nil && err == nil {
 				err = flushErr
@@ -254,8 +254,14 @@ type lineReader struct {
 }
 
 func newLineReader(r io.Reader) *lineReader {
+	bufSize := readBufferSize(r)
+	if bufSize < defaultBufferSize {
+		// An extra byte allows us to discover EOF without
+		// copying the no-LF trailing line to dst.
+		bufSize++
+	}
 	return &lineReader{
-		buf:   make([]byte, readBufferSize(r)),
+		buf:   make([]byte, bufSize),
 		inner: r,
 	}
 }
@@ -273,15 +279,17 @@ func (lr *lineReader) ReadLine(dst []byte) ([]byte, []byte, error) {
 		if len(b) > searchStart {
 			if i := bytes.IndexByte(b[searchStart:], '\n'); i >= 0 {
 				i += searchStart
-				line := b[:i] // without '\n'
 				lr.r += i + 1
-				return lr.concatLine(dst, line)
+				line := b[:i] // without '\n'
+				dst, line = concatLine(dst, line)
+				return dst, line, nil
 			}
 		}
 
 		if lr.err != nil {
 			lr.r = lr.w
-			return lr.concatLine(dst, b)
+			dst, b = concatLine(dst, b)
+			return dst, b, lr.err
 		}
 
 		switch lr.w {
@@ -306,7 +314,7 @@ func (lr *lineReader) ReadLine(dst []byte) ([]byte, []byte, error) {
 	}
 }
 
-func (lr *lineReader) concatLine(dst, line []byte) ([]byte, []byte, error) {
+func concatLine(dst, line []byte) ([]byte, []byte) {
 	if len(dst) > 0 {
 		dst = append(dst, line...)
 		line = dst
@@ -314,7 +322,7 @@ func (lr *lineReader) concatLine(dst, line []byte) ([]byte, []byte, error) {
 	if len(line) > 0 && line[len(line)-1] == '\r' {
 		line = line[:len(line)-1]
 	}
-	return dst, line, lr.err
+	return dst, line
 }
 
 const (
@@ -330,7 +338,7 @@ func MarshalWriteBinary(w io.Writer, s *bart.Lite) (err error) {
 		io.ByteWriter
 	})
 	if !ok {
-		b := bufio.NewWriterSize(w, 128*1024)
+		b := bufio.NewWriterSize(w, defaultBufferSize)
 		defer func() {
 			if flushErr := b.Flush(); flushErr != nil && err == nil {
 				err = flushErr
@@ -445,14 +453,17 @@ func UnmarshalReadBinary(r io.Reader, s *bart.Lite) error {
 	return nil
 }
 
+const defaultBufferSize = 128 * 1024
+
 func readBufferSize(r io.Reader) int {
-	const defaultReadBufferSize = 128 * 1024
 	if f, ok := r.(fs.File); ok {
 		if fi, err := f.Stat(); err == nil {
-			return int(min(fi.Size(), defaultReadBufferSize))
+			if size := fi.Size(); size > 0 {
+				return int(min(size, defaultBufferSize))
+			}
 		}
 	}
-	return defaultReadBufferSize
+	return defaultBufferSize
 }
 
 // toUnexpectedEOF converts [io.EOF] to [io.ErrUnexpectedEOF].
