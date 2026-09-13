@@ -71,7 +71,6 @@ import (
 	"strings"
 	"unsafe"
 
-	"github.com/database64128/shadowsocks-go/bytestrings"
 	"github.com/database64128/shadowsocks-go/mmap"
 	"github.com/gaissmai/bart"
 )
@@ -116,29 +115,63 @@ func (psc Config) LoadPrefixSet() (*bart.Lite, error) {
 	return &s, nil
 }
 
+// TextLineError represents a text format deserialization error.
+type TextLineError struct {
+	Line int
+	Err  error
+}
+
+func (e TextLineError) Error() string {
+	return fmt.Sprintf("line %d: %v", e.Line, e.Err)
+}
+
+func (e TextLineError) Unwrap() error {
+	return e.Err
+}
+
+var (
+	ErrInvalidPrefix = errors.New("invalid prefix")
+	ErrLineTooLong   = errors.New("line too long")
+)
+
+// As of Go 1.27, [netip.ParsePrefix] escapes the input string by using
+// an unexported error type that embeds the input string directly. When
+// our input string is from an mmapped file, the returned error will
+// become invalid when we unmap the file.
+//
+// Because of the escaping, we can't pass a stack copy of the string.
+// And because the error type is unexported, we can't change the string
+// embedded in the returned error. What we can do here, is to get the
+// error string and wrap it in a new error.
+func fixNetipParseError(err error) error {
+	return fmt.Errorf("%w: %s", ErrInvalidPrefix, err.Error())
+}
+
+// maxUnmarshalLineLen is the maximum line length permitted by [UnmarshalText] and [UnmarshalReadText].
+// It intentionally includes some extra headroom to give users better error messages for prefixes with zones.
+const maxUnmarshalLineLen = len("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff%AnImpossiblyLongZone/128")
+
 // UnmarshalText parses prefixes from the text and builds a prefix set.
 func UnmarshalText(text string, s *bart.Lite) error {
-	for line := range bytestrings.NonEmptyLines(text) {
-		if line[0] == '#' {
+	if s == nil {
+		panic("prefixset.UnmarshalText: prefix set is nil")
+	}
+
+	var lineNum int
+	for line := range strings.Lines(text) {
+		lineNum++
+		line = strings.TrimSpace(line)
+		if len(line) == 0 || line[0] == '#' {
 			continue
+		}
+		if len(line) > maxUnmarshalLineLen {
+			return TextLineError{Line: lineNum, Err: ErrLineTooLong}
 		}
 
 		prefix, err := netip.ParsePrefix(line)
 		if err != nil {
-			// As of Go 1.27, [netip.ParsePrefix] escapes the input string by using
-			// an unexported error type that embeds the input string directly. When
-			// our input string is from an mmapped file, the returned error will
-			// become invalid when we unmap the file.
-			//
-			// Because of the escaping, we can't pass a stack copy of the string.
-			// And because the error type is unexported, we can't change the string
-			// embedded in the returned error. What we can do here, is to get the
-			// error string and wrap it in a new error.
-			return errors.New(err.Error())
+			return TextLineError{Line: lineNum, Err: fixNetipParseError(err)}
 		}
-
-		// As of Go 1.27, the nilcheck at this call site cannot be eliminated,
-		// unless we get rid of the iterator.
 		s.Insert(prefix)
 	}
 
@@ -211,20 +244,20 @@ func UnmarshalReadText(r io.Reader, s *bart.Lite) error {
 		panic("prefixset.UnmarshalReadText: prefix set is nil")
 	}
 
-	const maxLineLen = len("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128")
 	var b []byte
 	br := newLineReader(r)
 
 	for lineNum := 1; ; lineNum++ {
 		dst, line, err := br.ReadLine(b)
+		line = bytes.TrimSpace(line)
 		if len(line) > 0 && line[0] != '#' {
-			if len(line) > maxLineLen {
-				return fmt.Errorf("line %d: line too long", lineNum)
+			if len(line) > maxUnmarshalLineLen {
+				return TextLineError{Line: lineNum, Err: ErrLineTooLong}
 			}
 
 			prefix, err := netip.ParsePrefix(unsafe.String(unsafe.SliceData(line), len(line)))
 			if err != nil {
-				return fmt.Errorf("line %d: invalid prefix %q", lineNum, line)
+				return TextLineError{Line: lineNum, Err: fixNetipParseError(err)}
 			}
 			s.Insert(prefix)
 		}
@@ -233,9 +266,9 @@ func UnmarshalReadText(r io.Reader, s *bart.Lite) error {
 			case io.EOF:
 				return nil
 			case io.ErrShortBuffer:
-				return fmt.Errorf("line %d: line too long", lineNum)
+				return TextLineError{Line: lineNum, Err: ErrLineTooLong}
 			default:
-				return fmt.Errorf("line %d: %w", lineNum, err)
+				return TextLineError{Line: lineNum, Err: err}
 			}
 		}
 		b = dst[:0]

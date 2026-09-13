@@ -71,6 +71,14 @@ var testPrefixSet = func() *bart.Lite {
 	return &s
 }()
 
+var testPrefixSetBinaryLen = func() int {
+	length := 24 + len(sortedTestPrefixes)
+	for _, prefix := range sortedTestPrefixes {
+		length += (prefix.Bits() + 7) / 8
+	}
+	return length
+}()
+
 var sortedTestPrefixes = [...]netip.Prefix{
 	netip.PrefixFrom(netip.IPv4Unspecified(), 8),
 	netip.PrefixFrom(netip.AddrFrom4([4]byte{10, 0, 0, 0}), 8),
@@ -155,6 +163,83 @@ func TestPrefixSetUnmarshalText(t *testing.T) {
 	}
 	if !s.Equal(testPrefixSet) {
 		t.Errorf("s.Equal(testPrefixSet) = false, want true")
+	}
+}
+
+var unmarshalTextErrorCases = [...]struct {
+	name     string
+	text     string
+	wantLine int
+	wantErr  error
+}{
+	{
+		name:     "NonTerminatedLineIP",
+		text:     "127.0.0.1",
+		wantLine: 1,
+		wantErr:  prefixset.ErrInvalidPrefix,
+	},
+	{
+		name:     "CommentLineBadPrefixLength",
+		text:     "# comment\n127.0.0.1/33",
+		wantLine: 2,
+		wantErr:  prefixset.ErrInvalidPrefix,
+	},
+	{
+		name:     "CommentEmptyLinesBadAddress",
+		text:     "\n# comment\r\n\n\r\nxxxx::1/16",
+		wantLine: 5,
+		wantErr:  prefixset.ErrInvalidPrefix,
+	},
+	{
+		name:     "PrefixWithZone",
+		text:     "\r\nffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff%lo/128\n",
+		wantLine: 2,
+		wantErr:  prefixset.ErrInvalidPrefix,
+	},
+	{
+		name:     "LongLine",
+		text:     "\r\nffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128,ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128\r\n",
+		wantLine: 2,
+		wantErr:  prefixset.ErrLineTooLong,
+	},
+}
+
+func TestPrefixSetUnmarshalTextError(t *testing.T) {
+	for _, c := range unmarshalTextErrorCases {
+		t.Run(c.name, func(t *testing.T) {
+			err := prefixset.UnmarshalText(c.text, &bart.Lite{})
+			e, ok := errors.AsType[prefixset.TextLineError](err)
+			if !ok {
+				t.Errorf("error = %v, want %T", err, e)
+				return
+			}
+			if e.Line != c.wantLine {
+				t.Errorf("e.Line = %d, want %d", e.Line, c.wantLine)
+			}
+			if !errors.Is(e.Err, c.wantErr) {
+				t.Errorf("e.Err = %v, want %v", e.Err, c.wantErr)
+			}
+		})
+	}
+}
+
+func TestPrefixSetUnmarshalReadTextError(t *testing.T) {
+	for _, c := range unmarshalTextErrorCases {
+		t.Run(c.name, func(t *testing.T) {
+			r := strings.NewReader(c.text)
+			err := prefixset.UnmarshalReadText(r, &bart.Lite{})
+			e, ok := errors.AsType[prefixset.TextLineError](err)
+			if !ok {
+				t.Errorf("error = %v, want %T", err, e)
+				return
+			}
+			if e.Line != c.wantLine {
+				t.Errorf("e.Line = %d, want %d", e.Line, c.wantLine)
+			}
+			if !errors.Is(e.Err, c.wantErr) {
+				t.Errorf("e.Err = %v, want %v", e.Err, c.wantErr)
+			}
+		})
 	}
 }
 
@@ -289,24 +374,19 @@ func (*fakeFile) IsDir() bool                  { return false }
 func (*fakeFile) Sys() any                     { return nil }
 
 func TestPrefixSetBinary(t *testing.T) {
-	length := 24 + len(sortedTestPrefixes)
-	for _, prefix := range sortedTestPrefixes {
-		length += (prefix.Bits() + 7) / 8
+	buf := bytes.NewBuffer(make([]byte, 0, testPrefixSetBinaryLen))
+	if err := prefixset.MarshalWriteBinary(buf, testPrefixSet); err != nil {
+		t.Fatalf("MarshalWriteBinary(buf, testPrefixSet) failed: %v", err)
+	}
+	if got := buf.Len(); got != testPrefixSetBinaryLen {
+		t.Errorf("buf.Len() = %d, want %d", got, testPrefixSetBinaryLen)
 	}
 
-	bw := bytes.NewBuffer(make([]byte, 0, length))
-	if err := prefixset.MarshalWriteBinary(bw, testPrefixSet); err != nil {
-		t.Fatalf("MarshalWriteBinary(bw, testPrefixSet) failed: %v", err)
-	}
-	if got := bw.Len(); got != length {
-		t.Errorf("bw.Len() = %d, want %d", got, length)
-	}
-
-	t.Logf("bw.Bytes() = %#v", bw.Bytes())
+	t.Logf("buf.Bytes() = %#v", buf.Bytes())
 
 	var s bart.Lite
-	if err := prefixset.UnmarshalReadBinary(bw, &s); err != nil {
-		t.Fatalf("UnmarshalReadBinary(bw, &s) failed: %v", err)
+	if err := prefixset.UnmarshalReadBinary(buf, &s); err != nil {
+		t.Fatalf("UnmarshalReadBinary(buf, &s) failed: %v", err)
 	}
 	if !s.Equal(testPrefixSet) {
 		t.Errorf("s.Equal(testPrefixSet) = false, want true")
@@ -479,6 +559,63 @@ func TestConfigLoadPrefixSetError(t *testing.T) {
 	t.Logf("cfg.LoadPrefixSet() returned error: %v", err)
 }
 
+func BenchmarkPrefixSetAppendText(b *testing.B) {
+	buf := make([]byte, 0, len(testPrefixSetText))
+	for b.Loop() {
+		buf = prefixset.AppendText(buf[:0], testPrefixSet)
+	}
+}
+
+func BenchmarkPrefixSetMarshalText(b *testing.B) {
+	for b.Loop() {
+		_ = prefixset.MarshalText(testPrefixSet)
+	}
+}
+
+func BenchmarkPrefixSetUnmarshalText(b *testing.B) {
+	for b.Loop() {
+		_ = prefixset.UnmarshalText(testPrefixSetText, testPrefixSet)
+	}
+}
+
+func BenchmarkPrefixSetMarshalWriteText(b *testing.B) {
+	buf := bytes.NewBuffer(make([]byte, 0, len(testPrefixSetText)))
+	for b.Loop() {
+		_ = prefixset.MarshalWriteText(buf, testPrefixSet)
+		buf.Reset()
+	}
+}
+
+func BenchmarkPrefixSetUnmarshalReadText(b *testing.B) {
+	var r fakeFile
+	for b.Loop() {
+		r.Reset(testPrefixSetText)
+		_ = prefixset.UnmarshalReadText(&r, testPrefixSet)
+	}
+}
+
+func BenchmarkPrefixSetMarshalWriteBinary(b *testing.B) {
+	buf := bytes.NewBuffer(make([]byte, 0, testPrefixSetBinaryLen))
+	for b.Loop() {
+		_ = prefixset.MarshalWriteBinary(buf, testPrefixSet)
+		buf.Reset()
+	}
+}
+
+func BenchmarkPrefixSetUnmarshalReadBinary(b *testing.B) {
+	buf := bytes.NewBuffer(make([]byte, 0, testPrefixSetBinaryLen))
+	if err := prefixset.MarshalWriteBinary(buf, testPrefixSet); err != nil {
+		b.Fatalf("MarshalWriteBinary(buf, testPrefixSet) failed: %v", err)
+	}
+	bufBytes := buf.Bytes()
+
+	var r bytes.Reader
+	for b.Loop() {
+		r.Reset(bufBytes)
+		_ = prefixset.UnmarshalReadBinary(&r, testPrefixSet)
+	}
+}
+
 var (
 	inText   string
 	inBinary string
@@ -533,7 +670,7 @@ func unmarshalReadInBinary(t testing.TB, s *bart.Lite) {
 	}
 }
 
-func BenchmarkPrefixSetUnmarshalReadText(b *testing.B) {
+func BenchmarkPrefixSetUnmarshalReadTextInputFiles(b *testing.B) {
 	if inText == "" {
 		b.Skip("input text file not specified")
 	}
@@ -556,7 +693,7 @@ func BenchmarkPrefixSetUnmarshalReadText(b *testing.B) {
 	})
 }
 
-func BenchmarkPrefixSetUnmarshalReadBinary(b *testing.B) {
+func BenchmarkPrefixSetUnmarshalReadBinaryInputFiles(b *testing.B) {
 	if inBinary == "" {
 		b.Skip("input binary file not specified")
 	}
