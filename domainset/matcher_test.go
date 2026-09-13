@@ -23,6 +23,6 @@ func testMatcherBuilderRules(t *testing.T, mb MatcherBuilder, expectedRules []st
 	slices.Sort(sortedExpectedRules)
 
 	if !slices.Equal(rules, sortedExpectedRules) {
-		t.Errorf("Expected rules %v, got %v", sortedExpectedRules, rules)
+		t.Errorf("rules = %v, want = %v", rules, sortedExpectedRules)
 	}
 }

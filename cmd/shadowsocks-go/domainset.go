@@ -11,11 +11,9 @@ import (
 	"os/signal"
 	"runtime"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"syscall"
 
-	"github.com/database64128/shadowsocks-go/bytestrings"
 	"github.com/database64128/shadowsocks-go/domainset"
 	"github.com/database64128/shadowsocks-go/mmap"
 	"github.com/database64128/shadowsocks-go/tslog"
@@ -166,7 +164,7 @@ func runDomainSetConvert(name string, args []string) int {
 	}
 	fs.Init(name, flag.ExitOnError)
 	fs.Func("inDlc", "`path` to input domain set file in v2fly/domain-list-community exported plaintext format", func(s string) error {
-		return setJobInput(s, domainSetBuilderFromDlc)
+		return setJobInput(s, domainset.BuilderFromDLC)
 	})
 	fs.Func("inText", "`path` to input domain set file in plaintext format", func(s string) error {
 		return setJobInput(s, func(text, _ string) (domainset.Builder, error) {
@@ -298,11 +296,23 @@ func (job *domainSetConversionJob) Run(_ context.Context, logger *tslog.Logger) 
 		return
 	}
 
+	if logger.Enabled(slog.LevelInfo) {
+		domainCount, _ := dsb.DomainMatcherBuilder().Rules()
+		suffixCount, _ := dsb.SuffixMatcherBuilder().Rules()
+		keywordCount, _ := dsb.KeywordMatcherBuilder().Rules()
+		regexpCount, _ := dsb.RegexpMatcherBuilder().Rules()
+		logger.Info("Unmarshaled domain set from input file",
+			slog.String("path", job.inPath),
+			slog.Int("domainCount", domainCount),
+			slog.Int("suffixCount", suffixCount),
+			slog.Int("keywordCount", keywordCount),
+			slog.Int("regexpCount", regexpCount),
+		)
+	}
+
 	if job.skipRegexp {
 		dsb.RegexpMatcherBuilder().Clear()
 	}
-
-	logger.Info("Unmarshaled domain set from input file", slog.String("path", job.inPath))
 
 	var failed bool
 	if job.outTextPath != "" {
@@ -346,64 +356,4 @@ func marshalDomainSetFile(logger *tslog.Logger, path string, marshal func(io.Wri
 	logger.Info("Marshaled domain set to output file", slog.String("path", path))
 
 	return true
-}
-
-func domainSetBuilderFromDlc(text, tag string) (domainset.Builder, error) {
-	const (
-		domainPrefix     = "full:"
-		suffixPrefix     = "domain:"
-		keywordPrefix    = "keyword:"
-		regexpPrefix     = "regexp:"
-		domainPrefixLen  = len(domainPrefix)
-		suffixPrefixLen  = len(suffixPrefix)
-		keywordPrefixLen = len(keywordPrefix)
-		regexpPrefixLen  = len(regexpPrefix)
-	)
-
-	dsb := domainset.Builder{
-		domainset.NewDomainMapMatcher(0),
-		domainset.NewDomainSuffixTrieMatcherBuilder(0),
-		domainset.NewKeywordLinearMatcher(0),
-		domainset.NewRegexpMatcherBuilder(0),
-	}
-
-	for line := range bytestrings.NonEmptyLines(text) {
-		if line[0] == '#' {
-			continue
-		}
-
-		end := strings.IndexByte(line, '@')
-		if end == 0 {
-			return dsb, fmt.Errorf("invalid line: %q", line)
-		}
-
-		if tag == "" { // select all lines
-			if end == -1 {
-				end = len(line)
-			} else {
-				end--
-			}
-		} else { // select matched tag
-			if end == -1 || line[end+1:] != tag { // no tag or different tag
-				continue
-			} else {
-				end--
-			}
-		}
-
-		switch {
-		case strings.HasPrefix(line, domainPrefix):
-			dsb.DomainMatcherBuilder().Insert(line[domainPrefixLen:end])
-		case strings.HasPrefix(line, suffixPrefix):
-			dsb.SuffixMatcherBuilder().Insert(line[suffixPrefixLen:end])
-		case strings.HasPrefix(line, keywordPrefix):
-			dsb.KeywordMatcherBuilder().Insert(line[keywordPrefixLen:end])
-		case strings.HasPrefix(line, regexpPrefix):
-			dsb.RegexpMatcherBuilder().Insert(line[regexpPrefixLen:end])
-		default:
-			return dsb, fmt.Errorf("invalid line: %q", line)
-		}
-	}
-
-	return dsb, nil
 }

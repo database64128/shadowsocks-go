@@ -216,6 +216,26 @@ func BuilderFromGobString(s string) (Builder, error) {
 	return BuilderFromGob(r)
 }
 
+// TextLineError represents a text format deserialization error.
+type TextLineError struct {
+	Line int
+	Err  error
+}
+
+func (e TextLineError) Error() string {
+	return fmt.Sprintf("line %d: %v", e.Line, e.Err)
+}
+
+func (e TextLineError) Unwrap() error {
+	return e.Err
+}
+
+var ErrInvalidRuleLine = errors.New("invalid rule line")
+
+func newInvalidRuleLineError(line string) error {
+	return fmt.Errorf("%w: %q", ErrInvalidRuleLine, line)
+}
+
 // BuilderFromText parses the text for domain set rules, inserts them into appropriate
 // matcher builders, and returns the resulting domain set builder.
 //
@@ -309,6 +329,94 @@ func ParseCapacityHint(line string) (dskr [4]int, found bool, err error) {
 	}
 
 	return dskr, found, nil
+}
+
+// BuilderFromDLC parses text in v2fly/domain-list-community exported plaintext format for domain set rules,
+// inserts them into appropriate matcher builders, and returns the resulting domain set builder.
+//
+// The rule strings are not cloned. They reference the same memory as the input text.
+func BuilderFromDLC(text, wantAttr string) (Builder, error) {
+	const (
+		domainPrefix     = "full:"
+		suffixPrefix     = "domain:"
+		keywordPrefix    = "keyword:"
+		regexpPrefix     = "regexp:"
+		domainPrefixLen  = len(domainPrefix)
+		suffixPrefixLen  = len(suffixPrefix)
+		keywordPrefixLen = len(keywordPrefix)
+		regexpPrefixLen  = len(regexpPrefix)
+		minPrefixLen     = min(domainPrefixLen, suffixPrefixLen, keywordPrefixLen, regexpPrefixLen)
+	)
+
+	dsb := Builder{
+		NewDomainMapMatcher(0),
+		NewDomainSuffixTrieMatcherBuilder(0),
+		NewKeywordLinearMatcher(0),
+		NewRegexpMatcherBuilder(0),
+	}
+
+	var lineNum int
+	for line := range strings.Lines(text) {
+		lineNum++
+		line = strings.TrimSpace(line)
+		if len(line) == 0 || line[0] == '#' {
+			continue
+		}
+
+		rule, attrs, hasAttrs := strings.CutLast(line, ":@")
+		if wantAttr != "" {
+			if !hasAttrs {
+				continue
+			}
+			var found bool
+			for attr := range strings.SplitSeq(attrs, ",@") {
+				if attr == wantAttr {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+
+		// As of Go 1.27, some of the bounds checks below cannot be eliminated,
+		// because the string equality comparisons call into Go runtime assembly
+		// routines, which invalidate the earlier length guards.
+		//
+		// We could work around this by switching to handwritten byte-by-byte
+		// comparisons, but this function is not in any hot path, so we opt for
+		// better readability and hope for future compiler improvements to address this.
+
+		if len(rule) > minPrefixLen {
+			switch rule[:minPrefixLen] {
+			case domainPrefix[:minPrefixLen]:
+				if len(rule) > domainPrefixLen && rule[minPrefixLen:domainPrefixLen] == domainPrefix[minPrefixLen:] {
+					dsb.DomainMatcherBuilder().Insert(rule[domainPrefixLen:])
+					continue
+				}
+			case suffixPrefix[:minPrefixLen]:
+				if len(rule) > suffixPrefixLen && rule[minPrefixLen:suffixPrefixLen] == suffixPrefix[minPrefixLen:] {
+					dsb.SuffixMatcherBuilder().Insert(rule[suffixPrefixLen:])
+					continue
+				}
+			case keywordPrefix[:minPrefixLen]:
+				if len(rule) > keywordPrefixLen && rule[minPrefixLen:keywordPrefixLen] == keywordPrefix[minPrefixLen:] {
+					dsb.KeywordMatcherBuilder().Insert(rule[keywordPrefixLen:])
+					continue
+				}
+			case regexpPrefix[:minPrefixLen]:
+				if len(rule) > regexpPrefixLen && rule[minPrefixLen:regexpPrefixLen] == regexpPrefix[minPrefixLen:] {
+					dsb.RegexpMatcherBuilder().Insert(rule[regexpPrefixLen:])
+					continue
+				}
+			}
+		}
+
+		return dsb, TextLineError{Line: lineNum, Err: newInvalidRuleLineError(line)}
+	}
+
+	return dsb, nil
 }
 
 // BuilderGob is a gob-encoded representation of a [Builder].
