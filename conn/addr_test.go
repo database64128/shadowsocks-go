@@ -275,7 +275,7 @@ func TestAddrMaxTextLen(t *testing.T) {
 		want int
 	}{
 		{"Zero", addrZero, 0},
-		{"IP", addrIP, len("[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff%enp5s0]:65535")},
+		{"IP", addrIP, len("[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]:65535")},
 		{"Domain", addrDomain, len(addrDomainHost + ":65535")},
 	} {
 		t.Run(c.name, func(t *testing.T) {

@@ -254,10 +254,15 @@ func (a Addr) MaxTextLen() int {
 		switch {
 		case ip.Is4():
 			return len("255.255.255.255:65535")
-		case ip.Is4In6():
-			return len("[::ffff:255.255.255.255%enp5s0]:65535")
 		case ip.Is6():
-			return len("[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff%enp5s0]:65535")
+			zoneLen := len(ip.Zone())
+			if zoneLen > 0 {
+				zoneLen++ // '%'
+			}
+			if ip.Is4In6() {
+				return len("[::ffff:255.255.255.255]:65535") + zoneLen
+			}
+			return len("[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]:65535") + zoneLen
 		default:
 			return 0
 		}
