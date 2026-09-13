@@ -1,6 +1,7 @@
 package prefixset_test
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"flag"
@@ -670,6 +671,22 @@ func unmarshalReadInBinary(t testing.TB, s *bart.Lite) {
 	}
 }
 
+func unmarshalReadInBinaryReuseBufioReader(t testing.TB, br *bufio.Reader, s *bart.Lite) {
+	t.Helper()
+
+	f, err := os.Open(inBinary)
+	if err != nil {
+		t.Fatalf("os.Open(%q) failed: %v", inBinary, err)
+	}
+	defer f.Close()
+
+	br.Reset(f)
+
+	if err := prefixset.UnmarshalReadBinary(br, s); err != nil {
+		t.Fatalf("prefixset.UnmarshalReadBinary(%q) failed: %v", inBinary, err)
+	}
+}
+
 func BenchmarkPrefixSetUnmarshalReadTextInputFiles(b *testing.B) {
 	if inText == "" {
 		b.Skip("input text file not specified")
@@ -704,6 +721,13 @@ func BenchmarkPrefixSetUnmarshalReadBinaryInputFiles(b *testing.B) {
 	b.Run("bufio", func(b *testing.B) {
 		for b.Loop() {
 			unmarshalReadInBinary(b, &s)
+		}
+	})
+
+	b.Run("bufio/ReuseReader", func(b *testing.B) {
+		br := bufio.NewReaderSize(nil, 128*1024)
+		for b.Loop() {
+			unmarshalReadInBinaryReuseBufioReader(b, br, &s)
 		}
 	})
 
