@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"iter"
 	"log/slog"
+	"net/netip"
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 
@@ -24,6 +28,7 @@ const usagePrefixSet = `Manage prefix set files
 Usage: %s [command]
 
 Commands:
+  show        Inspect prefix set files
   convert     Convert prefix set files between different formats
 
 Run '%s [command] -h' for more information on a command.
@@ -39,6 +44,8 @@ func runPrefixSet(name string, args []string) int {
 		return 2
 	}
 	switch args[0] {
+	case "show":
+		return runPrefixSetShow(name+" "+"show", args[1:])
 	case "convert":
 		return runPrefixSetConvert(name+" "+"convert", args[1:])
 	case "--help", "-help", "-h":
@@ -48,6 +55,156 @@ func runPrefixSet(name string, args []string) int {
 		fmt.Fprintf(os.Stderr, "Unknown command: %q\nRun '%s -h' for usage.\n", args[0], name)
 		return 2
 	}
+}
+
+const usagePrefixSetShow = `Inspect prefix set files
+
+Usage: %s [options]
+
+Input flags can be specified multiple times to inspect multiple files in one run.
+
+Flags:
+  -inText <path>      Path to input prefix set file in text format
+  -inBinary <path>    Path to input prefix set file in binary format
+  -verbose            Dump prefixes
+  -sort               When -verbose, dump prefixes in canonical sort order
+
+Examples:
+  Show prefix counts:
+    %s -inText prefixes.txt
+
+  Dump prefixes in canonical order:
+    %s -inBinary prefixes -verbose -sort
+`
+
+func runPrefixSetShow(name string, args []string) int {
+	var (
+		fs      flag.FlagSet
+		items   []prefixSetShowItem
+		verbose bool
+		sorted  bool
+	)
+
+	addItem := func(s string, unmarshalRead func(io.Reader, *bart.Lite) error) error {
+		if s == "" {
+			return errors.New("empty input path")
+		}
+		items = append(items, prefixSetShowItem{
+			inPath:        s,
+			unmarshalRead: unmarshalRead,
+		})
+		return nil
+	}
+
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), usagePrefixSetShow, name, name, name)
+	}
+	fs.Init(name, flag.ExitOnError)
+	fs.Func("inText", "`path` to input prefix set file in text format", func(s string) error {
+		return addItem(s, prefixset.UnmarshalReadText)
+	})
+	fs.Func("inBinary", "`path` to input prefix set file in binary format", func(s string) error {
+		return addItem(s, prefixset.UnmarshalReadBinary)
+	})
+	fs.BoolVar(&verbose, "verbose", false, "dump prefixes")
+	fs.BoolVar(&sorted, "sort", false, "when -verbose, dump prefixes in canonical sort order")
+	fs.Parse(args)
+
+	if fs.NArg() > 0 {
+		fmt.Fprintf(fs.Output(), "Unexpected arguments: %v\nRun '%s -h' for usage.\n", fs.Args(), name)
+		return 2
+	}
+
+	if len(items) == 0 {
+		fmt.Fprintf(fs.Output(), "Please specify prefix set files with -inText and/or -inBinary.\nRun '%s -h' for usage.\n", name)
+		return 2
+	}
+
+	var exitCode int
+	bw := bufio.NewWriter(os.Stdout)
+	for i, item := range items {
+		if i > 0 {
+			if err := bw.WriteByte('\n'); err != nil {
+				fmt.Fprintf(fs.Output(), "Failed to write newline to stdout: %v\n", err)
+				exitCode = 1
+			}
+		}
+		if err := item.WriteOutput(bw, verbose, sorted); err != nil {
+			fmt.Fprintf(fs.Output(), "Failed to show prefix set file %q: %v\n", item.inPath, err)
+			exitCode = 1
+		}
+	}
+	if err := bw.Flush(); err != nil {
+		fmt.Fprintf(fs.Output(), "Failed to flush to stdout: %v\n", err)
+		exitCode = 1
+	}
+	return exitCode
+}
+
+type prefixSetShowItem struct {
+	inPath        string
+	unmarshalRead func(io.Reader, *bart.Lite) error
+}
+
+func (item *prefixSetShowItem) WriteOutput(bw *bufio.Writer, verbose, sorted bool) error {
+	f, err := os.Open(item.inPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	var s bart.Lite
+	if err := item.unmarshalRead(f, &s); err != nil {
+		return fmt.Errorf("failed to unmarshal prefix set from file %q: %w", item.inPath, err)
+	}
+	size4 := s.Size4()
+	size6 := s.Size6()
+
+	if _, err := bw.WriteString("Path: "); err != nil {
+		return err
+	}
+	if _, err := bw.WriteString(item.inPath); err != nil {
+		return err
+	}
+	if _, err := bw.WriteString("\nIPv4: "); err != nil {
+		return err
+	}
+	const maxLineLen = len("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128\n")
+	b := make([]byte, 0, maxLineLen)
+	b = strconv.AppendInt(b, int64(size4), 10)
+	if _, err := bw.Write(b); err != nil {
+		return err
+	}
+	if _, err := bw.WriteString("\nIPv6: "); err != nil {
+		return err
+	}
+	b = strconv.AppendInt(b[:0], int64(size6), 10)
+	b = append(b, '\n')
+	if _, err := bw.Write(b); err != nil {
+		return err
+	}
+
+	if verbose && (size4 > 0 || size6 > 0) {
+		var all iter.Seq[netip.Prefix]
+		if !sorted {
+			all = s.All()
+		} else {
+			all = s.AllSorted()
+		}
+
+		if err := bw.WriteByte('\n'); err != nil {
+			return err
+		}
+		for prefix := range all {
+			b = prefix.AppendTo(b[:0])
+			b = append(b, '\n')
+			if _, err := bw.Write(b); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 const usagePrefixSetConvert = `Convert prefix set files between different formats
