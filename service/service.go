@@ -32,7 +32,6 @@ type Config struct {
 	ClientGroups []clientgroup.Config `json:"clientGroups,omitzero"`
 	DNS          []dns.ResolverConfig `json:"dns,omitzero"`
 	Router       router.Config        `json:"router,omitzero"`
-	Stats        stats.Config         `json:"stats,omitzero"` // obsolete
 	API          api.Config           `json:"api,omitzero"`
 	TLSCerts     tlscerts.Config      `json:"certs,omitzero"`
 }
@@ -101,8 +100,6 @@ func (cfg *Config) Migrate() {
 			cc.UDPPathMTUDiscovery = PMTUDModeSystemDefault
 		}
 	}
-
-	cfg.Stats.Enabled = false
 }
 
 // Manager initializes the service manager.
@@ -125,10 +122,6 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 				MTU:                 1500,
 			},
 		}
-	}
-
-	if sc.Stats.Enabled {
-		logger.Warn("The global stats configuration is obsolete and will be removed in a future version. You can run with -fmtConf to have all obsolete fields removed.")
 	}
 
 	tlsCertStore, err := sc.TLSCerts.NewStore()
