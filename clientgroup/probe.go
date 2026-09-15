@@ -1,4 +1,4 @@
-package clientgroups
+package clientgroup
 
 import (
 	"context"

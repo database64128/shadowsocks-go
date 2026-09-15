@@ -9,7 +9,7 @@ import (
 	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/api"
 	"github.com/database64128/shadowsocks-go/api/ssm"
-	"github.com/database64128/shadowsocks-go/clientgroups"
+	"github.com/database64128/shadowsocks-go/clientgroup"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/dns"
@@ -27,14 +27,14 @@ var errNetworkDisabled = errors.New("this network (tcp or udp) is disabled")
 // Config is the main configuration structure.
 // It may be marshaled as or unmarshaled from JSON.
 type Config struct {
-	Servers      []ServerConfig                   `json:"servers,omitzero"`
-	Clients      []ClientConfig                   `json:"clients,omitzero"`
-	ClientGroups []clientgroups.ClientGroupConfig `json:"clientGroups,omitzero"`
-	DNS          []dns.ResolverConfig             `json:"dns,omitzero"`
-	Router       router.Config                    `json:"router,omitzero"`
-	Stats        stats.Config                     `json:"stats,omitzero"` // obsolete
-	API          api.Config                       `json:"api,omitzero"`
-	TLSCerts     tlscerts.Config                  `json:"certs,omitzero"`
+	Servers      []ServerConfig       `json:"servers,omitzero"`
+	Clients      []ClientConfig       `json:"clients,omitzero"`
+	ClientGroups []clientgroup.Config `json:"clientGroups,omitzero"`
+	DNS          []dns.ResolverConfig `json:"dns,omitzero"`
+	Router       router.Config        `json:"router,omitzero"`
+	Stats        stats.Config         `json:"stats,omitzero"` // obsolete
+	API          api.Config           `json:"api,omitzero"`
+	TLSCerts     tlscerts.Config      `json:"certs,omitzero"`
 }
 
 // Migrate migrates deprecated fields to their new equivalents

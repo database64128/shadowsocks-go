@@ -1,7 +1,7 @@
-// Package clientgroups provides aggregate clients that join multiple TCP and UDP clients
+// Package clientgroup provides aggregate clients that join multiple TCP and UDP clients
 // into a single client group. The client group uses one of the client selection policies
 // to choose a client from the group for each connection.
-package clientgroups
+package clientgroup
 
 import (
 	"context"
@@ -50,8 +50,8 @@ type ClientSelectionConfig[PC TCPConnectivityProbeConfig | UDPConnectivityProbeC
 	Probe PC `json:"probe,omitzero"`
 }
 
-// ClientGroupConfig is the configuration for a client group.
-type ClientGroupConfig struct {
+// Config is the configuration for a client group.
+type Config struct {
 	// Name is the name of the client group.
 	Name string `json:"name"`
 
@@ -63,7 +63,7 @@ type ClientGroupConfig struct {
 }
 
 // AddClientGroup creates a client group from the configuration and adds it to the client maps.
-func (c *ClientGroupConfig) AddClientGroup(
+func (c *Config) AddClientGroup(
 	logger *zap.Logger,
 	tcpClientByName map[string]netio.StreamClient,
 	udpClientByName map[string]zerocopy.UDPClient,
