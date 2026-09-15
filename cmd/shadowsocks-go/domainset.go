@@ -67,7 +67,7 @@ Flags:
   -inDlc <path>       Path to input domain set file in v2fly/domain-list-community exported plaintext format
   -inText <path>      Path to input domain set file in plaintext format
   -inGob <path>       Path to input domain set file in gob format
-  -verbose            Dump domain set rules
+  -v, -verbose        Dump domain set rules
   -sort               When -verbose, dump rules in alphabetical order
 
 Examples:
@@ -115,6 +115,7 @@ func runDomainSetShow(name string, args []string) int {
 		})
 	})
 	fs.BoolVar(&verbose, "verbose", false, "dump domain set rules")
+	fs.BoolVar(&verbose, "v", false, "alias for -verbose")
 	fs.BoolVar(&sorted, "sort", false, "when -verbose, dump rules in alphabetical order")
 	fs.Parse(args)
 

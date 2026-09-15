@@ -66,7 +66,7 @@ Input flags can be specified multiple times to inspect multiple files in one run
 Flags:
   -inText <path>      Path to input prefix set file in text format
   -inBinary <path>    Path to input prefix set file in binary format
-  -verbose            Dump prefixes
+  -v, -verbose        Dump prefixes
   -sort               When -verbose, dump prefixes in canonical sort order
 
 Examples:
@@ -107,6 +107,7 @@ func runPrefixSetShow(name string, args []string) int {
 		return addItem(s, prefixset.UnmarshalReadBinary)
 	})
 	fs.BoolVar(&verbose, "verbose", false, "dump prefixes")
+	fs.BoolVar(&verbose, "v", false, "alias for -verbose")
 	fs.BoolVar(&sorted, "sort", false, "when -verbose, dump prefixes in canonical sort order")
 	fs.Parse(args)
 
