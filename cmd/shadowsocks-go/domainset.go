@@ -100,7 +100,7 @@ func runDomainSetShow(name string, args []string) int {
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), usageDomainSetShow, name, name, name)
 	}
-	fs.Init(name, flag.ExitOnError)
+	fs.Init(name, flag.ContinueOnError)
 	fs.Func("inDlc", "`path` to input domain set file in v2fly/domain-list-community exported plaintext format", func(s string) error {
 		return addItem(s, domainset.BuilderFromDLC)
 	})
@@ -117,7 +117,12 @@ func runDomainSetShow(name string, args []string) int {
 	fs.BoolVar(&verbose, "verbose", false, "dump domain set rules")
 	fs.BoolVar(&verbose, "v", false, "alias for -verbose")
 	fs.BoolVar(&sorted, "sort", false, "when -verbose, dump rules in alphabetical order")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
 
 	if fs.NArg() > 0 {
 		fmt.Fprintf(fs.Output(), "Unexpected arguments: %v\nRun '%s -h' for usage.\n", fs.Args(), name)
@@ -356,7 +361,7 @@ func runDomainSetConvert(name string, args []string) int {
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), usageDomainSetConvert, name, name, name)
 	}
-	fs.Init(name, flag.ExitOnError)
+	fs.Init(name, flag.ContinueOnError)
 	fs.Func("inDlc", "`path` to input domain set file in v2fly/domain-list-community exported plaintext format", func(s string) error {
 		return setJobInput(s, domainset.BuilderFromDLC)
 	})
@@ -385,7 +390,12 @@ func runDomainSetConvert(name string, args []string) int {
 	fs.BoolVar(&logNoTime, "logNoTime", false, "disable timestamp in log output")
 	fs.BoolVar(&logKVPairs, "logKVPairs", false, "format logs as key=value pairs")
 	fs.BoolVar(&logJSON, "logJSON", false, "format logs as line-delimited JSON")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
 
 	if fs.NArg() > 0 {
 		fmt.Fprintf(fs.Output(), "Unexpected arguments: %v\nRun '%s -h' for usage.\n", fs.Args(), name)

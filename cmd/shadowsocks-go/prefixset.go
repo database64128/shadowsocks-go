@@ -99,7 +99,7 @@ func runPrefixSetShow(name string, args []string) int {
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), usagePrefixSetShow, name, name, name)
 	}
-	fs.Init(name, flag.ExitOnError)
+	fs.Init(name, flag.ContinueOnError)
 	fs.Func("inText", "`path` to input prefix set file in text format", func(s string) error {
 		return addItem(s, prefixset.UnmarshalReadText)
 	})
@@ -109,7 +109,12 @@ func runPrefixSetShow(name string, args []string) int {
 	fs.BoolVar(&verbose, "verbose", false, "dump prefixes")
 	fs.BoolVar(&verbose, "v", false, "alias for -verbose")
 	fs.BoolVar(&sorted, "sort", false, "when -verbose, dump prefixes in canonical sort order")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
 
 	if fs.NArg() > 0 {
 		fmt.Fprintf(fs.Output(), "Unexpected arguments: %v\nRun '%s -h' for usage.\n", fs.Args(), name)
@@ -293,7 +298,7 @@ func runPrefixSetConvert(name string, args []string) int {
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), usagePrefixSetConvert, name, name, name)
 	}
-	fs.Init(name, flag.ExitOnError)
+	fs.Init(name, flag.ContinueOnError)
 	fs.Func("inText", "`path` to input prefix set file in text format", func(s string) error {
 		return setJobInput(s, prefixset.UnmarshalReadText)
 	})
@@ -312,7 +317,12 @@ func runPrefixSetConvert(name string, args []string) int {
 	fs.BoolVar(&logNoTime, "logNoTime", false, "disable timestamp in log output")
 	fs.BoolVar(&logKVPairs, "logKVPairs", false, "format logs as key=value pairs")
 	fs.BoolVar(&logJSON, "logJSON", false, "format logs as line-delimited JSON")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
 
 	if fs.NArg() > 0 {
 		fmt.Fprintf(fs.Output(), "Unexpected arguments: %v\nRun '%s -h' for usage.\n", fs.Args(), name)

@@ -40,10 +40,15 @@ func runService(name string, args []string) int {
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), usageService, name)
 	}
-	fs.Init(name, flag.ExitOnError)
+	fs.Init(name, flag.ContinueOnError)
 	fs.StringVar(&zapConf, "zapConf", "console", "preset name or path to the JSON config file for building the zap logger\navailable presets: console, console-nocolor, console-notime, systemd, production, development")
 	fs.TextVar(&logLevel, "logLevel", zapcore.InfoLevel, "log `level` for the console and systemd presets\navailable levels: debug, info, warn, error, dpanic, panic, fatal")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
 
 	logger, err := logging.NewZapLogger(zapConf, logLevel)
 	if err != nil {

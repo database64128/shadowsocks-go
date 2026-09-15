@@ -32,10 +32,15 @@ func runConfig(name string, args []string) int {
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), usageConfig, name)
 	}
-	fs.Init(name, flag.ExitOnError)
+	fs.Init(name, flag.ContinueOnError)
 	fs.BoolVar(&format, "format", false, "format the config files")
 	fs.BoolVar(&test, "test", false, "test the config files")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
 
 	if !format && !test {
 		fmt.Fprintf(fs.Output(), "Please specify at least one of -format or -test\nRun '%s -h' for usage.\n", name)
