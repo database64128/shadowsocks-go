@@ -1,15 +1,18 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"iter"
 	"log/slog"
 	"os"
 	"os/signal"
 	"runtime"
+	"slices"
 	"strconv"
 	"sync/atomic"
 	"syscall"
@@ -25,6 +28,7 @@ const usageDomainSet = `Manage domain set files
 Usage: %s [command]
 
 Commands:
+  show        Inspect domain set files
   convert     Convert domain set files between different formats
 
 Run '%s [command] -h' for more information on a command.
@@ -40,6 +44,8 @@ func runDomainSet(name string, args []string) int {
 		return 2
 	}
 	switch args[0] {
+	case "show":
+		return runDomainSetShow(name+" show", args[1:])
 	case "convert":
 		return runDomainSetConvert(name+" convert", args[1:])
 	case "--help", "-help", "-h":
@@ -49,6 +55,193 @@ func runDomainSet(name string, args []string) int {
 		fmt.Fprintf(os.Stderr, "Unknown command: %q\nRun '%s -h' for usage.\n", args[0], name)
 		return 2
 	}
+}
+
+const usageDomainSetShow = `Inspect domain set files
+
+Usage: %s [options]
+
+Input flags can be specified multiple times to inspect multiple files in one run.
+
+Flags:
+  -inDlc <path>       Path to input domain set file in v2fly/domain-list-community exported plaintext format
+  -inText <path>      Path to input domain set file in plaintext format
+  -inGob <path>       Path to input domain set file in gob format
+  -verbose            Dump domain set rules
+  -sort               When -verbose, dump rules in alphabetical order
+
+Examples:
+  Show domain set rule counts:
+    %s -inText domains.txt
+
+  Dump rules in alphabetical order:
+    %s -inGob domains -verbose -sort
+`
+
+func runDomainSetShow(name string, args []string) int {
+	var (
+		fs      flag.FlagSet
+		items   []domainSetShowItem
+		verbose bool
+		sorted  bool
+	)
+
+	addItem := func(path string, unmarshal func(text, attr string) (domainset.Builder, error)) error {
+		if path == "" {
+			return errors.New("empty input path")
+		}
+		items = append(items, domainSetShowItem{
+			inPath:    path,
+			unmarshal: unmarshal,
+		})
+		return nil
+	}
+
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), usageDomainSetShow, name, name, name)
+	}
+	fs.Init(name, flag.ExitOnError)
+	fs.Func("inDlc", "`path` to input domain set file in v2fly/domain-list-community exported plaintext format", func(s string) error {
+		return addItem(s, domainset.BuilderFromDLC)
+	})
+	fs.Func("inText", "`path` to input domain set file in plaintext format", func(s string) error {
+		return addItem(s, func(text, _ string) (domainset.Builder, error) {
+			return domainset.BuilderFromText(text)
+		})
+	})
+	fs.Func("inGob", "`path` to input domain set file in gob format", func(s string) error {
+		return addItem(s, func(text, _ string) (domainset.Builder, error) {
+			return domainset.BuilderFromGobString(text)
+		})
+	})
+	fs.BoolVar(&verbose, "verbose", false, "dump domain set rules")
+	fs.BoolVar(&sorted, "sort", false, "when -verbose, dump rules in alphabetical order")
+	fs.Parse(args)
+
+	if fs.NArg() > 0 {
+		fmt.Fprintf(fs.Output(), "Unexpected arguments: %v\nRun '%s -h' for usage.\n", fs.Args(), name)
+		return 2
+	}
+
+	if len(items) == 0 {
+		fmt.Fprintf(fs.Output(), "Please specify domain set files with -inDlc, -inText, and/or -inGob.\nRun '%s -h' for usage.\n", name)
+		return 2
+	}
+
+	var exitCode int
+	bw := bufio.NewWriter(os.Stdout)
+	for i, item := range items {
+		if i > 0 {
+			if err := bw.WriteByte('\n'); err != nil {
+				fmt.Fprintf(fs.Output(), "Failed to write newline to stdout: %v\n", err)
+				exitCode = 1
+			}
+		}
+		if err := item.WriteOutput(bw, verbose, sorted); err != nil {
+			fmt.Fprintf(fs.Output(), "Failed to show domain set file %q: %v\n", item.inPath, err)
+			exitCode = 1
+		}
+	}
+	if err := bw.Flush(); err != nil {
+		fmt.Fprintf(fs.Output(), "Failed to flush to stdout: %v\n", err)
+		exitCode = 1
+	}
+	return exitCode
+}
+
+type domainSetShowItem struct {
+	inPath    string
+	unmarshal func(text, attr string) (domainset.Builder, error)
+}
+
+func (item *domainSetShowItem) WriteOutput(bw *bufio.Writer, verbose, sorted bool) error {
+	data, close, err := mmap.ReadFile[string](item.inPath)
+	if err != nil {
+		return err
+	}
+	defer close()
+
+	dsb, err := item.unmarshal(data, "")
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal domain set from file %q: %w", item.inPath, err)
+	}
+
+	domainCount, domainSeq := dsb.DomainMatcherBuilder().Rules()
+	suffixCount, suffixSeq := dsb.SuffixMatcherBuilder().Rules()
+	keywordCount, keywordSeq := dsb.KeywordMatcherBuilder().Rules()
+	regexpCount, regexpSeq := dsb.RegexpMatcherBuilder().Rules()
+
+	if _, err := bw.WriteString("Path: "); err != nil {
+		return err
+	}
+	if _, err := bw.WriteString(item.inPath); err != nil {
+		return err
+	}
+	if _, err := bw.WriteString("\nRule counts:\n"); err != nil {
+		return err
+	}
+
+	for _, section := range [...]struct {
+		name  string
+		count int
+	}{
+		{"  domain:  ", domainCount},
+		{"  suffix:  ", suffixCount},
+		{"  keyword: ", keywordCount},
+		{"  regexp:  ", regexpCount},
+	} {
+		if _, err := bw.WriteString(section.name); err != nil {
+			return err
+		}
+		b := strconv.AppendInt(bw.AvailableBuffer(), int64(section.count), 10)
+		if _, err := bw.Write(b); err != nil {
+			return err
+		}
+		if err := bw.WriteByte('\n'); err != nil {
+			return err
+		}
+	}
+
+	if verbose {
+		if _, err := bw.WriteString("\nRules:\n"); err != nil {
+			return err
+		}
+
+		for _, section := range [...]struct {
+			title string
+			count int
+			rules iter.Seq[string]
+		}{
+			{"  domain:\n", domainCount, domainSeq},
+			{"  suffix:\n", suffixCount, suffixSeq},
+			{"  keyword:\n", keywordCount, keywordSeq},
+			{"  regexp:\n", regexpCount, regexpSeq},
+		} {
+			if _, err := bw.WriteString(section.title); err != nil {
+				return err
+			}
+
+			if sorted {
+				rules := slices.AppendSeq(make([]string, 0, section.count), section.rules)
+				slices.Sort(rules)
+				section.rules = slices.Values(rules)
+			}
+
+			for rule := range section.rules {
+				if _, err := bw.WriteString("    "); err != nil {
+					return err
+				}
+				if _, err := bw.WriteString(rule); err != nil {
+					return err
+				}
+				if err := bw.WriteByte('\n'); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 const usageDomainSetConvert = `Convert domain set files between different formats
