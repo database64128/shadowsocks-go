@@ -3,7 +3,6 @@ package clientgroups
 import (
 	"context"
 	"math/bits"
-	"net/netip"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -31,8 +30,8 @@ var (
 	// https://www.chromium.org/chromium-os/chromiumos-design-docs/network-portal-detection/
 	defaultTCPProbeAddress = conn.MustAddrFromDomainPort("clients3.google.com", 80)
 
-	// [2606:4700:4700::1111]:53
-	defaultUDPProbeAddress = conn.AddrFromIPAndPort(netip.AddrFrom16([16]byte{0x26, 0x06, 0x47, 0x00, 0x47, 0x00, 14: 0x11, 0x11}), 53)
+	// one.one.one.one:53
+	defaultUDPProbeAddress = conn.MustAddrFromDomainPort("one.one.one.one", 53)
 )
 
 // ConnectivityProbeConfig is the shared part of the configuration for TCP and UDP connectivity probes.
@@ -186,7 +185,7 @@ type UDPConnectivityProbeConfig struct {
 
 	// Address is the address of the UDP DNS server.
 	//
-	// Default is "[2606:4700:4700::1111]:53".
+	// Default is "one.one.one.one:53".
 	Address conn.Addr `json:"address,omitzero"`
 }
 
