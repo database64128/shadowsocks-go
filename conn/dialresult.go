@@ -1,5 +1,10 @@
 package conn
 
+import (
+	"errors"
+	"net"
+)
+
 // DialResultCode is the result code of a dial operation.
 type DialResultCode uint8
 
@@ -22,9 +27,28 @@ const (
 	DialResultCodeErrOther            DialResultCode = 255 // other error
 )
 
-// DialResultCodeFromError parses the error and returns a [DialResultCode].
+// DialResultCodeFromError returns the [DialResultCode] corresponding to the given error
+// based on the following rules:
+//
+//   - If err is nil, [DialResultCodeSuccess] is returned.
+//   - If err wraps a [DialResultCode], that code is returned.
+//   - If err wraps a [*net.DNSError], [DialResultCodeErrDomainNameLookup] is returned.
+//   - If err is a syscall error, the translated [DialResultCode] is returned.
+//   - Otherwise, [DialResultCodeErrOther] is returned.
 func DialResultCodeFromError(err error) DialResultCode {
-	return dialResultCodeFromError(err)
+	if err == nil {
+		return DialResultCodeSuccess
+	}
+	if c, ok := errors.AsType[DialResultCode](err); ok {
+		return c
+	}
+	if _, ok := errors.AsType[*net.DNSError](err); ok {
+		return DialResultCodeErrDomainNameLookup
+	}
+	if c, ok := dialResultCodeFromSyscallError(err); ok {
+		return c
+	}
+	return DialResultCodeErrOther
 }
 
 // String returns the string representation of the dial result code.
@@ -61,6 +85,11 @@ func (c DialResultCode) String() string {
 	}
 }
 
+// Error implements [error].
+func (c DialResultCode) Error() string {
+	return c.String()
+}
+
 // DialResult contains the result of a dial operation.
 type DialResult struct {
 	// Code is the result code of the dial operation.
@@ -71,6 +100,8 @@ type DialResult struct {
 }
 
 // DialResultFromError parses the error and returns a [DialResult].
+//
+// See [DialResultCodeFromError] for how the result code is determined.
 func DialResultFromError(err error) DialResult {
 	return DialResult{
 		Code: DialResultCodeFromError(err),

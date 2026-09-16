@@ -2,21 +2,14 @@ package conn
 
 import (
 	"errors"
-	"net"
 	"syscall"
 )
 
-func dialResultCodeFromError(err error) DialResultCode {
-	if err == nil {
-		return DialResultCodeSuccess
-	}
+func dialResultCodeFromSyscallError(err error) (DialResultCode, bool) {
 	if e, ok := errors.AsType[syscall.ErrorString](err); ok {
-		return dialResultCodeFromSyscallErrorString(e)
+		return dialResultCodeFromSyscallErrorString(e), true
 	}
-	if _, ok := errors.AsType[*net.DNSError](err); ok {
-		return DialResultCodeErrDomainNameLookup
-	}
-	return DialResultCodeErrOther
+	return 0, false
 }
 
 func dialResultCodeFromSyscallErrorString(e syscall.ErrorString) DialResultCode {
