@@ -128,9 +128,16 @@ func (c *TCPClient) DialStream(ctx context.Context, addr conn.Addr, payload []by
 	switch {
 	case addr.IsIP():
 		raddr := addr.IPPort()
-		// TODO: Check address family preference and return an error that
-		// can be parsed into a dial result with the correct error code.
-		laddr := c.localAddr(raddr.Addr())
+		ip := raddr.Addr()
+		laddr := c.localAddr(ip)
+		if c.addressFamilyPreference == AddressFamilyPreferenceIPv6Only && (!ip.Is6() || ip.Is4In6()) ||
+			c.addressFamilyPreference == AddressFamilyPreferenceIPv4Only && !ip.Is4() && !ip.Is4In6() {
+			return nil, &TCPClientAddrError{
+				LocalAddrPort:  laddr,
+				RemoteAddrPort: raddr,
+				Err:            AddressFamilyPreferenceMismatchError(c.addressFamilyPreference),
+			}
+		}
 		return c.dialer.Dial(ctx, "tcp", laddr, raddr, payload)
 
 	case addr.IsDomain():
@@ -407,6 +414,21 @@ func (c *TCPClient) localAddr(ip netip.Addr) netip.AddrPort {
 	return c.localAddr6
 }
 
+// TCPClientAddrError is returned by [TCPClient] to describe an error related to the endpoint address.
+type TCPClientAddrError struct {
+	LocalAddrPort  netip.AddrPort
+	RemoteAddrPort netip.AddrPort
+	Err            error
+}
+
+func (e *TCPClientAddrError) Error() string {
+	return fmt.Sprintf("dial tcp %s->%s: %v", &e.LocalAddrPort, &e.RemoteAddrPort, e.Err)
+}
+
+func (e *TCPClientAddrError) Unwrap() error {
+	return e.Err
+}
+
 // NewTCPTransparentProxyServer returns a new TCP transparent proxy server.
 func NewTCPTransparentProxyServer() (StreamServer, error) {
 	return newTCPTransparentProxyServer()
@@ -513,4 +535,16 @@ func (p *AddressFamilyPreference) UnmarshalText(text []byte) error {
 		return fmt.Errorf("invalid address family preference: %q", text)
 	}
 	return nil
+}
+
+// AddressFamilyPreferenceMismatchError represents an incompatibility
+// between an address and the specified address family preference.
+type AddressFamilyPreferenceMismatchError AddressFamilyPreference
+
+func (e AddressFamilyPreferenceMismatchError) Error() string {
+	return `address not suitable for address family preference "` + AddressFamilyPreference(e).String() + `"`
+}
+
+func (e AddressFamilyPreferenceMismatchError) Unwrap() error {
+	return conn.DialResultCodeENETUNREACH
 }
