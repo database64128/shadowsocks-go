@@ -372,7 +372,7 @@ Reject policies are implemented for Shadowsocks 2022 TCP servers. A server's rej
 
 ### 3. Unsafe Fallback
 
-A Shadowsocks 2022 server can be configured to forward TCP connections to a fallback address when the handshake fails. Add the `"unsafeFallbackAddress"` field to the server block to specify the fallback address. On startup a warning message will be printed to tell you that using this feature "taints" the server. Unsafe fallback only works for TCP connections.
+A Shadowsocks 2022 server can be configured to forward TCP connections to a fallback address when the handshake fails. Add the `"unsafeFallbackAddress"` field to the server block to specify the fallback address. Unsafe fallback only works for TCP connections.
 
 This feature might be useful when your threat model only includes off-path attackers, and you want to reuse the port or trick probes into thinking the server is something else. An on-path attacker (e.g. a typical censor) can easily tell that the regular traffic does not match the fallback traffic.
 
@@ -380,7 +380,7 @@ This feature might be useful when your threat model only includes off-path attac
 
 The unsafe stream prefix feature allows you to configure a pair of pre-shared cleartext prefixes for Shadowsocks 2022 streams. The prefixes are prepended to the request and response streams to trick simple firewalls.
 
-To use this feature, add `"unsafeRequestStreamPrefix"` and `"unsafeResponseStreamPrefix"` to both client and server blocks, and specify the prefixes in base64 encoding. The client and server must agree on the same pair of prefixes. On startup a warning message will be printed to tell you that using this feature "taints" the client and server.
+To use this feature, add `"unsafeRequestStreamPrefix"` and `"unsafeResponseStreamPrefix"` to both client and server blocks, and specify the prefixes in base64 encoding. The client and server must agree on the same pair of prefixes.
 
 ## License
 

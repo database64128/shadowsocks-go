@@ -476,14 +476,10 @@ type ServerConfig struct {
 
 	// UnsafeRequestStreamPrefix specifies the prefix bytes expected at the beginning of
 	// Shadowsocks 2022 request streams.
-	//
-	// The use of this feature "taints" the server.
 	UnsafeRequestStreamPrefix []byte `json:"unsafeRequestStreamPrefix,omitzero"`
 
 	// UnsafeResponseStreamPrefix specifies the prefix bytes expected at the beginning of
 	// Shadowsocks 2022 response streams.
-	//
-	// The use of this feature "taints" the server.
 	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix,omitzero"`
 
 	tlsCertStore                *tlscerts.Store
@@ -649,13 +645,6 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 		}
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		if sc.UnsafeFallbackAddress.IsValid() {
-			sc.logger.Warn("Unsafe fallback taints the server", zap.String("server", sc.Name))
-		}
-		if len(sc.UnsafeRequestStreamPrefix) != 0 || len(sc.UnsafeResponseStreamPrefix) != 0 {
-			sc.logger.Warn("Unsafe stream prefix taints the server", zap.String("server", sc.Name))
-		}
-
 		scc := ss2022.StreamServerConfig{
 			AllowSegmentedFixedLengthHeader: sc.AllowSegmentedFixedLengthHeader,
 			UserCipherConfig:                sc.userCipherConfig,

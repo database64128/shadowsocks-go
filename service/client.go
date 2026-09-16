@@ -155,13 +155,9 @@ type ClientConfig struct {
 	SlidingWindowFilterSize uint64 `json:"slidingWindowFilterSize,omitzero"`
 
 	// UnsafeRequestStreamPrefix specifies the prefix bytes to prepend to Shadowsocks 2022 request streams.
-	//
-	// The use of this feature "taints" the client.
 	UnsafeRequestStreamPrefix []byte `json:"unsafeRequestStreamPrefix,omitzero"`
 
 	// UnsafeResponseStreamPrefix specifies the prefix bytes to prepend to Shadowsocks 2022 response streams.
-	//
-	// The use of this feature "taints" the client.
 	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix,omitzero"`
 }
 
@@ -368,10 +364,6 @@ func (c *ClientConfig) AddClient(
 		}
 
 		if c.EnableTCP {
-			if len(c.UnsafeRequestStreamPrefix) != 0 || len(c.UnsafeResponseStreamPrefix) != 0 {
-				logger.Warn("Unsafe stream prefix taints the client", zap.String("client", c.Name))
-			}
-
 			innerClient, err := c.innerTCPClient(network, tcpDialerCache, resolver)
 			if err != nil {
 				return err
