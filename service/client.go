@@ -122,16 +122,6 @@ type ClientConfig struct {
 	// The default is [PMTUDModeAppDefault], which disables IP fragmentation for better performance and reliability.
 	UDPPathMTUDiscovery PMTUDMode `json:"udpPathMTUDiscovery,omitzero"`
 
-	// AllowFragmentation controls whether to allow fragmented UDP packets.
-	//
-	// IP fragmentation does not reliably work over the Internet.
-	// Sending fragmented packets will significantly reduce throughput.
-	// Do not enable this option unless it is absolutely necessary.
-	//
-	// This field is obsolete and will be removed in a future release.
-	// Setting it to true overrides UDPPathMTUDiscovery to [PMTUDModeSystemDefault].
-	AllowFragmentation bool `json:"allowFragmentation,omitzero"`
-
 	// MTU is the MTU of the client's designated network path.
 	MTU int `json:"mtu,omitzero"`
 

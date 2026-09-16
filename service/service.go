@@ -42,15 +42,6 @@ func (cfg *Config) Migrate() {
 	for i := range cfg.Servers {
 		sc := &cfg.Servers[i]
 
-		for j := range sc.UDPListeners {
-			ulc := &sc.UDPListeners[j]
-
-			if ulc.AllowFragmentation {
-				ulc.AllowFragmentation = false
-				ulc.PathMTUDiscovery = PMTUDModeSystemDefault
-			}
-		}
-
 		if sc.EnableTCP {
 			sc.TCPListeners = append(sc.TCPListeners, TCPListenerConfig{
 				Network:                   "tcp",
@@ -90,15 +81,6 @@ func (cfg *Config) Migrate() {
 		sc.UDPRelayBatchSize = 0
 		sc.UDPServerRecvBatchSize = 0
 		sc.UDPSendChannelCapacity = 0
-	}
-
-	for i := range cfg.Clients {
-		cc := &cfg.Clients[i]
-
-		if cc.AllowFragmentation {
-			cc.AllowFragmentation = false
-			cc.UDPPathMTUDiscovery = PMTUDModeSystemDefault
-		}
 	}
 }
 

@@ -311,16 +311,6 @@ type UDPListenerConfig struct {
 	//
 	// The default value is 5 minutes.
 	NATTimeout jsoncfg.Duration `json:"natTimeout,omitzero"`
-
-	// AllowFragmentation controls whether to allow IP fragmentation.
-	//
-	// IP fragmentation does not reliably work over the Internet.
-	// Sending fragmented packets will significantly reduce throughput.
-	// Do not enable this option unless it is absolutely necessary.
-	//
-	// This field is obsolete and will be removed in a future release.
-	// Setting it to true overrides PathMTUDiscovery to [PMTUDModeSystemDefault].
-	AllowFragmentation bool `json:"allowFragmentation,omitzero"`
 }
 
 // Configure returns a UDP server socket configuration.
@@ -333,14 +323,6 @@ func (lnc *UDPListenerConfig) Configure(logger *zap.Logger, serverName string, s
 
 	if err := lnc.UDPPerfConfig.CheckAndApplyDefaults(); err != nil {
 		return udpRelayServerConn{}, err
-	}
-
-	pmtud := lnc.PathMTUDiscovery
-	if lnc.AllowFragmentation {
-		pmtud = PMTUDModeSystemDefault
-		logger.Warn("allowFragmentation is obsolete and will be removed in a future release; migrate to pathMTUDiscovery for more granular control",
-			zap.String("server", serverName),
-		)
 	}
 
 	natTimeout := lnc.NATTimeout.Value()
@@ -359,7 +341,7 @@ func (lnc *UDPListenerConfig) Configure(logger *zap.Logger, serverName string, s
 			TrafficClass:            lnc.TrafficClass,
 			ReusePort:               lnc.ReusePort,
 			Transparent:             transparent,
-			PathMTUDiscovery:        pmtud.UDP(),
+			PathMTUDiscovery:        lnc.PathMTUDiscovery.UDP(),
 			ReceivePacketInfo:       !transparent,
 			ReceiveOriginalDestAddr: transparent,
 		}),
