@@ -136,7 +136,6 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 	clientIndexByName := make(map[string]int, len(sc.Clients))
 	tcpClientMap := make(map[string]netio.StreamClient, len(sc.Clients))
 	udpClientMap := make(map[string]zerocopy.UDPClient, len(sc.Clients))
-	var maxClientPackerHeadroom zerocopy.Headroom
 
 	for i := range sc.Clients {
 		clientConfig := &sc.Clients[i]
@@ -146,28 +145,14 @@ func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
 		}
 		clientIndexByName[clientConfig.Name] = i
 
-		if err := clientConfig.Initialize(tlsCertStore, tcpDialerCache, udpSocketConfigCache, logger); err != nil {
-			return nil, fmt.Errorf("failed to initialize client %q: %w", clientConfig.Name, err)
+		if err := clientConfig.AddClient(tcpClientMap, udpClientMap, tcpDialerCache, udpSocketConfigCache, tlsCertStore, logger); err != nil {
+			return nil, fmt.Errorf("failed to create client %q: %w", clientConfig.Name, err)
 		}
+	}
 
-		tcpClient, err := clientConfig.TCPClient()
-		switch err {
-		case errNetworkDisabled:
-		case nil:
-			tcpClientMap[clientConfig.Name] = tcpClient
-		default:
-			return nil, fmt.Errorf("failed to create TCP client for %q: %w", clientConfig.Name, err)
-		}
-
-		udpClient, err := clientConfig.UDPClient()
-		switch err {
-		case errNetworkDisabled:
-		case nil:
-			udpClientMap[clientConfig.Name] = udpClient
-			maxClientPackerHeadroom = zerocopy.MaxHeadroom(maxClientPackerHeadroom, udpClient.Info().PackerHeadroom)
-		default:
-			return nil, fmt.Errorf("failed to create UDP client for %q: %w", clientConfig.Name, err)
-		}
+	var maxClientPackerHeadroom zerocopy.Headroom
+	for _, udpClient := range udpClientMap {
+		maxClientPackerHeadroom = zerocopy.MaxHeadroom(maxClientPackerHeadroom, udpClient.Info().PackerHeadroom)
 	}
 
 	services := make([]shadowsocks.Service, 0, len(sc.ClientGroups)+2+2*len(sc.Servers))

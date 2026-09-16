@@ -138,8 +138,6 @@ type ClientConfig struct {
 	// Socks5 is the protocol-specific configuration for "socks5".
 	Socks5 Socks5ClientConfig `json:"socks5,omitzero"`
 
-	socks5AuthMsg []byte
-
 	// HTTP is the protocol-specific configuration for "http".
 	HTTP HTTPProxyClientConfig `json:"http,omitzero"`
 
@@ -166,8 +164,6 @@ type ClientConfig struct {
 	// Only applicable to Shadowsocks 2022 UDP.
 	SlidingWindowFilterSize uint64 `json:"slidingWindowFilterSize,omitzero"`
 
-	cipherConfig *ss2022.ClientCipherConfig
-
 	// UnsafeRequestStreamPrefix specifies the prefix bytes to prepend to Shadowsocks 2022 request streams.
 	//
 	// The use of this feature "taints" the client.
@@ -177,143 +173,255 @@ type ClientConfig struct {
 	//
 	// The use of this feature "taints" the client.
 	UnsafeResponseStreamPrefix []byte `json:"unsafeResponseStreamPrefix,omitzero"`
-
-	tlsCertStore *tlscerts.Store
-	logger       *zap.Logger
-
-	udpSocketConfig conn.UDPSocketConfig
-	resolver        conn.Resolver
-	innerClient     *netio.TCPClient
 }
 
-func (cc *ClientConfig) checkAddresses() error {
-	if cc.Protocol == "direct" {
-		return nil
+func (c *ClientConfig) checkAddresses() (tcpAddr, udpAddr conn.Addr, err error) {
+	if c.Protocol == "direct" {
+		return conn.Addr{}, conn.Addr{}, nil
 	}
 
-	ev := cc.Endpoint.IsValid()
-	tv := cc.TCPAddress.IsValid()
-	uv := cc.UDPAddress.IsValid()
+	ev := c.Endpoint.IsValid()
+	tv := c.TCPAddress.IsValid()
+	uv := c.UDPAddress.IsValid()
 
 	if ev == (tv || uv) {
-		return errors.New("missing or conflicting proxy server address(es)")
+		return conn.Addr{}, conn.Addr{}, errors.New("missing or conflicting proxy server address(es)")
 	}
 
 	if ev {
-		cc.TCPAddress = cc.Endpoint
-		cc.UDPAddress = cc.Endpoint
+		return c.Endpoint, c.Endpoint, nil
+	}
+
+	if c.EnableTCP && !tv {
+		return conn.Addr{}, conn.Addr{}, errors.New("missing proxy server TCP address")
+	}
+
+	if c.EnableUDP && !uv {
+		return conn.Addr{}, conn.Addr{}, errors.New("missing proxy server UDP address")
+	}
+
+	return c.TCPAddress, c.UDPAddress, nil
+}
+
+// AddClient creates a client from the configuration and adds it to the client maps.
+func (c *ClientConfig) AddClient(
+	streamClientByName map[string]netio.StreamClient,
+	udpClientByName map[string]zerocopy.UDPClient,
+	tcpDialerCache conn.TCPDialerCache,
+	udpSocketConfigCache conn.UDPSocketConfigCache,
+	tlsCertStore *tlscerts.Store,
+	logger *zap.Logger,
+) error {
+	if !c.EnableTCP && !c.EnableUDP {
 		return nil
 	}
 
-	if cc.EnableTCP && !tv {
-		return errors.New("missing proxy server TCP address")
+	if c.EnableUDP && c.MTU < minimumMTU {
+		return ErrMTUTooSmall
 	}
 
-	if cc.EnableUDP && !uv {
-		return errors.New("missing proxy server UDP address")
-	}
-
-	return nil
-}
-
-// Initialize initializes the client configuration.
-func (cc *ClientConfig) Initialize(tlsCertStore *tlscerts.Store, tcpDialerCache conn.TCPDialerCache, udpSocketConfigCache conn.UDPSocketConfigCache, logger *zap.Logger) (err error) {
-	switch cc.Network {
+	network := c.Network
+	switch network {
 	case "":
-		cc.Network = "ip"
+		network = "ip"
 	case "ip", "ip4", "ip6":
 	default:
-		return fmt.Errorf("unknown network: %q", cc.Network)
+		return fmt.Errorf("unknown network: %q", network)
 	}
 
-	if err = cc.checkAddresses(); err != nil {
-		return
+	tcpAddr, udpAddr, err := c.checkAddresses()
+	if err != nil {
+		return err
 	}
 
-	switch cc.Protocol {
+	var resolver conn.Resolver
+	if c.OverrideResolverDialAddress != "" {
+		tcpDialer := c.tcpDialer(tcpDialerCache)
+		udpSocketConfig := c.udpSocketConfig(udpSocketConfigCache)
+		resolverDialer := conn.NewDialer(tcpDialer, udpSocketConfig, conn.UnixDomainSocketConfig{})
+		resolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				return resolverDialer.Dial(ctx, network, c.OverrideResolverDialAddress)
+			},
+		}
+	}
+
+	switch c.Protocol {
+	case "direct":
+		if c.EnableTCP {
+			streamClient, err := c.innerTCPClient(network, tcpDialerCache, resolver)
+			if err != nil {
+				return err
+			}
+			streamClientByName[c.Name] = streamClient
+		}
+
+		if c.EnableUDP {
+			udpClientByName[c.Name] = direct.NewDirectUDPClient(c.Name, network, resolver, c.MTU, c.udpSocketConfig(udpSocketConfigCache))
+		}
+
+	case "none", "plain":
+		if c.EnableTCP {
+			innerClient, err := c.innerTCPClient(network, tcpDialerCache, resolver)
+			if err != nil {
+				return err
+			}
+
+			cfg := ssnone.StreamClientConfig{
+				Name:        c.Name,
+				InnerClient: innerClient,
+				Addr:        tcpAddr,
+			}
+			streamClientByName[c.Name] = cfg.NewStreamClient()
+		}
+
+		if c.EnableUDP {
+			udpClientByName[c.Name] = direct.NewShadowsocksNoneUDPClient(c.Name, network, udpAddr, resolver, c.MTU, c.udpSocketConfig(udpSocketConfigCache))
+		}
+
 	case "socks5":
-		if cc.Socks5.EnableUserPassAuth {
-			if err = cc.Socks5.Validate(); err != nil {
+		innerClient, err := c.innerTCPClient(network, tcpDialerCache, resolver)
+		if err != nil {
+			return err
+		}
+
+		var authMsg []byte
+		if c.Socks5.EnableUserPassAuth {
+			if err := c.Socks5.Validate(); err != nil {
 				return fmt.Errorf("bad user credentials: %w", err)
 			}
-			cc.socks5AuthMsg = cc.Socks5.AppendAuthMsg(nil)
+			authMsg = c.Socks5.AppendAuthMsg(nil)
+		}
+
+		if c.EnableTCP {
+			cfg := socks5.StreamClientConfig{
+				Name:        c.Name,
+				InnerClient: innerClient,
+				Addr:        tcpAddr,
+				AuthMsg:     authMsg,
+			}
+			streamClientByName[c.Name] = cfg.NewStreamClient()
+		}
+
+		if c.EnableUDP {
+			cfg := direct.Socks5UDPClientConfig{
+				Logger:       logger,
+				Name:         c.Name,
+				StreamDialer: innerClient,
+				Addr:         udpAddr,
+				NetworkIP:    network,
+				Resolver:     resolver,
+				MTU:          c.MTU,
+				SocketConfig: c.udpSocketConfig(udpSocketConfigCache),
+				AuthMsg:      authMsg,
+			}
+			udpClientByName[c.Name] = cfg.NewClient()
 		}
 
 	case "http":
-		if cc.HTTP.UseTLS && cc.HTTP.ServerName == "" {
-			cc.HTTP.ServerName = cc.TCPAddress.Host()
+		if c.EnableUDP {
+			return errors.New("HTTP proxy does not support UDP")
 		}
+
+		innerClient, err := c.innerTCPClient(network, tcpDialerCache, resolver)
+		if err != nil {
+			return err
+		}
+
+		serverName := c.HTTP.ServerName
+		if c.HTTP.UseTLS && serverName == "" {
+			serverName = tcpAddr.Host()
+		}
+
+		cfg := httpproxy.ClientConfig{
+			Name:                           c.Name,
+			InnerClient:                    innerClient,
+			Addr:                           tcpAddr,
+			ServerName:                     serverName,
+			EncryptedClientHelloConfigList: c.HTTP.ECHConfigList,
+			Username:                       c.HTTP.Username,
+			Password:                       c.HTTP.Password,
+			UseTLS:                         c.HTTP.UseTLS,
+			UseBasicAuth:                   c.HTTP.UseBasicAuth,
+		}
+
+		if c.HTTP.CertList != "" {
+			certList, ok := tlsCertStore.GetCertList(c.HTTP.CertList)
+			if !ok {
+				return fmt.Errorf("certificate list not found: %q", c.HTTP.CertList)
+			}
+			cfg.Certificates, cfg.GetClientCertificate = certList.GetClientCertificateFunc()
+		}
+
+		if c.HTTP.RootCAs != "" {
+			pool, ok := tlsCertStore.GetX509CertPool(c.HTTP.RootCAs)
+			if !ok {
+				return fmt.Errorf("root CA X.509 certificate pool not found: %q", c.HTTP.RootCAs)
+			}
+			cfg.RootCAs = pool
+		}
+
+		streamClient, err := cfg.NewProxyClient()
+		if err != nil {
+			return err
+		}
+		streamClientByName[c.Name] = streamClient
 
 	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		if err = ss2022.CheckPSKLength(cc.Protocol, cc.PSK, cc.IPSKs); err != nil {
-			return
+		if err := ss2022.CheckPSKLength(c.Protocol, c.PSK, c.IPSKs); err != nil {
+			return err
 		}
-		cc.cipherConfig, err = ss2022.NewClientCipherConfig(cc.PSK, cc.IPSKs, cc.EnableUDP)
+		cipherConfig, err := ss2022.NewClientCipherConfig(c.PSK, c.IPSKs, c.EnableUDP)
 		if err != nil {
-			return
-		}
-	}
-
-	cc.tlsCertStore = tlsCertStore
-	cc.logger = logger
-
-	if cc.EnableTCP && cc.OverrideResolverDialAddress != "" || cc.EnableUDP {
-		pmtud := cc.UDPPathMTUDiscovery
-		if cc.AllowFragmentation {
-			pmtud = PMTUDModeSystemDefault
-			cc.logger.Warn("allowFragmentation is obsolete and will be removed in a future release; migrate to udpPathMTUDiscovery for more granular control",
-				zap.String("client", cc.Name),
-			)
+			return err
 		}
 
-		cc.udpSocketConfig = udpSocketConfigCache.Get(conn.UDPSocketOptions{
-			SendBufferSize:    conn.DefaultUDPSocketBufferSize,
-			ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
-			Fwmark:            cc.DialerFwmark,
-			TrafficClass:      cc.DialerTrafficClass,
-			PathMTUDiscovery:  pmtud.UDP(),
-		})
-	}
-
-	if cc.EnableTCP || cc.EnableUDP && cc.Protocol == "socks5" {
-		tcpDialer := tcpDialerCache.Get(conn.TCPConnectSocketOptions{
-			Fwmark:              cc.DialerFwmark,
-			TrafficClass:        cc.DialerTrafficClass,
-			PathMTUDiscovery:    cc.TCPPathMTUDiscovery.TCP(),
-			TCPFastOpen:         cc.DialerTFO,
-			TCPFastOpenFallback: cc.TCPFastOpenFallback,
-			MultipathTCP:        cc.MultipathTCP,
-		})
-
-		var resolver conn.Resolver
-		if cc.OverrideResolverDialAddress != "" {
-			resolverDialer := conn.NewDialer(tcpDialer, cc.udpSocketConfig, conn.UnixDomainSocketConfig{})
-			resolver = &net.Resolver{
-				PreferGo: true,
-				Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-					return resolverDialer.Dial(ctx, network, cc.OverrideResolverDialAddress)
-				},
+		if c.EnableTCP {
+			if len(c.UnsafeRequestStreamPrefix) != 0 || len(c.UnsafeResponseStreamPrefix) != 0 {
+				logger.Warn("Unsafe stream prefix taints the client", zap.String("client", c.Name))
 			}
-			cc.resolver = resolver
+
+			innerClient, err := c.innerTCPClient(network, tcpDialerCache, resolver)
+			if err != nil {
+				return err
+			}
+
+			cfg := ss2022.StreamClientConfig{
+				Name:                            c.Name,
+				InnerClient:                     innerClient,
+				Addr:                            tcpAddr,
+				AllowSegmentedFixedLengthHeader: c.AllowSegmentedFixedLengthHeader,
+				CipherConfig:                    cipherConfig,
+				UnsafeRequestStreamPrefix:       c.UnsafeRequestStreamPrefix,
+				UnsafeResponseStreamPrefix:      c.UnsafeResponseStreamPrefix,
+			}
+			streamClientByName[c.Name] = cfg.NewStreamClient()
 		}
 
-		tcc := netio.TCPClientConfig{
-			Name:                    cc.Name,
-			AddressFamilyPreference: cc.addressFamilyPreference(),
-			Dialer:                  tcpDialer,
-			Resolver:                resolver,
+		if c.EnableUDP {
+			udpClientByName[c.Name] = ss2022.NewUDPClient(c.Name, network, udpAddr, resolver, c.MTU, c.udpSocketConfig(udpSocketConfigCache), c.SlidingWindowFilterSize, cipherConfig, c.PaddingPolicy.Policy())
 		}
-		cc.innerClient, err = tcc.NewTCPClient()
-		if err != nil {
-			return fmt.Errorf("failed to create TCP client: %w", err)
-		}
+
+	default:
+		return fmt.Errorf("unknown protocol: %q", c.Protocol)
 	}
 
 	return nil
 }
 
-func (cc *ClientConfig) addressFamilyPreference() netio.AddressFamilyPreference {
-	switch cc.Network {
+func (c *ClientConfig) innerTCPClient(network string, tcpDialerCache conn.TCPDialerCache, resolver conn.Resolver) (*netio.TCPClient, error) {
+	tcc := netio.TCPClientConfig{
+		Name:                    c.Name,
+		AddressFamilyPreference: addressFamilyPreference(network),
+		Dialer:                  c.tcpDialer(tcpDialerCache),
+		Resolver:                resolver,
+	}
+	return tcc.NewTCPClient()
+}
+
+func addressFamilyPreference(network string) netio.AddressFamilyPreference {
+	switch network {
 	case "ip":
 		return netio.AddressFamilyPreferenceDefault
 	case "ip4":
@@ -325,117 +433,25 @@ func (cc *ClientConfig) addressFamilyPreference() netio.AddressFamilyPreference 
 	}
 }
 
-// TCPClient returns a new [netio.StreamClient] from the configuration.
-func (cc *ClientConfig) TCPClient() (netio.StreamClient, error) {
-	if !cc.EnableTCP {
-		return nil, errNetworkDisabled
-	}
-
-	switch cc.Protocol {
-	case "direct":
-		return cc.innerClient, nil
-
-	case "none", "plain":
-		scc := ssnone.StreamClientConfig{
-			Name:        cc.Name,
-			InnerClient: cc.innerClient,
-			Addr:        cc.TCPAddress,
-		}
-		return scc.NewStreamClient(), nil
-
-	case "socks5":
-		scc := socks5.StreamClientConfig{
-			Name:        cc.Name,
-			InnerClient: cc.innerClient,
-			Addr:        cc.TCPAddress,
-			AuthMsg:     cc.socks5AuthMsg,
-		}
-		return scc.NewStreamClient(), nil
-
-	case "http":
-		hpcc := httpproxy.ClientConfig{
-			Name:                           cc.Name,
-			InnerClient:                    cc.innerClient,
-			Addr:                           cc.TCPAddress,
-			ServerName:                     cc.HTTP.ServerName,
-			EncryptedClientHelloConfigList: cc.HTTP.ECHConfigList,
-			Username:                       cc.HTTP.Username,
-			Password:                       cc.HTTP.Password,
-			UseTLS:                         cc.HTTP.UseTLS,
-			UseBasicAuth:                   cc.HTTP.UseBasicAuth,
-		}
-
-		if cc.HTTP.CertList != "" {
-			certList, ok := cc.tlsCertStore.GetCertList(cc.HTTP.CertList)
-			if !ok {
-				return nil, fmt.Errorf("certificate list not found: %q", cc.HTTP.CertList)
-			}
-			hpcc.Certificates, hpcc.GetClientCertificate = certList.GetClientCertificateFunc()
-		}
-
-		if cc.HTTP.RootCAs != "" {
-			pool, ok := cc.tlsCertStore.GetX509CertPool(cc.HTTP.RootCAs)
-			if !ok {
-				return nil, fmt.Errorf("root CA X.509 certificate pool not found: %q", cc.HTTP.RootCAs)
-			}
-			hpcc.RootCAs = pool
-		}
-
-		return hpcc.NewProxyClient()
-
-	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		if len(cc.UnsafeRequestStreamPrefix) != 0 || len(cc.UnsafeResponseStreamPrefix) != 0 {
-			cc.logger.Warn("Unsafe stream prefix taints the client", zap.String("client", cc.Name))
-		}
-
-		scc := ss2022.StreamClientConfig{
-			Name:                            cc.Name,
-			InnerClient:                     cc.innerClient,
-			Addr:                            cc.TCPAddress,
-			AllowSegmentedFixedLengthHeader: cc.AllowSegmentedFixedLengthHeader,
-			CipherConfig:                    cc.cipherConfig,
-			UnsafeRequestStreamPrefix:       cc.UnsafeRequestStreamPrefix,
-			UnsafeResponseStreamPrefix:      cc.UnsafeResponseStreamPrefix,
-		}
-		return scc.NewStreamClient(), nil
-
-	default:
-		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
-	}
+func (c *ClientConfig) tcpDialer(tcpDialerCache conn.TCPDialerCache) conn.TCPDialer {
+	return tcpDialerCache.Get(conn.TCPConnectSocketOptions{
+		Fwmark:              c.DialerFwmark,
+		TrafficClass:        c.DialerTrafficClass,
+		PathMTUDiscovery:    c.TCPPathMTUDiscovery.TCP(),
+		TCPFastOpen:         c.DialerTFO,
+		TCPFastOpenFallback: c.TCPFastOpenFallback,
+		MultipathTCP:        c.MultipathTCP,
+	})
 }
 
-func (cc *ClientConfig) UDPClient() (zerocopy.UDPClient, error) {
-	if !cc.EnableUDP {
-		return nil, errNetworkDisabled
-	}
-
-	if cc.MTU < minimumMTU {
-		return nil, ErrMTUTooSmall
-	}
-
-	switch cc.Protocol {
-	case "direct":
-		return direct.NewDirectUDPClient(cc.Name, cc.Network, cc.resolver, cc.MTU, cc.udpSocketConfig), nil
-	case "none", "plain":
-		return direct.NewShadowsocksNoneUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.resolver, cc.MTU, cc.udpSocketConfig), nil
-	case "socks5":
-		s5ucc := direct.Socks5UDPClientConfig{
-			Logger:       cc.logger,
-			Name:         cc.Name,
-			StreamDialer: cc.innerClient,
-			Addr:         cc.UDPAddress,
-			NetworkIP:    cc.Network,
-			Resolver:     cc.resolver,
-			MTU:          cc.MTU,
-			SocketConfig: cc.udpSocketConfig,
-			AuthMsg:      cc.socks5AuthMsg,
-		}
-		return s5ucc.NewClient(), nil
-	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
-		return ss2022.NewUDPClient(cc.Name, cc.Network, cc.UDPAddress, cc.resolver, cc.MTU, cc.udpSocketConfig, cc.SlidingWindowFilterSize, cc.cipherConfig, cc.PaddingPolicy.Policy()), nil
-	default:
-		return nil, fmt.Errorf("unknown protocol: %s", cc.Protocol)
-	}
+func (c *ClientConfig) udpSocketConfig(udpSocketConfigCache conn.UDPSocketConfigCache) conn.UDPSocketConfig {
+	return udpSocketConfigCache.Get(conn.UDPSocketOptions{
+		SendBufferSize:    conn.DefaultUDPSocketBufferSize,
+		ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
+		Fwmark:            c.DialerFwmark,
+		TrafficClass:      c.DialerTrafficClass,
+		PathMTUDiscovery:  c.UDPPathMTUDiscovery.UDP(),
+	})
 }
 
 // Socks5ClientConfig is the configuration for a SOCKS5 client.
