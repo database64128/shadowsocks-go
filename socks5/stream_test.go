@@ -119,6 +119,10 @@ func TestStreamClientError(t *testing.T) {
 				if e != ReplyConnectionRefused {
 					t.Errorf("e.Reply = %d, want %d", e, ReplyConnectionRefused)
 				}
+
+				if code := conn.DialResultCodeFromError(err); code != conn.DialResultCodeECONNREFUSED {
+					t.Errorf("conn.DialResultCodeFromError(err) = %v, want %v", code, conn.DialResultCodeECONNREFUSED)
+				}
 			},
 		},
 	} {

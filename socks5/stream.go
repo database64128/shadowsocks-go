@@ -124,6 +124,23 @@ func (r ReplyError) Error() string {
 	}
 }
 
+func (r ReplyError) Unwrap() error {
+	switch r {
+	case ReplySucceeded:
+		return conn.DialResultCodeSuccess
+	case ReplyConnectionNotAllowedByRuleset:
+		return conn.DialResultCodeEACCES
+	case ReplyNetworkUnreachable:
+		return conn.DialResultCodeENETUNREACH
+	case ReplyHostUnreachable:
+		return conn.DialResultCodeEHOSTUNREACH
+	case ReplyConnectionRefused:
+		return conn.DialResultCodeECONNREFUSED
+	default:
+		return conn.DialResultCodeErrOther
+	}
+}
+
 // UsernamePasswordAuthVersion is the version of the username/password authentication method,
 // as defined in RFC 1929 section 2.
 const UsernamePasswordAuthVersion = 1
