@@ -19,13 +19,18 @@ import (
 	"go.uber.org/zap"
 )
 
-// ErrRejected is a special error that indicates the request is rejected.
-var ErrRejected = errors.New("rejected")
+// RejectedError represents that the request has been rejected by a routing rule.
+type RejectedError struct{}
 
-var (
-	errNoAvailableResolvers  = errors.New("no available resolvers")
-	errPointlessPortCriteria = errors.New("matching all ports is equivalent to not having any port filtering rules")
-)
+func (e RejectedError) Error() string {
+	return "rejected"
+}
+
+func (e RejectedError) Unwrap() error {
+	return conn.DialResultCodeEACCES
+}
+
+var errPointlessPortCriteria = errors.New("matching all ports is equivalent to not having any port filtering rules")
 
 // RouteConfig is a routing rule.
 type RouteConfig struct {
@@ -460,7 +465,7 @@ func (r *Route) Match(ctx context.Context, network protocol, requestInfo Request
 // TCPClient returns the TCP client to use for the request.
 func (r *Route) TCPClient() (netio.StreamClient, error) {
 	if r.tcpClient == nil {
-		return nil, ErrRejected
+		return nil, RejectedError{}
 	}
 	return r.tcpClient, nil
 }
@@ -468,7 +473,7 @@ func (r *Route) TCPClient() (netio.StreamClient, error) {
 // UDPClient returns the UDP client to use for the request.
 func (r *Route) UDPClient() (zerocopy.UDPClient, error) {
 	if r.udpClient == nil {
-		return nil, ErrRejected
+		return nil, RejectedError{}
 	}
 	return r.udpClient, nil
 }
@@ -772,7 +777,7 @@ func lookup(ctx context.Context, resolvers []dns.SimpleResolver, domain string) 
 		}
 		return
 	}
-	return ip, errNoAvailableResolvers
+	return ip, dns.ErrLookup
 }
 
 func matchDomainToDomainSets(domainSets []domainset.DomainSet, domain string) bool {

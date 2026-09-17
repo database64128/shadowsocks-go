@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/domainset"
 	"github.com/database64128/shadowsocks-go/mmap"
@@ -190,26 +189,4 @@ func (r *Router) match(ctx context.Context, network protocol, requestInfo Reques
 		}
 	}
 	panic("did not match default route")
-}
-
-// DialResultFromError returns a [conn.DialResult] that describes the error.
-func DialResultFromError(err error) conn.DialResult {
-	return conn.DialResult{
-		Code: DialResultCodeFromError(err),
-		Err:  err,
-	}
-}
-
-// DialResultCodeFromError returns the [conn.DialResultCode] that matches the error.
-func DialResultCodeFromError(err error) conn.DialResultCode {
-	switch err {
-	case nil:
-		return conn.DialResultCodeSuccess
-	case ErrRejected:
-		return conn.DialResultCodeEACCES
-	case errNoAvailableResolvers, dns.ErrDomainNoAssociatedIPs:
-		return conn.DialResultCodeErrDomainNameLookup
-	default:
-		return conn.DialResultCodeErrOther
-	}
 }

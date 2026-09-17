@@ -229,7 +229,7 @@ func (s *TCPRelay) handleConn(
 			zap.Error(err),
 		)
 
-		dialResult := router.DialResultFromError(err)
+		dialResult := conn.DialResultFromError(err)
 		if err = req.Abort(dialResult); err != nil {
 			logger.Warn("Failed to abort pending connection",
 				zap.String("username", req.Username),
