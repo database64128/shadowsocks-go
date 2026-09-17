@@ -145,14 +145,13 @@ func (c *TCPClient) DialStream(ctx context.Context, addr conn.Addr, payload []by
 		raddr := addr.IPPort()
 		ip := raddr.Addr()
 		laddr := c.localAddr(ip)
-		if c.addressFamilyPreference == AddressFamilyPreferenceIPv6Only && (!ip.Is6() || ip.Is4In6()) ||
-			c.addressFamilyPreference == AddressFamilyPreferenceIPv4Only && !ip.Is4() && !ip.Is4In6() {
+		if err := c.addressFamilyPreference.FilterIP(ip); err != nil {
 			return nil, &OpError{
 				Op:             "dial",
 				Network:        "tcp",
 				LocalAddrPort:  laddr,
 				RemoteAddrPort: raddr,
-				Err:            AddressFamilyPreferenceMismatchError(c.addressFamilyPreference),
+				Err:            err,
 			}
 		}
 		if err := c.checkACL(ip); err != nil {
@@ -481,114 +480,4 @@ func NewTCPTransparentProxyServer() (StreamServer, error) {
 // NewTCPRedirectServer returns a new TCP redirect server.
 func NewTCPRedirectServer() (StreamServer, error) {
 	return newTCPRedirectServer()
-}
-
-// AddressFamilyPreference specifies the preference for IPv4 or IPv6 addresses
-// when connecting to an endpoint.
-type AddressFamilyPreference uint8
-
-const (
-	// AddressFamilyPreferenceDefault keeps the Go net package and/or the host system's default.
-	AddressFamilyPreferenceDefault AddressFamilyPreference = iota
-
-	// AddressFamilyPreferencePreferIPv6 prefers IPv6 addresses over IPv4 addresses.
-	AddressFamilyPreferencePreferIPv6
-
-	// AddressFamilyPreferencePreferIPv4 prefers IPv4 addresses over IPv6 addresses.
-	AddressFamilyPreferencePreferIPv4
-
-	// AddressFamilyPreferenceIPv6Only uses IPv6 addresses only.
-	AddressFamilyPreferenceIPv6Only
-
-	// AddressFamilyPreferenceIPv4Only uses IPv4 addresses only.
-	AddressFamilyPreferenceIPv4Only
-
-	addressFamilyPreferenceMax = AddressFamilyPreferenceIPv4Only
-)
-
-// IsValid returns true if p is a valid value.
-func (p AddressFamilyPreference) IsValid() bool {
-	return p <= addressFamilyPreferenceMax
-}
-
-const (
-	addressFamilyPreferenceDefaultString    = "default"
-	addressFamilyPreferencePreferIPv6String = "prefer-ipv6"
-	addressFamilyPreferencePreferIPv4String = "prefer-ipv4"
-	addressFamilyPreferenceIPv6OnlyString   = "ipv6-only"
-	addressFamilyPreferenceIPv4OnlyString   = "ipv4-only"
-)
-
-// String returns its string representation.
-func (p AddressFamilyPreference) String() string {
-	switch p {
-	case AddressFamilyPreferenceDefault:
-		return addressFamilyPreferenceDefaultString
-	case AddressFamilyPreferencePreferIPv6:
-		return addressFamilyPreferencePreferIPv6String
-	case AddressFamilyPreferencePreferIPv4:
-		return addressFamilyPreferencePreferIPv4String
-	case AddressFamilyPreferenceIPv6Only:
-		return addressFamilyPreferenceIPv6OnlyString
-	case AddressFamilyPreferenceIPv4Only:
-		return addressFamilyPreferenceIPv4OnlyString
-	default:
-		return fmt.Sprintf("invalid(%d)", p)
-	}
-}
-
-// AppendText appends its textual representation to b and returns the updated slice.
-//
-// AppendText implements [encoding.TextAppender].
-func (p AddressFamilyPreference) AppendText(b []byte) ([]byte, error) {
-	switch p {
-	case AddressFamilyPreferenceDefault:
-		return append(b, addressFamilyPreferenceDefaultString...), nil
-	case AddressFamilyPreferencePreferIPv6:
-		return append(b, addressFamilyPreferencePreferIPv6String...), nil
-	case AddressFamilyPreferencePreferIPv4:
-		return append(b, addressFamilyPreferencePreferIPv4String...), nil
-	case AddressFamilyPreferenceIPv6Only:
-		return append(b, addressFamilyPreferenceIPv6OnlyString...), nil
-	case AddressFamilyPreferenceIPv4Only:
-		return append(b, addressFamilyPreferenceIPv4OnlyString...), nil
-	default:
-		return nil, fmt.Errorf("invalid address family preference: %d", p)
-	}
-}
-
-// MarshalText implements [encoding.TextMarshaler].
-func (p AddressFamilyPreference) MarshalText() ([]byte, error) {
-	return p.AppendText(nil)
-}
-
-// UnmarshalText implements [encoding.TextUnmarshaler].
-func (p *AddressFamilyPreference) UnmarshalText(text []byte) error {
-	switch string(text) {
-	case addressFamilyPreferenceDefaultString:
-		*p = AddressFamilyPreferenceDefault
-	case addressFamilyPreferencePreferIPv6String:
-		*p = AddressFamilyPreferencePreferIPv6
-	case addressFamilyPreferencePreferIPv4String:
-		*p = AddressFamilyPreferencePreferIPv4
-	case addressFamilyPreferenceIPv6OnlyString:
-		*p = AddressFamilyPreferenceIPv6Only
-	case addressFamilyPreferenceIPv4OnlyString:
-		*p = AddressFamilyPreferenceIPv4Only
-	default:
-		return fmt.Errorf("invalid address family preference: %q", text)
-	}
-	return nil
-}
-
-// AddressFamilyPreferenceMismatchError represents an incompatibility
-// between an address and the specified address family preference.
-type AddressFamilyPreferenceMismatchError AddressFamilyPreference
-
-func (e AddressFamilyPreferenceMismatchError) Error() string {
-	return `address not suitable for address family preference "` + AddressFamilyPreference(e).String() + `"`
-}
-
-func (e AddressFamilyPreferenceMismatchError) Unwrap() error {
-	return conn.DialResultCodeENETUNREACH
 }
