@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/gaissmai/bart"
 )
 
 // TCPClientConfig is the configuration for a TCP client.
@@ -47,6 +48,16 @@ type TCPClientConfig struct {
 	//
 	// If nil, [net.DefaultResolver] is used.
 	Resolver conn.Resolver
+
+	// IPAllowlist specifies an optional allowlist of destination IP prefixes.
+	//
+	// If nil, no allowlist is applied.
+	IPAllowlist *bart.Lite
+
+	// IPDenylist specifies an optional denylist of destination IP prefixes.
+	//
+	// If nil, no denylist is applied.
+	IPDenylist *bart.Lite
 }
 
 // Happy Eyeballs v3 defaults, as defined in the draft RFC:
@@ -93,6 +104,8 @@ func (c *TCPClientConfig) NewTCPClient() (*TCPClient, error) {
 		localAddr6:              c.LocalAddr6,
 		dialer:                  c.Dialer,
 		resolver:                resolver,
+		ipAllowlist:             c.IPAllowlist,
+		ipDenylist:              c.IPDenylist,
 	}, nil
 }
 
@@ -108,6 +121,8 @@ type TCPClient struct {
 	localAddr6              netip.AddrPort
 	dialer                  conn.TCPDialer
 	resolver                conn.Resolver
+	ipAllowlist             *bart.Lite
+	ipDenylist              *bart.Lite
 }
 
 var (
@@ -132,10 +147,21 @@ func (c *TCPClient) DialStream(ctx context.Context, addr conn.Addr, payload []by
 		laddr := c.localAddr(ip)
 		if c.addressFamilyPreference == AddressFamilyPreferenceIPv6Only && (!ip.Is6() || ip.Is4In6()) ||
 			c.addressFamilyPreference == AddressFamilyPreferenceIPv4Only && !ip.Is4() && !ip.Is4In6() {
-			return nil, &TCPClientAddrError{
+			return nil, &OpError{
+				Op:             "dial",
+				Network:        "tcp",
 				LocalAddrPort:  laddr,
 				RemoteAddrPort: raddr,
 				Err:            AddressFamilyPreferenceMismatchError(c.addressFamilyPreference),
+			}
+		}
+		if err := c.checkACL(ip); err != nil {
+			return nil, &OpError{
+				Op:             "dial",
+				Network:        "tcp",
+				LocalAddrPort:  laddr,
+				RemoteAddrPort: raddr,
+				Err:            err,
 			}
 		}
 		return c.dialer.Dial(ctx, "tcp", laddr, raddr, payload)
@@ -182,9 +208,20 @@ func (c *TCPClient) resolveAndDialDomain(ctx context.Context, network, domain st
 	var errs []error
 
 	for _, ip := range ips {
+		laddr := c.localAddr(ip)
+		raddr := netip.AddrPortFrom(ip, port)
+		if err := c.checkACL(ip); err != nil {
+			errs = append(errs, &OpError{
+				Op:             "dial",
+				Network:        "tcp",
+				LocalAddrPort:  laddr,
+				RemoteAddrPort: raddr,
+				Err:            err,
+			})
+			continue
+		}
+
 		go func() {
-			laddr := c.localAddr(ip)
-			raddr := netip.AddrPortFrom(ip, port)
 			tc, err := c.dialer.Dial(attemptCtx, "tcp", laddr, raddr, payload)
 			select {
 			case resultCh <- tcpDialResult{TCPConn: tc, Err: err}:
@@ -339,9 +376,20 @@ func (c *TCPClient) resolveAndDialDomainWithResolutionDelay(
 
 dial:
 	for ip := range ips {
+		laddr := c.localAddr(ip)
+		raddr := netip.AddrPortFrom(ip, port)
+		if err := c.checkACL(ip); err != nil {
+			errs = append(errs, &OpError{
+				Op:             "dial",
+				Network:        "tcp",
+				LocalAddrPort:  laddr,
+				RemoteAddrPort: raddr,
+				Err:            err,
+			})
+			continue
+		}
+
 		go func() {
-			laddr := c.localAddr(ip)
-			raddr := netip.AddrPortFrom(ip, port)
 			tc, err := c.dialer.Dial(attemptCtx, "tcp", laddr, raddr, payload)
 			select {
 			case resultCh <- tcpDialResult{TCPConn: tc, Err: err}:
@@ -414,19 +462,15 @@ func (c *TCPClient) localAddr(ip netip.Addr) netip.AddrPort {
 	return c.localAddr6
 }
 
-// TCPClientAddrError is returned by [TCPClient] to describe an error related to the endpoint address.
-type TCPClientAddrError struct {
-	LocalAddrPort  netip.AddrPort
-	RemoteAddrPort netip.AddrPort
-	Err            error
-}
-
-func (e *TCPClientAddrError) Error() string {
-	return fmt.Sprintf("dial tcp %s->%s: %v", &e.LocalAddrPort, &e.RemoteAddrPort, e.Err)
-}
-
-func (e *TCPClientAddrError) Unwrap() error {
-	return e.Err
+func (c *TCPClient) checkACL(ip netip.Addr) error {
+	ip = ip.Unmap()
+	if c.ipAllowlist != nil && !c.ipAllowlist.Contains(ip) {
+		return AddrNotInAllowlistError{}
+	}
+	if c.ipDenylist != nil && c.ipDenylist.Contains(ip) {
+		return AddrInDenylistError{}
+	}
+	return nil
 }
 
 // NewTCPTransparentProxyServer returns a new TCP transparent proxy server.
