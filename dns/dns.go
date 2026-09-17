@@ -39,11 +39,27 @@ const (
 	defaultCacheSize = 1024
 )
 
+type resolverError struct {
+	msg string
+}
+
+func newResolverError(msg string) error {
+	return resolverError{msg: msg}
+}
+
+func (e resolverError) Error() string {
+	return e.msg
+}
+
+func (e resolverError) Unwrap() error {
+	return conn.DialResultCodeErrDomainNameLookup
+}
+
 var (
-	ErrLookup                       = errors.New("name lookup failed")
-	ErrMessageNotResponse           = errors.New("message is not a response")
-	ErrResponseNoRecursionAvailable = errors.New("response indicates server does not support recursion")
-	ErrDomainNoAssociatedIPs        = errors.New("domain name has no associated IP addresses")
+	ErrLookup                       = newResolverError("name lookup failed")
+	ErrMessageNotResponse           = newResolverError("message is not a response")
+	ErrResponseNoRecursionAvailable = newResolverError("response indicates server does not support recursion")
+	ErrDomainNoAssociatedIPs        = newResolverError("domain name has no associated IP addresses")
 )
 
 // ResolverConfig configures a DNS resolver.
