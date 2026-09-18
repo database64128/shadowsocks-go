@@ -668,7 +668,15 @@
         "prefixSets": [
             {
                 "name": "private",
-                "path": "private.txt"
+                "type": "text",
+                "path": "/usr/share/shadowsocks-go/prefix-set-private.txt",
+                "loader": "mmap"
+            },
+            {
+                "name": "domestic",
+                "type": "binary",
+                "path": "/usr/share/shadowsocks-go/prefix-set-domestic",
+                "loader": "bufio"
             }
         ],
         "routes": [
@@ -714,7 +722,7 @@
                     "::/0"
                 ],
                 "toMatchedDomainExpectedPrefixSets": [
-                    "private"
+                    "domestic"
                 ],
                 "toMatchedDomainExpectedGeoIPCountries": [
                     "US"
@@ -723,7 +731,7 @@
                     "::/0"
                 ],
                 "toPrefixSets": [
-                    "private"
+                    "domestic"
                 ],
                 "toGeoIPCountries": [
                     "US"

@@ -68,6 +68,7 @@ import (
 	"io"
 	"io/fs"
 	"net/netip"
+	"os"
 	"strings"
 	"unsafe"
 
@@ -80,7 +81,7 @@ type Config struct {
 	// Name is the name of the prefix set.
 	Name string `json:"name"`
 
-	// Type is the type of the prefix set.
+	// Type specifies the file format.
 	//
 	//  - "text": text format (default)
 	//  - "binary": binary format
@@ -90,27 +91,59 @@ type Config struct {
 
 	// Path is the path to the prefix set file.
 	Path string `json:"path"`
+
+	// Loader specifies the IO backend to use for loading the prefix set file.
+	//
+	//  - "bufio": buffered IO (default)
+	//  - "mmap": memory-mapped IO
+	Loader string `json:"loader,omitzero"`
 }
 
 // LoadPrefixSet loads the prefix set from the file.
-func (psc Config) LoadPrefixSet() (*bart.Lite, error) {
-	data, close, err := mmap.ReadFile[string](psc.Path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read prefix set file: %w", err)
+func (cfg Config) LoadPrefixSet() (*bart.Lite, error) {
+	var (
+		unmarshalRead func(io.Reader, *bart.Lite) error
+		unmarshal     func(string, *bart.Lite) error
+	)
+	switch cfg.Type {
+	case "text", "":
+		unmarshalRead = UnmarshalReadText
+		unmarshal = UnmarshalText
+	case "binary":
+		unmarshalRead = UnmarshalReadBinary
+		unmarshal = func(data string, s *bart.Lite) error {
+			return UnmarshalReadBinary(strings.NewReader(data), s)
+		}
+	default:
+		return nil, fmt.Errorf("unknown file type: %q", cfg.Type)
 	}
-	defer close()
 
 	var s bart.Lite
-	switch psc.Type {
-	case "text", "":
-		err = UnmarshalText(data, &s)
-	case "binary":
-		err = UnmarshalReadBinary(strings.NewReader(data), &s)
+	switch cfg.Loader {
+	case "bufio", "":
+		f, err := os.Open(cfg.Path)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+
+		if err := unmarshalRead(f, &s); err != nil {
+			return nil, err
+		}
+
+	case "mmap":
+		data, close, err := mmap.ReadFile[string](cfg.Path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read prefix set file: %w", err)
+		}
+		defer close()
+
+		if err := unmarshal(data, &s); err != nil {
+			return nil, err
+		}
+
 	default:
-		return nil, fmt.Errorf("unknown prefix set type: %q", psc.Type)
-	}
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid loader: %q", cfg.Loader)
 	}
 	return &s, nil
 }
