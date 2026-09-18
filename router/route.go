@@ -14,9 +14,9 @@ import (
 	"github.com/database64128/shadowsocks-go/domainset"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/portset"
+	"github.com/database64128/shadowsocks-go/prefixset"
 	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/gaissmai/bart"
 	"github.com/oschwald/geoip2-golang/v2"
 )
 
@@ -137,7 +137,7 @@ type RouteConfig struct {
 }
 
 // Route creates a route from the RouteConfig.
-func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]netio.StreamClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*bart.Lite) (Route, error) {
+func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]netio.StreamClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*prefixset.PrefixSet) (Route, error) {
 	// Bad name.
 	switch rc.Name {
 	case "", "default":
@@ -260,7 +260,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 		var group CriterionGroupOR
 
 		if len(rc.FromPrefixes) > 0 || len(rc.FromPrefixSets) > 0 {
-			var sourcePrefixSet bart.Lite
+			var sourcePrefixSet prefixset.PrefixSet
 
 			for _, prefix := range rc.FromPrefixes {
 				sourcePrefixSet.Insert(prefix)
@@ -271,7 +271,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 				if !ok {
 					return Route{}, fmt.Errorf("prefix set not found: %s", prefixSet)
 				}
-				sourcePrefixSet.Union(s)
+				sourcePrefixSet.Union(&s.Lite)
 			}
 
 			group.AddCriterion((*SourceIPCriterion)(&sourcePrefixSet), rc.InvertFromPrefixes)
@@ -354,7 +354,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 				var expectedIPCriterionGroup CriterionGroupOR
 
 				if len(rc.ToMatchedDomainExpectedPrefixes) > 0 || len(rc.ToMatchedDomainExpectedPrefixSets) > 0 {
-					var expectedPrefixSet bart.Lite
+					var expectedPrefixSet prefixset.PrefixSet
 
 					for _, prefix := range rc.ToMatchedDomainExpectedPrefixes {
 						expectedPrefixSet.Insert(prefix)
@@ -365,7 +365,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 						if !ok {
 							return Route{}, fmt.Errorf("prefix set not found: %s", prefixSet)
 						}
-						expectedPrefixSet.Union(s)
+						expectedPrefixSet.Union(&s.Lite)
 					}
 
 					expectedIPCriterionGroup.AddCriterion(DestResolvedIPCriterion{&expectedPrefixSet, resolvers}, rc.InvertToMatchedDomainExpectedPrefixes)
@@ -387,7 +387,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 		}
 
 		if len(rc.ToPrefixes) > 0 || len(rc.ToPrefixSets) > 0 {
-			var destPrefixSet bart.Lite
+			var destPrefixSet prefixset.PrefixSet
 
 			for _, prefix := range rc.ToPrefixes {
 				destPrefixSet.Insert(prefix)
@@ -398,7 +398,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 				if !ok {
 					return Route{}, fmt.Errorf("prefix set not found: %s", prefixSet)
 				}
-				destPrefixSet.Union(s)
+				destPrefixSet.Union(&s.Lite)
 			}
 
 			if rc.DisableNameResolutionForIPRules {
@@ -625,11 +625,11 @@ func (c *SourcePortSetCriterion) Meet(ctx context.Context, network protocol, req
 }
 
 // SourceIPCriterion restricts the source IP address.
-type SourceIPCriterion bart.Lite
+type SourceIPCriterion prefixset.PrefixSet
 
 // Meet implements the Criterion Meet method.
 func (c *SourceIPCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
-	return (*bart.Lite)(c).Contains(requestInfo.SourceAddrPort.Addr().Unmap()), nil
+	return (*prefixset.PrefixSet)(c).Contains(requestInfo.SourceAddrPort.Addr()), nil
 }
 
 // SourceGeoIPCountryCriterion restricts the source IP address by GeoIP country.
@@ -695,26 +695,26 @@ func (c DestDomainExpectedIPCriterion) Meet(ctx context.Context, network protoco
 }
 
 // DestIPCriterion restricts the destination IP address.
-type DestIPCriterion bart.Lite
+type DestIPCriterion prefixset.PrefixSet
 
 // Meet implements the Criterion Meet method.
 func (c *DestIPCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	if !requestInfo.TargetAddr.IsIP() {
 		return false, nil
 	}
-	return (*bart.Lite)(c).Contains(requestInfo.TargetAddr.IP().Unmap()), nil
+	return (*prefixset.PrefixSet)(c).Contains(requestInfo.TargetAddr.IP()), nil
 }
 
 // DestResolvedIPCriterion restricts the destination IP address or the destination domain's resolved IP address.
 type DestResolvedIPCriterion struct {
-	prefixSet *bart.Lite
+	prefixSet *prefixset.PrefixSet
 	resolvers []dns.SimpleResolver
 }
 
 // Meet implements the Criterion Meet method.
 func (c DestResolvedIPCriterion) Meet(ctx context.Context, network protocol, requestInfo RequestInfo) (bool, error) {
 	if requestInfo.TargetAddr.IsIP() {
-		return c.prefixSet.Contains(requestInfo.TargetAddr.IP().Unmap()), nil
+		return c.prefixSet.Contains(requestInfo.TargetAddr.IP()), nil
 	}
 	if requestInfo.TargetAddr.IsDomain() {
 		return matchDomainToPrefixSet(ctx, c.resolvers, requestInfo.TargetAddr.Domain(), c.prefixSet)
@@ -798,10 +798,10 @@ func matchDomainToGeoIPCountries(ctx context.Context, resolvers []dns.SimpleReso
 	return matchAddrToGeoIPCountries(countries, ip, geoip, logger)
 }
 
-func matchDomainToPrefixSet(ctx context.Context, resolvers []dns.SimpleResolver, domain string, prefixSet *bart.Lite) (bool, error) {
+func matchDomainToPrefixSet(ctx context.Context, resolvers []dns.SimpleResolver, domain string, prefixSet *prefixset.PrefixSet) (bool, error) {
 	ip, err := lookup(ctx, resolvers, domain)
 	if err != nil {
 		return false, err
 	}
-	return prefixSet.Contains(ip.Unmap()), nil
+	return prefixSet.Contains(ip), nil
 }

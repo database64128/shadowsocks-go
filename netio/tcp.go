@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/gaissmai/bart"
+	"github.com/database64128/shadowsocks-go/prefixset"
 )
 
 // TCPClientConfig is the configuration for a TCP client.
@@ -52,12 +52,12 @@ type TCPClientConfig struct {
 	// IPAllowlist specifies an optional allowlist of destination IP prefixes.
 	//
 	// If nil, no allowlist is applied.
-	IPAllowlist *bart.Lite
+	IPAllowlist *prefixset.PrefixSet
 
 	// IPDenylist specifies an optional denylist of destination IP prefixes.
 	//
 	// If nil, no denylist is applied.
-	IPDenylist *bart.Lite
+	IPDenylist *prefixset.PrefixSet
 }
 
 // Happy Eyeballs v3 defaults, as defined in the draft RFC:
@@ -121,8 +121,8 @@ type TCPClient struct {
 	localAddr6              netip.AddrPort
 	dialer                  conn.TCPDialer
 	resolver                conn.Resolver
-	ipAllowlist             *bart.Lite
-	ipDenylist              *bart.Lite
+	ipAllowlist             *prefixset.PrefixSet
+	ipDenylist              *prefixset.PrefixSet
 }
 
 var (
@@ -462,7 +462,6 @@ func (c *TCPClient) localAddr(ip netip.Addr) netip.AddrPort {
 }
 
 func (c *TCPClient) checkACL(ip netip.Addr) error {
-	ip = ip.Unmap()
 	if c.ipAllowlist != nil && !c.ipAllowlist.Contains(ip) {
 		return AddrNotInAllowlistError{}
 	}

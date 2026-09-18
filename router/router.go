@@ -12,7 +12,6 @@ import (
 	"github.com/database64128/shadowsocks-go/prefixset"
 	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"github.com/gaissmai/bart"
 	"github.com/oschwald/geoip2-golang/v2"
 )
 
@@ -93,7 +92,7 @@ func (rc *Config) Router(logger *tslog.Logger, resolvers []dns.SimpleResolver, r
 		domainSetMap[dsc.Name] = domainSet
 	}
 
-	prefixSetMap := make(map[string]*bart.Lite, len(rc.PrefixSets))
+	prefixSetMap := make(map[string]*prefixset.PrefixSet, len(rc.PrefixSets))
 
 	for _, psc := range rc.PrefixSets {
 		s, err := psc.LoadPrefixSet()

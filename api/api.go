@@ -20,9 +20,9 @@ import (
 	"github.com/database64128/shadowsocks-go/api/internal/restapi"
 	"github.com/database64128/shadowsocks-go/api/ssm"
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/prefixset"
 	"github.com/database64128/shadowsocks-go/tlscerts"
 	"github.com/database64128/shadowsocks-go/tslog"
-	"github.com/gaissmai/bart"
 )
 
 // Config stores the configuration for the RESTful API.
@@ -343,7 +343,7 @@ func newRealIPMiddleware(logger *tslog.Logger, trustedProxies []netip.Prefix, re
 		}
 	}
 
-	var proxySet bart.Lite
+	var proxySet prefixset.PrefixSet
 	for _, p := range trustedProxies {
 		proxySet.Insert(p)
 	}

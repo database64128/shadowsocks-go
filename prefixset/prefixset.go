@@ -100,7 +100,7 @@ type Config struct {
 }
 
 // LoadPrefixSet loads the prefix set from the file.
-func (cfg Config) LoadPrefixSet() (*bart.Lite, error) {
+func (cfg Config) LoadPrefixSet() (*PrefixSet, error) {
 	var (
 		unmarshalRead func(io.Reader, *bart.Lite) error
 		unmarshal     func(string, *bart.Lite) error
@@ -118,7 +118,7 @@ func (cfg Config) LoadPrefixSet() (*bart.Lite, error) {
 		return nil, fmt.Errorf("unknown file type: %q", cfg.Type)
 	}
 
-	var s bart.Lite
+	var s PrefixSet
 	switch cfg.Loader {
 	case "bufio", "":
 		f, err := os.Open(cfg.Path)
@@ -127,7 +127,7 @@ func (cfg Config) LoadPrefixSet() (*bart.Lite, error) {
 		}
 		defer f.Close()
 
-		if err := unmarshalRead(f, &s); err != nil {
+		if err := unmarshalRead(f, &s.Lite); err != nil {
 			return nil, err
 		}
 
@@ -138,7 +138,7 @@ func (cfg Config) LoadPrefixSet() (*bart.Lite, error) {
 		}
 		defer close()
 
-		if err := unmarshal(data, &s); err != nil {
+		if err := unmarshal(data, &s.Lite); err != nil {
 			return nil, err
 		}
 
@@ -146,6 +146,16 @@ func (cfg Config) LoadPrefixSet() (*bart.Lite, error) {
 		return nil, fmt.Errorf("invalid loader: %q", cfg.Loader)
 	}
 	return &s, nil
+}
+
+// PrefixSet is an IP address prefix set.
+type PrefixSet struct {
+	bart.Lite
+}
+
+// Contains calls [bart.Lite.Contains] with ip unmapped.
+func (s *PrefixSet) Contains(ip netip.Addr) bool {
+	return s.Lite.Contains(ip.Unmap())
 }
 
 // TextLineError represents a text format deserialization error.
