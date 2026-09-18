@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
+	"log/slog"
 	"net/netip"
 	"sync"
 	"testing"
@@ -12,8 +13,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/netiotest"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 func TestStreamClientError(t *testing.T) {
@@ -196,8 +196,8 @@ func testStreamClientError(
 }
 
 func TestStreamServerError(t *testing.T) {
-	logger := zaptest.NewLogger(t)
-	defer logger.Sync()
+	logCfg := tslog.Config{Level: slog.LevelDebug}
+	logger := logCfg.NewLogger(t.Output())
 
 	for _, c := range []struct {
 		name                     string
@@ -498,7 +498,7 @@ func TestStreamServerError(t *testing.T) {
 
 func testStreamServerError(
 	t *testing.T,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	clientMsgs [][]byte,
 	expectedResponses [][]byte,
 	serverUserInfoByUsername map[string]UserInfo,

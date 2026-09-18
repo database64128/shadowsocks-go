@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"os"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/socks5"
+	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"go.uber.org/zap"
 )
 
 // DirectUDPClient is a UDP client that makes no changes to the packets.
@@ -103,7 +104,7 @@ func (c *ShadowsocksNoneUDPClient) NewSession(ctx context.Context) (zerocopy.UDP
 // Socks5UDPClientConfig contains configuration options for a SOCKS5 UDP client.
 type Socks5UDPClientConfig struct {
 	// Logger is the logger used for logging.
-	Logger *zap.Logger
+	Logger *tslog.Logger
 
 	// Name is the name of the SOCKS5 client.
 	Name string
@@ -166,7 +167,7 @@ func (c *Socks5UDPClientConfig) NewClient() zerocopy.UDPClient {
 //
 // Socks5UDPClient implements [zerocopy.UDPClient].
 type Socks5UDPClient struct {
-	logger       *zap.Logger
+	logger       *tslog.Logger
 	streamDialer netio.StreamDialer
 	addr         conn.Addr
 	networkIP    string
@@ -213,8 +214,8 @@ func (c *Socks5UDPClient) newSession(ctx context.Context, tc netio.Conn, addr co
 		_, err := tc.Read(b)
 		if !errors.Is(err, os.ErrDeadlineExceeded) {
 			c.logger.Warn("Failed to keep SOCKS5 TCP connection open for UDP association",
-				zap.String("client", c.info.Name),
-				zap.Error(err),
+				slog.String("client", c.info.Name),
+				tslog.Err(err),
 			)
 		}
 	}()

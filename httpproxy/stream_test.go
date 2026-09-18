@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/netip"
@@ -15,7 +16,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/netiotest"
-	"go.uber.org/zap/zaptest"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 func TestStreamClientServer(t *testing.T) {
@@ -113,8 +114,8 @@ func TestStreamClientServer(t *testing.T) {
 }
 
 func TestStreamClientServerBasicAuthBadCredentials(t *testing.T) {
-	logger := zaptest.NewLogger(t)
-	defer logger.Sync()
+	logCfg := tslog.Config{Level: slog.LevelDebug}
+	logger := logCfg.NewLogger(t.Output())
 
 	pl, pr := netio.NewPipe()
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"slices"
 
@@ -13,10 +14,10 @@ import (
 	"github.com/database64128/shadowsocks-go/domainset"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/portset"
+	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/gaissmai/bart"
 	"github.com/oschwald/geoip2-golang/v2"
-	"go.uber.org/zap"
 )
 
 // RejectedError represents that the request has been rejected by a routing rule.
@@ -136,7 +137,7 @@ type RouteConfig struct {
 }
 
 // Route creates a route from the RouteConfig.
-func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *zap.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]netio.StreamClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*bart.Lite) (Route, error) {
+func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]netio.StreamClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*bart.Lite) (Route, error) {
 	// Bad name.
 	switch rc.Name {
 	case "", "default":
@@ -635,7 +636,7 @@ func (c *SourceIPCriterion) Meet(ctx context.Context, network protocol, requestI
 type SourceGeoIPCountryCriterion struct {
 	countries []string
 	geoip     *geoip2.Reader
-	logger    *zap.Logger
+	logger    *tslog.Logger
 }
 
 // Meet implements the Criterion Meet method.
@@ -725,7 +726,7 @@ func (c DestResolvedIPCriterion) Meet(ctx context.Context, network protocol, req
 type DestGeoIPCountryCriterion struct {
 	countries []string
 	geoip     *geoip2.Reader
-	logger    *zap.Logger
+	logger    *tslog.Logger
 }
 
 // Meet implements the Criterion Meet method.
@@ -740,7 +741,7 @@ func (c DestGeoIPCountryCriterion) Meet(ctx context.Context, network protocol, r
 type DestResolvedGeoIPCountryCriterion struct {
 	countries []string
 	geoip     *geoip2.Reader
-	logger    *zap.Logger
+	logger    *tslog.Logger
 	resolvers []dns.SimpleResolver
 }
 
@@ -755,15 +756,15 @@ func (c DestResolvedGeoIPCountryCriterion) Meet(ctx context.Context, network pro
 	return false, nil
 }
 
-func matchAddrToGeoIPCountries(countries []string, addr netip.Addr, geoip *geoip2.Reader, logger *zap.Logger) (bool, error) {
+func matchAddrToGeoIPCountries(countries []string, addr netip.Addr, geoip *geoip2.Reader, logger *tslog.Logger) (bool, error) {
 	country, err := geoip.Country(addr)
 	if err != nil {
 		return false, err
 	}
-	if ce := logger.Check(zap.DebugLevel, "Matched GeoIP country"); ce != nil {
-		ce.Write(
-			zap.Stringer("ip", addr),
-			zap.String("country", country.Country.ISOCode),
+	if logger.Enabled(slog.LevelDebug) {
+		logger.Debug("Matched GeoIP country",
+			tslog.Addr("ip", addr),
+			slog.String("country", country.Country.ISOCode),
 		)
 	}
 	return slices.Contains(countries, country.Country.ISOCode), nil
@@ -789,7 +790,7 @@ func matchDomainToDomainSets(domainSets []domainset.DomainSet, domain string) bo
 	return false
 }
 
-func matchDomainToGeoIPCountries(ctx context.Context, resolvers []dns.SimpleResolver, domain string, countries []string, geoip *geoip2.Reader, logger *zap.Logger) (bool, error) {
+func matchDomainToGeoIPCountries(ctx context.Context, resolvers []dns.SimpleResolver, domain string, countries []string, geoip *geoip2.Reader, logger *tslog.Logger) (bool, error) {
 	ip, err := lookup(ctx, resolvers, domain)
 	if err != nil {
 		return false, err

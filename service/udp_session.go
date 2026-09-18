@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"net/netip"
 	"os"
@@ -15,8 +16,8 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
+	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"go.uber.org/zap"
 )
 
 // sessionQueuedPacket is the structure used by send channels to queue packets for sending.
@@ -54,7 +55,7 @@ type session struct {
 	serverConn          *net.UDPConn
 	serverConnUnpacker  zerocopy.ServerUnpacker
 	username            string
-	logger              *zap.Logger
+	logger              *tslog.Logger
 }
 
 // sessionUplinkGeneric is used for passing information about relay uplink to the relay goroutine.
@@ -66,7 +67,7 @@ type sessionUplinkGeneric struct {
 	natConnPacker zerocopy.ClientPacker
 	natTimeout    time.Duration
 	username      string
-	logger        *zap.Logger
+	logger        *tslog.Logger
 }
 
 // sessionDownlinkGeneric is used for passing information about relay downlink to the relay goroutine.
@@ -81,7 +82,7 @@ type sessionDownlinkGeneric struct {
 	serverConn         *net.UDPConn
 	serverConnPacker   zerocopy.ServerPacker
 	username           string
-	logger             *zap.Logger
+	logger             *tslog.Logger
 }
 
 // UDPSessionRelay is a session-based UDP relay service.
@@ -97,7 +98,7 @@ type UDPSessionRelay struct {
 	server                 zerocopy.UDPSessionServer
 	collector              stats.Collector
 	router                 *router.Router
-	logger                 *zap.Logger
+	logger                 *tslog.Logger
 	queuedPacketPool       sync.Pool
 	mu                     sync.Mutex
 	wg                     sync.WaitGroup
@@ -112,7 +113,7 @@ func NewUDPSessionRelay(
 	server zerocopy.UDPSessionServer,
 	collector stats.Collector,
 	router *router.Router,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 ) *UDPSessionRelay {
 	return &UDPSessionRelay{
 		serverName:             serverName,
@@ -138,9 +139,9 @@ func NewUDPSessionRelay(
 
 var _ shadowsocks.Service = (*UDPSessionRelay)(nil)
 
-// ZapField implements [shadowsocks.Service.ZapField].
-func (s *UDPSessionRelay) ZapField() zap.Field {
-	return zap.String("serverUDPSessionRelay", s.serverName)
+// SlogAttr implements [shadowsocks.Service.SlogAttr].
+func (s *UDPSessionRelay) SlogAttr() slog.Attr {
+	return slog.String("serverUDPSessionRelay", s.serverName)
 }
 
 // Start implements [shadowsocks.Service.Start].
@@ -159,10 +160,10 @@ func (s *UDPSessionRelay) startGeneric(ctx context.Context, index int, lnc *udpR
 		return
 	}
 	lnc.address = lnc.serverConn.LocalAddr().String()
-	lnc.logger = s.logger.With(
-		zap.String("server", s.serverName),
-		zap.Int("listener", index),
-		zap.String("listenAddress", lnc.address),
+	lnc.logger = s.logger.WithAttrs(
+		slog.String("server", s.serverName),
+		slog.Int("listener", index),
+		slog.String("listenAddress", lnc.address),
 	)
 
 	s.mwg.Go(func() {
@@ -197,9 +198,9 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 			}
 
 			lnc.logger.Warn("Failed to read packet from serverConn",
-				zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-				zap.Int("packetLength", n),
-				zap.Error(err),
+				tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+				slog.Int("packetLength", n),
+				tslog.Err(err),
 			)
 
 			s.putQueuedPacket(queuedPacket)
@@ -208,9 +209,9 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 		err = conn.ParseFlagsForError(flags)
 		if err != nil {
 			lnc.logger.Warn("Failed to read packet from serverConn",
-				zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-				zap.Int("packetLength", n),
-				zap.Error(err),
+				tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+				slog.Int("packetLength", n),
+				tslog.Err(err),
 			)
 
 			s.putQueuedPacket(queuedPacket)
@@ -222,9 +223,9 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 		csid, err := s.server.SessionInfo(packet)
 		if err != nil {
 			lnc.logger.Warn("Failed to extract session info from packet",
-				zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-				zap.Int("packetLength", n),
-				zap.Error(err),
+				tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+				slog.Int("packetLength", n),
+				tslog.Err(err),
 			)
 
 			s.putQueuedPacket(queuedPacket)
@@ -243,10 +244,10 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 			entry.serverConnUnpacker, entry.username, err = s.server.NewUnpacker(packet, csid)
 			if err != nil {
 				lnc.logger.Warn("Failed to create unpacker for client session",
-					zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-					zap.Uint64("clientSessionID", csid),
-					zap.Int("packetLength", n),
-					zap.Error(err),
+					tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+					slog.Uint64("clientSessionID", csid),
+					slog.Int("packetLength", n),
+					tslog.Err(err),
 				)
 
 				s.putQueuedPacket(queuedPacket)
@@ -258,11 +259,11 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 		queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length, err = entry.serverConnUnpacker.UnpackInPlace(queuedPacket.buf, queuedPacket.clientAddrPort, s.packetBufFrontHeadroom, n)
 		if err != nil {
 			lnc.logger.Warn("Failed to unpack packet",
-				zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-				zap.String("username", entry.username),
-				zap.Uint64("clientSessionID", csid),
-				zap.Int("packetLength", n),
-				zap.Error(err),
+				tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+				slog.String("username", entry.username),
+				slog.Uint64("clientSessionID", csid),
+				slog.Int("packetLength", n),
+				tslog.Err(err),
 			)
 
 			s.putQueuedPacket(queuedPacket)
@@ -292,11 +293,11 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 			m, err := conn.ParseSocketControlMessage(cmsg)
 			if err != nil {
 				lnc.logger.Error("Failed to parse pktinfo control message from serverConn",
-					zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-					zap.String("username", entry.username),
-					zap.Uint64("clientSessionID", csid),
-					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-					zap.Error(err),
+					tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+					slog.String("username", entry.username),
+					slog.Uint64("clientSessionID", csid),
+					tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
+					tslog.Err(err),
 				)
 
 				s.putQueuedPacket(queuedPacket)
@@ -307,14 +308,14 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 			clientAddrInfop = &sessionClientAddrInfo{entry.clientAddrPortCache, entry.clientPktinfoCache}
 			entry.clientAddrInfo.Store(clientAddrInfop)
 
-			if ce := lnc.logger.Check(zap.DebugLevel, "Updated client address info"); ce != nil {
-				ce.Write(
-					zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-					zap.String("username", entry.username),
-					zap.Uint64("clientSessionID", csid),
-					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-					zap.Stringer("clientPktinfoAddr", m.PktinfoAddr),
-					zap.Uint32("clientPktinfoIfindex", m.PktinfoIfindex),
+			if lnc.logger.Enabled(slog.LevelDebug) {
+				lnc.logger.Debug("Updated client address info",
+					tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+					slog.String("username", entry.username),
+					slog.Uint64("clientSessionID", csid),
+					tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
+					tslog.Addr("clientPktinfoAddr", m.PktinfoAddr),
+					tslog.Uint("clientPktinfoIfindex", m.PktinfoIfindex),
 				)
 			}
 		}
@@ -348,11 +349,11 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 				})
 				if err != nil {
 					lnc.logger.Warn("Failed to get UDP client for new NAT session",
-						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-						zap.String("username", entry.username),
-						zap.Uint64("clientSessionID", csid),
-						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-						zap.Error(err),
+						tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+						slog.String("username", entry.username),
+						slog.Uint64("clientSessionID", csid),
+						tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
+						tslog.Err(err),
 					)
 					return
 				}
@@ -360,12 +361,12 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 				clientInfo, clientSession, err := c.NewSession(ctx)
 				if err != nil {
 					lnc.logger.Warn("Failed to create new UDP client session",
-						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-						zap.String("username", entry.username),
-						zap.Uint64("clientSessionID", csid),
-						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-						zap.String("client", clientInfo.Name),
-						zap.Error(err),
+						tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+						slog.String("username", entry.username),
+						slog.Uint64("clientSessionID", csid),
+						tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
+						slog.String("client", clientInfo.Name),
+						tslog.Err(err),
 					)
 					return
 				}
@@ -373,12 +374,12 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 				natConn, err := clientInfo.SocketConfig.Listen(ctx, "udp", "", nil)
 				if err != nil {
 					lnc.logger.Warn("Failed to create UDP socket for new NAT session",
-						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-						zap.String("username", entry.username),
-						zap.Uint64("clientSessionID", csid),
-						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-						zap.String("client", clientInfo.Name),
-						zap.Error(err),
+						tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+						slog.String("username", entry.username),
+						slog.Uint64("clientSessionID", csid),
+						tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
+						slog.String("client", clientInfo.Name),
+						tslog.Err(err),
 					)
 					clientSession.Close()
 					return
@@ -387,13 +388,13 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 				err = natConn.SetReadDeadline(time.Now().Add(lnc.natTimeout))
 				if err != nil {
 					lnc.logger.Error("Failed to set read deadline on natConn",
-						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-						zap.String("username", entry.username),
-						zap.Uint64("clientSessionID", csid),
-						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-						zap.String("client", clientInfo.Name),
-						zap.Duration("natTimeout", lnc.natTimeout),
-						zap.Error(err),
+						tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+						slog.String("username", entry.username),
+						slog.Uint64("clientSessionID", csid),
+						tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
+						slog.String("client", clientInfo.Name),
+						slog.Duration("natTimeout", lnc.natTimeout),
+						tslog.Err(err),
 					)
 					natConn.Close()
 					clientSession.Close()
@@ -403,11 +404,11 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 				serverConnPacker, err := entry.serverConnUnpacker.NewPacker()
 				if err != nil {
 					lnc.logger.Warn("Failed to create packer for client session",
-						zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-						zap.String("username", entry.username),
-						zap.Uint64("clientSessionID", csid),
-						zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-						zap.Error(err),
+						tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+						slog.String("username", entry.username),
+						slog.Uint64("clientSessionID", csid),
+						tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
+						tslog.Err(err),
 					)
 					natConn.Close()
 					clientSession.Close()
@@ -425,11 +426,11 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 				sendChClean = true
 
 				lnc.logger.Info("UDP session relay started",
-					zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-					zap.String("username", entry.username),
-					zap.Uint64("clientSessionID", csid),
-					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-					zap.String("client", clientInfo.Name),
+					tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+					slog.String("username", entry.username),
+					slog.Uint64("clientSessionID", csid),
+					tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
+					slog.String("client", clientInfo.Name),
 				)
 
 				s.wg.Go(func() {
@@ -462,12 +463,12 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 				})
 			})
 
-			if ce := lnc.logger.Check(zap.DebugLevel, "New UDP session"); ce != nil {
-				ce.Write(
-					zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-					zap.String("username", entry.username),
-					zap.Uint64("clientSessionID", csid),
-					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+			if lnc.logger.Enabled(slog.LevelDebug) {
+				lnc.logger.Debug("New UDP session",
+					tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+					slog.String("username", entry.username),
+					slog.Uint64("clientSessionID", csid),
+					tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
 				)
 			}
 		}
@@ -475,12 +476,12 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 		select {
 		case entry.natConnSendCh <- queuedPacket:
 		default:
-			if ce := lnc.logger.Check(zap.DebugLevel, "Dropping packet due to full send channel"); ce != nil {
-				ce.Write(
-					zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-					zap.String("username", entry.username),
-					zap.Uint64("clientSessionID", csid),
-					zap.Stringer("targetAddress", &queuedPacket.targetAddr),
+			if lnc.logger.Enabled(slog.LevelDebug) {
+				lnc.logger.Debug("Dropping packet due to full send channel",
+					tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+					slog.String("username", entry.username),
+					slog.Uint64("clientSessionID", csid),
+					tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
 				)
 			}
 
@@ -491,8 +492,8 @@ func (s *UDPSessionRelay) recvFromServerConnGeneric(ctx context.Context, lnc *ud
 	}
 
 	lnc.logger.Info("Finished receiving from serverConn",
-		zap.Uint64("packetsReceived", packetsReceived),
-		zap.Uint64("payloadBytesReceived", payloadBytesReceived),
+		slog.Uint64("packetsReceived", packetsReceived),
+		slog.Uint64("payloadBytesReceived", payloadBytesReceived),
 	)
 }
 
@@ -510,13 +511,13 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(ctx context.Context, u
 		destAddrPort, packetStart, packetLength, err = uplink.natConnPacker.PackInPlace(ctx, queuedPacket.buf, queuedPacket.targetAddr, queuedPacket.start, queuedPacket.length)
 		if err != nil {
 			uplink.logger.Warn("Failed to pack packet",
-				zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-				zap.String("username", uplink.username),
-				zap.Uint64("clientSessionID", uplink.csid),
-				zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-				zap.String("client", uplink.clientName),
-				zap.Int("payloadLength", queuedPacket.length),
-				zap.Error(err),
+				tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+				slog.String("username", uplink.username),
+				slog.Uint64("clientSessionID", uplink.csid),
+				tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
+				slog.String("client", uplink.clientName),
+				slog.Int("payloadLength", queuedPacket.length),
+				tslog.Err(err),
 			)
 
 			s.putQueuedPacket(queuedPacket)
@@ -526,26 +527,26 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(ctx context.Context, u
 		_, err = uplink.natConn.WriteToUDPAddrPort(queuedPacket.buf[packetStart:packetStart+packetLength], destAddrPort)
 		if err != nil {
 			uplink.logger.Warn("Failed to write packet to natConn",
-				zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-				zap.String("username", uplink.username),
-				zap.Uint64("clientSessionID", uplink.csid),
-				zap.Stringer("targetAddress", &queuedPacket.targetAddr),
-				zap.String("client", uplink.clientName),
-				zap.Stringer("writeDestAddress", destAddrPort),
-				zap.Int("packetLength", packetLength),
-				zap.Error(err),
+				tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+				slog.String("username", uplink.username),
+				slog.Uint64("clientSessionID", uplink.csid),
+				tslog.ConnAddrp("targetAddress", &queuedPacket.targetAddr),
+				slog.String("client", uplink.clientName),
+				tslog.AddrPort("writeDestAddress", destAddrPort),
+				slog.Int("packetLength", packetLength),
+				tslog.Err(err),
 			)
 		}
 
 		err = uplink.natConn.SetReadDeadline(time.Now().Add(uplink.natTimeout))
 		if err != nil {
 			uplink.logger.Error("Failed to set read deadline on natConn",
-				zap.Stringer("clientAddress", &queuedPacket.clientAddrPort),
-				zap.String("username", uplink.username),
-				zap.Uint64("clientSessionID", uplink.csid),
-				zap.String("client", uplink.clientName),
-				zap.Duration("natTimeout", uplink.natTimeout),
-				zap.Error(err),
+				tslog.AddrPortp("clientAddress", &queuedPacket.clientAddrPort),
+				slog.String("username", uplink.username),
+				slog.Uint64("clientSessionID", uplink.csid),
+				slog.String("client", uplink.clientName),
+				slog.Duration("natTimeout", uplink.natTimeout),
+				tslog.Err(err),
 			)
 		}
 
@@ -555,12 +556,12 @@ func (s *UDPSessionRelay) relayServerConnToNatConnGeneric(ctx context.Context, u
 	}
 
 	uplink.logger.Info("Finished relay serverConn -> natConn",
-		zap.String("username", uplink.username),
-		zap.Uint64("clientSessionID", uplink.csid),
-		zap.String("client", uplink.clientName),
-		zap.Stringer("lastWriteDestAddress", destAddrPort),
-		zap.Uint64("packetsSent", packetsSent),
-		zap.Uint64("payloadBytesSent", payloadBytesSent),
+		slog.String("username", uplink.username),
+		slog.Uint64("clientSessionID", uplink.csid),
+		slog.String("client", uplink.clientName),
+		tslog.AddrPort("lastWriteDestAddress", destAddrPort),
+		slog.Uint64("packetsSent", packetsSent),
+		slog.Uint64("payloadBytesSent", payloadBytesSent),
 	)
 
 	s.collector.CollectUDPSessionUplink(uplink.username, packetsSent, payloadBytesSent)
@@ -592,26 +593,26 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(downlink sessionDownli
 			}
 
 			downlink.logger.Warn("Failed to read packet from natConn",
-				zap.Stringer("clientAddress", clientAddrPort),
-				zap.String("username", downlink.username),
-				zap.Uint64("clientSessionID", downlink.csid),
-				zap.Stringer("packetSourceAddress", packetSourceAddrPort),
-				zap.String("client", downlink.clientName),
-				zap.Int("packetLength", n),
-				zap.Error(err),
+				tslog.AddrPortp("clientAddress", &clientAddrInfop.addrPort),
+				slog.String("username", downlink.username),
+				slog.Uint64("clientSessionID", downlink.csid),
+				tslog.AddrPort("packetSourceAddress", packetSourceAddrPort),
+				slog.String("client", downlink.clientName),
+				slog.Int("packetLength", n),
+				tslog.Err(err),
 			)
 			continue
 		}
 		err = conn.ParseFlagsForError(flags)
 		if err != nil {
 			downlink.logger.Warn("Failed to read packet from natConn",
-				zap.Stringer("clientAddress", clientAddrPort),
-				zap.String("username", downlink.username),
-				zap.Uint64("clientSessionID", downlink.csid),
-				zap.Stringer("packetSourceAddress", packetSourceAddrPort),
-				zap.String("client", downlink.clientName),
-				zap.Int("packetLength", n),
-				zap.Error(err),
+				tslog.AddrPortp("clientAddress", &clientAddrInfop.addrPort),
+				slog.String("username", downlink.username),
+				slog.Uint64("clientSessionID", downlink.csid),
+				tslog.AddrPort("packetSourceAddress", packetSourceAddrPort),
+				slog.String("client", downlink.clientName),
+				slog.Int("packetLength", n),
+				tslog.Err(err),
 			)
 			continue
 		}
@@ -619,13 +620,13 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(downlink sessionDownli
 		payloadSourceAddrPort, payloadStart, payloadLength, err := downlink.natConnUnpacker.UnpackInPlace(packetBuf, packetSourceAddrPort, headroom.Front, n)
 		if err != nil {
 			downlink.logger.Warn("Failed to unpack packet",
-				zap.Stringer("clientAddress", clientAddrPort),
-				zap.String("username", downlink.username),
-				zap.Uint64("clientSessionID", downlink.csid),
-				zap.Stringer("packetSourceAddress", packetSourceAddrPort),
-				zap.String("client", downlink.clientName),
-				zap.Int("packetLength", n),
-				zap.Error(err),
+				tslog.AddrPortp("clientAddress", &clientAddrInfop.addrPort),
+				slog.String("username", downlink.username),
+				slog.Uint64("clientSessionID", downlink.csid),
+				tslog.AddrPort("packetSourceAddress", packetSourceAddrPort),
+				slog.String("client", downlink.clientName),
+				slog.Int("packetLength", n),
+				tslog.Err(err),
 			)
 			continue
 		}
@@ -640,15 +641,15 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(downlink sessionDownli
 		packetStart, packetLength, err := downlink.serverConnPacker.PackInPlace(packetBuf, payloadSourceAddrPort, payloadStart, payloadLength, maxClientPacketSize)
 		if err != nil {
 			downlink.logger.Warn("Failed to pack packet",
-				zap.Stringer("clientAddress", clientAddrPort),
-				zap.String("username", downlink.username),
-				zap.Uint64("clientSessionID", downlink.csid),
-				zap.Stringer("packetSourceAddress", packetSourceAddrPort),
-				zap.String("client", downlink.clientName),
-				zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
-				zap.Int("payloadLength", payloadLength),
-				zap.Int("maxClientPacketSize", maxClientPacketSize),
-				zap.Error(err),
+				tslog.AddrPortp("clientAddress", &clientAddrInfop.addrPort),
+				slog.String("username", downlink.username),
+				slog.Uint64("clientSessionID", downlink.csid),
+				tslog.AddrPort("packetSourceAddress", packetSourceAddrPort),
+				slog.String("client", downlink.clientName),
+				tslog.AddrPort("payloadSourceAddress", payloadSourceAddrPort),
+				slog.Int("payloadLength", payloadLength),
+				slog.Int("maxClientPacketSize", maxClientPacketSize),
+				tslog.Err(err),
 			)
 			continue
 		}
@@ -656,14 +657,14 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(downlink sessionDownli
 		_, _, err = downlink.serverConn.WriteMsgUDPAddrPort(packetBuf[packetStart:packetStart+packetLength], clientPktinfo, clientAddrPort)
 		if err != nil {
 			downlink.logger.Warn("Failed to write packet to serverConn",
-				zap.Stringer("clientAddress", clientAddrPort),
-				zap.String("username", downlink.username),
-				zap.Uint64("clientSessionID", downlink.csid),
-				zap.Stringer("packetSourceAddress", packetSourceAddrPort),
-				zap.String("client", downlink.clientName),
-				zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
-				zap.Int("packetLength", packetLength),
-				zap.Error(err),
+				tslog.AddrPortp("clientAddress", &clientAddrInfop.addrPort),
+				slog.String("username", downlink.username),
+				slog.Uint64("clientSessionID", downlink.csid),
+				tslog.AddrPort("packetSourceAddress", packetSourceAddrPort),
+				slog.String("client", downlink.clientName),
+				tslog.AddrPort("payloadSourceAddress", payloadSourceAddrPort),
+				slog.Int("packetLength", packetLength),
+				tslog.Err(err),
 			)
 		}
 
@@ -672,11 +673,11 @@ func (s *UDPSessionRelay) relayNatConnToServerConnGeneric(downlink sessionDownli
 	}
 
 	downlink.logger.Info("Finished relay serverConn <- natConn",
-		zap.Stringer("clientAddress", clientAddrPort),
-		zap.String("username", downlink.username),
-		zap.Uint64("clientSessionID", downlink.csid),
-		zap.Uint64("packetsSent", packetsSent),
-		zap.Uint64("payloadBytesSent", payloadBytesSent),
+		tslog.AddrPortp("clientAddress", &clientAddrInfop.addrPort),
+		slog.String("username", downlink.username),
+		slog.Uint64("clientSessionID", downlink.csid),
+		slog.Uint64("packetsSent", packetsSent),
+		slog.Uint64("payloadBytesSent", payloadBytesSent),
 	)
 
 	s.collector.CollectUDPSessionDownlink(downlink.username, packetsSent, payloadBytesSent)
@@ -697,7 +698,7 @@ func (s *UDPSessionRelay) Stop() error {
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
 		if err := lnc.serverConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
-			lnc.logger.Error("Failed to set read deadline on serverConn", zap.Error(err))
+			lnc.logger.Error("Failed to set read deadline on serverConn", tslog.Err(err))
 		}
 	}
 
@@ -714,8 +715,8 @@ func (s *UDPSessionRelay) Stop() error {
 
 		if err := natConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
 			entry.logger.Error("Failed to set read deadline on natConn",
-				zap.Uint64("clientSessionID", csid),
-				zap.Error(err),
+				slog.Uint64("clientSessionID", csid),
+				tslog.Err(err),
 			)
 		}
 	}
@@ -728,10 +729,10 @@ func (s *UDPSessionRelay) Stop() error {
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
 		if err := lnc.serverConn.Close(); err != nil {
-			lnc.logger.Error("Failed to close serverConn", zap.Error(err))
+			lnc.logger.Error("Failed to close serverConn", tslog.Err(err))
 		}
 	}
 
-	s.logger.Info("Stopped UDP session relay service", zap.String("server", s.serverName))
+	s.logger.Info("Stopped UDP session relay service", slog.String("server", s.serverName))
 	return nil
 }

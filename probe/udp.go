@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"os"
 	"slices"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"go.uber.org/zap"
 	"golang.org/x/net/dns/dnsmessage"
 )
 
@@ -20,7 +21,7 @@ type UDPProbeConfig struct {
 	Addr conn.Addr
 
 	// Logger is the logger to use for the probe.
-	Logger *zap.Logger
+	Logger *tslog.Logger
 }
 
 // NewProbe creates a new UDP probe from the configuration.
@@ -35,7 +36,7 @@ func (c UDPProbeConfig) NewProbe() UDPProbe {
 // The DNS server must support the HTTPS RR type and return a response indicating success.
 type UDPProbe struct {
 	addr   conn.Addr
-	logger *zap.Logger
+	logger *tslog.Logger
 }
 
 // Probe runs the connectivity test.
@@ -114,21 +115,21 @@ func (p UDPProbe) Probe(ctx context.Context, client zerocopy.UDPClient) error {
 				return err
 			}
 			p.logger.Warn("Failed to read DNS response packet",
-				zap.String("client", sessionInfo.Name),
-				zap.Stringer("targetAddr", p.addr),
-				zap.Stringer("packetSourceAddress", packetSourceAddress),
-				zap.Int("packetLength", n),
-				zap.Error(err),
+				slog.String("client", sessionInfo.Name),
+				tslog.ConnAddr("targetAddr", p.addr),
+				tslog.AddrPort("packetSourceAddress", packetSourceAddress),
+				slog.Int("packetLength", n),
+				tslog.Err(err),
 			)
 			continue
 		}
 		if err = conn.ParseFlagsForError(flags); err != nil {
 			p.logger.Warn("Failed to read DNS response packet",
-				zap.String("client", sessionInfo.Name),
-				zap.Stringer("targetAddr", p.addr),
-				zap.Stringer("packetSourceAddress", packetSourceAddress),
-				zap.Int("packetLength", n),
-				zap.Error(err),
+				slog.String("client", sessionInfo.Name),
+				tslog.ConnAddr("targetAddr", p.addr),
+				tslog.AddrPort("packetSourceAddress", packetSourceAddress),
+				slog.Int("packetLength", n),
+				tslog.Err(err),
 			)
 			continue
 		}
@@ -136,20 +137,20 @@ func (p UDPProbe) Probe(ctx context.Context, client zerocopy.UDPClient) error {
 		payloadSourceAddrPort, payloadStart, payloadLen, err := session.Unpacker.UnpackInPlace(b, packetSourceAddress, 0, n)
 		if err != nil {
 			p.logger.Warn("Failed to unpack DNS response packet",
-				zap.String("client", sessionInfo.Name),
-				zap.Stringer("targetAddr", p.addr),
-				zap.Stringer("packetSourceAddress", packetSourceAddress),
-				zap.Int("packetLength", n),
-				zap.Error(err),
+				slog.String("client", sessionInfo.Name),
+				tslog.ConnAddr("targetAddr", p.addr),
+				tslog.AddrPort("packetSourceAddress", packetSourceAddress),
+				slog.Int("packetLength", n),
+				tslog.Err(err),
 			)
 			continue
 		}
 		if p.addr.IsIP() {
 			if !conn.AddrPortMappedEqual(payloadSourceAddrPort, p.addr.IPPort()) {
 				p.logger.Warn("Ignoring DNS response packet from unexpected source",
-					zap.String("client", sessionInfo.Name),
-					zap.Stringer("targetAddr", p.addr),
-					zap.Stringer("payloadSourceAddrPort", payloadSourceAddrPort),
+					slog.String("client", sessionInfo.Name),
+					tslog.ConnAddr("targetAddr", p.addr),
+					tslog.AddrPort("payloadSourceAddrPort", payloadSourceAddrPort),
 				)
 				continue
 			}
@@ -160,38 +161,38 @@ func (p UDPProbe) Probe(ctx context.Context, client zerocopy.UDPClient) error {
 		header, err := parser.Start(b[payloadStart : payloadStart+payloadLen])
 		if err != nil {
 			p.logger.Warn("Failed to parse DNS response header",
-				zap.String("client", sessionInfo.Name),
-				zap.Stringer("targetAddr", p.addr),
-				zap.Stringer("payloadSourceAddrPort", payloadSourceAddrPort),
-				zap.Int("payloadLength", payloadLen),
-				zap.Error(err),
+				slog.String("client", sessionInfo.Name),
+				tslog.ConnAddr("targetAddr", p.addr),
+				tslog.AddrPort("payloadSourceAddrPort", payloadSourceAddrPort),
+				slog.Int("payloadLength", payloadLen),
+				tslog.Err(err),
 			)
 			continue
 		}
 		if header.ID != msg.Header.ID {
 			p.logger.Warn("Ignoring DNS response packet with unexpected transaction ID",
-				zap.String("client", sessionInfo.Name),
-				zap.Stringer("targetAddr", p.addr),
-				zap.Stringer("payloadSourceAddrPort", payloadSourceAddrPort),
-				zap.Uint16("receivedID", header.ID),
-				zap.Uint16("expectedID", msg.Header.ID),
+				slog.String("client", sessionInfo.Name),
+				tslog.ConnAddr("targetAddr", p.addr),
+				tslog.AddrPort("payloadSourceAddrPort", payloadSourceAddrPort),
+				tslog.Uint("receivedID", header.ID),
+				tslog.Uint("expectedID", msg.Header.ID),
 			)
 			continue
 		}
 		if !header.Response {
 			p.logger.Warn("Ignoring non-response DNS packet",
-				zap.String("client", sessionInfo.Name),
-				zap.Stringer("targetAddr", p.addr),
-				zap.Stringer("payloadSourceAddrPort", payloadSourceAddrPort),
+				slog.String("client", sessionInfo.Name),
+				tslog.ConnAddr("targetAddr", p.addr),
+				tslog.AddrPort("payloadSourceAddrPort", payloadSourceAddrPort),
 			)
 			continue
 		}
 		if header.RCode != dnsmessage.RCodeSuccess {
 			p.logger.Warn("Ignoring non-success DNS response",
-				zap.String("client", sessionInfo.Name),
-				zap.Stringer("targetAddr", p.addr),
-				zap.Stringer("payloadSourceAddrPort", payloadSourceAddrPort),
-				zap.Stringer("rcode", header.RCode),
+				slog.String("client", sessionInfo.Name),
+				tslog.ConnAddr("targetAddr", p.addr),
+				tslog.AddrPort("payloadSourceAddrPort", payloadSourceAddrPort),
+				slog.Any("rcode", header.RCode),
 			)
 			continue
 		}
@@ -199,37 +200,37 @@ func (p UDPProbe) Probe(ctx context.Context, client zerocopy.UDPClient) error {
 		question, err := parser.Question()
 		if err != nil {
 			p.logger.Warn("Failed to parse question in DNS response packet",
-				zap.String("client", sessionInfo.Name),
-				zap.Stringer("targetAddr", p.addr),
-				zap.Stringer("payloadSourceAddrPort", payloadSourceAddrPort),
-				zap.Error(err),
+				slog.String("client", sessionInfo.Name),
+				tslog.ConnAddr("targetAddr", p.addr),
+				tslog.AddrPort("payloadSourceAddrPort", payloadSourceAddrPort),
+				tslog.Err(err),
 			)
 			continue
 		}
 		if question.Name.String() != domainName {
 			p.logger.Warn("Ignoring DNS response packet with unexpected question name",
-				zap.String("client", sessionInfo.Name),
-				zap.Stringer("targetAddr", p.addr),
-				zap.Stringer("payloadSourceAddrPort", payloadSourceAddrPort),
-				zap.Stringer("receivedName", question.Name),
+				slog.String("client", sessionInfo.Name),
+				tslog.ConnAddr("targetAddr", p.addr),
+				tslog.AddrPort("payloadSourceAddrPort", payloadSourceAddrPort),
+				slog.Any("receivedName", question.Name),
 			)
 			continue
 		}
 		if question.Type != rrTypeHTTPS {
 			p.logger.Warn("Ignoring DNS response packet with unexpected question type",
-				zap.String("client", sessionInfo.Name),
-				zap.Stringer("targetAddr", p.addr),
-				zap.Stringer("payloadSourceAddrPort", payloadSourceAddrPort),
-				zap.Stringer("receivedType", question.Type),
+				slog.String("client", sessionInfo.Name),
+				tslog.ConnAddr("targetAddr", p.addr),
+				tslog.AddrPort("payloadSourceAddrPort", payloadSourceAddrPort),
+				slog.Any("receivedType", question.Type),
 			)
 			continue
 		}
 		if question.Class != dnsmessage.ClassINET {
 			p.logger.Warn("Ignoring DNS response packet with unexpected question class",
-				zap.String("client", sessionInfo.Name),
-				zap.Stringer("targetAddr", p.addr),
-				zap.Stringer("payloadSourceAddrPort", payloadSourceAddrPort),
-				zap.Stringer("receivedClass", question.Class),
+				slog.String("client", sessionInfo.Name),
+				tslog.ConnAddr("targetAddr", p.addr),
+				tslog.AddrPort("payloadSourceAddrPort", payloadSourceAddrPort),
+				slog.Any("receivedClass", question.Class),
 			)
 			continue
 		}

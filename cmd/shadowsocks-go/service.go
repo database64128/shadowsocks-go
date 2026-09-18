@@ -4,16 +4,15 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/jsoncfg"
-	"github.com/database64128/shadowsocks-go/logging"
 	"github.com/database64128/shadowsocks-go/service"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 const usageService = `Run service
@@ -23,26 +22,33 @@ Usage: %s [options] [path]...
 Arguments:
   [path]...   Paths to the config files (default: "config.json")
 
-Flags:
-  -zapConf    Preset name or path to the JSON config file for building the zap logger (default: "console")
-              Available presets: console, console-nocolor, console-notime, systemd, production, development
-  -logLevel   Log level for the console and systemd presets (default: info)
-              Available levels: debug, info, warn, error, dpanic, panic, fatal
+Logging Flags:
+  -logLevel <level>   Log level, one of: DEBUG, INFO, WARN, ERROR (default: INFO)
+  -logNoColor         Disable colored log output
+  -logNoTime          Disable timestamp in log output
+  -logKVPairs         Format logs as key=value pairs
+  -logJSON            Format logs as line-delimited JSON
 `
 
 func runService(name string, args []string) int {
 	var (
-		fs       flag.FlagSet
-		zapConf  string
-		logLevel zapcore.Level
+		fs         flag.FlagSet
+		logLevel   slog.Level
+		logNoColor = defaultLogNoColor
+		logNoTime  bool
+		logKVPairs bool
+		logJSON    bool
 	)
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), usageService, name)
 	}
 	fs.Init(name, flag.ContinueOnError)
-	fs.StringVar(&zapConf, "zapConf", "console", "preset name or path to the JSON config file for building the zap logger\navailable presets: console, console-nocolor, console-notime, systemd, production, development")
-	fs.TextVar(&logLevel, "logLevel", zapcore.InfoLevel, "log `level` for the console and systemd presets\navailable levels: debug, info, warn, error, dpanic, panic, fatal")
+	fs.TextVar(&logLevel, "logLevel", slog.LevelInfo, "log `level`, one of: DEBUG, INFO, WARN, ERROR")
+	fs.BoolVar(&logNoColor, "logNoColor", defaultLogNoColor, "disable colored log output")
+	fs.BoolVar(&logNoTime, "logNoTime", false, "disable timestamp in log output")
+	fs.BoolVar(&logKVPairs, "logKVPairs", false, "format logs as key=value pairs")
+	fs.BoolVar(&logJSON, "logJSON", false, "format logs as line-delimited JSON")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -50,14 +56,15 @@ func runService(name string, args []string) int {
 		return 2
 	}
 
-	logger, err := logging.NewZapLogger(zapConf, logLevel)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Failed to build logger:", err)
-		return 1
+	logCfg := tslog.Config{
+		Level:          logLevel,
+		NoColor:        logNoColor,
+		NoTime:         logNoTime,
+		UseTextHandler: logKVPairs,
+		UseJSONHandler: logJSON,
 	}
-	defer logger.Sync()
-
-	logger.Info("shadowsocks-go", zap.String("version", shadowsocks.Version))
+	logger := logCfg.NewLogger(os.Stderr)
+	logger.Info("shadowsocks-go", slog.String("version", shadowsocks.Version))
 
 	paths := fs.Args()
 	if len(paths) == 0 {
@@ -66,10 +73,10 @@ func runService(name string, args []string) int {
 
 	var svcCfg service.Config
 	for _, path := range paths {
-		if err = jsoncfg.Load(path, &svcCfg); err != nil {
+		if err := jsoncfg.Load(path, &svcCfg); err != nil {
 			logger.Error("Failed to load config",
-				zap.String("path", path),
-				zap.Error(err),
+				slog.String("path", path),
+				tslog.Err(err),
 			)
 			return 1
 		}
@@ -77,7 +84,7 @@ func runService(name string, args []string) int {
 
 	m, err := svcCfg.Manager(logger)
 	if err != nil {
-		logger.Error("Failed to create service manager", zap.Error(err))
+		logger.Error("Failed to create service manager", tslog.Err(err))
 		return 1
 	}
 	defer m.Close()

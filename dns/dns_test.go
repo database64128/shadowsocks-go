@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"log/slog"
 	"net/netip"
 	"testing"
 
@@ -9,12 +10,11 @@ import (
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/netiotest"
+	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest"
 )
 
-func testResolver(t *testing.T, name string, serverAddrPort netip.AddrPort, tcpClient netio.StreamClient, udpClient zerocopy.UDPClient, logger *zap.Logger) {
+func testResolver(t *testing.T, name string, serverAddrPort netip.AddrPort, tcpClient netio.StreamClient, udpClient zerocopy.UDPClient, logger *tslog.Logger) {
 	r := NewResolver(name, defaultCacheSize, serverAddrPort, tcpClient, udpClient, logger)
 	ctx := t.Context()
 
@@ -42,8 +42,8 @@ func testResolver(t *testing.T, name string, serverAddrPort netip.AddrPort, tcpC
 }
 
 func TestResolver(t *testing.T) {
-	logger := zaptest.NewLogger(t)
-	defer logger.Sync()
+	logCfg := tslog.Config{Level: slog.LevelDebug}
+	logger := logCfg.NewLogger(t.Output())
 
 	serverAddrPort := netip.AddrPortFrom(netip.AddrFrom4([4]byte{1, 1, 1, 1}), 53)
 	tcpClientConfig := netio.TCPClientConfig{
@@ -67,8 +67,8 @@ func TestResolver(t *testing.T) {
 
 func TestResolverTCPBoundedRetry(t *testing.T) {
 	ctx := t.Context()
-	logger := zaptest.NewLogger(t)
-	defer logger.Sync()
+	logCfg := tslog.Config{Level: slog.LevelDebug}
+	logger := logCfg.NewLogger(t.Output())
 
 	psc, ch := netiotest.NewPipeStreamClient(netio.StreamDialerInfo{
 		Name:                 "test",

@@ -3,16 +3,17 @@ package router
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/database64128/shadowsocks-go/dns"
 	"github.com/database64128/shadowsocks-go/domainset"
 	"github.com/database64128/shadowsocks-go/mmap"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/prefixset"
+	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 	"github.com/gaissmai/bart"
 	"github.com/oschwald/geoip2-golang/v2"
-	"go.uber.org/zap"
 )
 
 // Config is the configuration for a Router.
@@ -26,7 +27,7 @@ type Config struct {
 }
 
 // Router creates a router from the RouterConfig.
-func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]netio.StreamClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int) (r *Router, err error) {
+func (rc *Config) Router(logger *tslog.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]netio.StreamClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int) (r *Router, err error) {
 	defaultRoute := Route{name: "default"}
 
 	switch rc.DefaultTCPClientName {
@@ -126,7 +127,7 @@ func (rc *Config) Router(logger *zap.Logger, resolvers []dns.SimpleResolver, res
 type Router struct {
 	geoip  *geoip2.Reader
 	close  func() error
-	logger *zap.Logger
+	logger *tslog.Logger
 	routes []Route
 }
 
@@ -143,13 +144,13 @@ func (r *Router) GetTCPClient(ctx context.Context, requestInfo RequestInfo) (net
 		return nil, err
 	}
 
-	if ce := r.logger.Check(zap.DebugLevel, "Matched route for TCP connection"); ce != nil {
-		ce.Write(
-			zap.Int("serverIndex", requestInfo.ServerIndex),
-			zap.String("username", requestInfo.Username),
-			zap.Stringer("sourceAddrPort", requestInfo.SourceAddrPort),
-			zap.Stringer("targetAddress", requestInfo.TargetAddr),
-			zap.Stringer("route", route),
+	if r.logger.Enabled(slog.LevelDebug) {
+		r.logger.Debug("Matched route for TCP connection",
+			slog.Int("serverIndex", requestInfo.ServerIndex),
+			slog.String("username", requestInfo.Username),
+			tslog.AddrPort("sourceAddrPort", requestInfo.SourceAddrPort),
+			tslog.ConnAddr("targetAddress", requestInfo.TargetAddr),
+			slog.String("route", route.name),
 		)
 	}
 
@@ -164,13 +165,13 @@ func (r *Router) GetUDPClient(ctx context.Context, requestInfo RequestInfo) (zer
 		return nil, err
 	}
 
-	if ce := r.logger.Check(zap.DebugLevel, "Matched route for UDP session"); ce != nil {
-		ce.Write(
-			zap.Int("serverIndex", requestInfo.ServerIndex),
-			zap.String("username", requestInfo.Username),
-			zap.Stringer("sourceAddrPort", requestInfo.SourceAddrPort),
-			zap.Stringer("targetAddress", requestInfo.TargetAddr),
-			zap.Stringer("route", route),
+	if r.logger.Enabled(slog.LevelDebug) {
+		r.logger.Debug("Matched route for UDP session",
+			slog.Int("serverIndex", requestInfo.ServerIndex),
+			slog.String("username", requestInfo.Username),
+			tslog.AddrPort("sourceAddrPort", requestInfo.SourceAddrPort),
+			tslog.ConnAddr("targetAddress", requestInfo.TargetAddr),
+			slog.String("route", route.name),
 		)
 	}
 

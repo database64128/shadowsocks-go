@@ -3,11 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/database64128/shadowsocks-go/jsoncfg"
 	"github.com/database64128/shadowsocks-go/service"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 const usageConfig = `Manage configuration files
@@ -52,39 +53,42 @@ func runConfig(name string, args []string) int {
 		paths = []string{"config.json"}
 	}
 
+	logCfg := tslog.Config{Level: slog.LevelInfo}
+	logger := logCfg.NewLogger(os.Stderr)
+
 	var exitCode int
 	for _, path := range paths {
-		if !processConfigFile(path, format, test) {
+		if !processConfigFile(logger, path, format, test) {
 			exitCode = 1
 		}
 	}
 	return exitCode
 }
 
-func processConfigFile(path string, format bool, test bool) bool {
+func processConfigFile(logger *tslog.Logger, path string, format bool, test bool) bool {
 	var svcCfg service.Config
 	if err := jsoncfg.Load(path, &svcCfg); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load config file %q: %v\n", path, err)
+		logger.Error("Failed to load config file", slog.String("path", path), tslog.Err(err))
 		return false
 	}
 
 	if format {
 		svcCfg.Migrate()
 		if err := jsoncfg.Save(path, &svcCfg); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to save config file %q: %v\n", path, err)
+			logger.Error("Failed to save config file", slog.String("path", path), tslog.Err(err))
 			return false
 		}
-		fmt.Printf("Formatted config file %q\n", path)
+		logger.Info("Formatted config file", slog.String("path", path))
 	}
 
 	if test {
-		m, err := svcCfg.Manager(zap.NewNop())
+		m, err := svcCfg.Manager(logger)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid config file %q: %v\n", path, err)
+			logger.Error("Invalid config file", slog.String("path", path), tslog.Err(err))
 			return false
 		}
 		m.Close()
-		fmt.Printf("Config file %q is valid\n", path)
+		logger.Info("Config file is valid", slog.String("path", path))
 	}
 
 	return true

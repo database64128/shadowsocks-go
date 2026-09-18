@@ -6,7 +6,7 @@ import (
 	"syscall"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 // TCPRedirectServer handles connections redirected by the netfilter "redirect" statement.
@@ -26,7 +26,7 @@ func (TCPRedirectServer) StreamServerInfo() StreamServerInfo {
 }
 
 // HandleStream implements [StreamServer.HandleStream].
-func (TCPRedirectServer) HandleStream(c Conn, _ *zap.Logger) (ConnRequest, error) {
+func (TCPRedirectServer) HandleStream(c Conn, _ *tslog.Logger) (ConnRequest, error) {
 	netAddr := c.LocalAddr()
 	tcpAddr, ok := netAddr.(*net.TCPAddr)
 	if !ok {

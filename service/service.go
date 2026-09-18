@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/database64128/shadowsocks-go"
@@ -18,8 +19,8 @@ import (
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/tlscerts"
+	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"go.uber.org/zap"
 )
 
 var errNetworkDisabled = errors.New("this network (tcp or udp) is disabled")
@@ -87,7 +88,7 @@ func (cfg *Config) Migrate() {
 // Manager initializes the service manager.
 //
 // Initialization order: clients -> DNS -> router -> servers
-func (sc *Config) Manager(logger *zap.Logger) (*Manager, error) {
+func (sc *Config) Manager(logger *tslog.Logger) (*Manager, error) {
 	if len(sc.Servers) == 0 {
 		return nil, errors.New("no services to start")
 	}
@@ -259,7 +260,7 @@ type Manager struct {
 	notifyReload reloadNotifier
 	services     []shadowsocks.Service
 	router       *router.Router
-	logger       *zap.Logger
+	logger       *tslog.Logger
 }
 
 // Run starts all services. If any service fails to start, it stops all running services
@@ -276,26 +277,26 @@ func (m *Manager) Run(ctx context.Context) bool {
 
 	for _, s := range m.services {
 		if err := s.Start(ctx); err != nil {
-			m.logger.Error("Failed to start service", s.ZapField(), zap.Error(err))
+			m.logger.Error("Failed to start service", s.SlogAttr(), tslog.Err(err))
 			ok = false
 			break
 		}
 		runningSvcs = append(runningSvcs, s)
 	}
 
-	var stopReason zap.Field
+	var stopReason slog.Attr
 	if ok {
 		<-ctx.Done()
-		stopReason = zap.NamedError("reason", context.Cause(ctx))
+		stopReason = slog.Any("reason", context.Cause(ctx))
 	} else {
 		cancel()
-		stopReason = zap.String("reason", "one or more services failed to start")
+		stopReason = slog.String("reason", "one or more services failed to start")
 	}
 	m.logger.Info("Stopping services", stopReason)
 
 	for _, s := range runningSvcs {
 		if err := s.Stop(); err != nil {
-			m.logger.Error("Failed to stop service", s.ZapField(), zap.Error(err))
+			m.logger.Error("Failed to stop service", s.SlogAttr(), tslog.Err(err))
 		}
 	}
 
@@ -306,6 +307,6 @@ func (m *Manager) Run(ctx context.Context) bool {
 // Close closes the manager.
 func (m *Manager) Close() {
 	if err := m.router.Close(); err != nil {
-		m.logger.Error("Failed to close router", zap.Error(err))
+		m.logger.Error("Failed to close router", tslog.Err(err))
 	}
 }

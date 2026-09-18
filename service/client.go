@@ -14,8 +14,8 @@ import (
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"github.com/database64128/shadowsocks-go/ssnone"
 	"github.com/database64128/shadowsocks-go/tlscerts"
+	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"go.uber.org/zap"
 )
 
 // ClientConfig stores a client configuration.
@@ -196,7 +196,7 @@ func (c *ClientConfig) AddClient(
 	tcpDialerCache conn.TCPDialerCache,
 	udpSocketConfigCache conn.UDPSocketConfigCache,
 	tlsCertStore *tlscerts.Store,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 ) error {
 	if !c.EnableTCP && !c.EnableUDP {
 		return nil

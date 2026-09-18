@@ -2,6 +2,7 @@ package clientgroup
 
 import (
 	"context"
+	"log/slog"
 	"math/bits"
 	"slices"
 	"sync"
@@ -13,8 +14,8 @@ import (
 	"github.com/database64128/shadowsocks-go/jsoncfg"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/probe"
+	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"go.uber.org/zap"
 )
 
 const (
@@ -89,10 +90,10 @@ type TCPConnectivityProbeConfig struct {
 // It tests the internet connectivity of each client and selects the one with the highest success rate.
 func (c *TCPConnectivityProbeConfig) newAvailabilityClientGroup(
 	name string,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	clients []tcpClient,
 ) (*atomicTCPClientGroup, *ProbeService[tcpClient]) {
-	return c.newAtomicClientGroup(name, logger, clients, func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[tcpClient], pc probeConfig[tcpClient]) error {
+	return c.newAtomicClientGroup(name, logger, clients, func(ctx context.Context, logger *tslog.Logger, selector *atomicClientSelector[tcpClient], pc probeConfig[tcpClient]) error {
 		go selector.probeAvailability(ctx, logger, pc)
 		return nil
 	})
@@ -102,10 +103,10 @@ func (c *TCPConnectivityProbeConfig) newAvailabilityClientGroup(
 // It tests the internet connectivity of each client and selects the one with the lowest average latency.
 func (c *TCPConnectivityProbeConfig) newLatencyClientGroup(
 	name string,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	clients []tcpClient,
 ) (*atomicTCPClientGroup, *ProbeService[tcpClient]) {
-	return c.newAtomicClientGroup(name, logger, clients, func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[tcpClient], pc probeConfig[tcpClient]) error {
+	return c.newAtomicClientGroup(name, logger, clients, func(ctx context.Context, logger *tslog.Logger, selector *atomicClientSelector[tcpClient], pc probeConfig[tcpClient]) error {
 		go selector.probeLatency(ctx, logger, pc)
 		return nil
 	})
@@ -115,10 +116,10 @@ func (c *TCPConnectivityProbeConfig) newLatencyClientGroup(
 // It tests the internet connectivity of each client and selects the one with the lowest worst latency.
 func (c *TCPConnectivityProbeConfig) newMinMaxLatencyClientGroup(
 	name string,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	clients []tcpClient,
 ) (*atomicTCPClientGroup, *ProbeService[tcpClient]) {
-	return c.newAtomicClientGroup(name, logger, clients, func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[tcpClient], pc probeConfig[tcpClient]) error {
+	return c.newAtomicClientGroup(name, logger, clients, func(ctx context.Context, logger *tslog.Logger, selector *atomicClientSelector[tcpClient], pc probeConfig[tcpClient]) error {
 		go selector.probeMinMaxLatency(ctx, logger, pc)
 		return nil
 	})
@@ -126,24 +127,24 @@ func (c *TCPConnectivityProbeConfig) newMinMaxLatencyClientGroup(
 
 func (c *TCPConnectivityProbeConfig) newAtomicClientGroup(
 	name string,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	clients []tcpClient,
-	start func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[tcpClient], pc probeConfig[tcpClient]) error,
+	start func(ctx context.Context, logger *tslog.Logger, selector *atomicClientSelector[tcpClient], pc probeConfig[tcpClient]) error,
 ) (*atomicTCPClientGroup, *ProbeService[tcpClient]) {
 	var g atomicTCPClientGroup
 	g.selector.init(&clients[0])
 	pc := c.newProbeConfig(clients)
-	logger = logger.With(
-		zap.String("clientGroup", name),
-		zap.String("address", c.Address.String()),
-		zap.String("escapedPath", c.EscapedPath),
-		zap.String("host", c.Host),
-		zap.Duration("timeout", pc.timeout),
-		zap.Duration("interval", pc.interval),
-		zap.Int("concurrency", pc.concurrency),
-		zap.Int("clients", len(pc.clients)),
+	logger = logger.WithAttrs(
+		slog.String("clientGroup", name),
+		tslog.ConnAddr("address", c.Address),
+		slog.String("escapedPath", c.EscapedPath),
+		slog.String("host", c.Host),
+		slog.Duration("timeout", pc.timeout),
+		slog.Duration("interval", pc.interval),
+		slog.Int("concurrency", pc.concurrency),
+		slog.Int("clients", len(pc.clients)),
 	)
-	return &g, NewProbeService(zap.String("clientGroupTCPProbe", name), logger, &g.selector, pc, start)
+	return &g, NewProbeService(slog.String("clientGroupTCPProbe", name), logger, &g.selector, pc, start)
 }
 
 func (c *TCPConnectivityProbeConfig) newProbeConfig(clients []tcpClient) probeConfig[tcpClient] {
@@ -193,11 +194,11 @@ type UDPConnectivityProbeConfig struct {
 // It tests the internet connectivity of each client and selects the one with the highest success rate.
 func (c *UDPConnectivityProbeConfig) newAvailabilityClientGroup(
 	name string,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	clients []zerocopy.UDPClient,
 	info zerocopy.UDPClientInfo,
 ) (*atomicUDPClientGroup, *ProbeService[zerocopy.UDPClient]) {
-	return c.newAtomicClientGroup(name, logger, clients, info, func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error {
+	return c.newAtomicClientGroup(name, logger, clients, info, func(ctx context.Context, logger *tslog.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error {
 		go selector.probeAvailability(ctx, logger, pc)
 		return nil
 	})
@@ -207,11 +208,11 @@ func (c *UDPConnectivityProbeConfig) newAvailabilityClientGroup(
 // It tests the internet connectivity of each client and selects the one with the lowest average latency.
 func (c *UDPConnectivityProbeConfig) newLatencyClientGroup(
 	name string,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	clients []zerocopy.UDPClient,
 	info zerocopy.UDPClientInfo,
 ) (*atomicUDPClientGroup, *ProbeService[zerocopy.UDPClient]) {
-	return c.newAtomicClientGroup(name, logger, clients, info, func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error {
+	return c.newAtomicClientGroup(name, logger, clients, info, func(ctx context.Context, logger *tslog.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error {
 		go selector.probeLatency(ctx, logger, pc)
 		return nil
 	})
@@ -221,11 +222,11 @@ func (c *UDPConnectivityProbeConfig) newLatencyClientGroup(
 // It tests the internet connectivity of each client and selects the one with the lowest worst latency.
 func (c *UDPConnectivityProbeConfig) newMinMaxLatencyClientGroup(
 	name string,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	clients []zerocopy.UDPClient,
 	info zerocopy.UDPClientInfo,
 ) (*atomicUDPClientGroup, *ProbeService[zerocopy.UDPClient]) {
-	return c.newAtomicClientGroup(name, logger, clients, info, func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error {
+	return c.newAtomicClientGroup(name, logger, clients, info, func(ctx context.Context, logger *tslog.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error {
 		go selector.probeMinMaxLatency(ctx, logger, pc)
 		return nil
 	})
@@ -233,27 +234,27 @@ func (c *UDPConnectivityProbeConfig) newMinMaxLatencyClientGroup(
 
 func (c *UDPConnectivityProbeConfig) newAtomicClientGroup(
 	name string,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	clients []zerocopy.UDPClient,
 	info zerocopy.UDPClientInfo,
-	start func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error,
+	start func(ctx context.Context, logger *tslog.Logger, selector *atomicClientSelector[zerocopy.UDPClient], pc probeConfig[zerocopy.UDPClient]) error,
 ) (*atomicUDPClientGroup, *ProbeService[zerocopy.UDPClient]) {
 	var g atomicUDPClientGroup
 	g.selector.init(&clients[0])
 	g.info = info
 	pc := c.newProbeConfig(logger, clients)
-	logger = logger.With(
-		zap.String("clientGroup", name),
-		zap.String("address", c.Address.String()),
-		zap.Duration("timeout", pc.timeout),
-		zap.Duration("interval", pc.interval),
-		zap.Int("concurrency", pc.concurrency),
-		zap.Int("clients", len(pc.clients)),
+	logger = logger.WithAttrs(
+		slog.String("clientGroup", name),
+		tslog.ConnAddr("address", c.Address),
+		slog.Duration("timeout", pc.timeout),
+		slog.Duration("interval", pc.interval),
+		slog.Int("concurrency", pc.concurrency),
+		slog.Int("clients", len(pc.clients)),
 	)
-	return &g, NewProbeService(zap.String("clientGroupUDPProbe", name), logger, &g.selector, pc, start)
+	return &g, NewProbeService(slog.String("clientGroupUDPProbe", name), logger, &g.selector, pc, start)
 }
 
-func (c *UDPConnectivityProbeConfig) newProbeConfig(logger *zap.Logger, clients []zerocopy.UDPClient) probeConfig[zerocopy.UDPClient] {
+func (c *UDPConnectivityProbeConfig) newProbeConfig(logger *tslog.Logger, clients []zerocopy.UDPClient) probeConfig[zerocopy.UDPClient] {
 	c.applyDefaults()
 	upc := probe.UDPProbeConfig{
 		Addr:   c.Address,
@@ -287,23 +288,23 @@ type probeConfig[C any] struct {
 //
 // ProbeService implements [shadowsocks.Service].
 type ProbeService[C any] struct {
-	zapField zap.Field
-	logger   *zap.Logger
+	slogAttr slog.Attr
+	logger   *tslog.Logger
 	selector *atomicClientSelector[C]
 	pc       probeConfig[C]
-	start    func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[C], pc probeConfig[C]) error
+	start    func(ctx context.Context, logger *tslog.Logger, selector *atomicClientSelector[C], pc probeConfig[C]) error
 }
 
 // NewProbeService returns a new probe service.
 func NewProbeService[C any](
-	zapField zap.Field,
-	logger *zap.Logger,
+	slogAttr slog.Attr,
+	logger *tslog.Logger,
 	selector *atomicClientSelector[C],
 	pc probeConfig[C],
-	start func(ctx context.Context, logger *zap.Logger, selector *atomicClientSelector[C], pc probeConfig[C]) error,
+	start func(ctx context.Context, logger *tslog.Logger, selector *atomicClientSelector[C], pc probeConfig[C]) error,
 ) *ProbeService[C] {
 	return &ProbeService[C]{
-		zapField: zapField,
+		slogAttr: slogAttr,
 		logger:   logger,
 		selector: selector,
 		pc:       pc,
@@ -313,9 +314,9 @@ func NewProbeService[C any](
 
 var _ shadowsocks.Service = (*ProbeService[any])(nil)
 
-// ZapField implements [shadowsocks.Service.ZapField].
-func (s *ProbeService[C]) ZapField() zap.Field {
-	return s.zapField
+// SlogAttr implements [shadowsocks.Service.SlogAttr].
+func (s *ProbeService[C]) SlogAttr() slog.Attr {
+	return s.slogAttr
 }
 
 // Start implements [shadowsocks.Service.Start].
@@ -345,7 +346,7 @@ func (s *atomicClientSelector[C]) Select() C {
 // probeAvailability runs the availability probe loop.
 func (s *atomicClientSelector[C]) probeAvailability(
 	ctx context.Context,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	pc probeConfig[C],
 ) {
 	// Start probe workers.
@@ -374,9 +375,9 @@ func (s *atomicClientSelector[C]) probeAvailability(
 		case <-done:
 			return
 		case <-ticker.C:
-			if ce := logger.Check(zap.DebugLevel, "Started availability probe"); ce != nil {
-				ce.Write(
-					zap.Uint("probeCount", probeCount),
+			if logger.Enabled(slog.LevelDebug) {
+				logger.Debug("Started availability probe",
+					tslog.Uint("probeCount", probeCount),
 				)
 			}
 
@@ -404,17 +405,17 @@ func (s *atomicClientSelector[C]) probeAvailability(
 					bestIndex = i
 					bestSuccessCount = successCount
 				}
-				if ce := logger.Check(zap.DebugLevel, "Availability probe result"); ce != nil {
-					ce.Write(
-						zap.Int("client", i),
-						zap.Int("successCount", successCount),
+				if logger.Enabled(slog.LevelDebug) {
+					logger.Debug("Availability probe result",
+						slog.Int("client", i),
+						slog.Int("successCount", successCount),
 					)
 				}
 			}
-			if ce := logger.Check(zap.DebugLevel, "Finished availability probe"); ce != nil {
-				ce.Write(
-					zap.Int("oldClient", clientIndex),
-					zap.Int("newClient", bestIndex),
+			if logger.Enabled(slog.LevelDebug) {
+				logger.Debug("Finished availability probe",
+					slog.Int("oldClient", clientIndex),
+					slog.Int("newClient", bestIndex),
 				)
 			}
 			if clientIndex != bestIndex {
@@ -451,7 +452,7 @@ const latencyProbeResultSize = 32
 // probeLatency runs the latency probe loop.
 func (s *atomicClientSelector[C]) probeLatency(
 	ctx context.Context,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	pc probeConfig[C],
 ) {
 	// Start probe workers.
@@ -480,9 +481,9 @@ func (s *atomicClientSelector[C]) probeLatency(
 		case <-done:
 			return
 		case <-ticker.C:
-			if ce := logger.Check(zap.DebugLevel, "Started latency probe"); ce != nil {
-				ce.Write(
-					zap.Uint("probeCount", probeCount),
+			if logger.Enabled(slog.LevelDebug) {
+				logger.Debug("Started latency probe",
+					tslog.Uint("probeCount", probeCount),
 				)
 			}
 
@@ -514,18 +515,18 @@ func (s *atomicClientSelector[C]) probeLatency(
 					bestIndex = i
 					bestAvgLatency = avgLatency
 				}
-				if ce := logger.Check(zap.DebugLevel, "Latency probe result"); ce != nil {
-					ce.Write(
-						zap.Int("client", i),
-						zap.Duration("avgLatency", avgLatency),
+				if logger.Enabled(slog.LevelDebug) {
+					logger.Debug("Latency probe result",
+						slog.Int("client", i),
+						slog.Duration("avgLatency", avgLatency),
 					)
 				}
 			}
-			if ce := logger.Check(zap.DebugLevel, "Finished latency probe"); ce != nil {
-				ce.Write(
-					zap.Int("oldClient", clientIndex),
-					zap.Int("newClient", bestIndex),
-					zap.Duration("avgLatency", bestAvgLatency),
+			if logger.Enabled(slog.LevelDebug) {
+				logger.Debug("Finished latency probe",
+					slog.Int("oldClient", clientIndex),
+					slog.Int("newClient", bestIndex),
+					slog.Duration("avgLatency", bestAvgLatency),
 				)
 			}
 			if clientIndex != bestIndex {
@@ -539,7 +540,7 @@ func (s *atomicClientSelector[C]) probeLatency(
 // probeMinMaxLatency runs the minimum maximum latency probe loop.
 func (s *atomicClientSelector[C]) probeMinMaxLatency(
 	ctx context.Context,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	pc probeConfig[C],
 ) {
 	// Start probe workers.
@@ -568,9 +569,9 @@ func (s *atomicClientSelector[C]) probeMinMaxLatency(
 		case <-done:
 			return
 		case <-ticker.C:
-			if ce := logger.Check(zap.DebugLevel, "Started latency probe"); ce != nil {
-				ce.Write(
-					zap.Uint("probeCount", probeCount),
+			if logger.Enabled(slog.LevelDebug) {
+				logger.Debug("Started latency probe",
+					tslog.Uint("probeCount", probeCount),
 				)
 			}
 
@@ -598,18 +599,18 @@ func (s *atomicClientSelector[C]) probeMinMaxLatency(
 					bestIndex = i
 					bestMaxLatency = maxLatency
 				}
-				if ce := logger.Check(zap.DebugLevel, "Latency probe result"); ce != nil {
-					ce.Write(
-						zap.Int("client", i),
-						zap.Duration("maxLatency", maxLatency),
+				if logger.Enabled(slog.LevelDebug) {
+					logger.Debug("Latency probe result",
+						slog.Int("client", i),
+						slog.Duration("maxLatency", maxLatency),
 					)
 				}
 			}
-			if ce := logger.Check(zap.DebugLevel, "Finished latency probe"); ce != nil {
-				ce.Write(
-					zap.Int("oldClient", clientIndex),
-					zap.Int("newClient", bestIndex),
-					zap.Duration("maxLatency", bestMaxLatency),
+			if logger.Enabled(slog.LevelDebug) {
+				logger.Debug("Finished latency probe",
+					slog.Int("oldClient", clientIndex),
+					slog.Int("newClient", bestIndex),
+					slog.Duration("maxLatency", bestMaxLatency),
 				)
 			}
 			if clientIndex != bestIndex {

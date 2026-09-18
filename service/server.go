@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"os/user"
 	"strconv"
@@ -22,8 +23,8 @@ import (
 	"github.com/database64128/shadowsocks-go/ssnone"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/tlscerts"
+	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"go.uber.org/zap"
 )
 
 // ListenerConfig contains configuration options shared by all types of listeners.
@@ -314,7 +315,7 @@ type UDPListenerConfig struct {
 }
 
 // Configure returns a UDP server socket configuration.
-func (lnc *UDPListenerConfig) Configure(logger *zap.Logger, serverName string, socketConfigCache conn.UDPSocketConfigCache, minNATTimeout time.Duration, transparent bool) (udpRelayServerConn, error) {
+func (lnc *UDPListenerConfig) Configure(logger *tslog.Logger, serverName string, socketConfigCache conn.UDPSocketConfigCache, minNATTimeout time.Duration, transparent bool) (udpRelayServerConn, error) {
 	switch lnc.Network {
 	case "udp", "udp4", "udp6":
 	default:
@@ -488,12 +489,12 @@ type ServerConfig struct {
 	unixDomainSocketConfigCache conn.UnixDomainSocketConfigCache
 	collector                   stats.Collector
 	router                      *router.Router
-	logger                      *zap.Logger
+	logger                      *tslog.Logger
 	index                       int
 }
 
 // Initialize initializes the server configuration.
-func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, tcpListenConfigCache conn.TCPListenConfigCache, udpSocketConfigCache conn.UDPSocketConfigCache, unixDomainSocketConfigCache conn.UnixDomainSocketConfigCache, statsConfig stats.Config, router *router.Router, logger *zap.Logger, index int) error {
+func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, tcpListenConfigCache conn.TCPListenConfigCache, udpSocketConfigCache conn.UDPSocketConfigCache, unixDomainSocketConfigCache conn.UnixDomainSocketConfigCache, statsConfig stats.Config, router *router.Router, logger *tslog.Logger, index int) error {
 	sc.tcpEnabled = sc.EnableTCP || len(sc.TCPListeners) > 0 || len(sc.UnixListeners) > 0
 	sc.udpEnabled = sc.EnableUDP || len(sc.UDPListeners) > 0
 
@@ -554,7 +555,7 @@ func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, tcpListenConfig
 
 	if sc.EnableTCP || sc.EnableUDP {
 		logger.Warn("Server-level single-listener fields are deprecated and will be removed in a future version. You can run with -fmtConf to migrate to the new format.",
-			zap.String("server", sc.Name),
+			slog.String("server", sc.Name),
 		)
 	}
 
@@ -683,7 +684,7 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 }
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
-func (sc *ServerConfig) UDPRelay(logger *zap.Logger, maxClientPackerHeadroom zerocopy.Headroom) (shadowsocks.Service, error) {
+func (sc *ServerConfig) UDPRelay(logger *tslog.Logger, maxClientPackerHeadroom zerocopy.Headroom) (shadowsocks.Service, error) {
 	if len(sc.UDPListeners) == 0 {
 		return nil, errNetworkDisabled
 	}

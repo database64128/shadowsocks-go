@@ -4,11 +4,12 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"log/slog"
 	mrand "math/rand/v2"
 	"net"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 // Unify the *PolicyField structs once Go has better generics support.
@@ -173,35 +174,35 @@ func (p *PaddingPolicy) UnmarshalText(text []byte) error {
 
 // RejectPolicy is a function that handles a potentially malicious TCP connection.
 // Upon returning, it's safe to close the connection.
-type RejectPolicy func(c *net.TCPConn, logger *zap.Logger)
+type RejectPolicy func(c *net.TCPConn, logger *tslog.Logger)
 
 // JustClose closes the TCP connection without any special handling.
-func JustClose(_ *net.TCPConn, _ *zap.Logger) {
+func JustClose(_ *net.TCPConn, _ *tslog.Logger) {
 }
 
 // ForceReset forces a reset of the TCP connection, regardless of whether there's unread data or not.
-func ForceReset(c *net.TCPConn, logger *zap.Logger) {
+func ForceReset(c *net.TCPConn, logger *tslog.Logger) {
 	if err := c.SetLinger(0); err != nil {
-		logger.Warn("Failed to set SO_LINGER on TCP connection", zap.Error(err))
+		logger.Warn("Failed to set SO_LINGER on TCP connection", tslog.Err(err))
 	}
 	logger.Info("Forcing RST on TCP connection")
 }
 
 // CloseWriteDrain closes the write end of the TCP connection, then drain the read end.
-func CloseWriteDrain(c *net.TCPConn, logger *zap.Logger) {
+func CloseWriteDrain(c *net.TCPConn, logger *tslog.Logger) {
 	if err := c.CloseWrite(); err != nil {
-		logger.Warn("Failed to close write half of TCP connection", zap.Error(err))
+		logger.Warn("Failed to close write half of TCP connection", tslog.Err(err))
 	}
 
 	n, err := io.Copy(io.Discard, c)
 	logger.Info("Drained TCP connection",
-		zap.Int64("bytesRead", n),
-		zap.Error(err),
+		slog.Int64("bytesRead", n),
+		tslog.Err(err),
 	)
 }
 
 // ReplyWithGibberish keeps reading and replying with random garbage until EOF or error.
-func ReplyWithGibberish(c *net.TCPConn, logger *zap.Logger) {
+func ReplyWithGibberish(c *net.TCPConn, logger *tslog.Logger) {
 	const (
 		riBits = 7
 		riMask = 1<<riBits - 1
@@ -257,9 +258,9 @@ func ReplyWithGibberish(c *net.TCPConn, logger *zap.Logger) {
 	}
 
 	logger.Info("Replied with gibberish",
-		zap.Int64("bytesRead", bytesRead),
-		zap.Int64("bytesWritten", bytesWritten),
-		zap.Error(err),
+		slog.Int64("bytesRead", bytesRead),
+		slog.Int64("bytesWritten", bytesWritten),
+		tslog.Err(err),
 	)
 }
 

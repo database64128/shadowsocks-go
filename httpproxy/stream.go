@@ -11,7 +11,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 var errUsernameContainsColon = errors.New("username contains colon")
@@ -279,7 +279,7 @@ func (ProxyServer) StreamServerInfo() netio.StreamServerInfo {
 }
 
 // HandleStream implements [netio.StreamServer.HandleStream].
-func (s ProxyServer) HandleStream(c netio.Conn, logger *zap.Logger) (netio.ConnRequest, error) {
+func (s ProxyServer) HandleStream(c netio.Conn, logger *tslog.Logger) (netio.ConnRequest, error) {
 	pc, targetAddr, username, err := ServerHandle(c, logger, s.usernameByToken)
 	if err != nil {
 		return netio.ConnRequest{}, err
@@ -307,7 +307,7 @@ func (TLSProxyServer) StreamServerInfo() netio.StreamServerInfo {
 }
 
 // HandleStream implements [netio.StreamServer.HandleStream].
-func (s TLSProxyServer) HandleStream(c netio.Conn, logger *zap.Logger) (netio.ConnRequest, error) {
+func (s TLSProxyServer) HandleStream(c netio.Conn, logger *tslog.Logger) (netio.ConnRequest, error) {
 	tlsConn := tls.Server(c, s.tlsConfig)
 
 	req, err := s.plainServer.HandleStream(tlsConn, logger)

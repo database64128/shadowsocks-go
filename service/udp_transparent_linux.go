@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"net/netip"
 	"os"
@@ -15,8 +16,8 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
+	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"go.uber.org/zap"
 	"golang.org/x/sys/unix"
 )
 
@@ -42,7 +43,7 @@ type transparentNATEntry struct {
 	state         atomic.Pointer[net.UDPConn]
 	natConnSendCh chan<- *transparentQueuedPacket
 	serverConn    *net.UDPConn
-	logger        *zap.Logger
+	logger        *tslog.Logger
 }
 
 // transparentUplink is used for passing information about relay uplink to the relay goroutine.
@@ -54,7 +55,7 @@ type transparentUplink struct {
 	natConnPacker  zerocopy.ClientPacker
 	natTimeout     time.Duration
 	relayBatchSize int
-	logger         *zap.Logger
+	logger         *tslog.Logger
 }
 
 // transparentDownlink is used for passing information about relay downlink to the relay goroutine.
@@ -65,7 +66,7 @@ type transparentDownlink struct {
 	natConnRecvBufSize int
 	natConnUnpacker    zerocopy.ClientUnpacker
 	relayBatchSize     int
-	logger             *zap.Logger
+	logger             *tslog.Logger
 }
 
 // UDPTransparentRelay is like [UDPNATRelay], but for transparent proxy.
@@ -79,7 +80,7 @@ type UDPTransparentRelay struct {
 	transparentConnSocketConfig conn.UDPSocketConfig
 	collector                   stats.Collector
 	router                      *router.Router
-	logger                      *zap.Logger
+	logger                      *tslog.Logger
 	queuedPacketPool            sync.Pool
 	mu                          sync.Mutex
 	wg                          sync.WaitGroup
@@ -94,7 +95,7 @@ func NewUDPTransparentRelay(
 	transparentConnSocketConfig conn.UDPSocketConfig,
 	collector stats.Collector,
 	router *router.Router,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 ) (shadowsocks.Service, error) {
 	return &UDPTransparentRelay{
 		serverName:                  serverName,
@@ -120,9 +121,9 @@ func NewUDPTransparentRelay(
 
 var _ shadowsocks.Service = (*UDPTransparentRelay)(nil)
 
-// ZapField implements [shadowsocks.Service.ZapField].
-func (s *UDPTransparentRelay) ZapField() zap.Field {
-	return zap.String("serverUDPTransparentRelay", s.serverName)
+// SlogAttr implements [shadowsocks.Service.SlogAttr].
+func (s *UDPTransparentRelay) SlogAttr() slog.Attr {
+	return slog.String("serverUDPTransparentRelay", s.serverName)
 }
 
 // Start implements [shadowsocks.Service.Start].
@@ -137,10 +138,10 @@ func (s *UDPTransparentRelay) Start(ctx context.Context) error {
 		}
 		lnc.serverConn = serverConn.UDPConn
 		lnc.address = serverConn.LocalAddr().String()
-		lnc.logger = s.logger.With(
-			zap.String("server", s.serverName),
-			zap.Int("listener", index),
-			zap.String("listenAddress", lnc.address),
+		lnc.logger = s.logger.WithAttrs(
+			slog.String("server", s.serverName),
+			slog.Int("listener", index),
+			slog.String("listenAddress", lnc.address),
 		)
 
 		s.mwg.Go(func() {
@@ -193,7 +194,7 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 				break
 			}
 
-			lnc.logger.Warn("Failed to batch read packets from serverConn", zap.Error(err))
+			lnc.logger.Warn("Failed to batch read packets from serverConn", tslog.Err(err))
 
 			n = 1
 			s.putQueuedPacket(qpvec[0])
@@ -215,16 +216,16 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 
 			clientAddrPort, err := conn.SockaddrToAddrPort(msg.Msghdr.Name, msg.Msghdr.Namelen)
 			if err != nil {
-				lnc.logger.Error("Failed to parse sockaddr of packet from serverConn", zap.Error(err))
+				lnc.logger.Error("Failed to parse sockaddr of packet from serverConn", tslog.Err(err))
 				s.putQueuedPacket(queuedPacket)
 				continue
 			}
 
 			if err = conn.ParseFlagsForError(int(msg.Msghdr.Flags)); err != nil {
 				lnc.logger.Warn("Packet from serverConn discarded",
-					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Uint32("packetLength", msg.Msglen),
-					zap.Error(err),
+					tslog.AddrPort("clientAddress", clientAddrPort),
+					tslog.Uint("packetLength", msg.Msglen),
+					tslog.Err(err),
 				)
 
 				s.putQueuedPacket(queuedPacket)
@@ -234,17 +235,17 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 			rscm, err := conn.ParseSocketControlMessage(cmsg)
 			if err != nil {
 				lnc.logger.Error("Failed to parse socket control message from serverConn",
-					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Int("cmsgLength", len(cmsg)),
-					zap.Error(err),
+					tslog.AddrPort("clientAddress", clientAddrPort),
+					slog.Int("cmsgLength", len(cmsg)),
+					tslog.Err(err),
 				)
 				s.putQueuedPacket(queuedPacket)
 				continue
 			}
 			if !rscm.OriginalDestinationAddrPort.IsValid() {
 				lnc.logger.Error("Discarded packet from serverConn due to missing original destination address",
-					zap.Stringer("clientAddress", clientAddrPort),
-					zap.Int("cmsgLength", len(cmsg)),
+					tslog.AddrPort("clientAddress", clientAddrPort),
+					slog.Int("cmsgLength", len(cmsg)),
 				)
 				s.putQueuedPacket(queuedPacket)
 				continue
@@ -287,9 +288,9 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 					})
 					if err != nil {
 						lnc.logger.Warn("Failed to get UDP client for new NAT session",
-							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
-							zap.Error(err),
+							tslog.AddrPort("clientAddress", clientAddrPort),
+							tslog.AddrPortp("targetAddress", &queuedPacket.targetAddrPort),
+							tslog.Err(err),
 						)
 						return
 					}
@@ -297,10 +298,10 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 					clientInfo, clientSession, err := c.NewSession(ctx)
 					if err != nil {
 						lnc.logger.Warn("Failed to create new UDP client session",
-							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
-							zap.String("client", clientInfo.Name),
-							zap.Error(err),
+							tslog.AddrPort("clientAddress", clientAddrPort),
+							tslog.AddrPortp("targetAddress", &queuedPacket.targetAddrPort),
+							slog.String("client", clientInfo.Name),
+							tslog.Err(err),
 						)
 						return
 					}
@@ -308,10 +309,10 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 					natConn, err := conn.ListenUDPMmsgConn(ctx, "udp", "", nil, clientInfo.SocketConfig)
 					if err != nil {
 						lnc.logger.Warn("Failed to create UDP socket for new NAT session",
-							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
-							zap.String("client", clientInfo.Name),
-							zap.Error(err),
+							tslog.AddrPort("clientAddress", clientAddrPort),
+							tslog.AddrPortp("targetAddress", &queuedPacket.targetAddrPort),
+							slog.String("client", clientInfo.Name),
+							tslog.Err(err),
 						)
 						clientSession.Close()
 						return
@@ -319,11 +320,11 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 
 					if err = natConn.SetReadDeadline(time.Now().Add(lnc.natTimeout)); err != nil {
 						lnc.logger.Error("Failed to set read deadline on natConn",
-							zap.Stringer("clientAddress", clientAddrPort),
-							zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
-							zap.String("client", clientInfo.Name),
-							zap.Duration("natTimeout", lnc.natTimeout),
-							zap.Error(err),
+							tslog.AddrPort("clientAddress", clientAddrPort),
+							tslog.AddrPortp("targetAddress", &queuedPacket.targetAddrPort),
+							slog.String("client", clientInfo.Name),
+							slog.Duration("natTimeout", lnc.natTimeout),
+							tslog.Err(err),
 						)
 						natConn.Close()
 						clientSession.Close()
@@ -341,9 +342,9 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 					sendChClean = true
 
 					lnc.logger.Info("UDP transparent relay started",
-						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
-						zap.String("client", clientInfo.Name),
+						tslog.AddrPort("clientAddress", clientAddrPort),
+						tslog.AddrPortp("targetAddress", &queuedPacket.targetAddrPort),
+						slog.String("client", clientInfo.Name),
 					)
 
 					s.wg.Go(func() {
@@ -372,10 +373,10 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 					})
 				})
 
-				if ce := lnc.logger.Check(zap.DebugLevel, "New UDP transparent session"); ce != nil {
-					ce.Write(
-						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
+				if lnc.logger.Enabled(slog.LevelDebug) {
+					lnc.logger.Debug("New UDP transparent session",
+						tslog.AddrPort("clientAddress", clientAddrPort),
+						tslog.AddrPortp("targetAddress", &queuedPacket.targetAddrPort),
 					)
 				}
 			}
@@ -383,10 +384,10 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 			select {
 			case entry.natConnSendCh <- queuedPacket:
 			default:
-				if ce := lnc.logger.Check(zap.DebugLevel, "Dropping packet due to full send channel"); ce != nil {
-					ce.Write(
-						zap.Stringer("clientAddress", clientAddrPort),
-						zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
+				if lnc.logger.Enabled(slog.LevelDebug) {
+					lnc.logger.Debug("Dropping packet due to full send channel",
+						tslog.AddrPort("clientAddress", clientAddrPort),
+						tslog.AddrPortp("targetAddress", &queuedPacket.targetAddrPort),
 					)
 				}
 
@@ -402,10 +403,10 @@ func (s *UDPTransparentRelay) recvFromServerConnRecvmmsg(ctx context.Context, ln
 	}
 
 	lnc.logger.Info("Finished receiving from serverConn",
-		zap.Uint64("recvmmsgCount", recvmmsgCount),
-		zap.Uint64("packetsReceived", packetsReceived),
-		zap.Uint64("payloadBytesReceived", payloadBytesReceived),
-		zap.Int("burstBatchSize", burstBatchSize),
+		slog.Uint64("recvmmsgCount", recvmmsgCount),
+		slog.Uint64("packetsReceived", packetsReceived),
+		slog.Uint64("payloadBytesReceived", payloadBytesReceived),
+		slog.Int("burstBatchSize", burstBatchSize),
 	)
 }
 
@@ -449,11 +450,11 @@ main:
 			destAddrPort, packetStart, packetLength, err = uplink.natConnPacker.PackInPlace(ctx, queuedPacket.buf, conn.AddrFromIPPort(queuedPacket.targetAddrPort), s.packetBufFrontHeadroom, int(queuedPacket.msglen))
 			if err != nil {
 				uplink.logger.Warn("Failed to pack packet for natConn",
-					zap.Stringer("clientAddress", uplink.clientAddrPort),
-					zap.Stringer("targetAddress", &queuedPacket.targetAddrPort),
-					zap.String("client", uplink.clientName),
-					zap.Uint32("payloadLength", queuedPacket.msglen),
-					zap.Error(err),
+					tslog.AddrPort("clientAddress", uplink.clientAddrPort),
+					tslog.AddrPortp("targetAddress", &queuedPacket.targetAddrPort),
+					slog.String("client", uplink.clientName),
+					tslog.Uint("payloadLength", queuedPacket.msglen),
+					tslog.Err(err),
 				)
 
 				s.putQueuedPacket(queuedPacket)
@@ -492,12 +493,12 @@ main:
 			start += n
 			if err != nil {
 				uplink.logger.Warn("Failed to batch write packets to natConn",
-					zap.Stringer("clientAddress", uplink.clientAddrPort),
-					zap.Stringer("targetAddress", &qpvec[start].targetAddrPort),
-					zap.String("client", uplink.clientName),
-					zap.Stringer("writeDestAddress", &dapvec[start]),
-					zap.Uint("packetLength", uint(iovec[start].Len)),
-					zap.Error(err),
+					tslog.AddrPort("clientAddress", uplink.clientAddrPort),
+					tslog.AddrPortp("targetAddress", &qpvec[start].targetAddrPort),
+					slog.String("client", uplink.clientName),
+					tslog.AddrPortp("writeDestAddress", &dapvec[start]),
+					tslog.Uint("packetLength", iovec[start].Len),
+					tslog.Err(err),
 				)
 				start++
 			}
@@ -509,10 +510,10 @@ main:
 
 		if err := uplink.natConn.SetReadDeadline(time.Now().Add(uplink.natTimeout)); err != nil {
 			uplink.logger.Error("Failed to set read deadline on natConn",
-				zap.Stringer("clientAddress", uplink.clientAddrPort),
-				zap.String("client", uplink.clientName),
-				zap.Duration("natTimeout", uplink.natTimeout),
-				zap.Error(err),
+				tslog.AddrPort("clientAddress", uplink.clientAddrPort),
+				slog.String("client", uplink.clientName),
+				slog.Duration("natTimeout", uplink.natTimeout),
+				tslog.Err(err),
 			)
 		}
 
@@ -528,13 +529,13 @@ main:
 	}
 
 	uplink.logger.Info("Finished relay serverConn -> natConn",
-		zap.Stringer("clientAddress", uplink.clientAddrPort),
-		zap.String("client", uplink.clientName),
-		zap.Stringer("lastWriteDestAddress", destAddrPort),
-		zap.Uint64("sendmmsgCount", sendmmsgCount),
-		zap.Uint64("packetsSent", packetsSent),
-		zap.Uint64("payloadBytesSent", payloadBytesSent),
-		zap.Int("burstBatchSize", burstBatchSize),
+		tslog.AddrPort("clientAddress", uplink.clientAddrPort),
+		slog.String("client", uplink.clientName),
+		tslog.AddrPort("lastWriteDestAddress", destAddrPort),
+		slog.Uint64("sendmmsgCount", sendmmsgCount),
+		slog.Uint64("packetsSent", packetsSent),
+		slog.Uint64("payloadBytesSent", payloadBytesSent),
+		slog.Int("burstBatchSize", burstBatchSize),
 	)
 
 	s.collector.CollectUDPSessionUplink("", packetsSent, payloadBytesSent)
@@ -628,9 +629,9 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(ctx context.
 			}
 
 			downlink.logger.Warn("Failed to batch read packets from natConn",
-				zap.Stringer("clientAddress", downlink.clientAddrPort),
-				zap.String("client", downlink.clientName),
-				zap.Error(err),
+				tslog.AddrPort("clientAddress", downlink.clientAddrPort),
+				slog.String("client", downlink.clientName),
+				tslog.Err(err),
 			)
 			continue
 		}
@@ -644,20 +645,20 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(ctx context.
 			packetSourceAddrPort, err := conn.SockaddrToAddrPort(msg.Msghdr.Name, msg.Msghdr.Namelen)
 			if err != nil {
 				downlink.logger.Error("Failed to parse sockaddr of packet from natConn",
-					zap.Stringer("clientAddress", downlink.clientAddrPort),
-					zap.String("client", downlink.clientName),
-					zap.Error(err),
+					tslog.AddrPort("clientAddress", downlink.clientAddrPort),
+					slog.String("client", downlink.clientName),
+					tslog.Err(err),
 				)
 				continue
 			}
 
 			if err = conn.ParseFlagsForError(int(msg.Msghdr.Flags)); err != nil {
 				downlink.logger.Warn("Packet from natConn discarded",
-					zap.Stringer("clientAddress", downlink.clientAddrPort),
-					zap.Stringer("packetSourceAddress", packetSourceAddrPort),
-					zap.String("client", downlink.clientName),
-					zap.Uint32("packetLength", msg.Msglen),
-					zap.Error(err),
+					tslog.AddrPort("clientAddress", downlink.clientAddrPort),
+					tslog.AddrPort("packetSourceAddress", packetSourceAddrPort),
+					slog.String("client", downlink.clientName),
+					tslog.Uint("packetLength", msg.Msglen),
+					tslog.Err(err),
 				)
 				continue
 			}
@@ -667,23 +668,23 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(ctx context.
 			payloadSourceAddrPort, payloadStart, payloadLength, err := downlink.natConnUnpacker.UnpackInPlace(packetBuf, packetSourceAddrPort, 0, int(msg.Msglen))
 			if err != nil {
 				downlink.logger.Warn("Failed to unpack packet from natConn",
-					zap.Stringer("clientAddress", downlink.clientAddrPort),
-					zap.Stringer("packetSourceAddress", packetSourceAddrPort),
-					zap.String("client", downlink.clientName),
-					zap.Uint32("packetLength", msg.Msglen),
-					zap.Error(err),
+					tslog.AddrPort("clientAddress", downlink.clientAddrPort),
+					tslog.AddrPort("packetSourceAddress", packetSourceAddrPort),
+					slog.String("client", downlink.clientName),
+					tslog.Uint("packetLength", msg.Msglen),
+					tslog.Err(err),
 				)
 				continue
 			}
 
 			if payloadLength > maxClientPacketSize {
 				downlink.logger.Warn("Payload too large to send to client",
-					zap.Stringer("clientAddress", downlink.clientAddrPort),
-					zap.Stringer("packetSourceAddress", packetSourceAddrPort),
-					zap.String("client", downlink.clientName),
-					zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
-					zap.Int("payloadLength", payloadLength),
-					zap.Int("maxClientPacketSize", maxClientPacketSize),
+					tslog.AddrPort("clientAddress", downlink.clientAddrPort),
+					tslog.AddrPort("packetSourceAddress", packetSourceAddrPort),
+					slog.String("client", downlink.clientName),
+					tslog.AddrPort("payloadSourceAddress", payloadSourceAddrPort),
+					slog.Int("payloadLength", payloadLength),
+					slog.Int("maxClientPacketSize", maxClientPacketSize),
 				)
 				continue
 			}
@@ -693,11 +694,11 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(ctx context.
 				tc, err = s.newTransparentConn(ctx, payloadSourceAddrPort.String(), downlink.relayBatchSize, name, namelen)
 				if err != nil {
 					downlink.logger.Warn("Failed to create transparentConn",
-						zap.Stringer("clientAddress", downlink.clientAddrPort),
-						zap.Stringer("packetSourceAddress", packetSourceAddrPort),
-						zap.String("client", downlink.clientName),
-						zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
-						zap.Error(err),
+						tslog.AddrPort("clientAddress", downlink.clientAddrPort),
+						tslog.AddrPort("packetSourceAddress", packetSourceAddrPort),
+						slog.String("client", downlink.clientName),
+						tslog.AddrPort("payloadSourceAddress", payloadSourceAddrPort),
+						tslog.Err(err),
 					)
 					continue
 				}
@@ -718,11 +719,11 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(ctx context.
 				start += n
 				if err != nil {
 					downlink.logger.Warn("Failed to batch write packets to transparentConn",
-						zap.Stringer("clientAddress", downlink.clientAddrPort),
-						zap.String("client", downlink.clientName),
-						zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
-						zap.Uint("packetLength", uint(tc.iovec[start].Len)),
-						zap.Error(err),
+						tslog.AddrPort("clientAddress", downlink.clientAddrPort),
+						slog.String("client", downlink.clientName),
+						tslog.AddrPort("payloadSourceAddress", payloadSourceAddrPort),
+						tslog.Uint("packetLength", tc.iovec[start].Len),
+						tslog.Err(err),
 					)
 					start++
 				}
@@ -739,21 +740,21 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(ctx context.
 	for payloadSourceAddrPort, tc := range tcMap {
 		if err := tc.close(); err != nil {
 			downlink.logger.Warn("Failed to close transparentConn",
-				zap.Stringer("clientAddress", downlink.clientAddrPort),
-				zap.String("client", downlink.clientName),
-				zap.Stringer("payloadSourceAddress", payloadSourceAddrPort),
-				zap.Error(err),
+				tslog.AddrPort("clientAddress", downlink.clientAddrPort),
+				slog.String("client", downlink.clientName),
+				tslog.AddrPort("payloadSourceAddress", payloadSourceAddrPort),
+				tslog.Err(err),
 			)
 		}
 	}
 
 	downlink.logger.Info("Finished relay transparentConn <- natConn",
-		zap.Stringer("clientAddress", downlink.clientAddrPort),
-		zap.String("client", downlink.clientName),
-		zap.Uint64("sendmmsgCount", sendmmsgCount),
-		zap.Uint64("packetsSent", packetsSent),
-		zap.Uint64("payloadBytesSent", payloadBytesSent),
-		zap.Int("burstBatchSize", burstBatchSize),
+		tslog.AddrPort("clientAddress", downlink.clientAddrPort),
+		slog.String("client", downlink.clientName),
+		slog.Uint64("sendmmsgCount", sendmmsgCount),
+		slog.Uint64("packetsSent", packetsSent),
+		slog.Uint64("payloadBytesSent", payloadBytesSent),
+		slog.Int("burstBatchSize", burstBatchSize),
 	)
 
 	s.collector.CollectUDPSessionDownlink("", packetsSent, payloadBytesSent)
@@ -764,7 +765,7 @@ func (s *UDPTransparentRelay) Stop() error {
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
 		if err := lnc.serverConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
-			lnc.logger.Error("Failed to set read deadline on serverConn", zap.Error(err))
+			lnc.logger.Error("Failed to set read deadline on serverConn", tslog.Err(err))
 		}
 	}
 
@@ -781,8 +782,8 @@ func (s *UDPTransparentRelay) Stop() error {
 
 		if err := natConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
 			entry.logger.Error("Failed to set read deadline on natConn",
-				zap.Stringer("clientAddress", clientAddrPort),
-				zap.Error(err),
+				tslog.AddrPort("clientAddress", clientAddrPort),
+				tslog.Err(err),
 			)
 		}
 	}
@@ -795,10 +796,10 @@ func (s *UDPTransparentRelay) Stop() error {
 	for i := range s.listeners {
 		lnc := &s.listeners[i]
 		if err := lnc.serverConn.Close(); err != nil {
-			lnc.logger.Error("Failed to close serverConn", zap.Error(err))
+			lnc.logger.Error("Failed to close serverConn", tslog.Err(err))
 		}
 	}
 
-	s.logger.Info("Stopped UDP transparent relay service", zap.String("server", s.serverName))
+	s.logger.Info("Stopped UDP transparent relay service", slog.String("server", s.serverName))
 	return nil
 }

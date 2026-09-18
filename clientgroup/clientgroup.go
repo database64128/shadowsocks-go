@@ -13,8 +13,8 @@ import (
 	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
+	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/database64128/shadowsocks-go/zerocopy"
-	"go.uber.org/zap"
 )
 
 // ClientSelectionPolicy is a client selection policy.
@@ -64,7 +64,7 @@ type Config struct {
 
 // AddClientGroup creates a client group from the configuration and adds it to the client maps.
 func (c *Config) AddClientGroup(
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	tcpClientByName map[string]netio.StreamClient,
 	udpClientByName map[string]zerocopy.UDPClient,
 	addProbeService func(shadowsocks.Service),

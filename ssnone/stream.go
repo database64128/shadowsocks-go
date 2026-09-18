@@ -6,7 +6,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/socks5"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 // StreamClientConfig is the configuration for a Shadowsocks "none" stream client.
@@ -78,7 +78,7 @@ func (StreamServer) StreamServerInfo() netio.StreamServerInfo {
 }
 
 // HandleStream implements [netio.StreamServer.HandleStream].
-func (StreamServer) HandleStream(c netio.Conn, _ *zap.Logger) (netio.ConnRequest, error) {
+func (StreamServer) HandleStream(c netio.Conn, _ *tslog.Logger) (netio.ConnRequest, error) {
 	addr, err := socks5.ConnAddrFromReader(c)
 	if err != nil {
 		return netio.ConnRequest{}, err

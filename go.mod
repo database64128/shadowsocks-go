@@ -8,7 +8,6 @@ require (
 	github.com/gaissmai/bart v0.29.0
 	github.com/lmittmann/tint v1.2.0
 	github.com/oschwald/geoip2-golang/v2 v2.4.0
-	go.uber.org/zap v1.28.0
 	golang.org/x/net v0.59.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.46.0
@@ -18,5 +17,4 @@ require (
 require (
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/oschwald/maxminddb-golang/v2 v2.6.0 // indirect
-	go.uber.org/multierr v1.11.0 // indirect
 )

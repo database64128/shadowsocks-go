@@ -3,6 +3,7 @@
 package service
 
 import (
+	"log/slog"
 	"os"
 	"os/signal"
 	"slices"
@@ -10,7 +11,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/tlscerts"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 type reloadNotifier struct {
@@ -18,17 +19,17 @@ type reloadNotifier struct {
 	sigCh chan os.Signal
 }
 
-func newReloadNotifier(logger *zap.Logger, credmgr *cred.Manager, tlsCertStore *tlscerts.Store) (rn reloadNotifier) {
+func newReloadNotifier(logger *tslog.Logger, credmgr *cred.Manager, tlsCertStore *tlscerts.Store) (rn reloadNotifier) {
 	if cmsCount, cmsSeq := credmgr.Servers(); cmsCount > 0 {
 		cms := slices.AppendSeq(make([]*cred.ManagedServer, 0, cmsCount), cmsSeq)
 		rn.fns = append(rn.fns, func() {
 			for _, s := range cms {
 				name := s.Name()
 				if err := s.LoadFromFile(); err != nil {
-					logger.Error("Failed to reload server credentials", zap.String("server", name), zap.Error(err))
+					logger.Error("Failed to reload server credentials", slog.String("server", name), tslog.Err(err))
 					continue
 				}
-				logger.Info("Reloaded server credentials", zap.String("server", name))
+				logger.Info("Reloaded server credentials", slog.String("server", name))
 			}
 		})
 	}
@@ -38,10 +39,10 @@ func newReloadNotifier(logger *zap.Logger, credmgr *cred.Manager, tlsCertStore *
 			for _, certList := range certLists {
 				name := certList.Config().Name
 				if err := certList.Reload(); err != nil {
-					logger.Error("Failed to reload TLS certificate list", zap.String("certList", name), zap.Error(err))
+					logger.Error("Failed to reload TLS certificate list", slog.String("certList", name), tslog.Err(err))
 					continue
 				}
-				logger.Info("Reloaded TLS certificate list", zap.String("certList", name))
+				logger.Info("Reloaded TLS certificate list", slog.String("certList", name))
 			}
 		})
 	}

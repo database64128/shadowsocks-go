@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/netip"
 	"slices"
@@ -15,7 +16,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
-	"go.uber.org/zap/zaptest"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 // PipeStreamClient handles stream connection requests by creating a pipe
@@ -182,8 +183,8 @@ func testPreambleStreamClientServerProceed(
 	expectedUsername string,
 ) {
 	ctx := t.Context()
-	logger := zaptest.NewLogger(t)
-	defer logger.Sync()
+	logCfg := tslog.Config{Level: slog.LevelDebug}
+	logger := logCfg.NewLogger(t.Output())
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
 		Name:                 "test",
@@ -307,8 +308,8 @@ func testWrapConnStreamClientServerProceed(
 	expectedUsername string,
 ) {
 	ctx := t.Context()
-	logger := zaptest.NewLogger(t)
-	defer logger.Sync()
+	logCfg := tslog.Config{Level: slog.LevelDebug}
+	logger := logCfg.NewLogger(t.Output())
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
 		Name:                 "test",
@@ -755,8 +756,8 @@ func testStreamClientServerAbort(
 	checkDialErr func(t *testing.T, dialResult conn.DialResult, err error),
 ) {
 	ctx := t.Context()
-	logger := zaptest.NewLogger(t)
-	defer logger.Sync()
+	logCfg := tslog.Config{Level: slog.LevelDebug}
+	logger := logCfg.NewLogger(t.Output())
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
 		Name:                 "test",
@@ -805,8 +806,8 @@ func BenchmarkStreamClientServer(
 	writeSize int,
 ) {
 	ctx := b.Context()
-	logger := zaptest.NewLogger(b)
-	defer logger.Sync()
+	logCfg := tslog.Config{Level: slog.LevelDebug}
+	logger := logCfg.NewLogger(b.Output())
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
 		Name:                 "test",
@@ -931,8 +932,8 @@ func BenchmarkStreamClientDialServerHandle(
 	server netio.StreamServer,
 ) {
 	ctx := b.Context()
-	logger := zaptest.NewLogger(b)
-	defer logger.Sync()
+	logCfg := tslog.Config{Level: slog.LevelDebug}
+	logger := logCfg.NewLogger(b.Output())
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
 		Name:                 "test",

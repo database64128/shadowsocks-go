@@ -7,7 +7,7 @@ import (
 	"net"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 // TCPTransparentProxyServer handles tproxy connections.
@@ -27,7 +27,7 @@ func (TCPTransparentProxyServer) StreamServerInfo() StreamServerInfo {
 }
 
 // HandleStream implements [StreamServer.HandleStream].
-func (TCPTransparentProxyServer) HandleStream(c Conn, _ *zap.Logger) (ConnRequest, error) {
+func (TCPTransparentProxyServer) HandleStream(c Conn, _ *tslog.Logger) (ConnRequest, error) {
 	netAddr := c.LocalAddr()
 	tcpAddr, ok := netAddr.(*net.TCPAddr)
 	if !ok {

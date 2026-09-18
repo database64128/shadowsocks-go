@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,7 +13,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 // FailedAuthAttemptsError is returned when the client fails to authenticate itself during the lifetime of the connection.
@@ -31,7 +32,7 @@ func (e FailedAuthAttemptsError) Error() string {
 }
 
 // ServerHandle handles an HTTP request from rw.
-func ServerHandle(rw netio.Conn, logger *zap.Logger, usernameByToken map[string]string) (pc netio.PendingConn, targetAddr conn.Addr, username string, err error) {
+func ServerHandle(rw netio.Conn, logger *tslog.Logger, usernameByToken map[string]string) (pc netio.PendingConn, targetAddr conn.Addr, username string, err error) {
 	var (
 		req                *http.Request
 		failedAuthAttempts int
@@ -60,15 +61,15 @@ func ServerHandle(rw netio.Conn, logger *zap.Logger, usernameByToken map[string]
 
 		failedAuthAttempts++
 
-		if ce := logger.Check(zap.DebugLevel, "Sending 407 Proxy Authentication Required response"); ce != nil {
-			ce.Write(
-				zap.String("proto", req.Proto),
-				zap.String("method", req.Method),
-				zap.String("url", req.RequestURI),
-				zap.String("host", req.Host),
-				zap.Int64("contentLength", req.ContentLength),
-				zap.Bool("close", req.Close),
-				zap.Int("failedAuthAttempts", failedAuthAttempts),
+		if logger.Enabled(slog.LevelDebug) {
+			logger.Debug("Sending 407 Proxy Authentication Required response",
+				slog.String("proto", req.Proto),
+				slog.String("method", req.Method),
+				slog.String("url", req.RequestURI),
+				slog.String("host", req.Host),
+				slog.Int64("contentLength", req.ContentLength),
+				slog.Bool("close", req.Close),
+				slog.Int("failedAuthAttempts", failedAuthAttempts),
 			)
 		}
 
@@ -81,14 +82,14 @@ func ServerHandle(rw netio.Conn, logger *zap.Logger, usernameByToken map[string]
 		}
 	}
 
-	if ce := logger.Check(zap.DebugLevel, "Received initial HTTP request"); ce != nil {
-		ce.Write(
-			zap.String("proto", req.Proto),
-			zap.String("method", req.Method),
-			zap.String("url", req.RequestURI),
-			zap.String("host", req.Host),
-			zap.Int64("contentLength", req.ContentLength),
-			zap.Bool("close", req.Close),
+	if logger.Enabled(slog.LevelDebug) {
+		logger.Debug("Received initial HTTP request",
+			slog.String("proto", req.Proto),
+			slog.String("method", req.Method),
+			slog.String("url", req.RequestURI),
+			slog.String("host", req.Host),
+			slog.Int64("contentLength", req.ContentLength),
+			slog.Bool("close", req.Close),
 		)
 	}
 
@@ -154,13 +155,13 @@ func (c serverConnectPendingConn) Abort(_ conn.DialResult) error {
 // serverNonConnectPendingConn implements [netio.PendingConn].
 type serverNonConnectPendingConn struct {
 	rw     netio.Conn
-	logger *zap.Logger
+	logger *tslog.Logger
 	rwbr   *bufio.Reader
 	req    *http.Request
 }
 
 // newServerNonConnectPendingConn returns the connection wrapped as a [netio.PendingConn].
-func newServerNonConnectPendingConn(rw netio.Conn, logger *zap.Logger, rwbr *bufio.Reader, req *http.Request) netio.PendingConn {
+func newServerNonConnectPendingConn(rw netio.Conn, logger *tslog.Logger, rwbr *bufio.Reader, req *http.Request) netio.PendingConn {
 	return serverNonConnectPendingConn{
 		rw:     rw,
 		logger: logger,
@@ -236,7 +237,7 @@ func serverForwardRequests(
 	respDone <-chan struct{},
 	plbw *bufio.Writer,
 	rwbr *bufio.Reader,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 ) (err error) {
 	// The current implementation only supports a fixed destination host.
 	fixedHost := req.Host
@@ -281,15 +282,15 @@ func serverForwardRequests(
 			return fmt.Errorf("failed to read HTTP request: %w", err)
 		}
 
-		if ce := logger.Check(zap.DebugLevel, "Received subsequent HTTP request"); ce != nil {
-			ce.Write(
-				zap.String("proto", req.Proto),
-				zap.String("method", req.Method),
-				zap.String("url", req.RequestURI),
-				zap.String("host", req.Host),
-				zap.String("fixedHost", fixedHost),
-				zap.Int64("contentLength", req.ContentLength),
-				zap.Bool("close", req.Close),
+		if logger.Enabled(slog.LevelDebug) {
+			logger.Debug("Received subsequent HTTP request",
+				slog.String("proto", req.Proto),
+				slog.String("method", req.Method),
+				slog.String("url", req.RequestURI),
+				slog.String("host", req.Host),
+				slog.String("fixedHost", fixedHost),
+				slog.Int64("contentLength", req.ContentLength),
+				slog.Bool("close", req.Close),
 			)
 		}
 
@@ -314,10 +315,10 @@ func serverForwardRequests(
 		}
 
 		if req.Host != fixedHost {
-			if ce := logger.Check(zap.DebugLevel, "Host header changed, closing connection"); ce != nil {
-				ce.Write(
-					zap.String("oldHost", fixedHost),
-					zap.String("newHost", req.Host),
+			if logger.Enabled(slog.LevelDebug) {
+				logger.Debug("Host header changed, closing connection",
+					slog.String("oldHost", fixedHost),
+					slog.String("newHost", req.Host),
 				)
 			}
 			return nil
@@ -333,7 +334,7 @@ func serverForwardResponses(
 	rw netio.ReadWriter,
 	rwbw *bufio.Writer,
 	rwbwpcw *pipeClosingWriter,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 ) error {
 	for {
 		// Use Peek to monitor the remote connection, so that we can close the proxy connection
@@ -345,7 +346,7 @@ func serverForwardResponses(
 			if err == io.EOF {
 				return nil
 			}
-			logger.Warn("Failed to peek HTTP response", zap.Error(err))
+			logger.Warn("Failed to peek HTTP response", tslog.Err(err))
 			return fmt.Errorf("failed to peek HTTP response: %w", err)
 		}
 
@@ -359,30 +360,30 @@ func serverForwardResponses(
 			resp, err := http.ReadResponse(plbr, req)
 			if err != nil {
 				logger.Warn("Failed to read HTTP response",
-					zap.String("reqProto", req.Proto),
-					zap.String("reqMethod", req.Method),
-					zap.String("reqURL", req.RequestURI),
-					zap.String("reqHost", req.Host),
-					zap.Int64("reqContentLength", req.ContentLength),
-					zap.Bool("reqClose", req.Close),
-					zap.Error(err),
+					slog.String("reqProto", req.Proto),
+					slog.String("reqMethod", req.Method),
+					slog.String("reqURL", req.RequestURI),
+					slog.String("reqHost", req.Host),
+					slog.Int64("reqContentLength", req.ContentLength),
+					slog.Bool("reqClose", req.Close),
+					tslog.Err(err),
 				)
 				_ = send502(rw)
 				return fmt.Errorf("failed to read HTTP response: %w", err)
 			}
 
-			if ce := logger.Check(zap.DebugLevel, "Received HTTP response"); ce != nil {
-				ce.Write(
-					zap.String("reqProto", req.Proto),
-					zap.String("reqMethod", req.Method),
-					zap.String("reqURL", req.RequestURI),
-					zap.String("reqHost", req.Host),
-					zap.Int64("reqContentLength", req.ContentLength),
-					zap.Bool("reqClose", req.Close),
-					zap.String("respProto", resp.Proto),
-					zap.String("respStatus", resp.Status),
-					zap.Int64("respContentLength", resp.ContentLength),
-					zap.Bool("respClose", resp.Close),
+			if logger.Enabled(slog.LevelDebug) {
+				logger.Debug("Received HTTP response",
+					slog.String("reqProto", req.Proto),
+					slog.String("reqMethod", req.Method),
+					slog.String("reqURL", req.RequestURI),
+					slog.String("reqHost", req.Host),
+					slog.Int64("reqContentLength", req.ContentLength),
+					slog.Bool("reqClose", req.Close),
+					slog.String("respProto", resp.Proto),
+					slog.String("respStatus", resp.Status),
+					slog.Int64("respContentLength", resp.ContentLength),
+					slog.Bool("respClose", resp.Close),
 				)
 			}
 
@@ -392,15 +393,15 @@ func serverForwardResponses(
 			case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect:
 				location := resp.Header["Location"]
 
-				if ce := logger.Check(zap.DebugLevel, "Checking HTTP 3xx response Location header"); ce != nil {
-					ce.Write(
-						zap.String("reqProto", req.Proto),
-						zap.String("reqMethod", req.Method),
-						zap.String("reqURL", req.RequestURI),
-						zap.String("reqHost", req.Host),
-						zap.String("respProto", resp.Proto),
-						zap.String("respStatus", resp.Status),
-						zap.Strings("respLocation", location),
+				if logger.Enabled(slog.LevelDebug) {
+					logger.Debug("Checking HTTP 3xx response Location header",
+						slog.String("reqProto", req.Proto),
+						slog.String("reqMethod", req.Method),
+						slog.String("reqURL", req.RequestURI),
+						slog.String("reqHost", req.Host),
+						slog.String("respProto", resp.Proto),
+						slog.String("respStatus", resp.Status),
+						slog.Any("respLocation", location),
 					)
 				}
 
@@ -434,17 +435,17 @@ func serverForwardResponses(
 			// If we migrate to using [*http.Client], [*pipeClosingWriter] needs to be updated to cancel the request context instead.
 			if err = resp.Write(rwbwpcw); err != nil {
 				logger.Warn("Failed to write HTTP response",
-					zap.String("reqProto", req.Proto),
-					zap.String("reqMethod", req.Method),
-					zap.String("reqURL", req.RequestURI),
-					zap.String("reqHost", req.Host),
-					zap.Int64("reqContentLength", req.ContentLength),
-					zap.Bool("reqClose", req.Close),
-					zap.String("respProto", resp.Proto),
-					zap.String("respStatus", resp.Status),
-					zap.Int64("respContentLength", resp.ContentLength),
-					zap.Bool("respClose", resp.Close),
-					zap.Error(err),
+					slog.String("reqProto", req.Proto),
+					slog.String("reqMethod", req.Method),
+					slog.String("reqURL", req.RequestURI),
+					slog.String("reqHost", req.Host),
+					slog.Int64("reqContentLength", req.ContentLength),
+					slog.Bool("reqClose", req.Close),
+					slog.String("respProto", resp.Proto),
+					slog.String("respStatus", resp.Status),
+					slog.Int64("respContentLength", resp.ContentLength),
+					slog.Bool("respClose", resp.Close),
+					tslog.Err(err),
 				)
 				return fmt.Errorf("failed to write HTTP response: %w", err)
 			}
@@ -452,17 +453,17 @@ func serverForwardResponses(
 			// Flush response.
 			if err = rwbw.Flush(); err != nil {
 				logger.Warn("Failed to flush HTTP response",
-					zap.String("reqProto", req.Proto),
-					zap.String("reqMethod", req.Method),
-					zap.String("reqURL", req.RequestURI),
-					zap.String("reqHost", req.Host),
-					zap.Int64("reqContentLength", req.ContentLength),
-					zap.Bool("reqClose", req.Close),
-					zap.String("respProto", resp.Proto),
-					zap.String("respStatus", resp.Status),
-					zap.Int64("respContentLength", resp.ContentLength),
-					zap.Bool("respClose", resp.Close),
-					zap.Error(err),
+					slog.String("reqProto", req.Proto),
+					slog.String("reqMethod", req.Method),
+					slog.String("reqURL", req.RequestURI),
+					slog.String("reqHost", req.Host),
+					slog.Int64("reqContentLength", req.ContentLength),
+					slog.Bool("reqClose", req.Close),
+					slog.String("respProto", resp.Proto),
+					slog.String("respStatus", resp.Status),
+					slog.Int64("respContentLength", resp.ContentLength),
+					slog.Bool("respClose", resp.Close),
+					tslog.Err(err),
 				)
 				return fmt.Errorf("failed to flush HTTP response: %w", err)
 			}

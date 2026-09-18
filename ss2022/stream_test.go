@@ -3,14 +3,14 @@ package ss2022
 import (
 	"crypto/rand"
 	"io"
+	"log/slog"
 	"net/netip"
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/netiotest"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 func testStreamClientServer(
@@ -67,8 +67,8 @@ func testStreamClientServerReplay(
 	unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte,
 ) {
 	ctx := t.Context()
-	logger := zaptest.NewLogger(t)
-	defer logger.Sync()
+	logCfg := tslog.Config{Level: slog.LevelDebug}
+	logger := logCfg.NewLogger(t.Output())
 
 	psc, ch := netiotest.NewPipeStreamClient(netio.StreamDialerInfo{
 		Name:                 "test",
@@ -368,7 +368,7 @@ func newStreamServerClearSaltPool(server *StreamServer) *streamServerClearSaltPo
 }
 
 // HandleStream implements [netio.StreamServer.HandleStream].
-func (s *streamServerClearSaltPool) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req netio.ConnRequest, err error) {
+func (s *streamServerClearSaltPool) HandleStream(rawRW netio.Conn, logger *tslog.Logger) (req netio.ConnRequest, err error) {
 	req, err = s.StreamServer.HandleStream(rawRW, logger)
 	s.saltPool.Clear()
 	return req, err

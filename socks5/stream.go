@@ -6,12 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"slices"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 // SOCKS version 5.
@@ -552,7 +553,7 @@ func (StreamServer) StreamServerInfo() netio.StreamServerInfo {
 }
 
 // HandleStream implements [netio.StreamServer.HandleStream].
-func (s StreamServer) HandleStream(c netio.Conn, logger *zap.Logger) (netio.ConnRequest, error) {
+func (s StreamServer) HandleStream(c netio.Conn, logger *tslog.Logger) (netio.ConnRequest, error) {
 	pc, addr, err := ServerAccept(c, logger, s.enableTCP, s.enableUDP)
 	return netio.ConnRequest{
 		PendingConn: pc,
@@ -577,7 +578,7 @@ func (AuthStreamServer) StreamServerInfo() netio.StreamServerInfo {
 }
 
 // HandleStream implements [netio.StreamServer.HandleStream].
-func (s AuthStreamServer) HandleStream(c netio.Conn, logger *zap.Logger) (netio.ConnRequest, error) {
+func (s AuthStreamServer) HandleStream(c netio.Conn, logger *tslog.Logger) (netio.ConnRequest, error) {
 	pc, addr, username, err := ServerAcceptUsernamePassword(c, logger, s.userInfoByUsername, s.enableTCP, s.enableUDP)
 	return netio.ConnRequest{
 		PendingConn: pc,
@@ -592,7 +593,7 @@ func (s AuthStreamServer) HandleStream(c netio.Conn, logger *zap.Logger) (netio.
 // enableUDP enables the UDP ASSOCIATE command.
 //
 // When UDP is enabled, rw.LocalAddr must return a [*net.TCPAddr].
-func ServerAccept(rw netio.Conn, logger *zap.Logger, enableTCP, enableUDP bool) (pc netio.PendingConn, addr conn.Addr, err error) {
+func ServerAccept(rw netio.Conn, logger *tslog.Logger, enableTCP, enableUDP bool) (pc netio.PendingConn, addr conn.Addr, err error) {
 	b := make([]byte, 3+MaxAddrLen)
 	if err = serverHandleMethodSelection(rw, b, MethodNoAuthenticationRequired); err != nil {
 		return nil, conn.Addr{}, err
@@ -601,7 +602,7 @@ func ServerAccept(rw netio.Conn, logger *zap.Logger, enableTCP, enableUDP bool) 
 }
 
 // ServerAcceptUsernamePassword is like [ServerAccept], but uses username/password authentication.
-func ServerAcceptUsernamePassword(rw netio.Conn, logger *zap.Logger, userInfoByUsername map[string]UserInfo, enableTCP, enableUDP bool) (pc netio.PendingConn, addr conn.Addr, username string, err error) {
+func ServerAcceptUsernamePassword(rw netio.Conn, logger *tslog.Logger, userInfoByUsername map[string]UserInfo, enableTCP, enableUDP bool) (pc netio.PendingConn, addr conn.Addr, username string, err error) {
 	b := make([]byte, 3+MaxAddrLen) // enough for serverHandleUsernamePassword
 	if err = serverHandleMethodSelection(rw, b, MethodUsernamePassword); err != nil {
 		return nil, conn.Addr{}, "", err
@@ -775,7 +776,7 @@ func serverHandleUsernamePassword(rw io.ReadWriter, b []byte, userInfoByUsername
 //	+----+-----+-------+------+----------+----------+
 //	| 1  |  1  | X'00' |  1   | Variable |    2     |
 //	+----+-----+-------+------+----------+----------+
-func serverHandleRequest(rw netio.Conn, logger *zap.Logger, b []byte, enableTCP, enableUDP bool) (pc netio.PendingConn, addr conn.Addr, err error) {
+func serverHandleRequest(rw netio.Conn, logger *tslog.Logger, b []byte, enableTCP, enableUDP bool) (pc netio.PendingConn, addr conn.Addr, err error) {
 	if len(b) < 3+MaxAddrLen {
 		panic("serverHandleRequest: buffer too small")
 	}
@@ -814,10 +815,10 @@ func serverHandleRequest(rw netio.Conn, logger *zap.Logger, b []byte, enableTCP,
 		}
 		addrPort := tcpAddr.AddrPort()
 
-		if ce := logger.Check(zap.DebugLevel, "Handling UDP ASSOCIATE request"); ce != nil {
-			ce.Write(
-				zap.String("destAddr", addr.String()),
-				zap.String("boundAddrPort", addrPort.String()),
+		if logger.Enabled(slog.LevelDebug) {
+			logger.Debug("Handling UDP ASSOCIATE request",
+				tslog.ConnAddr("destAddr", addr),
+				tslog.AddrPort("boundAddrPort", addrPort),
 			)
 		}
 

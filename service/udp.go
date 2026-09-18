@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 const (
@@ -99,7 +99,7 @@ func (c *UDPPerfConfig) CheckAndApplyDefaults() error {
 
 // udpRelayServerConn configures the server socket for a UDP relay.
 type udpRelayServerConn struct {
-	logger              *zap.Logger
+	logger              *tslog.Logger
 	serverConn          *net.UDPConn
 	socketConfig        conn.UDPSocketConfig
 	network             string

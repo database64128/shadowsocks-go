@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -20,8 +21,8 @@ import (
 	"github.com/database64128/shadowsocks-go/api/ssm"
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/tlscerts"
+	"github.com/database64128/shadowsocks-go/tslog"
 	"github.com/gaissmai/bart"
-	"go.uber.org/zap"
 )
 
 // Config stores the configuration for the RESTful API.
@@ -164,7 +165,7 @@ type EncryptedClientHelloKey struct {
 
 // NewServer returns a new API server from the config.
 func (c *Config) NewServer(
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	tcpListenConfigCache conn.TCPListenConfigCache,
 	tlsCertStore *tlscerts.Store,
 	serverByName map[string]ssm.Server,
@@ -285,18 +286,13 @@ func (c *Config) NewServer(
 		mux.Handle("GET /", realIP(logFileServerRequests(logger, http.FileServerFS(fsys))))
 	}
 
-	errorLog, err := zap.NewStdLogAt(logger, zap.ErrorLevel)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create error logger: %w", err)
-	}
-
 	return &Server{
 		logger:         logger,
 		lcs:            lcs,
 		staticFileRoot: staticFileRoot,
 		server: http.Server{
 			Handler:  mux,
-			ErrorLog: errorLog,
+			ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		},
 	}, nil
 }
@@ -323,7 +319,7 @@ func joinPatternPath(elem ...string) string {
 // to [http.Request.RemoteAddr] if the request is from a trusted proxy.
 //
 // If realIPHeaderKey is empty, the middleware is a no-op.
-func newRealIPMiddleware(logger *zap.Logger, trustedProxies []netip.Prefix, realIPHeaderKey string) func(http.Handler) http.Handler {
+func newRealIPMiddleware(logger *tslog.Logger, trustedProxies []netip.Prefix, realIPHeaderKey string) func(http.Handler) http.Handler {
 	if realIPHeaderKey == "" {
 		return func(h http.Handler) http.Handler {
 			return h
@@ -358,8 +354,8 @@ func newRealIPMiddleware(logger *zap.Logger, trustedProxies []netip.Prefix, real
 				proxyAddrPort, err := netip.ParseAddrPort(r.RemoteAddr)
 				if err != nil {
 					logger.Error("Failed to parse HTTP request remote address",
-						zap.String("remoteAddr", r.RemoteAddr),
-						zap.Error(err),
+						slog.String("remoteAddr", r.RemoteAddr),
+						tslog.Err(err),
 					)
 					return
 				}
@@ -375,45 +371,45 @@ func newRealIPMiddleware(logger *zap.Logger, trustedProxies []netip.Prefix, real
 }
 
 // logPprofRequests is a middleware that logs pprof requests.
-func logPprofRequests(logger *zap.Logger, h http.Handler) http.Handler {
+func logPprofRequests(logger *tslog.Logger, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, r)
 		logger.Info("Handled pprof request",
-			zap.String("proto", r.Proto),
-			zap.String("method", r.Method),
-			zap.String("requestURI", r.RequestURI),
-			zap.String("host", r.Host),
-			zap.String("remoteAddr", r.RemoteAddr),
+			slog.String("proto", r.Proto),
+			slog.String("method", r.Method),
+			slog.String("requestURI", r.RequestURI),
+			slog.String("host", r.Host),
+			slog.String("remoteAddr", r.RemoteAddr),
 		)
 	})
 }
 
 // logAPIRequests is a middleware that logs API requests.
-func logAPIRequests(logger *zap.Logger, h restapi.HandlerFunc) http.Handler {
+func logAPIRequests(logger *tslog.Logger, h restapi.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		status, err := h(w, r)
 		logger.Info("Handled API request",
-			zap.String("proto", r.Proto),
-			zap.String("method", r.Method),
-			zap.String("requestURI", r.RequestURI),
-			zap.String("host", r.Host),
-			zap.String("remoteAddr", r.RemoteAddr),
-			zap.Int("status", status),
-			zap.Error(err),
+			slog.String("proto", r.Proto),
+			slog.String("method", r.Method),
+			slog.String("requestURI", r.RequestURI),
+			slog.String("host", r.Host),
+			slog.String("remoteAddr", r.RemoteAddr),
+			slog.Int("status", status),
+			tslog.Err(err),
 		)
 	})
 }
 
 // logFileServerRequests is a middleware that logs file server requests.
-func logFileServerRequests(logger *zap.Logger, h http.Handler) http.Handler {
+func logFileServerRequests(logger *tslog.Logger, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, r)
 		logger.Info("Served file",
-			zap.String("proto", r.Proto),
-			zap.String("method", r.Method),
-			zap.String("requestURI", r.RequestURI),
-			zap.String("host", r.Host),
-			zap.String("remoteAddr", r.RemoteAddr),
+			slog.String("proto", r.Proto),
+			slog.String("method", r.Method),
+			slog.String("requestURI", r.RequestURI),
+			slog.String("host", r.Host),
+			slog.String("remoteAddr", r.RemoteAddr),
 		)
 	})
 }
@@ -427,7 +423,7 @@ type listenConfig struct {
 
 // Server is the RESTful API server.
 type Server struct {
-	logger         *zap.Logger
+	logger         *tslog.Logger
 	lcs            []listenConfig
 	server         http.Server
 	staticFileRoot *os.Root
@@ -435,9 +431,9 @@ type Server struct {
 
 var _ shadowsocks.Service = (*Server)(nil)
 
-// ZapField implements [shadowsocks.Service.ZapField].
-func (*Server) ZapField() zap.Field {
-	return zap.String("service", "api")
+// SlogAttr implements [shadowsocks.Service.SlogAttr].
+func (*Server) SlogAttr() slog.Attr {
+	return slog.String("service", "api")
 }
 
 // Start starts the API server.
@@ -459,11 +455,11 @@ func (s *Server) Start(ctx context.Context) error {
 
 		go func() {
 			if err := s.server.Serve(ln); err != nil && err != http.ErrServerClosed {
-				s.logger.Error("Failed to serve API", zap.Error(err))
+				s.logger.Error("Failed to serve API", tslog.Err(err))
 			}
 		}()
 
-		s.logger.Info("Started API server listener", zap.Stringer("listenAddress", ln.Addr()))
+		s.logger.Info("Started API server listener", slog.Any("listenAddress", ln.Addr()))
 	}
 	return nil
 }

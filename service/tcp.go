@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/netip"
 	"os"
@@ -15,7 +16,7 @@ import (
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 const (
@@ -31,7 +32,7 @@ type streamRelayInitialPayloadWaitConfig struct {
 
 // streamRelayTCPListener is the configuration for a stream relay TCP listener.
 type streamRelayTCPListener struct {
-	logger                   *zap.Logger
+	logger                   *tslog.Logger
 	listener                 *net.TCPListener
 	listenConfig             conn.TCPListenConfig
 	network                  string
@@ -41,7 +42,7 @@ type streamRelayTCPListener struct {
 
 // streamRelayUnixListener is the configuration for a stream relay Unix domain socket listener.
 type streamRelayUnixListener struct {
-	logger                   *zap.Logger
+	logger                   *tslog.Logger
 	listener                 *net.UnixListener
 	listenConfig             conn.UnixDomainSocketConfig
 	network                  string
@@ -65,7 +66,7 @@ type TCPRelay struct {
 	server        netio.StreamServer
 	collector     stats.Collector
 	router        *router.Router
-	logger        *zap.Logger
+	logger        *tslog.Logger
 }
 
 func NewTCPRelay(
@@ -76,7 +77,7 @@ func NewTCPRelay(
 	server netio.StreamServer,
 	collector stats.Collector,
 	router *router.Router,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 ) *TCPRelay {
 	return &TCPRelay{
 		serverIndex:   serverIndex,
@@ -92,9 +93,9 @@ func NewTCPRelay(
 
 var _ shadowsocks.Service = (*TCPRelay)(nil)
 
-// ZapField implements [shadowsocks.Service.ZapField].
-func (s *TCPRelay) ZapField() zap.Field {
-	return zap.String("serverTCPRelay", s.serverName)
+// SlogAttr implements [shadowsocks.Service.SlogAttr].
+func (s *TCPRelay) SlogAttr() slog.Attr {
+	return slog.String("serverTCPRelay", s.serverName)
 }
 
 // Start implements [shadowsocks.Service.Start].
@@ -108,10 +109,10 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 		}
 		lnc.listener = l
 		lnc.address = l.Addr().String()
-		lnc.logger = s.logger.With(
-			zap.String("server", s.serverName),
-			zap.Int("tcpListener", i),
-			zap.String("listenAddress", lnc.address),
+		lnc.logger = s.logger.WithAttrs(
+			slog.String("server", s.serverName),
+			slog.Int("tcpListener", i),
+			slog.String("listenAddress", lnc.address),
 		)
 
 		s.acceptWg.Go(func() {
@@ -121,7 +122,7 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 					if errors.Is(err, os.ErrDeadlineExceeded) {
 						break
 					}
-					lnc.logger.Error("Failed to accept TCP connection", zap.Error(err))
+					lnc.logger.Error("Failed to accept TCP connection", tslog.Err(err))
 					continue
 				}
 
@@ -141,10 +142,10 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 		}
 		lnc.listener = l
 		lnc.address = l.Addr().String()
-		lnc.logger = s.logger.With(
-			zap.String("server", s.serverName),
-			zap.Int("unixListener", i),
-			zap.String("listenAddress", lnc.address),
+		lnc.logger = s.logger.WithAttrs(
+			slog.String("server", s.serverName),
+			slog.Int("unixListener", i),
+			slog.String("listenAddress", lnc.address),
 		)
 
 		s.acceptWg.Go(func() {
@@ -154,7 +155,7 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 					if errors.Is(err, os.ErrDeadlineExceeded) {
 						break
 					}
-					lnc.logger.Error("Failed to accept Unix connection", zap.Error(err))
+					lnc.logger.Error("Failed to accept Unix connection", tslog.Err(err))
 					continue
 				}
 
@@ -171,7 +172,7 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 // handleConn handles an accepted TCP connection.
 func (s *TCPRelay) handleConn(
 	ctx context.Context,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 	ipwCfg streamRelayInitialPayloadWaitConfig,
 	acceptedConn netio.Conn,
 ) {
@@ -197,8 +198,8 @@ func (s *TCPRelay) handleConn(
 		clientAddress = clientAddr.String()
 	}
 
-	logger = logger.With(
-		zap.String("clientAddress", clientAddress),
+	logger = logger.WithAttrs(
+		slog.String("clientAddress", clientAddress),
 	)
 
 	// Handshake.
@@ -208,7 +209,7 @@ func (s *TCPRelay) handleConn(
 			logger.Debug("Handled stream connection without bidirectional copy")
 			return
 		}
-		logger.Warn("Failed to complete handshake with client", zap.Error(err))
+		logger.Warn("Failed to complete handshake with client", tslog.Err(err))
 		return
 	}
 
@@ -224,17 +225,17 @@ func (s *TCPRelay) handleConn(
 	})
 	if err != nil {
 		logger.Warn("Failed to get TCP client for client connection",
-			zap.String("username", req.Username),
-			zap.String("targetAddress", targetAddress),
-			zap.Error(err),
+			slog.String("username", req.Username),
+			slog.String("targetAddress", targetAddress),
+			tslog.Err(err),
 		)
 
 		dialResult := conn.DialResultFromError(err)
 		if err = req.Abort(dialResult); err != nil {
 			logger.Warn("Failed to abort pending connection",
-				zap.String("username", req.Username),
-				zap.String("targetAddress", targetAddress),
-				zap.Error(err),
+				slog.String("username", req.Username),
+				slog.String("targetAddress", targetAddress),
+				tslog.Err(err),
 			)
 		}
 		return
@@ -244,10 +245,10 @@ func (s *TCPRelay) handleConn(
 	dialer, clientInfo := c.NewStreamDialer()
 
 	// Create logger with new fields.
-	logger = logger.With(
-		zap.String("username", req.Username),
-		zap.String("targetAddress", targetAddress),
-		zap.String("client", clientInfo.Name),
+	logger = logger.WithAttrs(
+		slog.String("username", req.Username),
+		slog.String("targetAddress", targetAddress),
+		slog.String("client", clientInfo.Name),
 	)
 
 	// Wait for initial payload if all of the following are true:
@@ -258,47 +259,45 @@ func (s *TCPRelay) handleConn(
 	if len(req.Payload) == 0 && clientInfo.NativeInitialPayload && ipwCfg.waitForInitialPayload {
 		inConn, err = req.PendingConn.Proceed()
 		if err != nil {
-			logger.Warn("Failed to proceed with pending connection", zap.Error(err))
+			logger.Warn("Failed to proceed with pending connection", tslog.Err(err))
 			return
 		}
 
 		req.Payload = make([]byte, ipwCfg.initialPayloadWaitBufferSize)
 
 		if err = inConn.SetReadDeadline(time.Now().Add(ipwCfg.initialPayloadWaitTimeout)); err != nil {
-			logger.Error("Failed to set read deadline to initial payload wait timeout", zap.Error(err))
+			logger.Error("Failed to set read deadline to initial payload wait timeout", tslog.Err(err))
 			return
 		}
 
 		payloadLength, err := inConn.Read(req.Payload)
 		switch {
 		case err == nil:
-			if ce := logger.Check(zap.DebugLevel, "Got initial payload"); ce != nil {
-				ce.Write(
-					zap.Int("payloadLength", payloadLength),
+			if logger.Enabled(slog.LevelDebug) {
+				logger.Debug("Got initial payload",
+					slog.Int("payloadLength", payloadLength),
 				)
 			}
 
 		case err == io.EOF:
-			if ce := logger.Check(zap.DebugLevel, "Got initial payload and EOF"); ce != nil {
-				ce.Write(
-					zap.Int("payloadLength", payloadLength),
+			if logger.Enabled(slog.LevelDebug) {
+				logger.Debug("Got initial payload and EOF",
+					slog.Int("payloadLength", payloadLength),
 				)
 			}
 
 		case errors.Is(err, os.ErrDeadlineExceeded):
-			if ce := logger.Check(zap.DebugLevel, "Initial payload wait timed out"); ce != nil {
-				ce.Write()
-			}
+			logger.Debug("Initial payload wait timed out")
 
 		default:
-			logger.Warn("Failed to read initial payload", zap.Error(err))
+			logger.Warn("Failed to read initial payload", tslog.Err(err))
 			return
 		}
 
 		req.Payload = req.Payload[:payloadLength]
 
 		if err = inConn.SetReadDeadline(time.Time{}); err != nil {
-			logger.Error("Failed to reset read deadline", zap.Error(err))
+			logger.Error("Failed to reset read deadline", tslog.Err(err))
 			return
 		}
 	}
@@ -307,13 +306,13 @@ func (s *TCPRelay) handleConn(
 	outConn, err := dialer.DialStream(ctx, req.Addr, req.Payload)
 	if err != nil {
 		logger.Warn("Failed to open outgoing connection",
-			zap.Int("initialPayloadLength", len(req.Payload)),
-			zap.Error(err),
+			slog.Int("initialPayloadLength", len(req.Payload)),
+			tslog.Err(err),
 		)
 		if inConn == nil {
 			dialResult := conn.DialResultFromError(err)
 			if err = req.Abort(dialResult); err != nil {
-				logger.Warn("Failed to abort pending connection", zap.Error(err))
+				logger.Warn("Failed to abort pending connection", tslog.Err(err))
 			}
 		}
 		return
@@ -323,13 +322,13 @@ func (s *TCPRelay) handleConn(
 	if inConn == nil {
 		inConn, err = req.PendingConn.Proceed()
 		if err != nil {
-			logger.Warn("Failed to proceed with pending connection", zap.Error(err))
+			logger.Warn("Failed to proceed with pending connection", tslog.Err(err))
 			return
 		}
 	}
 
 	logger.Info("Bidirectional copy started",
-		zap.Int("initialPayloadLength", len(req.Payload)),
+		slog.Int("initialPayloadLength", len(req.Payload)),
 	)
 
 	// Bidirectional copy.
@@ -338,16 +337,16 @@ func (s *TCPRelay) handleConn(
 	s.collector.CollectTCPSession(req.Username, uint64(nr2l), uint64(nl2r))
 	if err != nil {
 		logger.Warn("Bidirectional copy failed",
-			zap.Int64("nl2r", nl2r),
-			zap.Int64("nr2l", nr2l),
-			zap.Error(err),
+			slog.Int64("nl2r", nl2r),
+			slog.Int64("nr2l", nr2l),
+			tslog.Err(err),
 		)
 		return
 	}
 
 	logger.Info("Bidirectional copy completed",
-		zap.Int64("nl2r", nl2r),
-		zap.Int64("nr2l", nr2l),
+		slog.Int64("nl2r", nl2r),
+		slog.Int64("nr2l", nr2l),
 	)
 }
 
@@ -356,13 +355,13 @@ func (s *TCPRelay) Stop() error {
 	for i := range s.tcpListeners {
 		lnc := &s.tcpListeners[i]
 		if err := lnc.listener.SetDeadline(conn.ALongTimeAgo); err != nil {
-			lnc.logger.Error("Failed to set deadline on TCP listener", zap.Error(err))
+			lnc.logger.Error("Failed to set deadline on TCP listener", tslog.Err(err))
 		}
 	}
 	for i := range s.unixListeners {
 		lnc := &s.unixListeners[i]
 		if err := lnc.listener.SetDeadline(conn.ALongTimeAgo); err != nil {
-			lnc.logger.Error("Failed to set deadline on Unix listener", zap.Error(err))
+			lnc.logger.Error("Failed to set deadline on Unix listener", tslog.Err(err))
 		}
 	}
 
@@ -371,16 +370,16 @@ func (s *TCPRelay) Stop() error {
 	for i := range s.tcpListeners {
 		lnc := &s.tcpListeners[i]
 		if err := lnc.listener.Close(); err != nil {
-			lnc.logger.Error("Failed to close TCP listener", zap.Error(err))
+			lnc.logger.Error("Failed to close TCP listener", tslog.Err(err))
 		}
 	}
 	for i := range s.unixListeners {
 		lnc := &s.unixListeners[i]
 		if err := lnc.listener.Close(); err != nil {
-			lnc.logger.Error("Failed to close Unix listener", zap.Error(err))
+			lnc.logger.Error("Failed to close Unix listener", tslog.Err(err))
 		}
 	}
 
-	s.logger.Info("Stopped stream relay service", zap.String("server", s.serverName))
+	s.logger.Info("Stopped stream relay service", slog.String("server", s.serverName))
 	return nil
 }

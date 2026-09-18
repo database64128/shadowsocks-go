@@ -9,7 +9,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 func NewUDPTransparentRelay(
@@ -19,7 +19,7 @@ func NewUDPTransparentRelay(
 	transparentConnSocketConfig conn.UDPSocketConfig,
 	collector stats.Collector,
 	router *router.Router,
-	logger *zap.Logger,
+	logger *tslog.Logger,
 ) (shadowsocks.Service, error) {
 	return nil, errors.New("transparent proxy is not implemented for this platform")
 }

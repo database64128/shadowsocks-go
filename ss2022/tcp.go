@@ -14,7 +14,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/socks5"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 // StreamClientConfig is the configuration for a Shadowsocks 2022 stream client.
@@ -263,7 +263,7 @@ func (s *StreamServer) StreamServerInfo() netio.StreamServerInfo {
 }
 
 // HandleStream implements [netio.StreamServer.HandleStream].
-func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req netio.ConnRequest, err error) {
+func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *tslog.Logger) (req netio.ConnRequest, err error) {
 	var identityHeaderLen int
 	userCipherConfig := s.userCipherConfig
 	saltLen := len(userCipherConfig.PSK)
@@ -297,7 +297,7 @@ func (s *StreamServer) HandleStream(rawRW netio.Conn, logger *zap.Logger) (req n
 	defer func() {
 		if err != nil {
 			if n > 0 && s.unsafeFallbackAddr.IsValid() {
-				logger.Warn("Initiating fallback for unauthenticated connection", zap.Error(err))
+				logger.Warn("Initiating fallback for unauthenticated connection", tslog.Err(err))
 				req = netio.ConnRequest{
 					PendingConn: netio.NopPendingConn(rawRW),
 					Addr:        s.unsafeFallbackAddr,

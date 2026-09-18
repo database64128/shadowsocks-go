@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"log/slog"
 	"maps"
 	"os"
 	"slices"
@@ -20,7 +21,7 @@ import (
 	"github.com/database64128/shadowsocks-go"
 	"github.com/database64128/shadowsocks-go/mmap"
 	"github.com/database64128/shadowsocks-go/ss2022"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 var (
@@ -41,7 +42,7 @@ type ManagedServer struct {
 	mu                  sync.RWMutex
 	wg                  sync.WaitGroup
 	saveQueue           chan struct{}
-	logger              *zap.Logger
+	logger              *tslog.Logger
 }
 
 // Name returns the name of the server.
@@ -140,7 +141,7 @@ func (s *ManagedServer) dequeueSave(ctx context.Context) {
 		// which takes the write lock. So it is safe to take just the read lock here.
 		s.mu.RLock()
 		if err := s.saveToFile(); err != nil {
-			s.logger.Error("Failed to save credentials", zap.Error(err))
+			s.logger.Error("Failed to save credentials", tslog.Err(err))
 		}
 		s.mu.RUnlock()
 	}
@@ -323,12 +324,12 @@ func (s *ManagedServer) LoadFromFile() error {
 
 // Manager manages credentials for servers of supported protocols.
 type Manager struct {
-	logger  *zap.Logger
+	logger  *tslog.Logger
 	servers map[string]*ManagedServer
 }
 
 // NewManager returns a new credential manager.
-func NewManager(logger *zap.Logger) *Manager {
+func NewManager(logger *tslog.Logger) *Manager {
 	return &Manager{
 		logger:  logger,
 		servers: make(map[string]*ManagedServer),
@@ -344,10 +345,10 @@ func (m *Manager) Servers() (int, iter.Seq[*ManagedServer]) {
 func (m *Manager) ReloadAll() {
 	for name, s := range m.servers {
 		if err := s.LoadFromFile(); err != nil {
-			m.logger.Error("Failed to reload credentials", zap.String("server", name), zap.Error(err))
+			m.logger.Error("Failed to reload credentials", slog.String("server", name), tslog.Err(err))
 			continue
 		}
-		m.logger.Info("Reloaded credentials", zap.String("server", name))
+		m.logger.Info("Reloaded credentials", slog.String("server", name))
 	}
 }
 
@@ -357,16 +358,16 @@ func (m *Manager) LoadAll() error {
 		if err := s.LoadFromFile(); err != nil {
 			return fmt.Errorf("failed to load credentials for server %s: %w", name, err)
 		}
-		m.logger.Debug("Loaded credentials", zap.String("server", name))
+		m.logger.Debug("Loaded credentials", slog.String("server", name))
 	}
 	return nil
 }
 
 var _ shadowsocks.Service = (*Manager)(nil)
 
-// ZapField implements [shadowsocks.Service.ZapField].
-func (*Manager) ZapField() zap.Field {
-	return zap.String("service", "credential manager")
+// SlogAttr implements [shadowsocks.Service.SlogAttr].
+func (*Manager) SlogAttr() slog.Attr {
+	return slog.String("service", "credential manager")
 }
 
 // Start starts all managed servers and registers to reload on SIGUSR1.
@@ -408,6 +409,6 @@ func (m *Manager) RegisterServer(name, path string, pskLength int, tcpCredStore,
 		return nil, fmt.Errorf("failed to load credentials for server %s: %w", name, err)
 	}
 	m.servers[name] = s
-	m.logger.Debug("Registered server for credential management", zap.String("server", name))
+	m.logger.Debug("Registered server for credential management", slog.String("server", name))
 	return s, nil
 }

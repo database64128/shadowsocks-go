@@ -5,12 +5,12 @@ package service
 import (
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/tlscerts"
-	"go.uber.org/zap"
+	"github.com/database64128/shadowsocks-go/tslog"
 )
 
 type reloadNotifier struct{}
 
-func newReloadNotifier(_ *zap.Logger, _ *cred.Manager, _ *tlscerts.Store) reloadNotifier {
+func newReloadNotifier(_ *tslog.Logger, _ *cred.Manager, _ *tlscerts.Store) reloadNotifier {
 	return reloadNotifier{}
 }
 
