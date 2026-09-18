@@ -153,9 +153,45 @@ type PrefixSet struct {
 	bart.Lite
 }
 
-// Contains calls [bart.Lite.Contains] with ip unmapped.
+// Contains calls [bart.Lite.Contains] with ip unmapped and any zone identifier stripped.
 func (s *PrefixSet) Contains(ip netip.Addr) bool {
-	return s.Lite.Contains(ip.Unmap())
+	// Another day, another rabbit hole, oh well...
+	//
+	// As of Go 1.27, the official way to write this would be:
+	//
+	//	ip = ip.Unmap().WithZone("")
+	//
+	// So why not? Well, Unmap is inlineable, but WithZone is not.
+	// We don't want to impose the cost of a function call on all IPs.
+	// Is there a way out of this? Yes! We can do something like:
+	//
+	//	if ip.Is6() {
+	//		ip = ip.Unmap()
+	//		if ip.Zone() != "" {
+	//			ip = ip.WithZone("")
+	//		}
+	//	}
+	//
+	// Because Zone can be inlined, we only pay the function call cost
+	// when the IP actually contains a zone. But can we do better?
+	//
+	// Turns out there's an unexported netip.Addr.withoutZone that does
+	// exactly what we want. Unfortunately, getting it exported is not
+	// a battle we can win. So there really is no way for us to use
+	// withoutZone, right?
+	//
+	// Actually, there is a way... netip.PrefixFrom calls withoutZone,
+	// and it's inlineable. With this careful setup below, we are able
+	// to get the compiler to generate the exact same machine code as if
+	// we were doing:
+	//
+	//	ip = ip.withoutZone().Unmap()
+	//
+	// Mission accomplished, with the purest Go magic!
+	if ip.Is6() {
+		ip = netip.PrefixFrom(ip, -1).Addr().Unmap()
+	}
+	return s.Lite.Contains(ip)
 }
 
 // TextLineError represents a text format deserialization error.

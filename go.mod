@@ -5,7 +5,7 @@ go 1.27.0
 require (
 	github.com/database64128/netx-go v0.1.1
 	github.com/database64128/tfo-go/v2 v2.4.0
-	github.com/gaissmai/bart v0.29.0
+	github.com/gaissmai/bart v0.29.1
 	github.com/lmittmann/tint v1.2.0
 	github.com/oschwald/geoip2-golang/v2 v2.4.0
 	golang.org/x/net v0.59.0

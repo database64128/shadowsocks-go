@@ -146,6 +146,35 @@ func TestPrefixSet(t *testing.T) {
 	}
 }
 
+func TestPrefixSetContains(t *testing.T) {
+	var s prefixset.PrefixSet
+	s.Union(testPrefixSet)
+
+	for _, cc := range testPrefixSetContainsCases {
+		if got := s.Contains(cc.addr); got != cc.want {
+			t.Errorf("s.Contains(%q) = %v, want %v", cc.addr, got, cc.want)
+		}
+	}
+
+	for _, c := range [...]struct {
+		name string
+		ip   netip.Addr
+	}{
+		{"IPv4MappedIPv6/NoZone", netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 12: 169, 13: 254, 14: 169, 15: 254})},
+		{"IPv4MappedIPv6/WithZone", netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 12: 169, 13: 254, 14: 169, 15: 254}).WithZone("eno1")},
+		{"IPv6WithZone", netip.AddrFrom16([16]byte{0xfe, 0x80, 8: 0x49, 9: 0xd4, 10: 0x06, 11: 0x95, 12: 0x97, 13: 0x69, 14: 0xb3, 15: 0x9b}).WithZone("eno1")},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if s.Lite.Contains(c.ip) {
+				t.Errorf("s.Lite.Contains(%q) = true, want false", c.ip)
+			}
+			if !s.Contains(c.ip) {
+				t.Errorf("s.Contains(%q) = false, want true", c.ip)
+			}
+		})
+	}
+}
+
 func TestPrefixSetMarshalText(t *testing.T) {
 	text := prefixset.MarshalText(testPrefixSet)
 	var s bart.Lite
