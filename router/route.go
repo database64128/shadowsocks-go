@@ -756,14 +756,19 @@ func (c DestResolvedGeoIPCountryCriterion) Meet(ctx context.Context, network pro
 	return false, nil
 }
 
-func matchAddrToGeoIPCountries(countries []string, addr netip.Addr, geoip *geoip2.Reader, logger *tslog.Logger) (bool, error) {
-	country, err := geoip.Country(addr)
+func matchAddrToGeoIPCountries(countries []string, ip netip.Addr, geoip *geoip2.Reader, logger *tslog.Logger) (bool, error) {
+	// Unmap and strip zone to avoid undefined behavior.
+	// See [prefixset.PrefixSet.Contains] for why it was written this way.
+	if ip.Is6() {
+		ip = netip.PrefixFrom(ip, -1).Addr().Unmap()
+	}
+	country, err := geoip.Country(ip)
 	if err != nil {
 		return false, err
 	}
 	if logger.Enabled(slog.LevelDebug) {
 		logger.Debug("Matched GeoIP country",
-			tslog.Addr("ip", addr),
+			tslog.Addr("ip", ip),
 			slog.String("country", country.Country.ISOCode),
 		)
 	}
