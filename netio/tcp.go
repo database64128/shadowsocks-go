@@ -234,7 +234,6 @@ func (c *TCPClient) resolveAndDialDomain(ctx context.Context, network, domain st
 		select {
 		case result := <-resultCh:
 			if result.Err == nil {
-				cancelAttempts()
 				return result.TCPConn, nil
 			}
 			errs = append(errs, result.Err)
@@ -248,7 +247,6 @@ func (c *TCPClient) resolveAndDialDomain(ctx context.Context, network, domain st
 		select {
 		case result := <-resultCh:
 			if result.Err == nil {
-				cancelAttempts()
 				return result.TCPConn, nil
 			}
 			errs = append(errs, result.Err)
@@ -402,7 +400,6 @@ dial:
 		select {
 		case result := <-resultCh:
 			if result.Err == nil {
-				cancelAttempts()
 				return result.TCPConn, nil
 			}
 			errs = append(errs, result.Err)
@@ -417,7 +414,6 @@ dial:
 			select {
 			case result := <-resultCh:
 				if result.Err == nil {
-					cancelAttempts()
 					return result.TCPConn, nil
 				}
 				errs = append(errs, result.Err)
@@ -437,7 +433,6 @@ dial:
 		select {
 		case result := <-resultCh:
 			if result.Err == nil {
-				cancelAttempts()
 				return result.TCPConn, nil
 			}
 			errs = append(errs, result.Err)
