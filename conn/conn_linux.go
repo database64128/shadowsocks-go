@@ -44,6 +44,52 @@ func setTrafficClass(fd int, network string, trafficClass int) error {
 	return nil
 }
 
+func setIPv6SourceAddressPreference(fd int, network string, pref IPv6SourceAddressPreference) error {
+	switch network {
+	case "tcp6", "udp6":
+	default:
+		return nil
+	}
+
+	// Currently these constants are only defined in /usr/include/linux/in6.h,
+	// which x/sys/unix does not include. It's not clear if we are allowed to
+	// add #include <linux/in6.h> to x/sys/unix. The existing includes seem to
+	// prefer glibc header files.
+	const (
+		IPV6_PREFER_SRC_TMP            = 0x1
+		IPV6_PREFER_SRC_PUBLIC         = 0x2
+		IPV6_PREFER_SRC_COA            = 0x4
+		IPV6_PREFER_SRC_CGA            = 0x8
+		IPV6_PREFER_SRC_PUBTMP_DEFAULT = 0x100
+		IPV6_PREFER_SRC_HOME           = 0x400
+		IPV6_PREFER_SRC_NONCGA         = 0x800
+	)
+
+	var value int
+	for i := ipv6SourceAddressPreferenceMin; i <= ipv6SourceAddressPreferenceMax; i <<= 1 {
+		if pref&i != 0 {
+			switch i {
+			case IPv6SourceAddressPreferencePreferHome:
+				value |= IPV6_PREFER_SRC_HOME
+			case IPv6SourceAddressPreferencePreferCOA:
+				value |= IPV6_PREFER_SRC_COA
+			case IPv6SourceAddressPreferencePreferTemporary:
+				value |= IPV6_PREFER_SRC_TMP
+			case IPv6SourceAddressPreferencePreferPublic:
+				value |= IPV6_PREFER_SRC_PUBLIC
+			case IPv6SourceAddressPreferencePreferCGA:
+				value |= IPV6_PREFER_SRC_CGA
+			case IPv6SourceAddressPreferencePreferNonCGA:
+				value |= IPV6_PREFER_SRC_NONCGA
+			}
+		}
+	}
+	if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_ADDR_PREFERENCES, value); err != nil {
+		return fmt.Errorf("failed to set socket option IPV6_ADDR_PREFERENCES to %#x: %w", value, err)
+	}
+	return nil
+}
+
 func setTCPDeferAccept(fd, secs int) error {
 	if err := unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_DEFER_ACCEPT, secs); err != nil {
 		return fmt.Errorf("failed to set socket option TCP_DEFER_ACCEPT: %w", err)
@@ -207,6 +253,7 @@ func (opts TCPConnectSocketOptions) buildSetFns() setFuncSlice {
 		appendSetRecvBufferSize(opts.ReceiveBufferSize).
 		appendSetFwmarkFunc(opts.Fwmark).
 		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetIPv6SourceAddressPreference(opts.IPv6SourceAddressPreference).
 		appendSetTCPUserTimeoutFunc(opts.TCPUserTimeoutMsecs).
 		appendSetPMTUDFunc(opts.PathMTUDiscovery)
 }
@@ -217,6 +264,7 @@ func (opts UDPSocketOptions) buildSetFns() setFuncSlice {
 		appendSetRecvBufferSize(opts.ReceiveBufferSize).
 		appendSetFwmarkFunc(opts.Fwmark).
 		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetIPv6SourceAddressPreference(opts.IPv6SourceAddressPreference).
 		appendSetReusePortFunc(opts.ReusePort).
 		appendSetTransparentFunc(opts.Transparent).
 		appendSetPMTUDFunc(opts.PathMTUDiscovery).

@@ -63,6 +63,7 @@ func (opts TCPConnectSocketOptions) buildSetFns() setFuncSlice {
 		appendSetRecvBufferSize(opts.ReceiveBufferSize).
 		appendSetFwmarkFunc(opts.Fwmark).
 		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetIPv6SourceAddressPreference(opts.IPv6SourceAddressPreference).
 		appendSetPMTUDFunc(opts.PathMTUDiscovery)
 }
 
@@ -72,6 +73,7 @@ func (opts UDPSocketOptions) buildSetFns() setFuncSlice {
 		appendSetRecvBufferSize(opts.ReceiveBufferSize).
 		appendSetFwmarkFunc(opts.Fwmark).
 		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetIPv6SourceAddressPreference(opts.IPv6SourceAddressPreference).
 		appendSetReusePortFunc(opts.ReusePort).
 		appendSetTransparentFunc(opts.Transparent).
 		appendSetPMTUDFunc(opts.PathMTUDiscovery).

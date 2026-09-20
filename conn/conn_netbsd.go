@@ -4,15 +4,15 @@ func (opts TCPListenSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
 		appendSetSendBufferSize(opts.SendBufferSize).
 		appendSetRecvBufferSize(opts.ReceiveBufferSize).
-		appendSetTrafficClassFunc(opts.TrafficClass)
+		appendSetTrafficClassFunc(opts.TrafficClass).
+		appendSetReusePortFunc(opts.ReusePort)
 }
 
 func (opts TCPConnectSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}.
 		appendSetSendBufferSize(opts.SendBufferSize).
 		appendSetRecvBufferSize(opts.ReceiveBufferSize).
-		appendSetTrafficClassFunc(opts.TrafficClass).
-		appendSetIPv6SourceAddressPreference(opts.IPv6SourceAddressPreference)
+		appendSetTrafficClassFunc(opts.TrafficClass)
 }
 
 func (opts UDPSocketOptions) buildSetFns() setFuncSlice {
@@ -20,6 +20,6 @@ func (opts UDPSocketOptions) buildSetFns() setFuncSlice {
 		appendSetSendBufferSize(opts.SendBufferSize).
 		appendSetRecvBufferSize(opts.ReceiveBufferSize).
 		appendSetTrafficClassFunc(opts.TrafficClass).
-		appendSetIPv6SourceAddressPreference(opts.IPv6SourceAddressPreference).
+		appendSetReusePortFunc(opts.ReusePort).
 		appendSetRecvPktinfoFunc(opts.ReceivePacketInfo)
 }

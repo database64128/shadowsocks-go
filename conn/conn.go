@@ -1,9 +1,11 @@
 package conn
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/fs"
+	"math/bits"
 	"net"
 	"net/netip"
 	"os"
@@ -63,6 +65,141 @@ func (fns setFuncSlice) controlFunc(info *SocketInfo) func(network, address stri
 		}
 		return
 	}
+}
+
+// IPv6SourceAddressPreference is RFC 5014 IPv6 address preference flag.
+type IPv6SourceAddressPreference int
+
+const (
+	// IPv6SourceAddressPreferencePreferHome indicates preference for home source addresses.
+	//
+	//  - On Linux and z/OS, this sets IPV6_ADDR_PREFERENCES to IPV6_PREFER_SRC_HOME.
+	//  - On Solaris, this sets IPV6_SRC_PREFERENCES to IPV6_PREFER_SRC_HOME.
+	//  - On other platforms, this is ignored.
+	IPv6SourceAddressPreferencePreferHome IPv6SourceAddressPreference = 1 << iota
+
+	// IPv6SourceAddressPreferencePreferCOA indicates preference for care-of source addresses.
+	//
+	//  - On Linux and z/OS, this sets IPV6_ADDR_PREFERENCES to IPV6_PREFER_SRC_COA.
+	//  - On Solaris, this sets IPV6_SRC_PREFERENCES to IPV6_PREFER_SRC_COA.
+	//  - On other platforms, this is ignored.
+	IPv6SourceAddressPreferencePreferCOA
+
+	// IPv6SourceAddressPreferencePreferTemporary indicates preference for temporary source addresses.
+	//
+	//  - On Linux and z/OS, this sets IPV6_ADDR_PREFERENCES to IPV6_PREFER_SRC_TMP.
+	//  - On Solaris, this sets IPV6_SRC_PREFERENCES to IPV6_PREFER_SRC_TMP.
+	//  - On macOS, DragonFly BSD, and FreeBSD, this sets IPV6_PREFER_TEMPADDR to 1.
+	//  - On other platforms, this is ignored.
+	IPv6SourceAddressPreferencePreferTemporary
+
+	// IPv6SourceAddressPreferencePreferPublic indicates preference for public source addresses.
+	//
+	//  - On Linux and z/OS, this sets IPV6_ADDR_PREFERENCES to IPV6_PREFER_SRC_PUBLIC.
+	//  - On Solaris, this sets IPV6_SRC_PREFERENCES to IPV6_PREFER_SRC_PUBLIC.
+	//  - On macOS, DragonFly BSD, and FreeBSD, this sets IPV6_PREFER_TEMPADDR to 0.
+	//  - On other platforms, this is ignored.
+	IPv6SourceAddressPreferencePreferPublic
+
+	// IPv6SourceAddressPreferencePreferCGA indicates preference for CGA source addresses.
+	//
+	//  - On Linux and z/OS, this sets IPV6_ADDR_PREFERENCES to IPV6_PREFER_SRC_CGA.
+	//  - On Solaris, this sets IPV6_SRC_PREFERENCES to IPV6_PREFER_SRC_CGA.
+	//  - On other platforms, this is ignored.
+	IPv6SourceAddressPreferencePreferCGA
+	// IPv6SourceAddressPreferencePreferNonCGA indicates preference for non-CGA source addresses.
+	//
+	//  - On Linux and z/OS, this sets IPV6_ADDR_PREFERENCES to IPV6_PREFER_SRC_NONCGA.
+	//  - On Solaris, this sets IPV6_SRC_PREFERENCES to IPV6_PREFER_SRC_NONCGA.
+	//  - On other platforms, this is ignored.
+	IPv6SourceAddressPreferencePreferNonCGA
+)
+
+const (
+	ipv6SourceAddressPreferenceMin = IPv6SourceAddressPreferencePreferHome
+	ipv6SourceAddressPreferenceMax = IPv6SourceAddressPreferencePreferNonCGA
+
+	ipv6SourceAddressPreferenceStringSeparator = " | "
+
+	ipv6SourceAddressPreferencePreferHomeString      = "IPV6_PREFER_SRC_HOME"
+	ipv6SourceAddressPreferencePreferCOAString       = "IPV6_PREFER_SRC_COA"
+	ipv6SourceAddressPreferencePreferTemporaryString = "IPV6_PREFER_SRC_TMP"
+	ipv6SourceAddressPreferencePreferPublicString    = "IPV6_PREFER_SRC_PUBLIC"
+	ipv6SourceAddressPreferencePreferCGAString       = "IPV6_PREFER_SRC_CGA"
+	ipv6SourceAddressPreferencePreferNonCGAString    = "IPV6_PREFER_SRC_NONCGA"
+
+	ipv6SourceAddressPreferenceMaxStringLen = max(
+		len(ipv6SourceAddressPreferencePreferHomeString),
+		len(ipv6SourceAddressPreferencePreferCOAString),
+		len(ipv6SourceAddressPreferencePreferTemporaryString),
+		len(ipv6SourceAddressPreferencePreferPublicString),
+		len(ipv6SourceAddressPreferencePreferCGAString),
+		len(ipv6SourceAddressPreferencePreferNonCGAString),
+	)
+)
+
+// AppendText implements [encoding.TextAppender].
+func (p IPv6SourceAddressPreference) AppendText(b []byte) ([]byte, error) {
+	var appendSep bool
+	for i := ipv6SourceAddressPreferenceMin; i <= ipv6SourceAddressPreferenceMax; i <<= 1 {
+		if p&i != 0 {
+			if appendSep {
+				b = append(b, ipv6SourceAddressPreferenceStringSeparator...)
+			} else {
+				appendSep = true
+			}
+			var s string
+			switch i {
+			case IPv6SourceAddressPreferencePreferHome:
+				s = ipv6SourceAddressPreferencePreferHomeString
+			case IPv6SourceAddressPreferencePreferCOA:
+				s = ipv6SourceAddressPreferencePreferCOAString
+			case IPv6SourceAddressPreferencePreferTemporary:
+				s = ipv6SourceAddressPreferencePreferTemporaryString
+			case IPv6SourceAddressPreferencePreferPublic:
+				s = ipv6SourceAddressPreferencePreferPublicString
+			case IPv6SourceAddressPreferencePreferCGA:
+				s = ipv6SourceAddressPreferencePreferCGAString
+			case IPv6SourceAddressPreferencePreferNonCGA:
+				s = ipv6SourceAddressPreferencePreferNonCGAString
+			}
+			b = append(b, s...)
+		}
+	}
+	return b, nil
+}
+
+// MarshalText implements [encoding.TextMarshaler].
+func (p IPv6SourceAddressPreference) MarshalText() ([]byte, error) {
+	count := bits.OnesCount(uint(p))
+	capacity := (ipv6SourceAddressPreferenceMaxStringLen+len(ipv6SourceAddressPreferenceStringSeparator))*count -
+		len(ipv6SourceAddressPreferenceStringSeparator)
+	b := make([]byte, 0, capacity)
+	return p.AppendText(b)
+}
+
+// UnmarshalText implements [encoding.TextUnmarshaler].
+func (p *IPv6SourceAddressPreference) UnmarshalText(text []byte) error {
+	for name := range bytes.SplitSeq(text, []byte{'|'}) {
+		name = bytes.TrimSpace(name)
+		switch string(name) {
+		case ipv6SourceAddressPreferencePreferHomeString:
+			*p |= IPv6SourceAddressPreferencePreferHome
+		case ipv6SourceAddressPreferencePreferCOAString:
+			*p |= IPv6SourceAddressPreferencePreferCOA
+		case ipv6SourceAddressPreferencePreferTemporaryString:
+			*p |= IPv6SourceAddressPreferencePreferTemporary
+		case ipv6SourceAddressPreferencePreferPublicString:
+			*p |= IPv6SourceAddressPreferencePreferPublic
+		case ipv6SourceAddressPreferencePreferCGAString:
+			*p |= IPv6SourceAddressPreferencePreferCGA
+		case ipv6SourceAddressPreferencePreferNonCGAString:
+			*p |= IPv6SourceAddressPreferencePreferNonCGA
+		default:
+			return fmt.Errorf("invalid IPv6 source address preference: %q", name)
+		}
+	}
+	return nil
 }
 
 // PMTUDMode is the Path MTU Discovery mode of a socket.
@@ -346,6 +483,11 @@ type TCPConnectSocketOptions struct {
 	// Available on most platforms except Windows.
 	TrafficClass int
 
+	// IPv6SourceAddressPreference sets IPv6 source address selection preferences on the socket.
+	//
+	// Available on Linux, Solaris, macOS, DragonFly BSD, and FreeBSD.
+	IPv6SourceAddressPreference IPv6SourceAddressPreference
+
 	// TCPUserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the socket.
 	//
 	// Available on Linux.
@@ -442,6 +584,11 @@ type UDPSocketOptions struct {
 	//
 	// Available on most platforms except Windows.
 	TrafficClass int
+
+	// IPv6SourceAddressPreference sets IPv6 source address selection preferences on the socket.
+	//
+	// Available on Linux, Solaris, macOS, DragonFly BSD, and FreeBSD.
+	IPv6SourceAddressPreference IPv6SourceAddressPreference
 
 	// ReusePort enables SO_REUSEPORT on the socket.
 	//
