@@ -188,10 +188,11 @@ func (s *PrefixSet) Contains(ip netip.Addr) bool {
 	//	ip = ip.withoutZone().Unmap()
 	//
 	// Mission accomplished, with the purest Go magic!
-	if ip.Is6() {
-		ip = netip.PrefixFrom(ip, -1).Addr().Unmap()
-	}
-	return s.Lite.Contains(ip)
+	//
+	// Update: As of https://github.com/gaissmai/bart/pull/430,
+	// IPv6 zone stripping is now handled internally by bart.
+	// The original comment is preserved for historical context.
+	return s.Lite.Contains(ip.Unmap())
 }
 
 // TextLineError represents a text format deserialization error.

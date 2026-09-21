@@ -127,6 +127,7 @@ var testPrefixSetContainsCases = [...]struct {
 	{netip.AddrFrom16([16]byte{0: 0xfe, 1: 0x80, 15: 1}), true},
 	{netip.AddrFrom16([16]byte{0: 0xff, 15: 1}), true},
 	{netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0xfa, 0xd6, 0x05, 0x72, 0xac, 0xbe, 0x71, 0x43, 0x14, 0xe5, 0x7a, 0x6e}), false},
+	{netip.AddrFrom16([16]byte{0xfe, 0x80, 8: 0x49, 9: 0xd4, 10: 0x06, 11: 0x95, 12: 0x97, 13: 0x69, 14: 0xb3, 15: 0x9b}).WithZone("eno1"), true},
 	{netip.IPv6Unspecified(), true},
 }
 
@@ -162,7 +163,6 @@ func TestPrefixSetContains(t *testing.T) {
 	}{
 		{"IPv4MappedIPv6/NoZone", netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 12: 169, 13: 254, 14: 169, 15: 254})},
 		{"IPv4MappedIPv6/WithZone", netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 12: 169, 13: 254, 14: 169, 15: 254}).WithZone("eno1")},
-		{"IPv6WithZone", netip.AddrFrom16([16]byte{0xfe, 0x80, 8: 0x49, 9: 0xd4, 10: 0x06, 11: 0x95, 12: 0x97, 13: 0x69, 14: 0xb3, 15: 0x9b}).WithZone("eno1")},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if s.Lite.Contains(c.ip) {
