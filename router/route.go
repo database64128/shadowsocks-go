@@ -757,11 +757,19 @@ func (c DestResolvedGeoIPCountryCriterion) Meet(ctx context.Context, network pro
 }
 
 func matchAddrToGeoIPCountries(countries []string, ip netip.Addr, geoip *geoip2.Reader, logger *tslog.Logger) (bool, error) {
-	// Unmap and strip zone to avoid undefined behavior.
-	// See [prefixset.PrefixSet.Contains] for why it was written this way.
-	if ip.Is6() {
-		ip = netip.PrefixFrom(ip, -1).Addr().Unmap()
-	}
+	// IPv4-mapped IPv6 address handling is database-dependent.
+	//
+	// The official MaxMind databases handle IPv4-mapped IPv6 addresses
+	// by including a pointer from ::ffff:0:0/96 to the root node of the
+	// IPv4 address space.
+	//
+	// For custom databases, the official mmdb writer library enables
+	// IPv4 aliasing by default.
+	//
+	// Don't unmap ip. We trust that whatever database is used here, it
+	// reflects the user's intent regarding IPv4-mapped IPv6 addresses.
+	//
+	// Any zone identifier is ignored and has no effect on the result.
 	country, err := geoip.Country(ip)
 	if err != nil {
 		return false, err
