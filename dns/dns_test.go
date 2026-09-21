@@ -54,7 +54,7 @@ func TestResolver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create TCP client: %v", err)
 	}
-	udpClient := direct.NewDirectUDPClient("direct", "ip", nil, 1500, conntest.DefaultUDPClientSocketConfig())
+	udpClient := direct.NewDirectUDPClient("direct", netio.AddressFamilyPreferenceDefault, nil, 1500, conntest.DefaultUDPClientSocketConfig())
 
 	t.Run("UDP", func(t *testing.T) {
 		testResolver(t, "UDP", serverAddrPort, nil, udpClient, logger)

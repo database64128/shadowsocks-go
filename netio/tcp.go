@@ -20,6 +20,29 @@ type TCPClientConfig struct {
 
 	// AddressFamilyPreference specifies the preference for IPv4 or IPv6 addresses
 	// when connecting to an endpoint.
+	//
+	// For IP endpoints, [AddressFamilyPreferenceDefault], [AddressFamilyPreferencePreferIPv6],
+	// and [AddressFamilyPreferencePreferIPv4] are equivalent. [AddressFamilyPreferenceIPv6Only]
+	// restricts connections to IPv6 addresses only. Similarly, [AddressFamilyPreferenceIPv4Only]
+	// restricts connections to IPv4 addresses only.
+	//
+	// For domain endpoints, the preference configures the Happy Eyeballs v3 algorithm
+	// to behave in different ways:
+	//
+	//  - [AddressFamilyPreferenceDefault]: Resolve without preference ("ip" network).
+	//    Start connection attempts in the order returned by the resolver.
+	//  - [AddressFamilyPreferencePreferIPv6]: Resolve to both IPv6 and IPv4 addresses in parallel.
+	//    Start connection attempts to IPv6 addresses as soon as they become available,
+	//    or to IPv4 addresses after wait time for IPv6 addresses exceeds resolution delay.
+	//    Connection attempts will interleave address families if possible.
+	//  - [AddressFamilyPreferencePreferIPv4]: Resolve to both IPv4 and IPv6 addresses in parallel.
+	//    Start connection attempts to IPv4 addresses as soon as they become available,
+	//    or to IPv6 addresses after wait time for IPv4 addresses exceeds resolution delay.
+	//    Connection attempts will interleave address families if possible.
+	//  - [AddressFamilyPreferenceIPv6Only]: Resolve to IPv6 addresses only.
+	//    Start connection attempts in the order returned by the resolver.
+	//  - [AddressFamilyPreferenceIPv4Only]: Resolve to IPv4 addresses only.
+	//    Start connection attempts in the order returned by the resolver.
 	AddressFamilyPreference AddressFamilyPreference
 
 	// ResolutionDelay specifies the amount of time to wait for the preferred address family's DNS records

@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
@@ -16,8 +17,8 @@ import (
 //
 // UDPClient implements [zerocopy.UDPClient].
 type UDPClient struct {
-	network          string
 	addr             conn.Addr
+	pref             netio.AddressFamilyPreference
 	resolver         conn.Resolver
 	info             zerocopy.UDPClientSessionInfo
 	nonAEADHeaderLen int
@@ -27,7 +28,7 @@ type UDPClient struct {
 }
 
 // NewUDPClient creates a new Shadowsocks 2022 UDP client.
-func NewUDPClient(name, network string, addr conn.Addr, resolver conn.Resolver, mtu int, socketConfig conn.UDPSocketConfig, filterSize uint64, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
+func NewUDPClient(name string, addr conn.Addr, pref netio.AddressFamilyPreference, resolver conn.Resolver, mtu int, socketConfig conn.UDPSocketConfig, filterSize uint64, cipherConfig *ClientCipherConfig, shouldPad PaddingPolicy) *UDPClient {
 	if filterSize == 0 {
 		filterSize = DefaultSlidingWindowFilterSize
 	}
@@ -35,7 +36,7 @@ func NewUDPClient(name, network string, addr conn.Addr, resolver conn.Resolver, 
 	identityHeadersLen := IdentityHeaderLength * len(cipherConfig.iPSKs)
 
 	return &UDPClient{
-		network:  network,
+		pref:     pref,
 		addr:     addr,
 		resolver: resolver,
 		info: zerocopy.UDPClientSessionInfo{
@@ -61,7 +62,7 @@ func (c *UDPClient) Info() zerocopy.UDPClientInfo {
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
 func (c *UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
-	addrPort, err := c.addr.ResolveIPPort(ctx, c.network, c.resolver)
+	addrPort, err := netio.ResolveIPPort(ctx, c.addr, c.pref, c.resolver)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
 	}

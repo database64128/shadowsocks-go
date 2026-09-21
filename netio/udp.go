@@ -41,12 +41,17 @@ type UDPClientConfig struct {
 	// Name is the name of the client.
 	Name string
 
-	// Network controls the address family when resolving domain name destination addresses.
+	// AddressFamilyPreference specifies the preference for IPv4 or IPv6 addresses.
 	//
-	//  - "ip": System default, likely dual-stack.
-	//  - "ip4": Resolve to IPv4 addresses.
-	//  - "ip6": Resolve to IPv6 addresses.
-	Network string
+	//  - [AddressFamilyPreferenceDefault]: Resolve without preference ("ip" network).
+	//    Use the first resolved IP address.
+	//  - [AddressFamilyPreferencePreferIPv6]: Resolve to both IPv6 and IPv4 addresses in parallel.
+	//    Prefer the first resolved IPv6 address.
+	//  - [AddressFamilyPreferencePreferIPv4]: Resolve to both IPv4 and IPv6 addresses in parallel.
+	//    Prefer the first resolved IPv4 address.
+	//  - [AddressFamilyPreferenceIPv6Only]: IPv6 addresses only.
+	//  - [AddressFamilyPreferenceIPv4Only]: IPv4 addresses only.
+	AddressFamilyPreference AddressFamilyPreference
 
 	// Resolver optionally specifies a resolver for resolving domain name destination addresses.
 	//
@@ -63,12 +68,11 @@ type UDPClientConfig struct {
 
 // NewUDPClient returns a new UDP client.
 func (c *UDPClientConfig) NewUDPClient() *UDPClient {
-	is4 := c.Network == "ip" || c.Network == "ip4"
 	return &UDPClient{
 		name:          c.Name,
-		network:       c.Network,
+		pref:          c.AddressFamilyPreference,
 		resolver:      c.Resolver,
-		maxPacketSize: MaxUDPPayloadSize(c.MTU, is4),
+		maxPacketSize: MaxUDPPayloadSize(c.MTU, c.AddressFamilyPreference != AddressFamilyPreferenceIPv6Only),
 		socketConfig:  c.SocketConfig,
 	}
 }
@@ -78,7 +82,7 @@ func (c *UDPClientConfig) NewUDPClient() *UDPClient {
 // UDPClient implements [PacketClient].
 type UDPClient struct {
 	name          string
-	network       string
+	pref          AddressFamilyPreference
 	resolver      conn.Resolver
 	maxPacketSize int
 	socketConfig  conn.UDPSocketConfig
@@ -97,7 +101,7 @@ func (c *UDPClient) NewSession(ctx context.Context, connectAddr conn.Addr) (Pack
 		}, nil
 	}
 	return &UDPClientSession{
-		network:  c.network,
+		pref:     c.pref,
 		resolver: c.resolver,
 	}, PacketClientSessionInfo{
 		Name:          c.name,
@@ -111,7 +115,7 @@ func (c *UDPClient) NewSession(ctx context.Context, connectAddr conn.Addr) (Pack
 // UDPClientSession implements [PacketClientSession].
 type UDPClientSession struct {
 	ipByDomain *cache.BoundedCache[string, netip.Addr]
-	network    string
+	pref       AddressFamilyPreference
 	resolver   conn.Resolver
 }
 
@@ -119,6 +123,9 @@ type UDPClientSession struct {
 func (s *UDPClientSession) AppendPack(ctx context.Context, b, payload []byte, destAddr conn.Addr) (sendBuf []byte, sendAddrPort netip.AddrPort, err error) {
 	if destAddr.IsIP() {
 		sendAddrPort = destAddr.IPPort()
+		if err := s.pref.FilterIP(sendAddrPort.Addr()); err != nil {
+			return nil, netip.AddrPort{}, err
+		}
 	} else {
 		if s.ipByDomain == nil {
 			// Initialize the cache with a reasonable size.
@@ -128,7 +135,7 @@ func (s *UDPClientSession) AppendPack(ctx context.Context, b, payload []byte, de
 		domain := destAddr.Domain()
 		ip, ok := s.ipByDomain.Get(domain)
 		if !ok {
-			ip, err = destAddr.ResolveIP(ctx, s.network, s.resolver)
+			ip, err = ResolveIP(ctx, destAddr, s.pref, s.resolver)
 			if err != nil {
 				return nil, netip.AddrPort{}, err
 			}

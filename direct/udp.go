@@ -24,7 +24,7 @@ type DirectUDPClient struct {
 }
 
 // NewDirectUDPClient creates a new UDP client that makes no changes to the packets.
-func NewDirectUDPClient(name, network string, resolver conn.Resolver, mtu int, socketConfig conn.UDPSocketConfig) *DirectUDPClient {
+func NewDirectUDPClient(name string, pref netio.AddressFamilyPreference, resolver conn.Resolver, mtu int, socketConfig conn.UDPSocketConfig) *DirectUDPClient {
 	return &DirectUDPClient{
 		info: zerocopy.UDPClientSessionInfo{
 			Name:         name,
@@ -33,7 +33,7 @@ func NewDirectUDPClient(name, network string, resolver conn.Resolver, mtu int, s
 		},
 		session: zerocopy.UDPClientSession{
 			MaxPacketSize: zerocopy.MaxPacketSizeForAddr(mtu, netip.IPv4Unspecified()),
-			Packer:        NewDirectPacketClientPacker(network, resolver, mtu),
+			Packer:        NewDirectPacketClientPacker(pref, resolver, mtu),
 			Unpacker:      DirectPacketClientUnpacker{},
 			Close:         zerocopy.NoopClose,
 		},
@@ -56,17 +56,17 @@ func (c *DirectUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSes
 //
 // ShadowsocksNoneUDPClient implements [zerocopy.UDPClient].
 type ShadowsocksNoneUDPClient struct {
-	network  string
 	addr     conn.Addr
+	pref     netio.AddressFamilyPreference
 	resolver conn.Resolver
 	info     zerocopy.UDPClientSessionInfo
 }
 
 // NewShadowsocksNoneUDPClient creates a new Shadowsocks none UDP client.
-func NewShadowsocksNoneUDPClient(name, network string, addr conn.Addr, resolver conn.Resolver, mtu int, socketConfig conn.UDPSocketConfig) *ShadowsocksNoneUDPClient {
+func NewShadowsocksNoneUDPClient(name string, addr conn.Addr, pref netio.AddressFamilyPreference, resolver conn.Resolver, mtu int, socketConfig conn.UDPSocketConfig) *ShadowsocksNoneUDPClient {
 	return &ShadowsocksNoneUDPClient{
-		network:  network,
 		addr:     addr,
+		pref:     pref,
 		resolver: resolver,
 		info: zerocopy.UDPClientSessionInfo{
 			Name:           name,
@@ -87,7 +87,7 @@ func (c *ShadowsocksNoneUDPClient) Info() zerocopy.UDPClientInfo {
 
 // NewSession implements [zerocopy.UDPClient.NewSession].
 func (c *ShadowsocksNoneUDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSessionInfo, zerocopy.UDPClientSession, error) {
-	addrPort, err := c.addr.ResolveIPPort(ctx, c.network, c.resolver)
+	addrPort, err := netio.ResolveIPPort(ctx, c.addr, c.pref, c.resolver)
 	if err != nil {
 		return c.info, zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)
 	}
@@ -115,12 +115,9 @@ type Socks5UDPClientConfig struct {
 	// Addr is the SOCKS5 server's TCP address.
 	Addr conn.Addr
 
-	// NetworkIP controls the address family when resolving the server's UDP bound address.
-	//
-	// - "ip": System default, likely dual-stack.
-	// - "ip4": Resolve to IPv4 addresses.
-	// - "ip6": Resolve to IPv6 addresses.
-	NetworkIP string
+	// AddressFamilyPreference specifies the preference for IPv4 or IPv6 addresses
+	// when resolving the server's UDP bound address.
+	AddressFamilyPreference netio.AddressFamilyPreference
 
 	// Resolver is the resolver used to resolve the server's UDP bound address.
 	//
@@ -143,7 +140,7 @@ func (c *Socks5UDPClientConfig) NewClient() zerocopy.UDPClient {
 		logger:       c.Logger,
 		streamDialer: c.StreamDialer,
 		addr:         c.Addr,
-		networkIP:    c.NetworkIP,
+		pref:         c.AddressFamilyPreference,
 		resolver:     c.Resolver,
 		info: zerocopy.UDPClientSessionInfo{
 			Name:           c.Name,
@@ -170,7 +167,7 @@ type Socks5UDPClient struct {
 	logger       *tslog.Logger
 	streamDialer netio.StreamDialer
 	addr         conn.Addr
-	networkIP    string
+	pref         netio.AddressFamilyPreference
 	resolver     conn.Resolver
 	info         zerocopy.UDPClientSessionInfo
 }
@@ -201,7 +198,7 @@ func (c *Socks5UDPClient) NewSession(ctx context.Context) (zerocopy.UDPClientSes
 }
 
 func (c *Socks5UDPClient) newSession(ctx context.Context, tc netio.Conn, addr conn.Addr) (zerocopy.UDPClientSession, error) {
-	addrPort, err := addr.ResolveIPPort(ctx, c.networkIP, c.resolver)
+	addrPort, err := netio.ResolveIPPort(ctx, addr, c.pref, c.resolver)
 	if err != nil {
 		_ = tc.Close()
 		return zerocopy.UDPClientSession{}, fmt.Errorf("failed to resolve endpoint address: %w", err)

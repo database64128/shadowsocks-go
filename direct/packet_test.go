@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
@@ -20,7 +21,7 @@ var (
 )
 
 func TestDirectPacketPackUnpacker(t *testing.T) {
-	c := NewDirectPacketClientPacker("ip", nil, mtu)
+	c := NewDirectPacketClientPacker(netio.AddressFamilyPreferenceDefault, nil, mtu)
 	s := NewDirectPacketServerPackUnpacker(targetAddr, false) // Cheat a little bit, because we have to. :P
 	zerocopy.ClientServerPackerUnpackerTestFunc(t, c, DirectPacketClientUnpacker{}, s, s)
 }

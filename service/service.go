@@ -83,6 +83,22 @@ func (cfg *Config) Migrate() {
 		sc.UDPServerRecvBatchSize = 0
 		sc.UDPSendChannelCapacity = 0
 	}
+
+	for i := range cfg.Clients {
+		cc := &cfg.Clients[i]
+
+		if cc.Network != "" {
+			if cc.AddressFamilyPreference == netio.AddressFamilyPreferenceDefault {
+				switch cc.Network {
+				case "ip6":
+					cc.AddressFamilyPreference = netio.AddressFamilyPreferenceIPv6Only
+				case "ip4":
+					cc.AddressFamilyPreference = netio.AddressFamilyPreferenceIPv4Only
+				}
+			}
+			cc.Network = ""
+		}
+	}
 }
 
 // Manager initializes the service manager.

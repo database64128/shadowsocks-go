@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
+	"net/netip"
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/direct"
 	"github.com/database64128/shadowsocks-go/httpproxy"
+	"github.com/database64128/shadowsocks-go/jsoncfg"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/ss2022"
@@ -33,15 +36,11 @@ type ClientConfig struct {
 	//  - "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm": Shadowsocks 2022 proxy.
 	Protocol string `json:"protocol"`
 
-	// Network controls the address family of the resolved IP address
-	// when the address is a domain name. It is ignored if the address
-	// is an IP address.
+	// This field is obsolete and will be removed in a future release.
 	//
-	//  - "ip": Follow the system default.
-	//  - "ip4": Resolve to an IPv4 address.
-	//  - "ip6": Resolve to an IPv6 address.
-	//
-	// If unspecified, "ip" is used.
+	//  - "ip": Override AddressFamilyPreference to "default".
+	//  - "ip4": Override AddressFamilyPreference to "ipv4-only".
+	//  - "ip6": Override AddressFamilyPreference to "ipv6-only".
 	Network string `json:"network,omitzero"`
 
 	// Endpoint is the address of the remote proxy server, if applicable.
@@ -58,6 +57,39 @@ type ClientConfig struct {
 	//
 	// Do not use if Endpoint is specified.
 	UDPAddress conn.Addr `json:"udpAddress,omitzero"`
+
+	// AddressFamilyPreference specifies the preference for IPv4 or IPv6 addresses.
+	//
+	//  - "default": Follow the system default.
+	//  - "prefer-ipv6": Prefer IPv6 addresses.
+	//  - "prefer-ipv4": Prefer IPv4 addresses.
+	//  - "ipv6-only": Use only IPv6 addresses.
+	//  - "ipv4-only": Use only IPv4 addresses.
+	//
+	// If unspecified, "default" is used.
+	//
+	// For more details on the exact behavior of each setting, refer to the protocol client's documentation.
+	AddressFamilyPreference netio.AddressFamilyPreference `json:"addressFamilyPreference,omitzero"`
+
+	// ResolutionDelay specifies the resolution delay for the TCP client's Happy Eyeballs v3 algorithm.
+	//
+	// See [netio.TCPClientConfig.ResolutionDelay] for more details.
+	ResolutionDelay jsoncfg.Duration `json:"resolutionDelay,omitzero"`
+
+	// ConnectionAttemptDelay specifies the connection attempt delay for the TCP client's Happy Eyeballs v3 algorithm.
+	//
+	// See [netio.TCPClientConfig.ConnectionAttemptDelay] for more details.
+	ConnectionAttemptDelay jsoncfg.Duration `json:"connectionAttemptDelay,omitzero"`
+
+	// LocalAddr4 specifies an optional local IPv4 address and port to bind to for IPv4 traffic.
+	//
+	// As of the current implementation, this only applies to outgoing TCP connections.
+	LocalAddr4 netip.AddrPort `json:"localAddr4,omitzero"`
+
+	// LocalAddr6 specifies an optional local IPv6 address and port to bind to for IPv6 traffic.
+	//
+	// As of the current implementation, this only applies to outgoing TCP connections.
+	LocalAddr6 netip.AddrPort `json:"localAddr6,omitzero"`
 
 	// OverrideResolverDialAddress optionally specifies an alternate DNS server address
 	// to override the dial address of the dialer's DNS resolver.
@@ -206,13 +238,21 @@ func (c *ClientConfig) AddClient(
 		return ErrMTUTooSmall
 	}
 
-	network := c.Network
-	switch network {
-	case "":
-		network = "ip"
-	case "ip", "ip4", "ip6":
-	default:
-		return fmt.Errorf("unknown network: %q", network)
+	if c.Network != "" {
+		if c.AddressFamilyPreference == netio.AddressFamilyPreferenceDefault {
+			switch c.Network {
+			case "ip":
+			case "ip6":
+				c.AddressFamilyPreference = netio.AddressFamilyPreferenceIPv6Only
+			case "ip4":
+				c.AddressFamilyPreference = netio.AddressFamilyPreferenceIPv4Only
+			default:
+				return fmt.Errorf("unknown network: %q", c.Network)
+			}
+		}
+		logger.Warn("network is obsolete and will be removed in a future release; migrate to addressFamilyPreference for more granular control",
+			slog.String("client", c.Name),
+		)
 	}
 
 	tcpAddr, udpAddr, err := c.checkAddresses()
@@ -236,7 +276,7 @@ func (c *ClientConfig) AddClient(
 	switch c.Protocol {
 	case "direct":
 		if c.EnableTCP {
-			streamClient, err := c.innerTCPClient(network, tcpDialerCache, resolver)
+			streamClient, err := c.innerTCPClient(tcpDialerCache, resolver)
 			if err != nil {
 				return err
 			}
@@ -244,12 +284,12 @@ func (c *ClientConfig) AddClient(
 		}
 
 		if c.EnableUDP {
-			udpClientByName[c.Name] = direct.NewDirectUDPClient(c.Name, network, resolver, c.MTU, c.udpSocketConfig(udpSocketConfigCache))
+			udpClientByName[c.Name] = direct.NewDirectUDPClient(c.Name, c.AddressFamilyPreference, resolver, c.MTU, c.udpSocketConfig(udpSocketConfigCache))
 		}
 
 	case "none", "plain":
 		if c.EnableTCP {
-			innerClient, err := c.innerTCPClient(network, tcpDialerCache, resolver)
+			innerClient, err := c.innerTCPClient(tcpDialerCache, resolver)
 			if err != nil {
 				return err
 			}
@@ -263,11 +303,11 @@ func (c *ClientConfig) AddClient(
 		}
 
 		if c.EnableUDP {
-			udpClientByName[c.Name] = direct.NewShadowsocksNoneUDPClient(c.Name, network, udpAddr, resolver, c.MTU, c.udpSocketConfig(udpSocketConfigCache))
+			udpClientByName[c.Name] = direct.NewShadowsocksNoneUDPClient(c.Name, udpAddr, c.AddressFamilyPreference, resolver, c.MTU, c.udpSocketConfig(udpSocketConfigCache))
 		}
 
 	case "socks5":
-		innerClient, err := c.innerTCPClient(network, tcpDialerCache, resolver)
+		innerClient, err := c.innerTCPClient(tcpDialerCache, resolver)
 		if err != nil {
 			return err
 		}
@@ -292,15 +332,15 @@ func (c *ClientConfig) AddClient(
 
 		if c.EnableUDP {
 			cfg := direct.Socks5UDPClientConfig{
-				Logger:       logger,
-				Name:         c.Name,
-				StreamDialer: innerClient,
-				Addr:         udpAddr,
-				NetworkIP:    network,
-				Resolver:     resolver,
-				MTU:          c.MTU,
-				SocketConfig: c.udpSocketConfig(udpSocketConfigCache),
-				AuthMsg:      authMsg,
+				Logger:                  logger,
+				Name:                    c.Name,
+				StreamDialer:            innerClient,
+				Addr:                    udpAddr,
+				AddressFamilyPreference: c.AddressFamilyPreference,
+				Resolver:                resolver,
+				MTU:                     c.MTU,
+				SocketConfig:            c.udpSocketConfig(udpSocketConfigCache),
+				AuthMsg:                 authMsg,
 			}
 			udpClientByName[c.Name] = cfg.NewClient()
 		}
@@ -310,7 +350,7 @@ func (c *ClientConfig) AddClient(
 			return errors.New("HTTP proxy does not support UDP")
 		}
 
-		innerClient, err := c.innerTCPClient(network, tcpDialerCache, resolver)
+		innerClient, err := c.innerTCPClient(tcpDialerCache, resolver)
 		if err != nil {
 			return err
 		}
@@ -364,7 +404,7 @@ func (c *ClientConfig) AddClient(
 		}
 
 		if c.EnableTCP {
-			innerClient, err := c.innerTCPClient(network, tcpDialerCache, resolver)
+			innerClient, err := c.innerTCPClient(tcpDialerCache, resolver)
 			if err != nil {
 				return err
 			}
@@ -382,7 +422,7 @@ func (c *ClientConfig) AddClient(
 		}
 
 		if c.EnableUDP {
-			udpClientByName[c.Name] = ss2022.NewUDPClient(c.Name, network, udpAddr, resolver, c.MTU, c.udpSocketConfig(udpSocketConfigCache), c.SlidingWindowFilterSize, cipherConfig, c.PaddingPolicy.Policy())
+			udpClientByName[c.Name] = ss2022.NewUDPClient(c.Name, udpAddr, c.AddressFamilyPreference, resolver, c.MTU, c.udpSocketConfig(udpSocketConfigCache), c.SlidingWindowFilterSize, cipherConfig, c.PaddingPolicy.Policy())
 		}
 
 	default:
@@ -392,27 +432,18 @@ func (c *ClientConfig) AddClient(
 	return nil
 }
 
-func (c *ClientConfig) innerTCPClient(network string, tcpDialerCache conn.TCPDialerCache, resolver conn.Resolver) (*netio.TCPClient, error) {
+func (c *ClientConfig) innerTCPClient(tcpDialerCache conn.TCPDialerCache, resolver conn.Resolver) (*netio.TCPClient, error) {
 	tcc := netio.TCPClientConfig{
 		Name:                    c.Name,
-		AddressFamilyPreference: addressFamilyPreference(network),
+		AddressFamilyPreference: c.AddressFamilyPreference,
+		ResolutionDelay:         c.ResolutionDelay.Value(),
+		ConnectionAttemptDelay:  c.ConnectionAttemptDelay.Value(),
+		LocalAddr4:              c.LocalAddr4,
+		LocalAddr6:              c.LocalAddr6,
 		Dialer:                  c.tcpDialer(tcpDialerCache),
 		Resolver:                resolver,
 	}
 	return tcc.NewTCPClient()
-}
-
-func addressFamilyPreference(network string) netio.AddressFamilyPreference {
-	switch network {
-	case "ip":
-		return netio.AddressFamilyPreferenceDefault
-	case "ip4":
-		return netio.AddressFamilyPreferenceIPv4Only
-	case "ip6":
-		return netio.AddressFamilyPreferenceIPv6Only
-	default:
-		panic("unreachable")
-	}
 }
 
 func (c *ClientConfig) tcpDialer(tcpDialerCache conn.TCPDialerCache) conn.TCPDialer {

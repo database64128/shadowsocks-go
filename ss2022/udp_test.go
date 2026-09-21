@@ -10,6 +10,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/conntest"
+	"github.com/database64128/shadowsocks-go/netio"
 )
 
 const (
@@ -46,7 +47,7 @@ func testUDPClientServer(
 	clientShouldPad, serverShouldPad PaddingPolicy,
 	mtu, packetSize, payloadLen int,
 ) {
-	c := NewUDPClient(name, "ip", serverAddr, nil, mtu, conntest.DefaultUDPClientSocketConfig(), DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
+	c := NewUDPClient(name, serverAddr, netio.AddressFamilyPreferenceDefault, nil, mtu, conntest.DefaultUDPClientSocketConfig(), DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
 	s := NewUDPServer(DefaultSlidingWindowFilterSize, userCipherConfig, identityCipherConfig, serverShouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 	ctx := t.Context()
@@ -156,7 +157,7 @@ func testUDPClientServerSessionChangeAndReplay(
 	clientShouldPad, serverShouldPad PaddingPolicy,
 	mtu, packetSize, payloadLen int,
 ) {
-	c := NewUDPClient(name, "ip", serverAddr, nil, mtu, conntest.DefaultUDPClientSocketConfig(), DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
+	c := NewUDPClient(name, serverAddr, netio.AddressFamilyPreferenceDefault, nil, mtu, conntest.DefaultUDPClientSocketConfig(), DefaultSlidingWindowFilterSize, clientCipherConfig, clientShouldPad)
 	s := NewUDPServer(DefaultSlidingWindowFilterSize, userCipherConfig, identityCipherConfig, serverShouldPad)
 	s.ReplaceUserLookupMap(userLookupMap)
 	ctx := t.Context()

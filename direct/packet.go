@@ -6,6 +6,7 @@ import (
 	"net/netip"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
@@ -20,8 +21,8 @@ type DirectPacketClientPacker struct {
 	// cachedDomainIP is the last used domain target's resolved IP address.
 	cachedDomainIP netip.Addr
 
-	// network controls the address family of a domain target's resolved IP address.
-	network string
+	// pref specifies the preference for IPv4 or IPv6 addresses.
+	pref netio.AddressFamilyPreference
 
 	// resolver is used to resolve domain target addresses to IP addresses.
 	resolver conn.Resolver
@@ -31,9 +32,9 @@ type DirectPacketClientPacker struct {
 }
 
 // NewDirectPacketClientPacker creates a packet packer for direct connection.
-func NewDirectPacketClientPacker(network string, resolver conn.Resolver, mtu int) *DirectPacketClientPacker {
+func NewDirectPacketClientPacker(pref netio.AddressFamilyPreference, resolver conn.Resolver, mtu int) *DirectPacketClientPacker {
 	return &DirectPacketClientPacker{
-		network:  network,
+		pref:     pref,
 		resolver: resolver,
 		mtu:      mtu,
 	}
@@ -46,7 +47,7 @@ func (DirectPacketClientPacker) ClientPackerInfo() zerocopy.ClientPackerInfo {
 
 func (p *DirectPacketClientPacker) updateDomainIPCache(ctx context.Context, targetAddr conn.Addr) error {
 	if p.cachedDomain != targetAddr.Domain() {
-		ip, err := targetAddr.ResolveIP(ctx, p.network, p.resolver)
+		ip, err := netio.ResolveIP(ctx, targetAddr, p.pref, p.resolver)
 		if err != nil {
 			return err
 		}
@@ -60,6 +61,9 @@ func (p *DirectPacketClientPacker) updateDomainIPCache(ctx context.Context, targ
 func (p *DirectPacketClientPacker) PackInPlace(ctx context.Context, b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
 	if targetAddr.IsIP() {
 		destAddrPort = targetAddr.IPPort()
+		if err := p.pref.FilterIP(destAddrPort.Addr()); err != nil {
+			return netip.AddrPort{}, 0, 0, err
+		}
 	} else {
 		err = p.updateDomainIPCache(ctx, targetAddr)
 		if err != nil {
