@@ -448,8 +448,11 @@ func (c *ClientConfig) innerTCPClient(tcpDialerCache conn.TCPDialerCache, resolv
 
 func (c *ClientConfig) tcpDialer(tcpDialerCache conn.TCPDialerCache) conn.TCPDialer {
 	return tcpDialerCache.Get(conn.TCPConnectSocketOptions{
-		Fwmark:              c.DialerFwmark,
-		TrafficClass:        c.DialerTrafficClass,
+		Fwmark:       c.DialerFwmark,
+		TrafficClass: c.DialerTrafficClass,
+		// Unconditionally set to true as a workaround for https://github.com/golang/go/issues/81620.
+		// Once we upgrade to a Go version with the fix, set to c.LocalAddr4.IsValid() || c.LocalAddr6.IsValid().
+		BindAddressNoPort:   true,
 		PathMTUDiscovery:    c.TCPPathMTUDiscovery.TCP(),
 		TCPFastOpen:         c.DialerTFO,
 		TCPFastOpenFallback: c.TCPFastOpenFallback,
