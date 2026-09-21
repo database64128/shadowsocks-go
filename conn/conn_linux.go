@@ -90,6 +90,13 @@ func setIPv6SourceAddressPreference(fd int, network string, pref IPv6SourceAddre
 	return nil
 }
 
+func setBindAddressNoPort(fd int) error {
+	if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_BIND_ADDRESS_NO_PORT, 1); err != nil {
+		return fmt.Errorf("failed to set socket option IP_BIND_ADDRESS_NO_PORT: %w", err)
+	}
+	return nil
+}
+
 func setTCPDeferAccept(fd, secs int) error {
 	if err := unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_DEFER_ACCEPT, secs); err != nil {
 		return fmt.Errorf("failed to set socket option TCP_DEFER_ACCEPT: %w", err)
@@ -216,6 +223,15 @@ func setRecvOrigDstAddr(fd int, network string) error {
 	return nil
 }
 
+func (fns setFuncSlice) appendSetBindAddressNoPortFunc(bindAddressNoPort bool) setFuncSlice {
+	if bindAddressNoPort {
+		return append(fns, func(fd int, _ string, _ *SocketInfo) error {
+			return setBindAddressNoPort(fd)
+		})
+	}
+	return fns
+}
+
 func (fns setFuncSlice) appendSetTCPDeferAcceptFunc(deferAcceptSecs int) setFuncSlice {
 	if deferAcceptSecs > 0 {
 		return append(fns, func(fd int, network string, _ *SocketInfo) error {
@@ -255,6 +271,7 @@ func (opts TCPConnectSocketOptions) buildSetFns() setFuncSlice {
 		appendSetTrafficClassFunc(opts.TrafficClass).
 		appendSetIPv6SourceAddressPreference(opts.IPv6SourceAddressPreference).
 		appendSetTCPUserTimeoutFunc(opts.TCPUserTimeoutMsecs).
+		appendSetBindAddressNoPortFunc(opts.BindAddressNoPort).
 		appendSetPMTUDFunc(opts.PathMTUDiscovery)
 }
 

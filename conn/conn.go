@@ -493,6 +493,16 @@ type TCPConnectSocketOptions struct {
 	// Available on Linux.
 	TCPUserTimeoutMsecs int
 
+	// BindAddressNoPort configures the socket to not reserve an ephemeral port when using bind(2)
+	// with a port number of 0. The port will later be automatically chosen at connect(2) time,
+	// in a way that allows sharing a source port as long as the 4-tuple is unique.
+	//
+	// Setting this on UDP sockets will not achieve the desired effect. More information:
+	// https://blog.cloudflare.com/how-to-stop-running-out-of-ephemeral-ports-and-start-to-love-long-lived-connections/
+	//
+	// Available on Linux.
+	BindAddressNoPort bool
+
 	// PathMTUDiscovery sets the Path MTU Discovery mode of the socket.
 	//
 	// Available on Linux, macOS, FreeBSD, and Windows.
