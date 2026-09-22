@@ -127,8 +127,10 @@ func (c *TCPClientConfig) NewTCPClient() (*TCPClient, error) {
 		localAddr6:              c.LocalAddr6,
 		dialer:                  c.Dialer,
 		resolver:                resolver,
-		ipAllowlist:             c.IPAllowlist,
-		ipDenylist:              c.IPDenylist,
+		ipACL: IPAllowDenyList{
+			Allowlist: c.IPAllowlist,
+			Denylist:  c.IPDenylist,
+		},
 	}, nil
 }
 
@@ -144,8 +146,7 @@ type TCPClient struct {
 	localAddr6              netip.AddrPort
 	dialer                  conn.TCPDialer
 	resolver                conn.Resolver
-	ipAllowlist             *prefixset.PrefixSet
-	ipDenylist              *prefixset.PrefixSet
+	ipACL                   IPAllowDenyList
 }
 
 var (
@@ -177,7 +178,7 @@ func (c *TCPClient) DialStream(ctx context.Context, addr conn.Addr, payload []by
 				Err:            err,
 			}
 		}
-		if err := c.checkACL(ip); err != nil {
+		if err := c.ipACL.Check(ip); err != nil {
 			return nil, &OpError{
 				Op:             "dial",
 				Network:        "tcp",
@@ -232,7 +233,7 @@ func (c *TCPClient) resolveAndDialDomain(ctx context.Context, network, domain st
 	for _, ip := range ips {
 		laddr := c.localAddr(ip)
 		raddr := netip.AddrPortFrom(ip, port)
-		if err := c.checkACL(ip); err != nil {
+		if err := c.ipACL.Check(ip); err != nil {
 			errs = append(errs, &OpError{
 				Op:             "dial",
 				Network:        "tcp",
@@ -398,7 +399,7 @@ dial:
 	for ip := range ips {
 		laddr := c.localAddr(ip)
 		raddr := netip.AddrPortFrom(ip, port)
-		if err := c.checkACL(ip); err != nil {
+		if err := c.ipACL.Check(ip); err != nil {
 			errs = append(errs, &OpError{
 				Op:             "dial",
 				Network:        "tcp",
@@ -477,16 +478,6 @@ func (c *TCPClient) localAddr(ip netip.Addr) netip.AddrPort {
 		return c.localAddr4
 	}
 	return c.localAddr6
-}
-
-func (c *TCPClient) checkACL(ip netip.Addr) error {
-	if c.ipAllowlist != nil && !c.ipAllowlist.Contains(ip) {
-		return AddrNotInAllowlistError{}
-	}
-	if c.ipDenylist != nil && c.ipDenylist.Contains(ip) {
-		return AddrInDenylistError{}
-	}
-	return nil
 }
 
 // NewTCPTransparentProxyServer returns a new TCP transparent proxy server.

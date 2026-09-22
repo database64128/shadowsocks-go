@@ -12,6 +12,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
+	"github.com/database64128/shadowsocks-go/prefixset"
 )
 
 func TestResolveIPPort(t *testing.T) {
@@ -570,4 +571,122 @@ func (r blockingFakeResolver) LookupNetIP(ctx context.Context, network, host str
 		}
 	}
 	return r.records.LookupNetIP(ctx, network, host)
+}
+
+func TestIPAllowDenyList(t *testing.T) {
+	type checkIP struct {
+		ip      netip.Addr
+		wantErr error
+	}
+
+	for _, c := range [...]struct {
+		name     string
+		newACL   func() netio.IPAllowDenyList
+		checkIPs []checkIP
+	}{
+		{
+			name: "Empty",
+			newACL: func() netio.IPAllowDenyList {
+				return netio.IPAllowDenyList{}
+			},
+			checkIPs: []checkIP{
+				{netip.Addr{}, nil},
+				{netip.AddrFrom4([4]byte{127, 0, 0, 1}), nil},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}), nil},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}).WithZone("lo"), nil},
+				{netip.IPv6Loopback(), nil},
+				{netip.IPv6Loopback().WithZone("lo"), nil},
+			},
+		},
+		{
+			name: "Allowlist",
+			newACL: func() netio.IPAllowDenyList {
+				var allowlist prefixset.PrefixSet
+				allowlist.Insert(netip.PrefixFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 32))
+				allowlist.Insert(netip.PrefixFrom(netip.IPv6Loopback(), 128))
+				return netio.IPAllowDenyList{
+					Allowlist: &allowlist,
+				}
+			},
+			checkIPs: []checkIP{
+				{netip.Addr{}, netio.AddrNotInAllowlistError{}},
+				{netip.AddrFrom4([4]byte{127, 0, 0, 1}), nil},
+				{netip.AddrFrom4([4]byte{127, 0, 0, 2}), netio.AddrNotInAllowlistError{}},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}), nil},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 2}), netio.AddrNotInAllowlistError{}},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}).WithZone("lo"), nil},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 2}).WithZone("lo"), netio.AddrNotInAllowlistError{}},
+				{netip.IPv6Loopback(), nil},
+				{netip.IPv6Loopback().WithZone("lo"), nil},
+				{netip.IPv6Loopback().Next(), netio.AddrNotInAllowlistError{}},
+				{netip.IPv6Loopback().Next().WithZone("lo"), netio.AddrNotInAllowlistError{}},
+			},
+		},
+		{
+			name: "Denylist",
+			newACL: func() netio.IPAllowDenyList {
+				var denylist prefixset.PrefixSet
+				denylist.Insert(netip.PrefixFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 32))
+				denylist.Insert(netip.PrefixFrom(netip.IPv6Loopback(), 128))
+				return netio.IPAllowDenyList{
+					Denylist: &denylist,
+				}
+			},
+			checkIPs: []checkIP{
+				{netip.Addr{}, nil},
+				{netip.AddrFrom4([4]byte{127, 0, 0, 1}), netio.AddrInDenylistError{}},
+				{netip.AddrFrom4([4]byte{127, 0, 0, 2}), nil},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}), netio.AddrInDenylistError{}},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 2}), nil},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}).WithZone("lo"), netio.AddrInDenylistError{}},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 2}).WithZone("lo"), nil},
+				{netip.IPv6Loopback(), netio.AddrInDenylistError{}},
+				{netip.IPv6Loopback().WithZone("lo"), netio.AddrInDenylistError{}},
+				{netip.IPv6Loopback().Next(), nil},
+				{netip.IPv6Loopback().Next().WithZone("lo"), nil},
+			},
+		},
+		{
+			name: "Allowlist+Denylist",
+			newACL: func() netio.IPAllowDenyList {
+				var allowlist prefixset.PrefixSet
+				allowlist.Insert(netip.PrefixFrom(netip.AddrFrom4([4]byte{127, 0, 0, 0}), 8))
+				allowlist.Insert(netip.PrefixFrom(netip.IPv6Loopback(), 64))
+				var denylist prefixset.PrefixSet
+				denylist.Insert(netip.PrefixFrom(netip.AddrFrom4([4]byte{127, 0, 0, 2}), 32))
+				denylist.Insert(netip.PrefixFrom(netip.IPv6Loopback().Next(), 128))
+				return netio.IPAllowDenyList{
+					Allowlist: &allowlist,
+					Denylist:  &denylist,
+				}
+			},
+			checkIPs: []checkIP{
+				{netip.Addr{}, netio.AddrNotInAllowlistError{}},
+				{netip.AddrFrom4([4]byte{127, 0, 0, 1}), nil},
+				{netip.AddrFrom4([4]byte{127, 0, 0, 2}), netio.AddrInDenylistError{}},
+				{netip.AddrFrom4([4]byte{128, 0, 0, 1}), netio.AddrNotInAllowlistError{}},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}), nil},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 2}), netio.AddrInDenylistError{}},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 128, 0, 0, 1}), netio.AddrNotInAllowlistError{}},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}).WithZone("lo"), nil},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 2}).WithZone("lo"), netio.AddrInDenylistError{}},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 128, 0, 0, 1}).WithZone("lo"), netio.AddrNotInAllowlistError{}},
+				{netip.IPv6Loopback(), nil},
+				{netip.IPv6Loopback().WithZone("lo"), nil},
+				{netip.IPv6Loopback().Next(), netio.AddrInDenylistError{}},
+				{netip.IPv6Loopback().Next().WithZone("lo"), netio.AddrInDenylistError{}},
+				{netip.AddrFrom16([16]byte{7: 0x01, 15: 0x01}), netio.AddrNotInAllowlistError{}},
+				{netip.AddrFrom16([16]byte{7: 0x01, 15: 0x01}).WithZone("lo"), netio.AddrNotInAllowlistError{}},
+			},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			acl := c.newACL()
+			for _, ipCheck := range c.checkIPs {
+				if err := acl.Check(ipCheck.ip); err != ipCheck.wantErr {
+					t.Errorf("acl.Check(%q) = %T, want %T", ipCheck.ip, err, ipCheck.wantErr)
+				}
+			}
+		})
+	}
 }

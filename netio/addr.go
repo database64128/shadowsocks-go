@@ -7,6 +7,7 @@ import (
 	"net/netip"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/prefixset"
 )
 
 // AddressFamilyPreference specifies the preference for IPv4 or IPv6 addresses
@@ -239,4 +240,52 @@ func resolveIPPreferredSecondary(
 	case <-attemptCtxDone:
 		return netip.Addr{}, attemptCtx.Err()
 	}
+}
+
+// IPAllowDenyList consists of an allowlist and a denylist of IP address prefixes.
+//
+// Both lists can be nil, indicating no restrictions.
+type IPAllowDenyList struct {
+	// Allowlist contains the allowed IP address prefixes.
+	//
+	// If nil, there are no allowlist restrictions.
+	Allowlist *prefixset.PrefixSet
+
+	// Denylist contains the disallowed IP address prefixes.
+	//
+	// If nil, there are no denylist restrictions.
+	Denylist *prefixset.PrefixSet
+}
+
+// Check returns an error if ip is not allowed by the allowlist or denylist rules.
+func (acl IPAllowDenyList) Check(ip netip.Addr) error {
+	if acl.Allowlist != nil && !acl.Allowlist.Contains(ip) {
+		return AddrNotInAllowlistError{}
+	}
+	if acl.Denylist != nil && acl.Denylist.Contains(ip) {
+		return AddrInDenylistError{}
+	}
+	return nil
+}
+
+// AddrNotInAllowlistError is returned when the destination address is not in the allowlist.
+type AddrNotInAllowlistError struct{}
+
+func (AddrNotInAllowlistError) Error() string {
+	return "address not in allowlist"
+}
+
+func (AddrNotInAllowlistError) Unwrap() error {
+	return conn.DialResultCodeEACCES
+}
+
+// AddrInDenylistError is returned when the destination address is in the denylist.
+type AddrInDenylistError struct{}
+
+func (AddrInDenylistError) Error() string {
+	return "address in denylist"
+}
+
+func (AddrInDenylistError) Unwrap() error {
+	return conn.DialResultCodeEACCES
 }

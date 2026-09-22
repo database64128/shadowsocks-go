@@ -3,8 +3,6 @@ package netio
 import (
 	"net/netip"
 	"unsafe"
-
-	"github.com/database64128/shadowsocks-go/conn"
 )
 
 // OpError represents a network operation error.
@@ -52,26 +50,4 @@ func (e *OpError) Error() string {
 
 func (e *OpError) Unwrap() error {
 	return e.Err
-}
-
-// AddrNotInAllowlistError is returned when the destination address is not in the allowlist.
-type AddrNotInAllowlistError struct{}
-
-func (AddrNotInAllowlistError) Error() string {
-	return "address not in allowlist"
-}
-
-func (AddrNotInAllowlistError) Unwrap() error {
-	return conn.DialResultCodeEACCES
-}
-
-// AddrInDenylistError is returned when the destination address is in the denylist.
-type AddrInDenylistError struct{}
-
-func (AddrInDenylistError) Error() string {
-	return "address in denylist"
-}
-
-func (AddrInDenylistError) Unwrap() error {
-	return conn.DialResultCodeEACCES
 }
