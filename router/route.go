@@ -260,21 +260,11 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 		var group CriterionGroupOR
 
 		if len(rc.FromPrefixes) > 0 || len(rc.FromPrefixSets) > 0 {
-			var sourcePrefixSet prefixset.PrefixSet
-
-			for _, prefix := range rc.FromPrefixes {
-				sourcePrefixSet.Insert(prefix)
+			sourcePrefixSet, err := prefixset.FromPrefixesAndPrefixSetNames(rc.FromPrefixes, rc.FromPrefixSets, prefixSetMap)
+			if err != nil {
+				return Route{}, fmt.Errorf("failed to assemble source IP prefix set: %w", err)
 			}
-
-			for _, prefixSet := range rc.FromPrefixSets {
-				s, ok := prefixSetMap[prefixSet]
-				if !ok {
-					return Route{}, fmt.Errorf("prefix set not found: %s", prefixSet)
-				}
-				sourcePrefixSet.Union(&s.Lite)
-			}
-
-			group.AddCriterion((*SourceIPCriterion)(&sourcePrefixSet), rc.InvertFromPrefixes)
+			group.AddCriterion((*SourceIPCriterion)(sourcePrefixSet), rc.InvertFromPrefixes)
 		}
 
 		if len(rc.FromGeoIPCountries) > 0 {
@@ -354,21 +344,11 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 				var expectedIPCriterionGroup CriterionGroupOR
 
 				if len(rc.ToMatchedDomainExpectedPrefixes) > 0 || len(rc.ToMatchedDomainExpectedPrefixSets) > 0 {
-					var expectedPrefixSet prefixset.PrefixSet
-
-					for _, prefix := range rc.ToMatchedDomainExpectedPrefixes {
-						expectedPrefixSet.Insert(prefix)
+					expectedPrefixSet, err := prefixset.FromPrefixesAndPrefixSetNames(rc.ToMatchedDomainExpectedPrefixes, rc.ToMatchedDomainExpectedPrefixSets, prefixSetMap)
+					if err != nil {
+						return Route{}, fmt.Errorf("failed to assemble matched domain expected IP prefix set: %w", err)
 					}
-
-					for _, prefixSet := range rc.ToMatchedDomainExpectedPrefixSets {
-						s, ok := prefixSetMap[prefixSet]
-						if !ok {
-							return Route{}, fmt.Errorf("prefix set not found: %s", prefixSet)
-						}
-						expectedPrefixSet.Union(&s.Lite)
-					}
-
-					expectedIPCriterionGroup.AddCriterion(DestResolvedIPCriterion{&expectedPrefixSet, resolvers}, rc.InvertToMatchedDomainExpectedPrefixes)
+					expectedIPCriterionGroup.AddCriterion(DestResolvedIPCriterion{expectedPrefixSet, resolvers}, rc.InvertToMatchedDomainExpectedPrefixes)
 				}
 
 				if len(rc.ToMatchedDomainExpectedGeoIPCountries) > 0 {
@@ -387,24 +367,15 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 		}
 
 		if len(rc.ToPrefixes) > 0 || len(rc.ToPrefixSets) > 0 {
-			var destPrefixSet prefixset.PrefixSet
-
-			for _, prefix := range rc.ToPrefixes {
-				destPrefixSet.Insert(prefix)
-			}
-
-			for _, prefixSet := range rc.ToPrefixSets {
-				s, ok := prefixSetMap[prefixSet]
-				if !ok {
-					return Route{}, fmt.Errorf("prefix set not found: %s", prefixSet)
-				}
-				destPrefixSet.Union(&s.Lite)
+			destPrefixSet, err := prefixset.FromPrefixesAndPrefixSetNames(rc.ToPrefixes, rc.ToPrefixSets, prefixSetMap)
+			if err != nil {
+				return Route{}, fmt.Errorf("failed to assemble destination IP prefix set: %w", err)
 			}
 
 			if rc.DisableNameResolutionForIPRules {
-				group.AddCriterion((*DestIPCriterion)(&destPrefixSet), rc.InvertToPrefixes)
+				group.AddCriterion((*DestIPCriterion)(destPrefixSet), rc.InvertToPrefixes)
 			} else {
-				group.AddCriterion(DestResolvedIPCriterion{&destPrefixSet, resolvers}, rc.InvertToPrefixes)
+				group.AddCriterion(DestResolvedIPCriterion{destPrefixSet, resolvers}, rc.InvertToPrefixes)
 			}
 		}
 

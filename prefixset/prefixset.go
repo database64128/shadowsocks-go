@@ -148,6 +148,38 @@ func (cfg Config) LoadPrefixSet() (*PrefixSet, error) {
 	return &s, nil
 }
 
+// FromPrefixesAndPrefixSetNames returns a prefix set assembled from
+// the given prefixes and the named prefix sets.
+func FromPrefixesAndPrefixSetNames(
+	prefixes []netip.Prefix,
+	names []string,
+	prefixSetByName map[string]*PrefixSet,
+) (*PrefixSet, error) {
+	if len(prefixes) == 0 && len(names) == 1 {
+		s, ok := prefixSetByName[names[0]]
+		if !ok {
+			return nil, fmt.Errorf("prefix set not found: %q", names[0])
+		}
+		return s, nil
+	}
+
+	var s PrefixSet
+
+	for _, prefix := range prefixes {
+		s.Insert(prefix)
+	}
+
+	for _, name := range names {
+		o, ok := prefixSetByName[name]
+		if !ok {
+			return nil, fmt.Errorf("prefix set not found: %q", name)
+		}
+		s.Union(&o.Lite)
+	}
+
+	return &s, nil
+}
+
 // PrefixSet is an IP address prefix set.
 type PrefixSet struct {
 	bart.Lite
