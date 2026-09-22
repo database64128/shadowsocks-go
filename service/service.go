@@ -14,8 +14,10 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/cred"
 	"github.com/database64128/shadowsocks-go/dns"
+	"github.com/database64128/shadowsocks-go/domainset"
 	"github.com/database64128/shadowsocks-go/jsoncfg"
 	"github.com/database64128/shadowsocks-go/netio"
+	"github.com/database64128/shadowsocks-go/prefixset"
 	"github.com/database64128/shadowsocks-go/router"
 	"github.com/database64128/shadowsocks-go/stats"
 	"github.com/database64128/shadowsocks-go/tlscerts"
@@ -123,6 +125,38 @@ func (sc *Config) Manager(logger *tslog.Logger) (*Manager, error) {
 		}
 	}
 
+	domainSetByName := make(map[string]domainset.DomainSet, len(sc.Router.DomainSets))
+	domainSetIndexByName := make(map[string]int, len(sc.Router.DomainSets))
+
+	for i, dsc := range sc.Router.DomainSets {
+		if dupIndex, ok := domainSetIndexByName[dsc.Name]; ok {
+			return nil, fmt.Errorf("duplicate domain set name: %q (index %d and %d)", dsc.Name, dupIndex, i)
+		}
+		domainSetIndexByName[dsc.Name] = i
+
+		domainSet, err := dsc.DomainSet()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load domain set %q: %w", dsc.Name, err)
+		}
+		domainSetByName[dsc.Name] = domainSet
+	}
+
+	prefixSetByName := make(map[string]*prefixset.PrefixSet, len(sc.Router.PrefixSets))
+	prefixSetIndexByName := make(map[string]int, len(sc.Router.PrefixSets))
+
+	for i, psc := range sc.Router.PrefixSets {
+		if dupIndex, ok := prefixSetIndexByName[psc.Name]; ok {
+			return nil, fmt.Errorf("duplicate prefix set name: %q (index %d and %d)", psc.Name, dupIndex, i)
+		}
+		prefixSetIndexByName[psc.Name] = i
+
+		prefixSet, err := psc.LoadPrefixSet()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load prefix set %q: %w", psc.Name, err)
+		}
+		prefixSetByName[psc.Name] = prefixSet
+	}
+
 	tlsCertStore, err := sc.TLSCerts.NewStore()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TLS certificate store: %w", err)
@@ -205,7 +239,7 @@ func (sc *Config) Manager(logger *tslog.Logger) (*Manager, error) {
 		serverIndexByName[serverConfig.Name] = i
 	}
 
-	router, err := sc.Router.Router(logger, resolvers, resolverMap, tcpClientMap, udpClientMap, serverIndexByName)
+	router, err := sc.Router.Router(logger, resolvers, resolverMap, tcpClientMap, udpClientMap, serverIndexByName, domainSetByName, prefixSetByName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create router: %w", err)
 	}

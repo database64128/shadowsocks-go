@@ -26,7 +26,16 @@ type Config struct {
 }
 
 // Router creates a router from the RouterConfig.
-func (rc *Config) Router(logger *tslog.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]netio.StreamClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int) (r *Router, err error) {
+func (rc *Config) Router(
+	logger *tslog.Logger,
+	resolvers []dns.SimpleResolver,
+	resolverMap map[string]dns.SimpleResolver,
+	tcpClientMap map[string]netio.StreamClient,
+	udpClientMap map[string]zerocopy.UDPClient,
+	serverIndexByName map[string]int,
+	domainSetByName map[string]domainset.DomainSet,
+	prefixSetByName map[string]*prefixset.PrefixSet,
+) (r *Router, err error) {
 	defaultRoute := Route{name: "default"}
 
 	switch rc.DefaultTCPClientName {
@@ -82,30 +91,10 @@ func (rc *Config) Router(logger *tslog.Logger, resolvers []dns.SimpleResolver, r
 		}
 	}
 
-	domainSetMap := make(map[string]domainset.DomainSet, len(rc.DomainSets))
-
-	for _, dsc := range rc.DomainSets {
-		domainSet, err := dsc.DomainSet()
-		if err != nil {
-			return nil, fmt.Errorf("failed to load domain set %q: %w", dsc.Name, err)
-		}
-		domainSetMap[dsc.Name] = domainSet
-	}
-
-	prefixSetMap := make(map[string]*prefixset.PrefixSet, len(rc.PrefixSets))
-
-	for _, psc := range rc.PrefixSets {
-		s, err := psc.LoadPrefixSet()
-		if err != nil {
-			return nil, fmt.Errorf("failed to load prefix set %q: %w", psc.Name, err)
-		}
-		prefixSetMap[psc.Name] = s
-	}
-
 	routes := make([]Route, len(rc.Routes)+1)
 
 	for i := range rc.Routes {
-		route, err := rc.Routes[i].Route(geoip, logger, resolvers, resolverMap, tcpClientMap, udpClientMap, serverIndexByName, domainSetMap, prefixSetMap)
+		route, err := rc.Routes[i].Route(geoip, logger, resolvers, resolverMap, tcpClientMap, udpClientMap, serverIndexByName, domainSetByName, prefixSetByName)
 		if err != nil {
 			return nil, err
 		}
