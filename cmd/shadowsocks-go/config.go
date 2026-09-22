@@ -53,7 +53,10 @@ func runConfig(name string, args []string) int {
 		paths = []string{"config.json"}
 	}
 
-	logCfg := tslog.Config{Level: slog.LevelInfo}
+	logCfg := tslog.Config{
+		Level:   slog.LevelInfo,
+		NoColor: defaultLogNoColor,
+	}
 	logger := logCfg.NewLogger(os.Stderr)
 
 	var exitCode int
