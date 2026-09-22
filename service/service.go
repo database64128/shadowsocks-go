@@ -178,7 +178,7 @@ func (sc *Config) Manager(logger *tslog.Logger) (*Manager, error) {
 		}
 		clientIndexByName[clientConfig.Name] = i
 
-		if err := clientConfig.AddClient(tcpClientMap, udpClientMap, tcpDialerCache, udpSocketConfigCache, tlsCertStore, logger); err != nil {
+		if err := clientConfig.AddClient(tcpClientMap, udpClientMap, tcpDialerCache, udpSocketConfigCache, prefixSetByName, tlsCertStore, logger); err != nil {
 			return nil, fmt.Errorf("failed to create client %q: %w", clientConfig.Name, err)
 		}
 	}

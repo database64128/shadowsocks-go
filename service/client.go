@@ -13,6 +13,7 @@ import (
 	"github.com/database64128/shadowsocks-go/httpproxy"
 	"github.com/database64128/shadowsocks-go/jsoncfg"
 	"github.com/database64128/shadowsocks-go/netio"
+	"github.com/database64128/shadowsocks-go/prefixset"
 	"github.com/database64128/shadowsocks-go/socks5"
 	"github.com/database64128/shadowsocks-go/ss2022"
 	"github.com/database64128/shadowsocks-go/ssnone"
@@ -90,6 +91,22 @@ type ClientConfig struct {
 	//
 	// As of the current implementation, this only applies to outgoing TCP connections.
 	LocalAddr6 netip.AddrPort `json:"localAddr6,omitzero"`
+
+	// IPAllowlistPrefixes specifies the IP address prefixes to include in the destination IP address allowlist.
+	IPAllowlistPrefixes []netip.Prefix `json:"ipAllowlistPrefixes,omitzero"`
+
+	// IPAllowlistPrefixSets specifies the names of prefix sets to include in the destination IP address allowlist.
+	//
+	// Specifying a single prefix set name is the most efficient way to build the allowlist.
+	IPAllowlistPrefixSets []string `json:"ipAllowlistPrefixSets,omitzero"`
+
+	// IPDenylistPrefixes specifies the IP address prefixes to include in the destination IP address denylist.
+	IPDenylistPrefixes []netip.Prefix `json:"ipDenylistPrefixes,omitzero"`
+
+	// IPDenylistPrefixSets specifies the names of prefix sets to include in the destination IP address denylist.
+	//
+	// Specifying a single prefix set name is the most efficient way to build the denylist.
+	IPDenylistPrefixSets []string `json:"ipDenylistPrefixSets,omitzero"`
 
 	// OverrideResolverDialAddress optionally specifies an alternate DNS server address
 	// to override the dial address of the dialer's DNS resolver.
@@ -227,6 +244,7 @@ func (c *ClientConfig) AddClient(
 	udpClientByName map[string]zerocopy.UDPClient,
 	tcpDialerCache conn.TCPDialerCache,
 	udpSocketConfigCache conn.UDPSocketConfigCache,
+	prefixSetByName map[string]*prefixset.PrefixSet,
 	tlsCertStore *tlscerts.Store,
 	logger *tslog.Logger,
 ) error {
@@ -273,10 +291,26 @@ func (c *ClientConfig) AddClient(
 		}
 	}
 
+	var ipACL netio.IPAllowDenyList
+	if len(c.IPAllowlistPrefixes) > 0 || len(c.IPAllowlistPrefixSets) > 0 {
+		allowlist, err := prefixset.FromPrefixesAndPrefixSetNames(c.IPAllowlistPrefixes, c.IPAllowlistPrefixSets, prefixSetByName)
+		if err != nil {
+			return fmt.Errorf("failed to assemble IP allowlist: %w", err)
+		}
+		ipACL.Allowlist = allowlist
+	}
+	if len(c.IPDenylistPrefixes) > 0 || len(c.IPDenylistPrefixSets) > 0 {
+		denylist, err := prefixset.FromPrefixesAndPrefixSetNames(c.IPDenylistPrefixes, c.IPDenylistPrefixSets, prefixSetByName)
+		if err != nil {
+			return fmt.Errorf("failed to assemble IP denylist: %w", err)
+		}
+		ipACL.Denylist = denylist
+	}
+
 	switch c.Protocol {
 	case "direct":
 		if c.EnableTCP {
-			streamClient, err := c.innerTCPClient(tcpDialerCache, resolver)
+			streamClient, err := c.innerTCPClient(tcpDialerCache, resolver, ipACL)
 			if err != nil {
 				return err
 			}
@@ -284,12 +318,12 @@ func (c *ClientConfig) AddClient(
 		}
 
 		if c.EnableUDP {
-			udpClientByName[c.Name] = direct.NewDirectUDPClient(c.Name, c.AddressFamilyPreference, resolver, c.MTU, c.udpSocketConfig(udpSocketConfigCache))
+			udpClientByName[c.Name] = direct.NewDirectUDPClient(c.Name, c.AddressFamilyPreference, resolver, ipACL, c.MTU, c.udpSocketConfig(udpSocketConfigCache))
 		}
 
 	case "none", "plain":
 		if c.EnableTCP {
-			innerClient, err := c.innerTCPClient(tcpDialerCache, resolver)
+			innerClient, err := c.innerTCPClient(tcpDialerCache, resolver, ipACL)
 			if err != nil {
 				return err
 			}
@@ -307,7 +341,7 @@ func (c *ClientConfig) AddClient(
 		}
 
 	case "socks5":
-		innerClient, err := c.innerTCPClient(tcpDialerCache, resolver)
+		innerClient, err := c.innerTCPClient(tcpDialerCache, resolver, ipACL)
 		if err != nil {
 			return err
 		}
@@ -350,7 +384,7 @@ func (c *ClientConfig) AddClient(
 			return errors.New("HTTP proxy does not support UDP")
 		}
 
-		innerClient, err := c.innerTCPClient(tcpDialerCache, resolver)
+		innerClient, err := c.innerTCPClient(tcpDialerCache, resolver, ipACL)
 		if err != nil {
 			return err
 		}
@@ -404,7 +438,7 @@ func (c *ClientConfig) AddClient(
 		}
 
 		if c.EnableTCP {
-			innerClient, err := c.innerTCPClient(tcpDialerCache, resolver)
+			innerClient, err := c.innerTCPClient(tcpDialerCache, resolver, ipACL)
 			if err != nil {
 				return err
 			}
@@ -432,7 +466,7 @@ func (c *ClientConfig) AddClient(
 	return nil
 }
 
-func (c *ClientConfig) innerTCPClient(tcpDialerCache conn.TCPDialerCache, resolver conn.Resolver) (*netio.TCPClient, error) {
+func (c *ClientConfig) innerTCPClient(tcpDialerCache conn.TCPDialerCache, resolver conn.Resolver, ipACL netio.IPAllowDenyList) (*netio.TCPClient, error) {
 	tcc := netio.TCPClientConfig{
 		Name:                    c.Name,
 		AddressFamilyPreference: c.AddressFamilyPreference,
@@ -442,6 +476,7 @@ func (c *ClientConfig) innerTCPClient(tcpDialerCache conn.TCPDialerCache, resolv
 		LocalAddr6:              c.LocalAddr6,
 		Dialer:                  c.tcpDialer(tcpDialerCache),
 		Resolver:                resolver,
+		IPAllowDenyList:         ipACL,
 	}
 	return tcc.NewTCPClient()
 }

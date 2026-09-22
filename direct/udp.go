@@ -24,7 +24,7 @@ type DirectUDPClient struct {
 }
 
 // NewDirectUDPClient creates a new UDP client that makes no changes to the packets.
-func NewDirectUDPClient(name string, pref netio.AddressFamilyPreference, resolver conn.Resolver, mtu int, socketConfig conn.UDPSocketConfig) *DirectUDPClient {
+func NewDirectUDPClient(name string, pref netio.AddressFamilyPreference, resolver conn.Resolver, ipACL netio.IPAllowDenyList, mtu int, socketConfig conn.UDPSocketConfig) *DirectUDPClient {
 	return &DirectUDPClient{
 		info: zerocopy.UDPClientSessionInfo{
 			Name:         name,
@@ -33,7 +33,7 @@ func NewDirectUDPClient(name string, pref netio.AddressFamilyPreference, resolve
 		},
 		session: zerocopy.UDPClientSession{
 			MaxPacketSize: zerocopy.MaxPacketSizeForAddr(mtu, netip.IPv4Unspecified()),
-			Packer:        NewDirectPacketClientPacker(pref, resolver, mtu),
+			Packer:        NewDirectPacketClientPacker(pref, resolver, ipACL, mtu),
 			Unpacker:      DirectPacketClientUnpacker{},
 			Close:         zerocopy.NoopClose,
 		},

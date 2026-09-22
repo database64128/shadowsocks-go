@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go/conn"
-	"github.com/database64128/shadowsocks-go/prefixset"
 )
 
 // TCPClientConfig is the configuration for a TCP client.
@@ -72,15 +71,8 @@ type TCPClientConfig struct {
 	// If nil, [net.DefaultResolver] is used.
 	Resolver conn.Resolver
 
-	// IPAllowlist specifies an optional allowlist of destination IP prefixes.
-	//
-	// If nil, no allowlist is applied.
-	IPAllowlist *prefixset.PrefixSet
-
-	// IPDenylist specifies an optional denylist of destination IP prefixes.
-	//
-	// If nil, no denylist is applied.
-	IPDenylist *prefixset.PrefixSet
+	// IPAllowDenyList specifies the optional allowlist/denylist of destination IP addresses.
+	IPAllowDenyList IPAllowDenyList
 }
 
 // Happy Eyeballs v3 defaults, as defined in the draft RFC:
@@ -127,10 +119,7 @@ func (c *TCPClientConfig) NewTCPClient() (*TCPClient, error) {
 		localAddr6:              c.LocalAddr6,
 		dialer:                  c.Dialer,
 		resolver:                resolver,
-		ipACL: IPAllowDenyList{
-			Allowlist: c.IPAllowlist,
-			Denylist:  c.IPDenylist,
-		},
+		ipACL:                   c.IPAllowDenyList,
 	}, nil
 }
 

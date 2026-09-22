@@ -521,6 +521,20 @@
             "connectionAttemptDelay": "250ms",
             "localAddr4": "",
             "localAddr6": "",
+            "ipAllowlistPrefixes": [
+                "0.0.0.0/0",
+                "::/0"
+            ],
+            "ipAllowlistPrefixSets": [
+                "private"
+            ],
+            "ipDenylistPrefixes": [
+                "127.0.0.0/8",
+                "::1/128"
+            ],
+            "ipDenylistPrefixSets": [
+                "domestic"
+            ],
             "overrideResolverDialAddress": "",
             "dialerFwmark": 52140,
             "dialerTrafficClass": 0,
@@ -540,6 +554,10 @@
             "resolutionDelay": "50ms",
             "connectionAttemptDelay": "250ms",
             "localAddr4": "",
+            "ipAllowlistPrefixes": [],
+            "ipAllowlistPrefixSets": [],
+            "ipDenylistPrefixes": [],
+            "ipDenylistPrefixSets": [],
             "overrideResolverDialAddress": "",
             "dialerFwmark": 52140,
             "dialerTrafficClass": 0,
@@ -559,6 +577,10 @@
             "resolutionDelay": "50ms",
             "connectionAttemptDelay": "250ms",
             "localAddr6": "",
+            "ipAllowlistPrefixes": [],
+            "ipAllowlistPrefixSets": [],
+            "ipDenylistPrefixes": [],
+            "ipDenylistPrefixSets": [],
             "overrideResolverDialAddress": "",
             "dialerFwmark": 52140,
             "dialerTrafficClass": 0,

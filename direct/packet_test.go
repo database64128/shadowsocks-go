@@ -21,7 +21,7 @@ var (
 )
 
 func TestDirectPacketPackUnpacker(t *testing.T) {
-	c := NewDirectPacketClientPacker(netio.AddressFamilyPreferenceDefault, nil, mtu)
+	c := NewDirectPacketClientPacker(netio.AddressFamilyPreferenceDefault, nil, netio.IPAllowDenyList{}, mtu)
 	s := NewDirectPacketServerPackUnpacker(targetAddr, false) // Cheat a little bit, because we have to. :P
 	zerocopy.ClientServerPackerUnpackerTestFunc(t, c, DirectPacketClientUnpacker{}, s, s)
 }

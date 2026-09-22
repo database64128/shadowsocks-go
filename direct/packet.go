@@ -27,15 +27,19 @@ type DirectPacketClientPacker struct {
 	// resolver is used to resolve domain target addresses to IP addresses.
 	resolver conn.Resolver
 
+	// ipACL specifies the optional allowlist/denylist for destination IP addresses.
+	ipACL netio.IPAllowDenyList
+
 	// mtu is used in the PackInPlace method to determine whether the payload is too big.
 	mtu int
 }
 
 // NewDirectPacketClientPacker creates a packet packer for direct connection.
-func NewDirectPacketClientPacker(pref netio.AddressFamilyPreference, resolver conn.Resolver, mtu int) *DirectPacketClientPacker {
+func NewDirectPacketClientPacker(pref netio.AddressFamilyPreference, resolver conn.Resolver, ipACL netio.IPAllowDenyList, mtu int) *DirectPacketClientPacker {
 	return &DirectPacketClientPacker{
 		pref:     pref,
 		resolver: resolver,
+		ipACL:    ipACL,
 		mtu:      mtu,
 	}
 }
@@ -70,6 +74,9 @@ func (p *DirectPacketClientPacker) PackInPlace(ctx context.Context, b []byte, ta
 			return
 		}
 		destAddrPort = netip.AddrPortFrom(p.cachedDomainIP, targetAddr.Port())
+	}
+	if err := p.ipACL.Check(destAddrPort.Addr()); err != nil {
+		return netip.AddrPort{}, 0, 0, err
 	}
 	packetStart = payloadStart
 	packetLen = payloadLen
