@@ -1,7 +1,7 @@
 github.com/database64128/netx-go v0.1.1 h1:dT5LG7Gs7zFZBthFBbzWE6K8wAHjSNAaK7wCYZT7NzM=
 github.com/database64128/netx-go v0.1.1/go.mod h1:LNlYVipaYkQArRFDNNJ02VkNV+My9A5XR/IGS7sIBQc=
-github.com/database64128/tfo-go/v2 v2.4.0 h1:FqXQGNh0oPLNXkBnjK20Xt2+Vz2XkXP/PRUYq1gDklw=
-github.com/database64128/tfo-go/v2 v2.4.0/go.mod h1:Pdk7RtWP19hhrI8FvTywGV8JSngV3TVfgmEayWZt+20=
+github.com/database64128/tfo-go/v2 v2.4.1 h1:vTMWWW5zODGy8JWYRSPsAPp4DaJWPerBQ2fY/gEhpEY=
+github.com/database64128/tfo-go/v2 v2.4.1/go.mod h1:748Yw337v3+RMTbvBqu2wYWN70D8QemftOPbdRT7Eec=
 github.com/gaissmai/bart v0.30.0 h1:K1oTSQ6Nf76bhrgxeTqzZa4hE0M9x4xDfL6n6UG67Sc=
 github.com/gaissmai/bart v0.30.0/go.mod h1:GREWQfTLRWz/c5FTOsIw+KkscuFkIV5t8Rp7Nd1Td5c=
 github.com/klauspost/cpuid/v2 v2.4.0 h1:S6Hrbc7+ywsr0r+RLapfGBHfyefhCTwEh3A0tV913Dw=
