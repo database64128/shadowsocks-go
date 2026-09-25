@@ -278,14 +278,14 @@ func (c *ClientConfig) AddClient(
 	}
 
 	var resolver conn.Resolver
-	if c.OverrideResolverDialAddress != "" {
+	if overrideResolverDialAddress := c.OverrideResolverDialAddress; overrideResolverDialAddress != "" {
 		tcpDialer := c.tcpDialer(tcpDialerCache)
 		udpSocketConfig := c.udpSocketConfig(udpSocketConfigCache)
 		resolverDialer := conn.NewDialer(tcpDialer, udpSocketConfig, conn.UnixDomainSocketConfig{})
 		resolver = &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				return resolverDialer.Dial(ctx, network, c.OverrideResolverDialAddress)
+				return resolverDialer.Dial(ctx, network, overrideResolverDialAddress)
 			},
 		}
 	}
