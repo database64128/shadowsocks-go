@@ -82,7 +82,7 @@ func runService(name string, args []string) int {
 		}
 	}
 
-	m, err := svcCfg.Manager(logger)
+	m, err := svcCfg.NewManager(logger)
 	if err != nil {
 		logger.Error("Failed to create service manager", tslog.Err(err))
 		return 1

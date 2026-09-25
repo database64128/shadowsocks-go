@@ -412,3 +412,11 @@ func (m *Manager) RegisterServer(name, path string, pskLength int, tcpCredStore,
 	m.logger.Debug("Registered server for credential management", slog.String("server", name))
 	return s, nil
 }
+
+// AppendService appends the credential manager to the list of services if it manages any servers.
+func (m *Manager) AppendService(services []shadowsocks.Service) []shadowsocks.Service {
+	if len(m.servers) > 0 {
+		services = append(services, m)
+	}
+	return services
+}

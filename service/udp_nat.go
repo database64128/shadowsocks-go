@@ -606,8 +606,9 @@ func (s *UDPNATRelay) putQueuedPacket(queuedPacket *natQueuedPacket) {
 
 // Stop implements [shadowsocks.Service.Stop].
 func (s *UDPNATRelay) Stop() error {
-	for i := range s.listeners {
-		lnc := &s.listeners[i]
+	listeners := s.listeners
+	for i := range listeners {
+		lnc := &listeners[i]
 		if err := lnc.serverConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
 			lnc.logger.Error("Failed to set read deadline on serverConn", tslog.Err(err))
 		}
@@ -637,8 +638,8 @@ func (s *UDPNATRelay) Stop() error {
 	// so in-flight packets can be written out.
 	s.wg.Wait()
 
-	for i := range s.listeners {
-		lnc := &s.listeners[i]
+	for i := range listeners {
+		lnc := &listeners[i]
 		if err := lnc.serverConn.Close(); err != nil {
 			lnc.logger.Error("Failed to close serverConn", tslog.Err(err))
 		}

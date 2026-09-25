@@ -25,25 +25,36 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-var errNetworkDisabled = errors.New("this network (tcp or udp) is disabled")
-
 // Config is the main configuration structure.
-// It may be marshaled as or unmarshaled from JSON.
 type Config struct {
-	Servers      []ServerConfig       `json:"servers,omitzero"`
-	Clients      []ClientConfig       `json:"clients,omitzero"`
+	// Servers is the list of server configurations.
+	Servers []ServerConfig `json:"servers,omitzero"`
+
+	// Clients is the list of client configurations.
+	Clients []ClientConfig `json:"clients,omitzero"`
+
+	// ClientGroups is the list of client group configurations.
 	ClientGroups []clientgroup.Config `json:"clientGroups,omitzero"`
-	DNS          []dns.ResolverConfig `json:"dns,omitzero"`
-	Router       router.Config        `json:"router,omitzero"`
-	API          api.Config           `json:"api,omitzero"`
-	TLSCerts     tlscerts.Config      `json:"certs,omitzero"`
+
+	// DNS is the list of DNS resolver configurations.
+	DNS []dns.ResolverConfig `json:"dns,omitzero"`
+
+	// Router is the configuration for the router.
+	Router router.Config `json:"router,omitzero"`
+
+	// API is the configuration for the HTTP API.
+	API api.Config `json:"api,omitzero"`
+
+	// TLSCerts is the configuration for the TLS certificate store.
+	TLSCerts tlscerts.Config `json:"certs,omitzero"`
 }
 
 // Migrate migrates deprecated fields to their new equivalents
 // and removes obsolete fields from the configuration.
 func (cfg *Config) Migrate() {
-	for i := range cfg.Servers {
-		sc := &cfg.Servers[i]
+	cfgServers := cfg.Servers
+	for i := range cfgServers {
+		sc := &cfgServers[i]
 
 		if sc.EnableTCP {
 			sc.TCPListeners = append(sc.TCPListeners, TCPListenerConfig{
@@ -86,8 +97,9 @@ func (cfg *Config) Migrate() {
 		sc.UDPSendChannelCapacity = 0
 	}
 
-	for i := range cfg.Clients {
-		cc := &cfg.Clients[i]
+	cfgClients := cfg.Clients
+	for i := range cfgClients {
+		cc := &cfgClients[i]
 
 		if cc.Network != "" {
 			if cc.AddressFamilyPreference == netio.AddressFamilyPreferenceDefault {
@@ -103,16 +115,16 @@ func (cfg *Config) Migrate() {
 	}
 }
 
-// Manager initializes the service manager.
+// NewManager returns a new service manager.
 //
 // Initialization order: clients -> DNS -> router -> servers
-func (sc *Config) Manager(logger *tslog.Logger) (*Manager, error) {
-	if len(sc.Servers) == 0 {
+func (cfg *Config) NewManager(logger *tslog.Logger) (*Manager, error) {
+	if len(cfg.Servers) == 0 {
 		return nil, errors.New("no services to start")
 	}
 
-	if len(sc.Clients) == 0 {
-		sc.Clients = []ClientConfig{
+	if len(cfg.Clients) == 0 {
+		cfg.Clients = []ClientConfig{
 			{
 				Name:                "direct",
 				Protocol:            "direct",
@@ -125,10 +137,10 @@ func (sc *Config) Manager(logger *tslog.Logger) (*Manager, error) {
 		}
 	}
 
-	domainSetByName := make(map[string]domainset.DomainSet, len(sc.Router.DomainSets))
-	domainSetIndexByName := make(map[string]int, len(sc.Router.DomainSets))
+	domainSetByName := make(map[string]domainset.DomainSet, len(cfg.Router.DomainSets))
+	domainSetIndexByName := make(map[string]int, len(cfg.Router.DomainSets))
 
-	for i, dsc := range sc.Router.DomainSets {
+	for i, dsc := range cfg.Router.DomainSets {
 		if dupIndex, ok := domainSetIndexByName[dsc.Name]; ok {
 			return nil, fmt.Errorf("duplicate domain set name: %q (index %d and %d)", dsc.Name, dupIndex, i)
 		}
@@ -141,10 +153,10 @@ func (sc *Config) Manager(logger *tslog.Logger) (*Manager, error) {
 		domainSetByName[dsc.Name] = domainSet
 	}
 
-	prefixSetByName := make(map[string]*prefixset.PrefixSet, len(sc.Router.PrefixSets))
-	prefixSetIndexByName := make(map[string]int, len(sc.Router.PrefixSets))
+	prefixSetByName := make(map[string]*prefixset.PrefixSet, len(cfg.Router.PrefixSets))
+	prefixSetIndexByName := make(map[string]int, len(cfg.Router.PrefixSets))
 
-	for i, psc := range sc.Router.PrefixSets {
+	for i, psc := range cfg.Router.PrefixSets {
 		if dupIndex, ok := prefixSetIndexByName[psc.Name]; ok {
 			return nil, fmt.Errorf("duplicate prefix set name: %q (index %d and %d)", psc.Name, dupIndex, i)
 		}
@@ -157,7 +169,7 @@ func (sc *Config) Manager(logger *tslog.Logger) (*Manager, error) {
 		prefixSetByName[psc.Name] = prefixSet
 	}
 
-	tlsCertStore, err := sc.TLSCerts.NewStore()
+	tlsCertStore, err := cfg.TLSCerts.NewStore()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TLS certificate store: %w", err)
 	}
@@ -166,34 +178,37 @@ func (sc *Config) Manager(logger *tslog.Logger) (*Manager, error) {
 	tcpDialerCache := conn.NewTCPDialerCache()
 	udpSocketConfigCache := conn.NewUDPSocketConfigCache()
 	unixDomainSocketConfigCache := conn.NewUnixDomainSocketConfigCache()
-	clientIndexByName := make(map[string]int, len(sc.Clients))
-	tcpClientMap := make(map[string]netio.StreamClient, len(sc.Clients))
-	udpClientMap := make(map[string]zerocopy.UDPClient, len(sc.Clients))
 
-	for i := range sc.Clients {
-		clientConfig := &sc.Clients[i]
+	cfgClients := cfg.Clients
+	clientIndexByName := make(map[string]int, len(cfgClients))
+	tcpClientByName := make(map[string]netio.StreamClient, len(cfgClients))
+	udpClientByName := make(map[string]zerocopy.UDPClient, len(cfgClients))
+
+	for i := range cfgClients {
+		clientConfig := &cfgClients[i]
 
 		if dupIndex, ok := clientIndexByName[clientConfig.Name]; ok {
 			return nil, fmt.Errorf("duplicate client name: %q (index %d and %d)", clientConfig.Name, dupIndex, i)
 		}
 		clientIndexByName[clientConfig.Name] = i
 
-		if err := clientConfig.AddClient(tcpClientMap, udpClientMap, tcpDialerCache, udpSocketConfigCache, prefixSetByName, tlsCertStore, logger); err != nil {
+		if err := clientConfig.AddClient(tcpClientByName, udpClientByName, tcpDialerCache, udpSocketConfigCache, prefixSetByName, tlsCertStore, logger); err != nil {
 			return nil, fmt.Errorf("failed to create client %q: %w", clientConfig.Name, err)
 		}
 	}
 
 	var maxClientPackerHeadroom zerocopy.Headroom
-	for _, udpClient := range udpClientMap {
+	for _, udpClient := range udpClientByName {
 		maxClientPackerHeadroom = zerocopy.MaxHeadroom(maxClientPackerHeadroom, udpClient.Info().PackerHeadroom)
 	}
 
-	services := make([]shadowsocks.Service, 0, len(sc.ClientGroups)+2+2*len(sc.Servers))
+	cfgClientGroups := cfg.ClientGroups
+	cfgServers := cfg.Servers
+	services := make([]shadowsocks.Service, 0, len(cfgClientGroups)+2+2*len(cfgServers))
+	clientGroupIndexByName := make(map[string]int, len(cfgClientGroups))
 
-	clientGroupIndexByName := make(map[string]int, len(sc.ClientGroups))
-
-	for i := range sc.ClientGroups {
-		clientGroupConfig := &sc.ClientGroups[i]
+	for i := range cfgClientGroups {
+		clientGroupConfig := &cfgClientGroups[i]
 
 		if dupIndex, ok := clientIndexByName[clientGroupConfig.Name]; ok {
 			return nil, fmt.Errorf("client group %q (index %d) has the same name as a client (index %d)", clientGroupConfig.Name, i, dupIndex)
@@ -203,49 +218,49 @@ func (sc *Config) Manager(logger *tslog.Logger) (*Manager, error) {
 		}
 		clientGroupIndexByName[clientGroupConfig.Name] = i
 
-		if err := clientGroupConfig.AddClientGroup(logger, tcpClientMap, udpClientMap, func(ps shadowsocks.Service) {
+		if err := clientGroupConfig.AddClientGroup(logger, tcpClientByName, udpClientByName, func(ps shadowsocks.Service) {
 			services = append(services, ps)
 		}); err != nil {
 			return nil, fmt.Errorf("failed to add client group %q: %w", clientGroupConfig.Name, err)
 		}
 	}
 
-	resolvers := make([]dns.SimpleResolver, len(sc.DNS))
-	resolverMap := make(map[string]dns.SimpleResolver, len(sc.DNS))
+	cfgDNS := cfg.DNS
+	resolvers := make([]dns.SimpleResolver, len(cfgDNS))
+	resolverByName := make(map[string]dns.SimpleResolver, len(cfgDNS))
 
-	for i := range sc.DNS {
-		resolverConfig := &sc.DNS[i]
+	for i := range cfgDNS {
+		resolverConfig := &cfgDNS[i]
 
-		if _, ok := resolverMap[resolverConfig.Name]; ok {
+		if _, ok := resolverByName[resolverConfig.Name]; ok {
 			return nil, fmt.Errorf("duplicate DNS resolver name: %q", resolverConfig.Name)
 		}
 
-		resolver, err := resolverConfig.NewSimpleResolver(tcpClientMap, udpClientMap, logger)
+		resolver, err := resolverConfig.NewSimpleResolver(tcpClientByName, udpClientByName, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create DNS resolver %q: %w", resolverConfig.Name, err)
 		}
 
 		resolvers[i] = resolver
-		resolverMap[resolverConfig.Name] = resolver
+		resolverByName[resolverConfig.Name] = resolver
 	}
 
-	serverIndexByName := make(map[string]int, len(sc.Servers))
+	serverIndexByName := make(map[string]int, len(cfgServers))
 
-	for i := range sc.Servers {
-		serverConfig := &sc.Servers[i]
+	for i := range cfgServers {
+		serverConfig := &cfgServers[i]
 		if dupIndex, ok := serverIndexByName[serverConfig.Name]; ok {
 			return nil, fmt.Errorf("duplicate server name: %q (index %d and %d)", serverConfig.Name, dupIndex, i)
 		}
 		serverIndexByName[serverConfig.Name] = i
 	}
 
-	router, err := sc.Router.Router(logger, resolvers, resolverMap, tcpClientMap, udpClientMap, serverIndexByName, domainSetByName, prefixSetByName)
+	router, err := cfg.Router.Router(logger, resolvers, resolverByName, tcpClientByName, udpClientByName, serverIndexByName, domainSetByName, prefixSetByName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create router: %w", err)
 	}
 
 	credmgr := cred.NewManager(logger)
-	services = append(services, credmgr)
 
 	var (
 		serverByName map[string]ssm.Server
@@ -253,35 +268,33 @@ func (sc *Config) Manager(logger *tslog.Logger) (*Manager, error) {
 		statsConfig  stats.Config
 	)
 
-	if sc.API.Enabled {
-		serverByName = make(map[string]ssm.Server, len(sc.Servers))
-		serverNames = make([]string, len(sc.Servers))
+	if cfg.API.Enabled {
+		serverByName = make(map[string]ssm.Server, len(cfgServers))
+		serverNames = make([]string, len(cfgServers))
 		statsConfig.Enabled = true
 	}
 
-	for i := range sc.Servers {
-		serverConfig := &sc.Servers[i]
+	for i := range cfgServers {
+		serverConfig := &cfgServers[i]
 
 		if err := serverConfig.Initialize(tlsCertStore, tcpListenConfigCache, udpSocketConfigCache, unixDomainSocketConfigCache, statsConfig, router, logger, i); err != nil {
 			return nil, fmt.Errorf("failed to initialize server %q: %w", serverConfig.Name, err)
 		}
 
-		tcpRelay, err := serverConfig.TCPRelay()
-		switch err {
-		case errNetworkDisabled:
-		case nil:
+		if len(serverConfig.TCPListeners) > 0 || len(serverConfig.UnixListeners) > 0 {
+			tcpRelay, err := serverConfig.TCPRelay()
+			if err != nil {
+				return nil, fmt.Errorf("failed to create TCP relay service for %q: %w", serverConfig.Name, err)
+			}
 			services = append(services, tcpRelay)
-		default:
-			return nil, fmt.Errorf("failed to create TCP relay service for %q: %w", serverConfig.Name, err)
 		}
 
-		udpRelay, err := serverConfig.UDPRelay(logger, maxClientPackerHeadroom)
-		switch err {
-		case errNetworkDisabled:
-		case nil:
+		if len(serverConfig.UDPListeners) > 0 {
+			udpRelay, err := serverConfig.UDPRelay(logger, maxClientPackerHeadroom)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create UDP relay service for %q: %w", serverConfig.Name, err)
+			}
 			services = append(services, udpRelay)
-		default:
-			return nil, fmt.Errorf("failed to create UDP relay service for %q: %w", serverConfig.Name, err)
 		}
 
 		if err = serverConfig.PostInit(credmgr, serverByName, serverNames); err != nil {
@@ -289,8 +302,10 @@ func (sc *Config) Manager(logger *tslog.Logger) (*Manager, error) {
 		}
 	}
 
-	if sc.API.Enabled {
-		apiServer, err := sc.API.NewServer(logger, tcpListenConfigCache, tlsCertStore, serverByName, serverNames)
+	services = credmgr.AppendService(services)
+
+	if cfg.API.Enabled {
+		apiServer, err := cfg.API.NewServer(logger, tcpListenConfigCache, tlsCertStore, serverByName, serverNames)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create API server: %w", err)
 		}

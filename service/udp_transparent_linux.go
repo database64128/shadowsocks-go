@@ -128,9 +128,9 @@ func (s *UDPTransparentRelay) SlogAttr() slog.Attr {
 
 // Start implements [shadowsocks.Service.Start].
 func (s *UDPTransparentRelay) Start(ctx context.Context) error {
-	for i := range s.listeners {
-		index := i
-		lnc := &s.listeners[index]
+	listeners := s.listeners
+	for i := range listeners {
+		lnc := &listeners[i]
 
 		serverConn, err := conn.ListenUDPMmsgConn(ctx, lnc.network, lnc.address, nil, lnc.socketConfig)
 		if err != nil {
@@ -140,7 +140,7 @@ func (s *UDPTransparentRelay) Start(ctx context.Context) error {
 		lnc.address = serverConn.LocalAddr().String()
 		lnc.logger = s.logger.WithAttrs(
 			slog.String("server", s.serverName),
-			slog.Int("listener", index),
+			slog.Int("listener", i),
 			slog.String("listenAddress", lnc.address),
 		)
 
@@ -762,8 +762,9 @@ func (s *UDPTransparentRelay) relayNatConnToTransparentConnSendmmsg(ctx context.
 
 // Stop implements [shadowsocks.Service.Stop].
 func (s *UDPTransparentRelay) Stop() error {
-	for i := range s.listeners {
-		lnc := &s.listeners[i]
+	listeners := s.listeners
+	for i := range listeners {
+		lnc := &listeners[i]
 		if err := lnc.serverConn.SetReadDeadline(conn.ALongTimeAgo); err != nil {
 			lnc.logger.Error("Failed to set read deadline on serverConn", tslog.Err(err))
 		}
@@ -793,8 +794,8 @@ func (s *UDPTransparentRelay) Stop() error {
 	// so in-flight packets can be written out.
 	s.wg.Wait()
 
-	for i := range s.listeners {
-		lnc := &s.listeners[i]
+	for i := range listeners {
+		lnc := &listeners[i]
 		if err := lnc.serverConn.Close(); err != nil {
 			lnc.logger.Error("Failed to close serverConn", tslog.Err(err))
 		}

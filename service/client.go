@@ -22,8 +22,7 @@ import (
 	"github.com/database64128/shadowsocks-go/zerocopy"
 )
 
-// ClientConfig stores a client configuration.
-// It may be marshaled as or unmarshaled from JSON.
+// ClientConfig is the configuration for a client.
 type ClientConfig struct {
 	// Name is the name of the client.
 	Name string `json:"name"`

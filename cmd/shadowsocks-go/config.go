@@ -85,7 +85,7 @@ func processConfigFile(logger *tslog.Logger, path string, format bool, test bool
 	}
 
 	if test {
-		m, err := svcCfg.Manager(logger)
+		m, err := svcCfg.NewManager(logger)
 		if err != nil {
 			logger.Error("Invalid config file", slog.String("path", path), tslog.Err(err))
 			return false

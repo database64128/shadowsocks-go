@@ -171,31 +171,18 @@ func (c *Config) NewServer(
 	serverByName map[string]ssm.Server,
 	serverNames []string,
 ) (*Server, error) {
-	if len(c.Listeners) == 0 {
+	cfgListeners := c.Listeners
+	if len(cfgListeners) == 0 {
 		return nil, errors.New("no listeners specified")
 	}
 
-	lcs := make([]listenConfig, len(c.Listeners))
-	for i := range c.Listeners {
-		lnc := &c.Listeners[i]
-		lcs[i] = listenConfig{
-			listenConfig: tcpListenConfigCache.Get(conn.TCPListenSocketOptions{
-				Fwmark:              lnc.Fwmark,
-				TrafficClass:        lnc.TrafficClass,
-				TCPFastOpenBacklog:  lnc.FastOpenBacklog,
-				TCPDeferAcceptSecs:  lnc.DeferAcceptSecs,
-				TCPUserTimeoutMsecs: lnc.UserTimeoutMsecs,
-				ReusePort:           lnc.ReusePort,
-				TCPFastOpen:         lnc.FastOpen,
-				TCPFastOpenFallback: lnc.FastOpenFallback,
-				MultipathTCP:        lnc.Multipath,
-			}),
-			network: lnc.Network,
-			address: lnc.Address,
-		}
+	lcs := make([]listenConfig, len(cfgListeners))
+	for i := range cfgListeners {
+		lnc := &cfgListeners[i]
 
+		var tlsConfig *tls.Config
 		if lnc.EnableTLS {
-			var tlsConfig tls.Config
+			tlsConfig = &tls.Config{}
 
 			if lnc.CertList != "" {
 				certList, ok := tlsCertStore.GetCertList(lnc.CertList)
@@ -213,20 +200,38 @@ func (c *Config) NewServer(
 				tlsConfig.ClientCAs = pool
 			}
 
-			tlsConfig.EncryptedClientHelloKeys = make([]tls.EncryptedClientHelloKey, len(lnc.EncryptedClientHelloKeys))
-			for j, key := range lnc.EncryptedClientHelloKeys {
-				tlsConfig.EncryptedClientHelloKeys[j] = tls.EncryptedClientHelloKey{
-					Config:      key.Config,
-					PrivateKey:  key.PrivateKey,
-					SendAsRetry: key.SendAsRetry,
+			if lncECHKeys := lnc.EncryptedClientHelloKeys; len(lncECHKeys) > 0 {
+				tlsECHKeys := make([]tls.EncryptedClientHelloKey, len(lncECHKeys))
+				for j, key := range lncECHKeys {
+					tlsECHKeys[j] = tls.EncryptedClientHelloKey{
+						Config:      key.Config,
+						PrivateKey:  key.PrivateKey,
+						SendAsRetry: key.SendAsRetry,
+					}
 				}
+				tlsConfig.EncryptedClientHelloKeys = tlsECHKeys
 			}
 
 			if lnc.RequireAndVerifyClientCert {
 				tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 			}
+		}
 
-			lcs[i].tlsConfig = &tlsConfig
+		lcs[i] = listenConfig{
+			listenConfig: tcpListenConfigCache.Get(conn.TCPListenSocketOptions{
+				Fwmark:              lnc.Fwmark,
+				TrafficClass:        lnc.TrafficClass,
+				TCPFastOpenBacklog:  lnc.FastOpenBacklog,
+				TCPDeferAcceptSecs:  lnc.DeferAcceptSecs,
+				TCPUserTimeoutMsecs: lnc.UserTimeoutMsecs,
+				ReusePort:           lnc.ReusePort,
+				TCPFastOpen:         lnc.FastOpen,
+				TCPFastOpenFallback: lnc.FastOpenFallback,
+				MultipathTCP:        lnc.Multipath,
+			}),
+			network:   lnc.Network,
+			address:   lnc.Address,
+			tlsConfig: tlsConfig,
 		}
 	}
 
@@ -440,8 +445,9 @@ func (*Server) SlogAttr() slog.Attr {
 //
 // Start implements [shadowsocks.Service.Start].
 func (s *Server) Start(ctx context.Context) error {
-	for i := range s.lcs {
-		lc := &s.lcs[i]
+	lcs := s.lcs
+	for i := range lcs {
+		lc := &lcs[i]
 
 		var ln net.Listener
 		ln, err := lc.listenConfig.Listen(ctx, lc.network, lc.address)

@@ -356,8 +356,7 @@ func (lnc *UDPListenerConfig) Configure(logger *tslog.Logger, serverName string,
 	}, nil
 }
 
-// ServerConfig stores a server configuration.
-// It may be marshaled as or unmarshaled from JSON.
+// ServerConfig is the configuration for a server.
 type ServerConfig struct {
 	// Name is the name of the server.
 	Name string `json:"name"`
@@ -572,10 +571,6 @@ func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, tcpListenConfig
 
 // TCPRelay creates a TCP relay service from the ServerConfig.
 func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
-	if len(sc.TCPListeners) == 0 && len(sc.UnixListeners) == 0 {
-		return nil, errNetworkDisabled
-	}
-
 	var (
 		server              netio.StreamServer
 		err                 error
@@ -685,10 +680,6 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 
 // UDPRelay creates a UDP relay service from the ServerConfig.
 func (sc *ServerConfig) UDPRelay(logger *tslog.Logger, maxClientPackerHeadroom zerocopy.Headroom) (shadowsocks.Service, error) {
-	if len(sc.UDPListeners) == 0 {
-		return nil, errNetworkDisabled
-	}
-
 	if sc.MTU < minimumMTU {
 		return nil, ErrMTUTooSmall
 	}

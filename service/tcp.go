@@ -100,8 +100,9 @@ func (s *TCPRelay) SlogAttr() slog.Attr {
 
 // Start implements [shadowsocks.Service.Start].
 func (s *TCPRelay) Start(ctx context.Context) error {
-	for i := range s.tcpListeners {
-		lnc := &s.tcpListeners[i]
+	tcpListeners := s.tcpListeners
+	for i := range tcpListeners {
+		lnc := &tcpListeners[i]
 
 		l, err := lnc.listenConfig.Listen(ctx, lnc.network, lnc.address)
 		if err != nil {
@@ -133,8 +134,9 @@ func (s *TCPRelay) Start(ctx context.Context) error {
 		lnc.logger.Info("Started stream relay service TCP listener")
 	}
 
-	for i := range s.unixListeners {
-		lnc := &s.unixListeners[i]
+	unixListeners := s.unixListeners
+	for i := range unixListeners {
+		lnc := &unixListeners[i]
 
 		l, err := lnc.listenConfig.Listen(ctx, lnc.network, lnc.address, lnc.permissions)
 		if err != nil {
@@ -352,14 +354,17 @@ func (s *TCPRelay) handleConn(
 
 // Stop implements [shadowsocks.Service.Stop].
 func (s *TCPRelay) Stop() error {
-	for i := range s.tcpListeners {
-		lnc := &s.tcpListeners[i]
+	tcpListeners := s.tcpListeners
+	unixListeners := s.unixListeners
+
+	for i := range tcpListeners {
+		lnc := &tcpListeners[i]
 		if err := lnc.listener.SetDeadline(conn.ALongTimeAgo); err != nil {
 			lnc.logger.Error("Failed to set deadline on TCP listener", tslog.Err(err))
 		}
 	}
-	for i := range s.unixListeners {
-		lnc := &s.unixListeners[i]
+	for i := range unixListeners {
+		lnc := &unixListeners[i]
 		if err := lnc.listener.SetDeadline(conn.ALongTimeAgo); err != nil {
 			lnc.logger.Error("Failed to set deadline on Unix listener", tslog.Err(err))
 		}
@@ -367,14 +372,14 @@ func (s *TCPRelay) Stop() error {
 
 	s.acceptWg.Wait()
 
-	for i := range s.tcpListeners {
-		lnc := &s.tcpListeners[i]
+	for i := range tcpListeners {
+		lnc := &tcpListeners[i]
 		if err := lnc.listener.Close(); err != nil {
 			lnc.logger.Error("Failed to close TCP listener", tslog.Err(err))
 		}
 	}
-	for i := range s.unixListeners {
-		lnc := &s.unixListeners[i]
+	for i := range unixListeners {
+		lnc := &unixListeners[i]
 		if err := lnc.listener.Close(); err != nil {
 			lnc.logger.Error("Failed to close Unix listener", tslog.Err(err))
 		}
