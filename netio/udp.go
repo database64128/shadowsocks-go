@@ -123,8 +123,8 @@ type UDPClientSession struct {
 func (s *UDPClientSession) AppendPack(ctx context.Context, b, payload []byte, destAddr conn.Addr) (sendBuf []byte, sendAddrPort netip.AddrPort, err error) {
 	if destAddr.IsIP() {
 		sendAddrPort = destAddr.IPPort()
-		if err := s.pref.FilterIP(sendAddrPort.Addr()); err != nil {
-			return nil, netip.AddrPort{}, err
+		if !s.pref.FilterIP(sendAddrPort.Addr()) {
+			return nil, netip.AddrPort{}, AddressFamilyPreferenceMismatchError(s.pref)
 		}
 	} else {
 		if s.ipByDomain == nil {

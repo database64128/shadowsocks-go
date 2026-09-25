@@ -65,8 +65,8 @@ func (p *DirectPacketClientPacker) updateDomainIPCache(ctx context.Context, targ
 func (p *DirectPacketClientPacker) PackInPlace(ctx context.Context, b []byte, targetAddr conn.Addr, payloadStart, payloadLen int) (destAddrPort netip.AddrPort, packetStart, packetLen int, err error) {
 	if targetAddr.IsIP() {
 		destAddrPort = targetAddr.IPPort()
-		if err := p.pref.FilterIP(destAddrPort.Addr()); err != nil {
-			return netip.AddrPort{}, 0, 0, err
+		if !p.pref.FilterIP(destAddrPort.Addr()) {
+			return netip.AddrPort{}, 0, 0, netio.AddressFamilyPreferenceMismatchError(p.pref)
 		}
 	} else {
 		err = p.updateDomainIPCache(ctx, targetAddr)

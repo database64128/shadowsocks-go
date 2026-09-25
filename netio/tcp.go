@@ -158,13 +158,13 @@ func (c *TCPClient) DialStream(ctx context.Context, addr conn.Addr, payload []by
 		raddr := addr.IPPort()
 		ip := raddr.Addr()
 		laddr := c.localAddr(ip)
-		if err := c.addressFamilyPreference.FilterIP(ip); err != nil {
+		if !c.addressFamilyPreference.FilterIP(ip) {
 			return nil, &OpError{
 				Op:             "dial",
 				Network:        "tcp",
 				LocalAddrPort:  laddr,
 				RemoteAddrPort: raddr,
-				Err:            err,
+				Err:            AddressFamilyPreferenceMismatchError(c.addressFamilyPreference),
 			}
 		}
 		if err := c.ipACL.Check(ip); err != nil {

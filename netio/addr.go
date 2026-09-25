@@ -108,13 +108,14 @@ func (p *AddressFamilyPreference) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// FilterIP returns an error if ip is disallowed by the address family preference.
-func (p AddressFamilyPreference) FilterIP(ip netip.Addr) error {
-	if p == AddressFamilyPreferenceIPv6Only && (!ip.Is6() || ip.Is4In6()) ||
+// FilterIP reports whether ip is allowed by the address family preference.
+func (p AddressFamilyPreference) FilterIP(ip netip.Addr) bool {
+	if !ip.IsValid() ||
+		p == AddressFamilyPreferenceIPv6Only && (!ip.Is6() || ip.Is4In6()) ||
 		p == AddressFamilyPreferenceIPv4Only && !ip.Is4() && !ip.Is4In6() {
-		return AddressFamilyPreferenceMismatchError(p)
+		return false
 	}
-	return nil
+	return true
 }
 
 // AddressFamilyPreferenceMismatchError represents an incompatibility
@@ -159,8 +160,8 @@ func ResolveIP(
 	switch {
 	case addr.IsIP():
 		ip := addr.IP()
-		if err := pref.FilterIP(ip); err != nil {
-			return netip.Addr{}, err
+		if !pref.FilterIP(ip) {
+			return netip.Addr{}, AddressFamilyPreferenceMismatchError(pref)
 		}
 		return ip, nil
 

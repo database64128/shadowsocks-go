@@ -15,6 +15,88 @@ import (
 	"github.com/database64128/shadowsocks-go/prefixset"
 )
 
+func TestAddressFamilyPreferenceFilterIP(t *testing.T) {
+	type filterIP struct {
+		ip   netip.Addr
+		want bool
+	}
+
+	for _, c := range [...]struct {
+		name  string
+		pref  netio.AddressFamilyPreference
+		tests []filterIP
+	}{
+		{
+			name: "Default",
+			pref: netio.AddressFamilyPreferenceDefault,
+			tests: []filterIP{
+				{netip.Addr{}, false},
+				{netip.AddrFrom4([4]byte{127, 0, 0, 1}), true},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}), true},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}).WithZone("lo"), true},
+				{netip.IPv6Loopback(), true},
+				{netip.IPv6Loopback().WithZone("lo"), true},
+			},
+		},
+		{
+			name: "PreferIPv6",
+			pref: netio.AddressFamilyPreferencePreferIPv6,
+			tests: []filterIP{
+				{netip.Addr{}, false},
+				{netip.AddrFrom4([4]byte{127, 0, 0, 1}), true},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}), true},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}).WithZone("lo"), true},
+				{netip.IPv6Loopback(), true},
+				{netip.IPv6Loopback().WithZone("lo"), true},
+			},
+		},
+		{
+			name: "PreferIPv4",
+			pref: netio.AddressFamilyPreferencePreferIPv4,
+			tests: []filterIP{
+				{netip.Addr{}, false},
+				{netip.AddrFrom4([4]byte{127, 0, 0, 1}), true},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}), true},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}).WithZone("lo"), true},
+				{netip.IPv6Loopback(), true},
+				{netip.IPv6Loopback().WithZone("lo"), true},
+			},
+		},
+		{
+			name: "IPv6Only",
+			pref: netio.AddressFamilyPreferenceIPv6Only,
+			tests: []filterIP{
+				{netip.Addr{}, false},
+				{netip.AddrFrom4([4]byte{127, 0, 0, 1}), false},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}), false},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}).WithZone("lo"), false},
+				{netip.IPv6Loopback(), true},
+				{netip.IPv6Loopback().WithZone("lo"), true},
+			},
+		},
+		{
+			name: "IPv4Only",
+			pref: netio.AddressFamilyPreferenceIPv4Only,
+			tests: []filterIP{
+				{netip.Addr{}, false},
+				{netip.AddrFrom4([4]byte{127, 0, 0, 1}), true},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}), true},
+				{netip.AddrFrom16([16]byte{10: 0xff, 11: 0xff, 127, 0, 0, 1}).WithZone("lo"), true},
+				{netip.IPv6Loopback(), false},
+				{netip.IPv6Loopback().WithZone("lo"), false},
+			},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			for _, tt := range c.tests {
+				if got := c.pref.FilterIP(tt.ip); got != tt.want {
+					t.Errorf("FilterIP(%q) = %v, want %v", tt.ip, got, tt.want)
+				}
+			}
+		})
+	}
+}
+
 func TestResolveIPPort(t *testing.T) {
 	for _, c := range [...]struct {
 		name     string
