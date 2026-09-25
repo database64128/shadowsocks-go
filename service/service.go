@@ -39,6 +39,12 @@ type Config struct {
 	// DNS is the list of DNS resolver configurations.
 	DNS []dns.ResolverConfig `json:"dns,omitzero"`
 
+	// DomainSets is the list of domain sets.
+	DomainSets []domainset.Config `json:"domainSets,omitzero"`
+
+	// PrefixSets is the list of prefix sets.
+	PrefixSets []prefixset.Config `json:"prefixSets,omitzero"`
+
 	// Router is the configuration for the router.
 	Router router.Config `json:"router,omitzero"`
 
@@ -113,18 +119,38 @@ func (cfg *Config) Migrate() {
 			cc.Network = ""
 		}
 	}
+
+	if len(cfg.Router.DomainSets) > 0 {
+		if len(cfg.DomainSets) > 0 {
+			cfg.DomainSets = append(cfg.DomainSets, cfg.Router.DomainSets...)
+		} else {
+			cfg.DomainSets = cfg.Router.DomainSets
+		}
+		cfg.Router.DomainSets = nil
+	}
+
+	if len(cfg.Router.PrefixSets) > 0 {
+		if len(cfg.PrefixSets) > 0 {
+			cfg.PrefixSets = append(cfg.PrefixSets, cfg.Router.PrefixSets...)
+		} else {
+			cfg.PrefixSets = cfg.Router.PrefixSets
+		}
+		cfg.Router.PrefixSets = nil
+	}
 }
 
 // NewManager returns a new service manager.
 //
 // Initialization order: clients -> DNS -> router -> servers
 func (cfg *Config) NewManager(logger *tslog.Logger) (*Manager, error) {
-	if len(cfg.Servers) == 0 {
+	cfgServers := cfg.Servers
+	if len(cfgServers) == 0 {
 		return nil, errors.New("no services to start")
 	}
 
-	if len(cfg.Clients) == 0 {
-		cfg.Clients = []ClientConfig{
+	cfgClients := cfg.Clients
+	if len(cfgClients) == 0 {
+		cfgClients = []ClientConfig{
 			{
 				Name:                "direct",
 				Protocol:            "direct",
@@ -137,10 +163,20 @@ func (cfg *Config) NewManager(logger *tslog.Logger) (*Manager, error) {
 		}
 	}
 
-	domainSetByName := make(map[string]domainset.DomainSet, len(cfg.Router.DomainSets))
-	domainSetIndexByName := make(map[string]int, len(cfg.Router.DomainSets))
+	cfgDomainSets := cfg.DomainSets
+	if len(cfg.Router.DomainSets) > 0 {
+		if len(cfgDomainSets) > 0 {
+			cfgDomainSets = append(cfgDomainSets, cfg.Router.DomainSets...)
+		} else {
+			cfgDomainSets = cfg.Router.DomainSets
+		}
+		logger.Warn("`router.domainSets` is obsolete and will be removed in a future release; run `config -format` to automatically migrate to top-level `domainSets`")
+	}
 
-	for i, dsc := range cfg.Router.DomainSets {
+	domainSetByName := make(map[string]domainset.DomainSet, len(cfgDomainSets))
+	domainSetIndexByName := make(map[string]int, len(cfgDomainSets))
+
+	for i, dsc := range cfgDomainSets {
 		if dupIndex, ok := domainSetIndexByName[dsc.Name]; ok {
 			return nil, fmt.Errorf("duplicate domain set name: %q (index %d and %d)", dsc.Name, dupIndex, i)
 		}
@@ -153,10 +189,20 @@ func (cfg *Config) NewManager(logger *tslog.Logger) (*Manager, error) {
 		domainSetByName[dsc.Name] = domainSet
 	}
 
-	prefixSetByName := make(map[string]*prefixset.PrefixSet, len(cfg.Router.PrefixSets))
-	prefixSetIndexByName := make(map[string]int, len(cfg.Router.PrefixSets))
+	cfgPrefixSets := cfg.PrefixSets
+	if len(cfg.Router.PrefixSets) > 0 {
+		if len(cfgPrefixSets) > 0 {
+			cfgPrefixSets = append(cfgPrefixSets, cfg.Router.PrefixSets...)
+		} else {
+			cfgPrefixSets = cfg.Router.PrefixSets
+		}
+		logger.Warn("`router.prefixSets` is obsolete and will be removed in a future release; run `config -format` to automatically migrate to top-level `prefixSets`")
+	}
 
-	for i, psc := range cfg.Router.PrefixSets {
+	prefixSetByName := make(map[string]*prefixset.PrefixSet, len(cfgPrefixSets))
+	prefixSetIndexByName := make(map[string]int, len(cfgPrefixSets))
+
+	for i, psc := range cfgPrefixSets {
 		if dupIndex, ok := prefixSetIndexByName[psc.Name]; ok {
 			return nil, fmt.Errorf("duplicate prefix set name: %q (index %d and %d)", psc.Name, dupIndex, i)
 		}
@@ -179,7 +225,6 @@ func (cfg *Config) NewManager(logger *tslog.Logger) (*Manager, error) {
 	udpSocketConfigCache := conn.NewUDPSocketConfigCache()
 	unixDomainSocketConfigCache := conn.NewUnixDomainSocketConfigCache()
 
-	cfgClients := cfg.Clients
 	clientIndexByName := make(map[string]int, len(cfgClients))
 	tcpClientByName := make(map[string]netio.StreamClient, len(cfgClients))
 	udpClientByName := make(map[string]zerocopy.UDPClient, len(cfgClients))
@@ -203,7 +248,6 @@ func (cfg *Config) NewManager(logger *tslog.Logger) (*Manager, error) {
 	}
 
 	cfgClientGroups := cfg.ClientGroups
-	cfgServers := cfg.Servers
 	services := make([]shadowsocks.Service, 0, len(cfgClientGroups)+2+2*len(cfgServers))
 	clientGroupIndexByName := make(map[string]int, len(cfgClientGroups))
 

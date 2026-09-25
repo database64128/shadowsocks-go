@@ -681,36 +681,36 @@
             "type": "system"
         }
     ],
+    "domainSets": [
+        {
+            "name": "example",
+            "type": "text",
+            "path": "/usr/share/shadowsocks-go/ss-go-example.txt"
+        },
+        {
+            "name": "example-gob",
+            "type": "gob",
+            "path": "/usr/share/shadowsocks-go/ss-go-gob-example"
+        }
+    ],
+    "prefixSets": [
+        {
+            "name": "private",
+            "type": "text",
+            "path": "/usr/share/shadowsocks-go/prefix-set-private.txt",
+            "loader": "mmap"
+        },
+        {
+            "name": "domestic",
+            "type": "binary",
+            "path": "/usr/share/shadowsocks-go/prefix-set-domestic",
+            "loader": "bufio"
+        }
+    ],
     "router": {
         "defaultTCPClientName": "ss-2022-a",
         "defaultUDPClientName": "ss-2022-a",
         "geoLite2CountryDbPath": "/usr/share/shadowsocks-go/Country.mmdb",
-        "domainSets": [
-            {
-                "name": "example",
-                "type": "text",
-                "path": "/usr/share/shadowsocks-go/ss-go-example.txt"
-            },
-            {
-                "name": "example-gob",
-                "type": "gob",
-                "path": "/usr/share/shadowsocks-go/ss-go-gob-example"
-            }
-        ],
-        "prefixSets": [
-            {
-                "name": "private",
-                "type": "text",
-                "path": "/usr/share/shadowsocks-go/prefix-set-private.txt",
-                "loader": "mmap"
-            },
-            {
-                "name": "domestic",
-                "type": "binary",
-                "path": "/usr/share/shadowsocks-go/prefix-set-domestic",
-                "loader": "bufio"
-            }
-        ],
         "routes": [
             {
                 "name": "example",

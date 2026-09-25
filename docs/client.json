@@ -65,32 +65,32 @@
             "type": "system"
         }
     ],
+    "domainSets": [
+        {
+            "name": "category-ads-all",
+            "type": "gob",
+            "path": "/usr/share/shadowsocks-go/ss-go-gob-category-ads-all"
+        },
+        {
+            "name": "private",
+            "type": "gob",
+            "path": "/usr/share/shadowsocks-go/ss-go-gob-private"
+        },
+        {
+            "name": "cn",
+            "type": "gob",
+            "path": "/usr/share/shadowsocks-go/ss-go-gob-cn"
+        },
+        {
+            "name": "geolocation-!cn@cn",
+            "type": "gob",
+            "path": "/usr/share/shadowsocks-go/ss-go-gob-geolocation-!cn@cn"
+        }
+    ],
     "router": {
         "defaultTCPClientName": "ss-2022",
         "defaultUDPClientName": "ss-2022",
         "geoLite2CountryDbPath": "/usr/share/shadowsocks-go/Country.mmdb",
-        "domainSets": [
-            {
-                "name": "category-ads-all",
-                "type": "gob",
-                "path": "/usr/share/shadowsocks-go/ss-go-gob-category-ads-all"
-            },
-            {
-                "name": "private",
-                "type": "gob",
-                "path": "/usr/share/shadowsocks-go/ss-go-gob-private"
-            },
-            {
-                "name": "cn",
-                "type": "gob",
-                "path": "/usr/share/shadowsocks-go/ss-go-gob-cn"
-            },
-            {
-                "name": "geolocation-!cn@cn",
-                "type": "gob",
-                "path": "/usr/share/shadowsocks-go/ss-go-gob-geolocation-!cn@cn"
-            }
-        ],
         "routes": [
             {
                 "name": "ads",
