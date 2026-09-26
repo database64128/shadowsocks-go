@@ -59,39 +59,44 @@ func runConfig(name string, args []string) int {
 	}
 	logger := logCfg.NewLogger(os.Stderr)
 
-	var exitCode int
-	for _, path := range paths {
-		if !processConfigFile(logger, path, format, test) {
-			exitCode = 1
-		}
+	var svcCfg service.Config
+	if !processConfigFile(paths[0], &svcCfg, logger, format) {
+		return 1
 	}
-	return exitCode
+	for _, path := range paths[1:] {
+		var otherCfg service.Config
+		if !processConfigFile(path, &otherCfg, logger, format) {
+			return 1
+		}
+		svcCfg.Merge(&otherCfg)
+	}
+
+	if test {
+		m, err := svcCfg.NewManager(logger)
+		if err != nil {
+			logger.Error("Config test failed", tslog.Err(err))
+			return 1
+		}
+		m.Close()
+		logger.Info("Config test passed")
+	}
+
+	return 0
 }
 
-func processConfigFile(logger *tslog.Logger, path string, format bool, test bool) bool {
-	var svcCfg service.Config
-	if err := jsoncfg.Load(path, &svcCfg); err != nil {
+func processConfigFile(path string, svcCfg *service.Config, logger *tslog.Logger, format bool) bool {
+	if err := jsoncfg.Load(path, svcCfg); err != nil {
 		logger.Error("Failed to load config file", slog.String("path", path), tslog.Err(err))
 		return false
 	}
 
 	if format {
 		svcCfg.Migrate()
-		if err := jsoncfg.Save(path, &svcCfg); err != nil {
+		if err := jsoncfg.Save(path, svcCfg); err != nil {
 			logger.Error("Failed to save config file", slog.String("path", path), tslog.Err(err))
 			return false
 		}
 		logger.Info("Formatted config file", slog.String("path", path))
-	}
-
-	if test {
-		m, err := svcCfg.NewManager(logger)
-		if err != nil {
-			logger.Error("Invalid config file", slog.String("path", path), tslog.Err(err))
-			return false
-		}
-		m.Close()
-		logger.Info("Config file is valid", slog.String("path", path))
 	}
 
 	return true

@@ -19,6 +19,29 @@ type Config struct {
 	X509CertPools []X509CertPoolConfig `json:"x509CertPools,omitzero"`
 }
 
+// Merge merges other into c.
+//
+// For slice fields, if the slice in c is empty but the slice in other is non-empty,
+// the non-empty slice from other is used without cloning; if both are non-empty,
+// the slice from other is appended to the slice in c.
+func (c *Config) Merge(other *Config) {
+	if len(other.CertLists) > 0 {
+		if len(c.CertLists) > 0 {
+			c.CertLists = append(c.CertLists, other.CertLists...)
+		} else {
+			c.CertLists = other.CertLists
+		}
+	}
+
+	if len(other.X509CertPools) > 0 {
+		if len(c.X509CertPools) > 0 {
+			c.X509CertPools = append(c.X509CertPools, other.X509CertPools...)
+		} else {
+			c.X509CertPools = other.X509CertPools
+		}
+	}
+}
+
 // Store is a store for TLS certificates.
 type Store struct {
 	config              Config

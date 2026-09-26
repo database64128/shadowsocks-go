@@ -72,14 +72,23 @@ func runService(name string, args []string) int {
 	}
 
 	var svcCfg service.Config
-	for _, path := range paths {
-		if err := jsoncfg.Load(path, &svcCfg); err != nil {
+	if err := jsoncfg.Load(paths[0], &svcCfg); err != nil {
+		logger.Error("Failed to load config",
+			slog.String("path", paths[0]),
+			tslog.Err(err),
+		)
+		return 1
+	}
+	for _, path := range paths[1:] {
+		var otherCfg service.Config
+		if err := jsoncfg.Load(path, &otherCfg); err != nil {
 			logger.Error("Failed to load config",
 				slog.String("path", path),
 				tslog.Err(err),
 			)
 			return 1
 		}
+		svcCfg.Merge(&otherCfg)
 	}
 
 	m, err := svcCfg.NewManager(logger)

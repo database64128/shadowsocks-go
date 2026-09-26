@@ -25,6 +25,51 @@ type Config struct {
 	Routes                []RouteConfig      `json:"routes,omitzero"`
 }
 
+// Merge merges other into cfg.
+//
+// Non-empty string fields in other overwrite the corresponding fields in cfg.
+//
+// For slice fields, if the slice in cfg is empty but the slice in other is non-empty,
+// the non-empty slice from other is used without cloning; if both are non-empty,
+// the slice from other is appended to the slice in cfg.
+func (cfg *Config) Merge(other *Config) {
+	if other.DefaultTCPClientName != "" {
+		cfg.DefaultTCPClientName = other.DefaultTCPClientName
+	}
+
+	if other.DefaultUDPClientName != "" {
+		cfg.DefaultUDPClientName = other.DefaultUDPClientName
+	}
+
+	if other.GeoLite2CountryDbPath != "" {
+		cfg.GeoLite2CountryDbPath = other.GeoLite2CountryDbPath
+	}
+
+	if len(other.DomainSets) > 0 {
+		if len(cfg.DomainSets) > 0 {
+			cfg.DomainSets = append(cfg.DomainSets, other.DomainSets...)
+		} else {
+			cfg.DomainSets = other.DomainSets
+		}
+	}
+
+	if len(other.PrefixSets) > 0 {
+		if len(cfg.PrefixSets) > 0 {
+			cfg.PrefixSets = append(cfg.PrefixSets, other.PrefixSets...)
+		} else {
+			cfg.PrefixSets = other.PrefixSets
+		}
+	}
+
+	if len(other.Routes) > 0 {
+		if len(cfg.Routes) > 0 {
+			cfg.Routes = append(cfg.Routes, other.Routes...)
+		} else {
+			cfg.Routes = other.Routes
+		}
+	}
+}
+
 // Router creates a router from the RouterConfig.
 func (rc *Config) Router(
 	logger *tslog.Logger,

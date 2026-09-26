@@ -139,6 +139,73 @@ func (cfg *Config) Migrate() {
 	}
 }
 
+// Merge merges other info cfg.
+//
+// For slice fields, if the slice in cfg is empty but the slice in other is non-empty,
+// the non-empty slice from other is used without cloning; if both are non-empty,
+// the slice from other is appended to the slice in cfg.
+//
+// See [router.Config.Merge] for details on how router configurations are merged.
+//
+// If other has API enabled, it will overwrite the API configuration in cfg.
+func (cfg *Config) Merge(other *Config) {
+	if len(other.Servers) > 0 {
+		if len(cfg.Servers) > 0 {
+			cfg.Servers = append(cfg.Servers, other.Servers...)
+		} else {
+			cfg.Servers = other.Servers
+		}
+	}
+
+	if len(other.Clients) > 0 {
+		if len(cfg.Clients) > 0 {
+			cfg.Clients = append(cfg.Clients, other.Clients...)
+		} else {
+			cfg.Clients = other.Clients
+		}
+	}
+
+	if len(other.ClientGroups) > 0 {
+		if len(cfg.ClientGroups) > 0 {
+			cfg.ClientGroups = append(cfg.ClientGroups, other.ClientGroups...)
+		} else {
+			cfg.ClientGroups = other.ClientGroups
+		}
+	}
+
+	if len(other.DNS) > 0 {
+		if len(cfg.DNS) > 0 {
+			cfg.DNS = append(cfg.DNS, other.DNS...)
+		} else {
+			cfg.DNS = other.DNS
+		}
+	}
+
+	if len(other.DomainSets) > 0 {
+		if len(cfg.DomainSets) > 0 {
+			cfg.DomainSets = append(cfg.DomainSets, other.DomainSets...)
+		} else {
+			cfg.DomainSets = other.DomainSets
+		}
+	}
+
+	if len(other.PrefixSets) > 0 {
+		if len(cfg.PrefixSets) > 0 {
+			cfg.PrefixSets = append(cfg.PrefixSets, other.PrefixSets...)
+		} else {
+			cfg.PrefixSets = other.PrefixSets
+		}
+	}
+
+	cfg.Router.Merge(&other.Router)
+
+	if other.API.Enabled {
+		cfg.API = other.API
+	}
+
+	cfg.TLSCerts.Merge(&other.TLSCerts)
+}
+
 // NewManager returns a new service manager.
 //
 // Initialization order: clients -> DNS -> router -> servers
