@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"sync"
 	"syscall"
 
 	"github.com/database64128/shadowsocks-go/cred"
@@ -17,9 +18,10 @@ import (
 type reloadNotifier struct {
 	fns   []func()
 	sigCh chan os.Signal
+	wg    sync.WaitGroup
 }
 
-func newReloadNotifier(logger *tslog.Logger, credmgr *cred.Manager, tlsCertStore *tlscerts.Store) (rn reloadNotifier) {
+func (rn *reloadNotifier) Init(logger *tslog.Logger, credmgr *cred.Manager, tlsCertStore *tlscerts.Store) {
 	if cmsCount, cmsSeq := credmgr.Servers(); cmsCount > 0 {
 		cms := slices.AppendSeq(make([]*cred.ManagedServer, 0, cmsCount), cmsSeq)
 		rn.fns = append(rn.fns, func() {
@@ -46,29 +48,31 @@ func newReloadNotifier(logger *tslog.Logger, credmgr *cred.Manager, tlsCertStore
 			}
 		})
 	}
-
-	return rn
 }
 
-func (rn *reloadNotifier) start() {
+func (rn *reloadNotifier) Start(notifyStatus statusNotifier) {
 	if len(rn.fns) == 0 {
 		return
 	}
 	rn.sigCh = make(chan os.Signal, 1)
 	signal.Notify(rn.sigCh, syscall.SIGUSR1)
-	go func() {
+	rn.wg.Go(func() {
 		for range rn.sigCh {
+			notifyStatus.Reloading()
 			for _, fn := range rn.fns {
 				fn()
 			}
+			notifyStatus.Ready()
 		}
-	}()
+	})
 }
 
-func (rn *reloadNotifier) stop() {
+// When Stop returns, no further status notifications will be sent.
+func (rn *reloadNotifier) Stop() {
 	if len(rn.fns) == 0 {
 		return
 	}
 	signal.Stop(rn.sigCh)
 	close(rn.sigCh)
+	rn.wg.Wait()
 }

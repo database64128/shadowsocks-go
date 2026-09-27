@@ -10,9 +10,6 @@ import (
 
 type reloadNotifier struct{}
 
-func newReloadNotifier(_ *tslog.Logger, _ *cred.Manager, _ *tlscerts.Store) reloadNotifier {
-	return reloadNotifier{}
-}
-
-func (*reloadNotifier) start() {}
-func (*reloadNotifier) stop()  {}
+func (*reloadNotifier) Init(_ *tslog.Logger, _ *cred.Manager, _ *tlscerts.Store) {}
+func (*reloadNotifier) Start(statusNotifier)                                     {}
+func (*reloadNotifier) Stop()                                                    {}

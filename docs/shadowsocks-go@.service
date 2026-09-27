@@ -4,8 +4,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+Type=notify-reload
 ExecStart=/usr/bin/shadowsocks-go service -logNoColor=0 -logNoTime /etc/shadowsocks-go/%i.json
-ExecReload=/usr/bin/kill -USR1 $MAINPID
+ReloadSignal=SIGUSR1
 
 [Install]
 WantedBy=multi-user.target

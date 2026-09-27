@@ -423,12 +423,13 @@ func (cfg *Config) NewManager(logger *tslog.Logger) (*Manager, error) {
 		services = append(services, apiServer)
 	}
 
-	return &Manager{
-		notifyReload: newReloadNotifier(logger, credmgr, tlsCertStore),
-		services:     services,
-		router:       router,
-		logger:       logger,
-	}, nil
+	m := &Manager{
+		services: services,
+		router:   router,
+		logger:   logger,
+	}
+	m.notifyReload.Init(logger, credmgr, tlsCertStore)
+	return m, nil
 }
 
 // Manager manages the services.
@@ -446,7 +447,8 @@ func (m *Manager) Run(ctx context.Context) bool {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	m.notifyReload.start()
+	notifyStatus := newStatusNotifier(ctx)
+	m.notifyReload.Start(notifyStatus)
 
 	ok := true
 	runningSvcs := make([]shadowsocks.Service, 0, len(m.services))
@@ -462,13 +464,16 @@ func (m *Manager) Run(ctx context.Context) bool {
 
 	var stopReason slog.Attr
 	if ok {
+		m.logger.Info("Ready", slog.Int("services", len(m.services)))
+		notifyStatus.Ready()
 		<-ctx.Done()
 		stopReason = slog.Any("reason", context.Cause(ctx))
 	} else {
 		cancel()
 		stopReason = slog.String("reason", "one or more services failed to start")
 	}
-	m.logger.Info("Stopping services", stopReason)
+	m.logger.Info("Stopping", stopReason)
+	notifyStatus.Stopping()
 
 	for _, s := range runningSvcs {
 		if err := s.Stop(); err != nil {
@@ -476,7 +481,8 @@ func (m *Manager) Run(ctx context.Context) bool {
 		}
 	}
 
-	m.notifyReload.stop()
+	m.notifyReload.Stop()
+	notifyStatus.Close()
 	return ok
 }
 
