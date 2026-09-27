@@ -51,9 +51,6 @@ func (rn *reloadNotifier) Init(logger *tslog.Logger, credmgr *cred.Manager, tlsC
 }
 
 func (rn *reloadNotifier) Start(notifyStatus statusNotifier) {
-	if len(rn.fns) == 0 {
-		return
-	}
 	rn.sigCh = make(chan os.Signal, 1)
 	signal.Notify(rn.sigCh, syscall.SIGUSR1)
 	rn.wg.Go(func() {
@@ -69,9 +66,6 @@ func (rn *reloadNotifier) Start(notifyStatus statusNotifier) {
 
 // When Stop returns, no further status notifications will be sent.
 func (rn *reloadNotifier) Stop() {
-	if len(rn.fns) == 0 {
-		return
-	}
 	signal.Stop(rn.sigCh)
 	close(rn.sigCh)
 	rn.wg.Wait()
