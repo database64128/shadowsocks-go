@@ -58,6 +58,7 @@ func (e resolverError) Unwrap() error {
 
 var (
 	ErrLookup                       = newResolverError("name lookup failed")
+	ErrDomainTooLong                = newResolverError("domain name is too long")
 	ErrMessageNotResponse           = newResolverError("message is not a response")
 	ErrResponseNoRecursionAvailable = newResolverError("response indicates server does not support recursion")
 	ErrDomainNoAssociatedIPs        = newResolverError("domain name has no associated IP addresses")
@@ -250,20 +251,29 @@ func (r *Resolver) Lookup(ctx context.Context, name string) (Result, error) {
 }
 
 func (r *Resolver) sendQueries(ctx context.Context, nameString string, result *resultBuilder) error {
-	name, err := dnsmessage.NewName(nameString + ".")
-	if err != nil {
-		return err
+	var name dnsmessage.Name
+	nameLen := copy(name.Data[:], nameString)
+	switch {
+	case nameLen > 254:
+		return ErrDomainTooLong
+	case nameLen > 0 && name.Data[nameLen-1] != '.':
+		if nameLen > 253 {
+			return ErrDomainTooLong
+		}
+		name.Data[nameLen] = '.'
+		nameLen++
+	case nameLen == 0:
+		name.Data[0] = '.'
+		nameLen = 1
 	}
+	name.Length = uint8(nameLen)
 
-	var (
-		rh dnsmessage.ResourceHeader
-		rb dnsmessage.OPTResource
-	)
-
+	var rh dnsmessage.ResourceHeader
 	if err := rh.SetEDNS0(maxDNSPacketSize, dnsmessage.RCodeSuccess, false); err != nil {
 		return err
 	}
 
+	var rb dnsmessage.OPTResource
 	qBuf := make([]byte, 2+512+2+512)
 
 	q4 := dnsmessage.Message{
