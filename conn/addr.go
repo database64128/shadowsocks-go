@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 	"unsafe"
 )
 
@@ -348,7 +350,22 @@ func AddrFromIPAndPort(ip netip.Addr, port uint16) Addr {
 // AddrFromDomainPort returns an Addr from the provided domain name and port number.
 func AddrFromDomainPort(domain string, port uint16) (Addr, error) {
 	if len(domain) == 0 || len(domain) > 255 {
-		return Addr{}, fmt.Errorf("length of domain %s out of range [1, 255]", domain)
+		return Addr{}, fmt.Errorf("length of domain %q out of range [1, 255]", domain)
+	}
+	// This could use some SIMD.
+	var hasUpper bool
+	for i := range len(domain) {
+		c := domain[i]
+		if c >= utf8.RuneSelf {
+			return Addr{}, fmt.Errorf("domain %q contains non-ASCII characters", domain)
+		}
+		if c == '%' {
+			return Addr{}, fmt.Errorf("domain %q contains percent-encoding", domain)
+		}
+		hasUpper = hasUpper || ('A' <= c && c <= 'Z')
+	}
+	if hasUpper {
+		domain = asciiToLower(domain)
 	}
 	return Addr{
 		addr: netipAddrHeader{
@@ -358,6 +375,29 @@ func AddrFromDomainPort(domain string, port uint16) (Addr, error) {
 		port: port,
 		af:   addressFamilyDomain,
 	}, nil
+}
+
+func asciiToLower(s string) string {
+	var (
+		b   strings.Builder
+		pos int
+	)
+	b.Grow(len(s))
+	for i := range len(s) {
+		c := s[i]
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+			if pos < i {
+				b.WriteString(s[pos:i])
+			}
+			b.WriteByte(c)
+			pos = i + 1
+		}
+	}
+	if pos < len(s) {
+		b.WriteString(s[pos:])
+	}
+	return b.String()
 }
 
 // MustAddrFromDomainPort calls [AddrFromDomainPort] and panics on error.

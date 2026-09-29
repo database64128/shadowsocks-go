@@ -450,7 +450,7 @@ func BenchmarkAddrUnmarshalText(b *testing.B) {
 	}
 }
 
-func TestAddrFromDomainPort(t *testing.T) {
+func TestAddrFromDomainPortError(t *testing.T) {
 	for _, c := range []struct {
 		name   string
 		domain string
@@ -458,6 +458,8 @@ func TestAddrFromDomainPort(t *testing.T) {
 	}{
 		{"EmptyDomain", "", 443},
 		{"LongDomain", strings.Repeat(" ", 256), 443},
+		{"EmojiDomain", "😀.com", 443},
+		{"PercentEncodedDomain", "exampl%65.com", 443},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if _, err := AddrFromDomainPort(c.domain, c.port); err == nil {
