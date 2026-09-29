@@ -57,6 +57,9 @@ type netipAddrHeader struct {
 //
 // An Addr is a port number combined with either an IP address or a domain name.
 //
+// The domain name is guaranteed to contain only ASCII characters
+// with lowercase letters and no percent-encoding.
+//
 // For space efficiency, the IP address and the domain string share the same space.
 // The [netip.Addr] is stored in its original layout.
 // The domain string's data pointer is stored in the ip.z field.
@@ -348,33 +351,40 @@ func AddrFromIPAndPort(ip netip.Addr, port uint16) Addr {
 }
 
 // AddrFromDomainPort returns an Addr from the provided domain name and port number.
+//
+// Internationalized domain names (IDNs) must use Punycode encoding.
 func AddrFromDomainPort(domain string, port uint16) (Addr, error) {
 	if len(domain) == 0 || len(domain) > 255 {
-		return Addr{}, fmt.Errorf("length of domain %q out of range [1, 255]", domain)
+		return Addr{}, newDomainLengthError(domain)
 	}
 	// This could use some SIMD.
 	var hasUpper bool
 	for i := range len(domain) {
 		c := domain[i]
 		if c >= utf8.RuneSelf {
-			return Addr{}, fmt.Errorf("domain %q contains non-ASCII characters", domain)
+			return Addr{}, newDomainNonASCIIError(domain)
 		}
 		if c == '%' {
-			return Addr{}, fmt.Errorf("domain %q contains percent-encoding", domain)
+			return Addr{}, newDomainPercentEncodingError(domain)
 		}
 		hasUpper = hasUpper || ('A' <= c && c <= 'Z')
 	}
 	if hasUpper {
 		domain = asciiToLower(domain)
 	}
-	return Addr{
-		addr: netipAddrHeader{
-			hi: uint64(len(domain)),
-			z:  unsafe.StringData(domain),
-		},
-		port: port,
-		af:   addressFamilyDomain,
-	}, nil
+	return addrFromDomainPort(domain, port), nil
+}
+
+func newDomainLengthError(domain string) error {
+	return errors.New("length of domain " + strconv.Quote(domain) + " out of range [1, 255]")
+}
+
+func newDomainNonASCIIError(domain string) error {
+	return errors.New("domain " + strconv.Quote(domain) + " contains non-ASCII characters")
+}
+
+func newDomainPercentEncodingError(domain string) error {
+	return errors.New("domain " + strconv.Quote(domain) + " contains percent-encoding")
 }
 
 func asciiToLower(s string) string {
@@ -400,6 +410,17 @@ func asciiToLower(s string) string {
 	return b.String()
 }
 
+func addrFromDomainPort(domain string, port uint16) Addr {
+	return Addr{
+		addr: netipAddrHeader{
+			hi: uint64(len(domain)),
+			z:  unsafe.StringData(domain),
+		},
+		port: port,
+		af:   addressFamilyDomain,
+	}
+}
+
 // MustAddrFromDomainPort calls [AddrFromDomainPort] and panics on error.
 func MustAddrFromDomainPort(domain string, port uint16) Addr {
 	addr, err := AddrFromDomainPort(domain, port)
@@ -407,6 +428,26 @@ func MustAddrFromDomainPort(domain string, port uint16) Addr {
 		panic(err)
 	}
 	return addr
+}
+
+// AddrFromDomainBytesAndPort is like [AddrFromDomainPort] but takes a byte slice
+// for the input domain and normalizes it in-place to lowercase.
+func AddrFromDomainBytesAndPort(domain []byte, port uint16) (Addr, error) {
+	if len(domain) == 0 || len(domain) > 255 {
+		return Addr{}, newDomainLengthError(string(domain))
+	}
+	for i, c := range domain {
+		if c >= utf8.RuneSelf {
+			return Addr{}, newDomainNonASCIIError(string(domain))
+		}
+		if c == '%' {
+			return Addr{}, newDomainPercentEncodingError(string(domain))
+		}
+		if 'A' <= c && c <= 'Z' {
+			domain[i] += 'a' - 'A'
+		}
+	}
+	return addrFromDomainPort(string(domain), port), nil
 }
 
 // AddrFromHostPort returns an Addr from the provided host string and port number.

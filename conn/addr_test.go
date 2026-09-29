@@ -450,17 +450,81 @@ func BenchmarkAddrUnmarshalText(b *testing.B) {
 	}
 }
 
+var addrFromDomainPortCases = [...]struct {
+	domain           string
+	wantDomain       string
+	fromStringAllocs float64
+	port             uint16
+}{
+	{
+		domain:     "example.com",
+		wantDomain: "example.com",
+		port:       443,
+	},
+	{
+		domain:     "example.com.",
+		wantDomain: "example.com.",
+		port:       443,
+	},
+	{
+		domain:           "EXAMPLE.COM",
+		wantDomain:       "example.com",
+		fromStringAllocs: 1,
+		port:             443,
+	},
+	{
+		domain:           "Example.Com.",
+		wantDomain:       "example.com.",
+		fromStringAllocs: 1,
+		port:             443,
+	},
+}
+
+func TestAddrFromDomainPort(t *testing.T) {
+	for _, c := range addrFromDomainPortCases {
+		addr, err := AddrFromDomainPort(c.domain, c.port)
+		if err != nil {
+			t.Errorf("AddrFromDomainPort(%q, %d) failed: %v", c.domain, c.port, err)
+			continue
+		}
+		if got := addr.Domain(); got != c.wantDomain {
+			t.Errorf("AddrFromDomainPort(%q, %d).Domain() = %q, want %q", c.domain, c.port, got, c.wantDomain)
+		}
+		if got := addr.Port(); got != c.port {
+			t.Errorf("AddrFromDomainPort(%q, %d).Port() = %d, want %d", c.domain, c.port, got, c.port)
+		}
+	}
+}
+
+func TestAddrFromDomainBytesAndPort(t *testing.T) {
+	for _, c := range addrFromDomainPortCases {
+		addr, err := AddrFromDomainBytesAndPort([]byte(c.domain), c.port)
+		if err != nil {
+			t.Errorf("AddrFromDomainBytesAndPort(%q, %d) failed: %v", c.domain, c.port, err)
+			continue
+		}
+		if got := addr.Domain(); got != c.wantDomain {
+			t.Errorf("AddrFromDomainBytesAndPort(%q, %d).Domain() = %q, want %q", c.domain, c.port, got, c.wantDomain)
+		}
+		if got := addr.Port(); got != c.port {
+			t.Errorf("AddrFromDomainBytesAndPort(%q, %d).Port() = %d, want %d", c.domain, c.port, got, c.port)
+		}
+	}
+}
+
+var addrFromDomainPortErrorCases = [...]struct {
+	name   string
+	domain string
+	port   uint16
+}{
+	{"EmptyDomain", "", 443},
+	{"LongDomain", strings.Repeat(" ", 256), 443},
+	{"EmojiDomain", "😀.com", 443},
+	{"PercentEncodedDomain", "exampl%65.com", 443},
+}
+
 func TestAddrFromDomainPortError(t *testing.T) {
-	for _, c := range []struct {
-		name   string
-		domain string
-		port   uint16
-	}{
-		{"EmptyDomain", "", 443},
-		{"LongDomain", strings.Repeat(" ", 256), 443},
-		{"EmojiDomain", "😀.com", 443},
-		{"PercentEncodedDomain", "exampl%65.com", 443},
-	} {
+	for _, c := range addrFromDomainPortErrorCases {
 		t.Run(c.name, func(t *testing.T) {
 			if _, err := AddrFromDomainPort(c.domain, c.port); err == nil {
 				t.Errorf("AddrFromDomainPort(%q, %d) did not return error.", c.domain, c.port)
@@ -469,11 +533,33 @@ func TestAddrFromDomainPortError(t *testing.T) {
 	}
 }
 
+func TestAddrFromDomainBytesAndPortError(t *testing.T) {
+	for _, c := range addrFromDomainPortErrorCases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := AddrFromDomainBytesAndPort([]byte(c.domain), c.port); err == nil {
+				t.Errorf("AddrFromDomainBytesAndPort(%q, %d) did not return error.", c.domain, c.port)
+			}
+		})
+	}
+}
+
 func TestAddrFromDomainPortAllocs(t *testing.T) {
-	if n := testing.AllocsPerRun(10, func() {
-		_, _ = AddrFromDomainPort(addrDomainHost, addrDomainPort)
-	}); n > 0 {
-		t.Errorf("AddrFromDomainPort(%q, %d) allocs = %f, want 0", addrDomainHost, addrDomainPort, n)
+	for _, c := range addrFromDomainPortCases {
+		if n := testing.AllocsPerRun(10, func() {
+			_, _ = AddrFromDomainPort(c.domain, c.port)
+		}); n > c.fromStringAllocs {
+			t.Errorf("AddrFromDomainPort(%q, %d) allocs = %f, want <= %f", c.domain, c.port, n, c.fromStringAllocs)
+		}
+	}
+}
+
+func TestAddrFromDomainBytesAndPortAllocs(t *testing.T) {
+	for _, c := range addrFromDomainPortCases {
+		if n := testing.AllocsPerRun(10, func() {
+			_, _ = AddrFromDomainBytesAndPort([]byte(c.domain), c.port)
+		}); n > 1 {
+			t.Errorf("AddrFromDomainBytesAndPort(%q, %d) allocs = %f, want <= 1", c.domain, c.port, n)
+		}
 	}
 }
 
