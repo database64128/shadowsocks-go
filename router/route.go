@@ -170,7 +170,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 	if rc.Resolver != "" {
 		resolver, ok := resolverMap[rc.Resolver]
 		if !ok {
-			return Route{}, fmt.Errorf("resolver not found: %s", rc.Resolver)
+			return Route{}, fmt.Errorf("resolver not found: %q", rc.Resolver)
 		}
 		resolvers = []dns.SimpleResolver{resolver}
 	}
@@ -184,14 +184,14 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 	case "udp":
 		route.AddCriterion(NetworkUDPCriterion{}, false)
 	default:
-		return Route{}, fmt.Errorf("invalid network: %s", rc.Network)
+		return Route{}, fmt.Errorf("invalid network: %q", rc.Network)
 	}
 
 	switch rc.Network {
 	case "", "tcp":
 		route.tcpClient = tcpClientMap[rc.Client]
 		if route.tcpClient == nil && rc.Client != "reject" {
-			return Route{}, fmt.Errorf("TCP client not found: %s", rc.Client)
+			return Route{}, fmt.Errorf("TCP client not found: %q", rc.Client)
 		}
 	}
 
@@ -199,7 +199,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 	case "", "udp":
 		route.udpClient = udpClientMap[rc.Client]
 		if route.udpClient == nil && rc.Client != "reject" {
-			return Route{}, fmt.Errorf("UDP client not found: %s", rc.Client)
+			return Route{}, fmt.Errorf("UDP client not found: %q", rc.Client)
 		}
 	}
 
@@ -209,7 +209,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 		for _, server := range rc.FromServers {
 			index, ok := serverIndexByName[server]
 			if !ok {
-				return Route{}, fmt.Errorf("server not found: %s", server)
+				return Route{}, fmt.Errorf("server not found: %q", server)
 			}
 			sourceServerSet.Set(uint(index))
 		}
@@ -333,7 +333,7 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 			for i, tds := range rc.ToDomainSets {
 				ds, ok := domainSetMap[tds]
 				if !ok {
-					return Route{}, fmt.Errorf("domain set not found: %s", tds)
+					return Route{}, fmt.Errorf("domain set not found: %q", tds)
 				}
 				domainSets[defaultDomainSetCount+i] = ds
 			}
