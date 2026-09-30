@@ -136,8 +136,18 @@ type RouteConfig struct {
 	InvertToPorts bool `json:"invertToPorts,omitzero"`
 }
 
-// Route creates a route from the RouteConfig.
-func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolvers []dns.SimpleResolver, resolverMap map[string]dns.SimpleResolver, tcpClientMap map[string]netio.StreamClient, udpClientMap map[string]zerocopy.UDPClient, serverIndexByName map[string]int, domainSetMap map[string]domainset.DomainSet, prefixSetMap map[string]*prefixset.PrefixSet) (Route, error) {
+// NewRoute creates a route from the configuration.
+func (rc *RouteConfig) NewRoute(
+	geoip *geoip2.Reader,
+	logger *tslog.Logger,
+	resolvers []dns.SimpleResolver,
+	resolverMap map[string]dns.SimpleResolver,
+	tcpClientMap map[string]netio.StreamClient,
+	udpClientMap map[string]zerocopy.UDPClient,
+	serverIndexByName map[string]int,
+	domainSetMap map[string]domainset.DomainSet,
+	prefixSetMap map[string]*prefixset.PrefixSet,
+) (Route, error) {
 	// Bad name.
 	switch rc.Name {
 	case "", "default":

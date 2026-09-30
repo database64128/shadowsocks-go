@@ -71,7 +71,7 @@ func (cfg *Config) Merge(other *Config) {
 }
 
 // Router creates a router from the RouterConfig.
-func (rc *Config) Router(
+func (cfg *Config) Router(
 	logger *tslog.Logger,
 	resolvers []dns.SimpleResolver,
 	resolverMap map[string]dns.SimpleResolver,
@@ -81,27 +81,27 @@ func (rc *Config) Router(
 	domainSetByName map[string]domainset.DomainSet,
 	prefixSetByName map[string]*prefixset.PrefixSet,
 ) (r *Router, err error) {
-	defaultRoute := Route{name: "default"}
-
-	if rc.DefaultTCPClientName == "" && len(tcpClientMap) == 1 {
+	var defaultTCPClient netio.StreamClient
+	if name := cfg.DefaultTCPClientName; name == "" && len(tcpClientMap) == 1 {
 		for _, tcpClient := range tcpClientMap {
-			defaultRoute.tcpClient = tcpClient
+			defaultTCPClient = tcpClient
 		}
 	} else {
-		defaultRoute.tcpClient = tcpClientMap[rc.DefaultTCPClientName]
-		if defaultRoute.tcpClient == nil && rc.DefaultTCPClientName != "reject" {
-			return nil, fmt.Errorf("default TCP client not found: %q", rc.DefaultTCPClientName)
+		defaultTCPClient = tcpClientMap[name]
+		if defaultTCPClient == nil && name != "reject" {
+			return nil, fmt.Errorf("default TCP client not found: %q", name)
 		}
 	}
 
-	if rc.DefaultUDPClientName == "" && len(udpClientMap) == 1 {
+	var defaultUDPClient zerocopy.UDPClient
+	if name := cfg.DefaultUDPClientName; name == "" && len(udpClientMap) == 1 {
 		for _, udpClient := range udpClientMap {
-			defaultRoute.udpClient = udpClient
+			defaultUDPClient = udpClient
 		}
 	} else {
-		defaultRoute.udpClient = udpClientMap[rc.DefaultUDPClientName]
-		if defaultRoute.udpClient == nil && rc.DefaultUDPClientName != "reject" {
-			return nil, fmt.Errorf("default UDP client not found: %q", rc.DefaultUDPClientName)
+		defaultUDPClient = udpClientMap[name]
+		if defaultUDPClient == nil && name != "reject" {
+			return nil, fmt.Errorf("default UDP client not found: %q", name)
 		}
 	}
 
@@ -110,9 +110,9 @@ func (rc *Config) Router(
 		close = func() error { return nil }
 	)
 
-	if rc.GeoLite2CountryDbPath != "" {
+	if path := cfg.GeoLite2CountryDbPath; path != "" {
 		var data []byte
-		data, close, err = mmap.ReadFile[[]byte](rc.GeoLite2CountryDbPath)
+		data, close, err = mmap.ReadFile[[]byte](path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read GeoLite2-Country database: %w", err)
 		}
@@ -124,36 +124,52 @@ func (rc *Config) Router(
 
 		geoip, err = geoip2.OpenBytes(data)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to open GeoLite2-Country database: %w", err)
 		}
 	}
 
-	routes := make([]Route, len(rc.Routes)+1)
+	cfgRoutes := cfg.Routes
+	routes := make([]Route, len(cfgRoutes))
 
-	for i := range rc.Routes {
-		route, err := rc.Routes[i].Route(geoip, logger, resolvers, resolverMap, tcpClientMap, udpClientMap, serverIndexByName, domainSetByName, prefixSetByName)
+	for i := range cfgRoutes {
+		routeCfg := &cfgRoutes[i]
+		route, err := routeCfg.NewRoute(
+			geoip,
+			logger,
+			resolvers,
+			resolverMap,
+			tcpClientMap,
+			udpClientMap,
+			serverIndexByName,
+			domainSetByName,
+			prefixSetByName,
+		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to create route %q at index %d: %w", routeCfg.Name, i, err)
 		}
 		routes[i] = route
 	}
-
-	routes[len(rc.Routes)] = defaultRoute
 
 	return &Router{
 		geoip:  geoip,
 		close:  close,
 		logger: logger,
 		routes: routes,
+		defaultRoute: Route{
+			name:      "default",
+			tcpClient: defaultTCPClient,
+			udpClient: defaultUDPClient,
+		},
 	}, nil
 }
 
 // Router looks up the destination client for requests received by servers.
 type Router struct {
-	geoip  *geoip2.Reader
-	close  func() error
-	logger *tslog.Logger
-	routes []Route
+	geoip        *geoip2.Reader
+	close        func() error
+	logger       *tslog.Logger
+	routes       []Route
+	defaultRoute Route
 }
 
 // Close closes the router.
@@ -214,5 +230,5 @@ func (r *Router) match(ctx context.Context, network protocol, requestInfo Reques
 			return &r.routes[i], nil
 		}
 	}
-	panic("did not match default route")
+	return &r.defaultRoute, nil
 }
