@@ -264,8 +264,8 @@ func TestHostHeaderToAddr(t *testing.T) {
 		expectedAddr conn.Addr
 		expectedErr  error
 	}{
-		{"Domain", "example.com", conn.MustAddrFromDomainPort("example.com", 80), nil},
-		{"DomainPort", "example.com:443", conn.MustAddrFromDomainPort("example.com", 443), nil},
+		{"Domain", "example.com", conn.MustAddrFromDomainStringAndPort("example.com", 80), nil},
+		{"DomainPort", "example.com:443", conn.MustAddrFromDomainStringAndPort("example.com", 443), nil},
 		{"IPv4", "1.1.1.1", conn.AddrFromIPAndPort(addr4, 80), nil},
 		{"IPv4Port", "1.1.1.1:443", conn.AddrFromIPAndPort(addr4, 443), nil},
 		{"IPv6", "[2606:4700:4700::1111]", conn.AddrFromIPAndPort(addr6, 80), nil},
@@ -274,7 +274,7 @@ func TestHostHeaderToAddr(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			addr, err := hostHeaderToAddr(c.host)
-			if !addr.Equals(c.expectedAddr) {
+			if addr != c.expectedAddr {
 				t.Errorf("addr = %v, want %v", addr, c.expectedAddr)
 			}
 			if !errors.Is(err, c.expectedErr) {

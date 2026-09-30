@@ -12,7 +12,7 @@ import (
 )
 
 func TestTCPClientDialStreamDomainResolverError(t *testing.T) {
-	addr := conn.MustAddrFromDomainPort("example.com", 80)
+	addr := conn.MustAddrFromDomainStringAndPort("example.com", 80)
 	ipErr := errors.New("lookup ip failed")
 	ip6Err := errors.New("lookup ip6 failed")
 	ip4Err := errors.New("lookup ip4 failed")

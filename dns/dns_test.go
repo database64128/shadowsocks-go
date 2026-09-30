@@ -90,7 +90,7 @@ func TestResolverTCPBoundedRetry(t *testing.T) {
 				return
 
 			case pc := <-ch:
-				if !pc.LocalConnAddr().Equals(expectedServerAddr) {
+				if pc.LocalConnAddr() != expectedServerAddr {
 					t.Errorf("pc.LocalConnAddr() = %v, want %v", pc.LocalConnAddr(), expectedServerAddr)
 				}
 

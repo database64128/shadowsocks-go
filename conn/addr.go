@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+	"unique"
 	"unsafe"
 )
 
@@ -50,7 +51,7 @@ func (e UnsupportedAddressKindError) Is(target error) bool {
 type netipAddrHeader struct {
 	hi uint64
 	lo uint64
-	z  *byte
+	z  unsafe.Pointer
 }
 
 // Addr is the base address type used throughout the package.
@@ -66,7 +67,6 @@ type netipAddrHeader struct {
 // Its length is stored at the beginning of the structure.
 // This is essentially an unsafe "enum".
 type Addr struct {
-	_    [0]func()
 	addr netipAddrHeader
 	port uint16
 	af   addressFamily
@@ -80,24 +80,14 @@ func (a Addr) ipPort() netip.AddrPort {
 	return *(*netip.AddrPort)(unsafe.Pointer(&a))
 }
 
-func (a Addr) domain() string {
-	return unsafe.String(a.addr.z, a.addr.hi)
+func (a Addr) domain() Domain {
+	return Domain{
+		h: *(*unique.Handle[string])(unsafe.Pointer(&a.addr.z)),
+	}
 }
 
-// Equals returns whether two addresses are the same.
-func (a Addr) Equals(b Addr) bool {
-	if a.af != b.af || a.port != b.port {
-		return false
-	}
-
-	switch a.af {
-	case addressFamilyNetip:
-		return a.addr == b.addr
-	case addressFamilyDomain:
-		return a.domain() == b.domain()
-	default:
-		return true
-	}
+func (a Addr) domainLen() int {
+	return int(a.addr.hi)
 }
 
 // IsValid returns whether the address is an initialized address (not a zero value).
@@ -128,11 +118,21 @@ func (a Addr) IP() netip.Addr {
 // Domain returns the domain name.
 //
 // If the address is an IP address or zero value, this method panics.
-func (a Addr) Domain() string {
+func (a Addr) Domain() Domain {
 	if a.af != addressFamilyDomain {
 		panic("Domain() called on non-domain address")
 	}
 	return a.domain()
+}
+
+// DomainLen returns the length of the domain name.
+//
+// If the address is an IP address or zero value, this method panics.
+func (a Addr) DomainLen() int {
+	if a.af != addressFamilyDomain {
+		panic("DomainLen() called on non-domain address")
+	}
+	return a.domainLen()
 }
 
 // Port returns the port number.
@@ -192,7 +192,7 @@ func (a Addr) ResolveIP(ctx context.Context, network string, resolver Resolver) 
 	case addressFamilyNetip:
 		return a.ip(), nil
 	case addressFamilyDomain:
-		return ResolveIP(ctx, network, a.domain(), resolver)
+		return ResolveIP(ctx, network, a.domain().String(), resolver)
 	default:
 		panic("ResolveIP() called on zero value")
 	}
@@ -211,7 +211,7 @@ func (a Addr) ResolveIPPort(ctx context.Context, network string, resolver Resolv
 	case addressFamilyNetip:
 		return a.ipPort(), nil
 	case addressFamilyDomain:
-		ip, err := ResolveIP(ctx, network, a.domain(), resolver)
+		ip, err := ResolveIP(ctx, network, a.domain().String(), resolver)
 		if err != nil {
 			return netip.AddrPort{}, err
 		}
@@ -229,7 +229,7 @@ func (a Addr) Host() string {
 	case addressFamilyNetip:
 		return a.ip().String()
 	case addressFamilyDomain:
-		return a.domain()
+		return a.domain().String()
 	default:
 		panic("Host() called on zero value")
 	}
@@ -272,7 +272,7 @@ func (a Addr) MaxTextLen() int {
 			return 0
 		}
 	case addressFamilyDomain:
-		return int(a.addr.hi) + 1 + 5 // domain + ':' + port
+		return a.domainLen() + 1 + 5 // domain + ':' + port
 	default:
 		return 0
 	}
@@ -293,7 +293,7 @@ func (a Addr) AppendTo(b []byte) []byte {
 }
 
 func (a Addr) appendTextDomain(b []byte) []byte {
-	b = append(b, a.domain()...)
+	b = append(b, a.domain().String()...)
 	b = append(b, ':')
 	return strconv.AppendUint(b, uint64(a.port), 10)
 }
@@ -313,7 +313,7 @@ func (a Addr) MarshalText() ([]byte, error) {
 	case addressFamilyNetip:
 		return a.ipPort().MarshalText()
 	case addressFamilyDomain:
-		b := make([]byte, 0, a.addr.hi+1+5) // domain + ':' + port
+		b := make([]byte, 0, a.domainLen()+1+5) // domain + ':' + port
 		return a.appendTextDomain(b), nil
 	default:
 		return nil, nil
@@ -350,29 +350,55 @@ func AddrFromIPAndPort(ip netip.Addr, port uint16) Addr {
 	}
 }
 
-// AddrFromDomainPort returns an Addr from the provided domain name and port number.
+// Domain represents a normalized domain name, which is ASCII-only,
+// lowercase, and free of percent-encoding.
+type Domain struct {
+	h unique.Handle[string]
+}
+
+// DomainFromString returns a [Domain] normalized from s.
 //
 // Internationalized domain names (IDNs) must use Punycode encoding.
-func AddrFromDomainPort(domain string, port uint16) (Addr, error) {
-	if len(domain) == 0 || len(domain) > 255 {
-		return Addr{}, newDomainLengthError(domain)
+func DomainFromString(s string) (Domain, error) {
+	if len(s) == 0 || len(s) > 255 {
+		return Domain{}, newDomainLengthError(s)
 	}
 	// This could use some SIMD.
 	var hasUpper bool
-	for i := range len(domain) {
-		c := domain[i]
+	for i := range len(s) {
+		c := s[i]
 		if c >= utf8.RuneSelf {
-			return Addr{}, newDomainNonASCIIError(domain)
+			return Domain{}, newDomainNonASCIIError(s)
 		}
 		if c == '%' {
-			return Addr{}, newDomainPercentEncodingError(domain)
+			return Domain{}, newDomainPercentEncodingError(s)
 		}
 		hasUpper = hasUpper || ('A' <= c && c <= 'Z')
 	}
 	if hasUpper {
-		domain = asciiToLower(domain)
+		s = asciiToLower(s)
 	}
-	return addrFromDomainPort(domain, port), nil
+	return domainFromString(s), nil
+}
+
+// DomainFromBytes is like [DomainFromString] but takes a byte slice
+// and normalizes it in-place.
+func DomainFromBytes(b []byte) (Domain, error) {
+	if len(b) == 0 || len(b) > 255 {
+		return Domain{}, newDomainLengthError(string(b))
+	}
+	for i, c := range b {
+		if c >= utf8.RuneSelf {
+			return Domain{}, newDomainNonASCIIError(string(b))
+		}
+		if c == '%' {
+			return Domain{}, newDomainPercentEncodingError(string(b))
+		}
+		if 'A' <= c && c <= 'Z' {
+			b[i] += 'a' - 'A'
+		}
+	}
+	return domainFromString(string(b)), nil
 }
 
 func newDomainLengthError(domain string) error {
@@ -410,53 +436,112 @@ func asciiToLower(s string) string {
 	return b.String()
 }
 
-func addrFromDomainPort(domain string, port uint16) Addr {
+func domainFromString(s string) Domain {
+	return Domain{
+		h: unique.Make(s),
+	}
+}
+
+// MustDomainFromString calls [DomainFromString] and panics on error.
+func MustDomainFromString(s string) Domain {
+	d, err := DomainFromString(s)
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
+
+// IsValid reports whether d is initialized (not the zero value).
+func (d Domain) IsValid() bool {
+	return d.h != unique.Handle[string]{}
+}
+
+// String returns the domain name string.
+func (d Domain) String() string {
+	if !d.IsValid() {
+		return ""
+	}
+	return d.h.Value()
+}
+
+// AppendText implements [encoding.TextAppender].
+func (d Domain) AppendText(b []byte) ([]byte, error) {
+	if !d.IsValid() {
+		return b, nil
+	}
+	return append(b, d.h.Value()...), nil
+}
+
+// MarshalText implements [encoding.TextMarshaler].
+func (d Domain) MarshalText() ([]byte, error) {
+	if !d.IsValid() {
+		return nil, nil
+	}
+	return []byte(d.h.Value()), nil
+}
+
+// UnmarshalText implements [encoding.TextUnmarshaler].
+func (d *Domain) UnmarshalText(text []byte) error {
+	if len(text) == 0 {
+		*d = Domain{}
+		return nil
+	}
+	domain, err := DomainFromBytes(text)
+	if err != nil {
+		return err
+	}
+	*d = domain
+	return nil
+}
+
+// AddrFromDomainPort returns an [Addr] combining domain and port.
+func AddrFromDomainPort(domain Domain, port uint16) Addr {
+	if !domain.IsValid() {
+		return Addr{}
+	}
 	return Addr{
 		addr: netipAddrHeader{
-			hi: uint64(len(domain)),
-			z:  unsafe.StringData(domain),
+			hi: uint64(len(domain.h.Value())),
+			z:  *(*unsafe.Pointer)(unsafe.Pointer(&domain.h)),
 		},
 		port: port,
 		af:   addressFamilyDomain,
 	}
 }
 
-// MustAddrFromDomainPort calls [AddrFromDomainPort] and panics on error.
-func MustAddrFromDomainPort(domain string, port uint16) Addr {
-	addr, err := AddrFromDomainPort(domain, port)
+// AddrFromDomainStringAndPort returns an [Addr] from the provided domain name and port number.
+//
+// Internationalized domain names (IDNs) must use Punycode encoding.
+func AddrFromDomainStringAndPort(domain string, port uint16) (Addr, error) {
+	d, err := DomainFromString(domain)
 	if err != nil {
-		panic(err)
+		return Addr{}, err
 	}
-	return addr
+	return AddrFromDomainPort(d, port), nil
 }
 
-// AddrFromDomainBytesAndPort is like [AddrFromDomainPort] but takes a byte slice
+// MustAddrFromDomainStringAndPort calls [AddrFromDomainStringAndPort] and panics on error.
+func MustAddrFromDomainStringAndPort(domain string, port uint16) Addr {
+	return AddrFromDomainPort(MustDomainFromString(domain), port)
+}
+
+// AddrFromDomainBytesAndPort is like [AddrFromDomainStringAndPort] but takes a byte slice
 // for the input domain and normalizes it in-place to lowercase.
 func AddrFromDomainBytesAndPort(domain []byte, port uint16) (Addr, error) {
-	if len(domain) == 0 || len(domain) > 255 {
-		return Addr{}, newDomainLengthError(string(domain))
+	d, err := DomainFromBytes(domain)
+	if err != nil {
+		return Addr{}, err
 	}
-	for i, c := range domain {
-		if c >= utf8.RuneSelf {
-			return Addr{}, newDomainNonASCIIError(string(domain))
-		}
-		if c == '%' {
-			return Addr{}, newDomainPercentEncodingError(string(domain))
-		}
-		if 'A' <= c && c <= 'Z' {
-			domain[i] += 'a' - 'A'
-		}
-	}
-	return addrFromDomainPort(string(domain), port), nil
+	return AddrFromDomainPort(d, port), nil
 }
 
-// AddrFromHostPort returns an Addr from the provided host string and port number.
+// AddrFromHostPort returns an [Addr] from the provided host string and port number.
 // The host string may be a string representation of an IP address or a domain name.
 func AddrFromHostPort(host string, port uint16) (Addr, error) {
 	if ip, err := netip.ParseAddr(host); err == nil {
 		return AddrFromIPAndPort(ip, port), nil
 	}
-	return AddrFromDomainPort(host, port)
+	return AddrFromDomainStringAndPort(host, port)
 }
 
 // ParseAddr parses the provided string representation of an address
@@ -477,7 +562,7 @@ func ParseAddr(s string) (Addr, error) {
 }
 
 type addrPortHeader struct {
-	ip   [16]byte
+	ip   struct{ hi, low uint64 }
 	z    unsafe.Pointer
 	port uint16
 }

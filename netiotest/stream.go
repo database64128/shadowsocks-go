@@ -104,7 +104,7 @@ var testAddrCases = [...]struct {
 	},
 	{
 		name: "Domain",
-		addr: conn.MustAddrFromDomainPort("example.com", 10080),
+		addr: conn.MustAddrFromDomainStringAndPort("example.com", 10080),
 	},
 }
 
@@ -202,7 +202,7 @@ func testPreambleStreamClientServerProceed(
 			return
 
 		case pc := <-ch:
-			if !pc.LocalConnAddr().Equals(expectedServerAddr) {
+			if pc.LocalConnAddr() != expectedServerAddr {
 				t.Errorf("pc.LocalConnAddr() = %v, want %v", pc.LocalConnAddr(), expectedServerAddr)
 			}
 
@@ -211,7 +211,7 @@ func testPreambleStreamClientServerProceed(
 				t.Errorf("server.HandleStream failed: %v", err)
 				return
 			}
-			if !req.Addr.Equals(addr) {
+			if req.Addr != addr {
 				t.Errorf("req.Addr = %v, want %v", req.Addr, addr)
 			}
 			if len(req.Payload) > len(expectedInitialPayload) {
@@ -327,7 +327,7 @@ func testWrapConnStreamClientServerProceed(
 
 	go func() {
 		for pc := range ch {
-			if !pc.LocalConnAddr().Equals(expectedServerAddr) {
+			if pc.LocalConnAddr() != expectedServerAddr {
 				t.Errorf("pc.LocalConnAddr() = %v, want %v", pc.LocalConnAddr(), expectedServerAddr)
 			}
 
@@ -337,7 +337,7 @@ func testWrapConnStreamClientServerProceed(
 				serverConnOrErrCh <- serverConnOrErr{err: err}
 				return
 			}
-			if !req.Addr.Equals(addr) {
+			if req.Addr != addr {
 				t.Errorf("req.Addr = %v, want %v", req.Addr, addr)
 			}
 			if len(req.Payload) > len(expectedInitialPayload) {

@@ -87,7 +87,7 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 	if !bytes.Equal(p, payload) {
 		t.Fatalf("Expected payload %v\nGot: %v", payload, p)
 	}
-	if !ta.Equals(targetAddr) {
+	if ta != targetAddr {
 		t.Fatalf("Expected target address %s, got %s", targetAddr, ta)
 	}
 
@@ -102,7 +102,7 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 	if !bytes.Equal(p, payload) {
 		t.Fatalf("Expected payload %v\nGot: %v", payload, p)
 	}
-	if !ta.Equals(targetAddr) {
+	if ta != targetAddr {
 		t.Fatalf("Expected target address %s, got %s", targetAddr, ta)
 	}
 
@@ -117,7 +117,7 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 	if len(p) > 0 {
 		t.Fatalf("Expected empty initial payload, got length %d", len(p))
 	}
-	if !ta.Equals(targetAddr) {
+	if ta != targetAddr {
 		t.Fatalf("Expected target address %s, got %s", targetAddr, ta)
 	}
 
@@ -250,7 +250,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	if pl != payloadLen {
 		t.Errorf("Expected payload length %d, got %d", payloadLen, pl)
 	}
-	if !ta.Equals(targetAddr) {
+	if ta != targetAddr {
 		t.Errorf("Expected target address %s, got %s", targetAddr, ta)
 	}
 
@@ -267,7 +267,7 @@ func TestWriteAndParseUDPClientMessageHeader(t *testing.T) {
 	if pl != payloadLen {
 		t.Errorf("Expected payload length %d, got %d", payloadLen, pl)
 	}
-	if !ta.Equals(targetAddr) {
+	if ta != targetAddr {
 		t.Errorf("Expected target address %s, got %s", targetAddr, ta)
 	}
 

@@ -16,7 +16,7 @@ import (
 // DirectPacketClientPacker implements the zerocopy ClientPacker interface.
 type DirectPacketClientPacker struct {
 	// cachedDomain caches the last used domain target to avoid excessive DNS lookups.
-	cachedDomain string
+	cachedDomain conn.Domain
 
 	// cachedDomainIP is the last used domain target's resolved IP address.
 	cachedDomainIP netip.Addr

@@ -184,9 +184,9 @@ func (c *TCPClient) DialStream(ctx context.Context, addr conn.Addr, payload []by
 		case AddressFamilyPreferenceDefault:
 			lookupNetwork = "ip"
 		case AddressFamilyPreferencePreferIPv6:
-			return c.resolveAndDialDomainWithResolutionDelay(ctx, "ip6", "ip4", addr.Domain(), addr.Port(), payload)
+			return c.resolveAndDialDomainWithResolutionDelay(ctx, "ip6", "ip4", addr.Domain().String(), addr.Port(), payload)
 		case AddressFamilyPreferencePreferIPv4:
-			return c.resolveAndDialDomainWithResolutionDelay(ctx, "ip4", "ip6", addr.Domain(), addr.Port(), payload)
+			return c.resolveAndDialDomainWithResolutionDelay(ctx, "ip4", "ip6", addr.Domain().String(), addr.Port(), payload)
 		case AddressFamilyPreferenceIPv6Only:
 			lookupNetwork = "ip6"
 		case AddressFamilyPreferenceIPv4Only:
@@ -194,7 +194,7 @@ func (c *TCPClient) DialStream(ctx context.Context, addr conn.Addr, payload []by
 		default:
 			panic("unreachable")
 		}
-		return c.resolveAndDialDomain(ctx, lookupNetwork, addr.Domain(), addr.Port(), payload)
+		return c.resolveAndDialDomain(ctx, lookupNetwork, addr.Domain().String(), addr.Port(), payload)
 
 	default:
 		return nil, conn.UnsupportedAddressKindErrorFromAddr(addr)

@@ -102,7 +102,7 @@ func AppendAddrFromConnAddr(b []byte, addr conn.Addr) []byte {
 		return AppendAddrFromAddrPort(b, addr.IPPort())
 	}
 
-	domain := addr.Domain()
+	domain := addr.Domain().String()
 	if len(domain) > 255 {
 		panic(fmt.Sprintf("socks5.AppendAddrFromConnAddr: domain name too long: %d > 255", len(domain)))
 	}
@@ -128,7 +128,7 @@ func WriteAddrFromConnAddr(b []byte, addr conn.Addr) int {
 		return WriteAddrFromAddrPort(b, addr.IPPort())
 	}
 
-	domain := addr.Domain()
+	domain := addr.Domain().String()
 	b[0] = AtypDomainName
 	b[1] = byte(len(domain))
 	copy(b[2:], domain)
@@ -150,11 +150,7 @@ func LengthOfAddrFromConnAddr(addr conn.Addr) int {
 	if addr.IsIP() {
 		return LengthOfAddrFromAddrPort(addr.IPPort())
 	}
-	domain := addr.Domain()
-	if len(domain) > 255 {
-		panic(fmt.Sprintf("socks5.LengthOfAddrFromConnAddr: domain name too long: %d > 255", len(domain)))
-	}
-	return 1 + 1 + len(domain) + 2
+	return 1 + 1 + addr.DomainLen() + 2
 }
 
 // AppendFromReader reads just enough bytes from r to get a valid Addr
@@ -217,7 +213,7 @@ func ConnAddrFromReader(r io.Reader) (conn.Addr, error) {
 		}
 		domain := unsafe.String(unsafe.SliceData(b1), b[1])
 		port := binary.BigEndian.Uint16(b1[b[1]:])
-		return conn.AddrFromDomainPort(domain, port)
+		return conn.AddrFromDomainStringAndPort(domain, port)
 
 	case AtypIPv4:
 		b1 := make([]byte, 4+2)
@@ -294,7 +290,7 @@ func ConnAddrFromSlice(b []byte) (conn.Addr, int, error) {
 		}
 		domain := string(b[2:domainEnd])
 		port := binary.BigEndian.Uint16(b[domainEnd:])
-		addr, err := conn.AddrFromDomainPort(domain, port)
+		addr, err := conn.AddrFromDomainStringAndPort(domain, port)
 		return addr, portEnd, err
 
 	case AtypIPv4:
@@ -355,7 +351,7 @@ func (c *DomainCache) ConnAddrFromSlice(b []byte) (conn.Addr, int, error) {
 			domain = entry.Key
 		}
 		port := binary.BigEndian.Uint16(b[domainEnd:])
-		addr, err := conn.AddrFromDomainPort(domain, port)
+		addr, err := conn.AddrFromDomainStringAndPort(domain, port)
 		return addr, portEnd, err
 
 	case AtypIPv4:

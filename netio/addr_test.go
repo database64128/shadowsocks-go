@@ -155,7 +155,7 @@ func TestResolveIPPort(t *testing.T) {
 		},
 		{
 			name: "Domain+AddressFamilyPreferenceDefault",
-			addr: conn.MustAddrFromDomainPort("example.com", 80),
+			addr: conn.MustAddrFromDomainStringAndPort("example.com", 80),
 			pref: netio.AddressFamilyPreferenceDefault,
 			resolver: fakeResolver{
 				"example.com": {
@@ -167,7 +167,7 @@ func TestResolveIPPort(t *testing.T) {
 		},
 		{
 			name: "Domain+AddressFamilyPreferencePreferIPv6",
-			addr: conn.MustAddrFromDomainPort("example.com", 80),
+			addr: conn.MustAddrFromDomainStringAndPort("example.com", 80),
 			pref: netio.AddressFamilyPreferencePreferIPv6,
 			resolver: fakeResolver{
 				"example.com": {
@@ -179,7 +179,7 @@ func TestResolveIPPort(t *testing.T) {
 		},
 		{
 			name: "Domain+AddressFamilyPreferencePreferIPv4",
-			addr: conn.MustAddrFromDomainPort("example.com", 80),
+			addr: conn.MustAddrFromDomainStringAndPort("example.com", 80),
 			pref: netio.AddressFamilyPreferencePreferIPv4,
 			resolver: fakeResolver{
 				"example.com": {
@@ -191,7 +191,7 @@ func TestResolveIPPort(t *testing.T) {
 		},
 		{
 			name: "Domain+AddressFamilyPreferenceIPv6Only",
-			addr: conn.MustAddrFromDomainPort("example.com", 80),
+			addr: conn.MustAddrFromDomainStringAndPort("example.com", 80),
 			pref: netio.AddressFamilyPreferenceIPv6Only,
 			resolver: fakeResolver{
 				"example.com": {
@@ -203,7 +203,7 @@ func TestResolveIPPort(t *testing.T) {
 		},
 		{
 			name: "Domain+AddressFamilyPreferenceIPv4Only",
-			addr: conn.MustAddrFromDomainPort("example.com", 80),
+			addr: conn.MustAddrFromDomainStringAndPort("example.com", 80),
 			pref: netio.AddressFamilyPreferenceIPv4Only,
 			resolver: fakeResolver{
 				"example.com": {
@@ -267,12 +267,12 @@ func TestResolveIPPortError(t *testing.T) {
 		},
 		{
 			name:     "Domain+AddressFamilyPreferenceDefault",
-			addr:     conn.MustAddrFromDomainPort("example.com", 80),
+			addr:     conn.MustAddrFromDomainStringAndPort("example.com", 80),
 			checkErr: expectDNSErr,
 		},
 		{
 			name: "Domain+AddressFamilyPreferenceIPv6Only",
-			addr: conn.MustAddrFromDomainPort("example.com", 80),
+			addr: conn.MustAddrFromDomainStringAndPort("example.com", 80),
 			pref: netio.AddressFamilyPreferenceIPv6Only,
 			resolver: fakeResolver{
 				"example.com": {
@@ -283,7 +283,7 @@ func TestResolveIPPortError(t *testing.T) {
 		},
 		{
 			name: "Domain+AddressFamilyPreferenceIPv4Only",
-			addr: conn.MustAddrFromDomainPort("example.com", 80),
+			addr: conn.MustAddrFromDomainStringAndPort("example.com", 80),
 			pref: netio.AddressFamilyPreferenceIPv4Only,
 			resolver: fakeResolver{
 				"example.com": {
@@ -336,7 +336,7 @@ func TestResolveIPPortPreferredFirstFastReturn(t *testing.T) {
 				// printing the message.
 				var wg sync.WaitGroup
 				wg.Go(func() {
-					addr := conn.MustAddrFromDomainPort("example.com", 80)
+					addr := conn.MustAddrFromDomainStringAndPort("example.com", 80)
 					got, err := netio.ResolveIPPort(t.Context(), addr, c.pref, resolver)
 					if err != nil {
 						t.Errorf("ResolveIPPort() error = %v", err)
@@ -416,7 +416,7 @@ func TestResolveIPPortPreferredFirstErrorSlowReturn(t *testing.T) {
 
 				var wg sync.WaitGroup
 				wg.Go(func() {
-					addr := conn.MustAddrFromDomainPort("example.com", 80)
+					addr := conn.MustAddrFromDomainStringAndPort("example.com", 80)
 					got, err := netio.ResolveIPPort(t.Context(), addr, c.pref, resolver)
 					if err != nil != c.wantErr {
 						t.Errorf("ResolveIPPort() error = %v", err)
@@ -531,7 +531,7 @@ func TestResolveIPPortSecondaryFirstSlowReturn(t *testing.T) {
 
 				var wg sync.WaitGroup
 				wg.Go(func() {
-					addr := conn.MustAddrFromDomainPort("example.com", 80)
+					addr := conn.MustAddrFromDomainStringAndPort("example.com", 80)
 					got, err := netio.ResolveIPPort(t.Context(), addr, c.pref, resolver)
 					if err != nil != c.wantErr {
 						t.Errorf("ResolveIPPort() error = %v", err)

@@ -29,10 +29,10 @@ const (
 
 var (
 	// https://www.chromium.org/chromium-os/chromiumos-design-docs/network-portal-detection/
-	defaultTCPProbeAddress = conn.MustAddrFromDomainPort("clients3.google.com", 80)
+	defaultTCPProbeAddress = conn.MustAddrFromDomainStringAndPort("clients3.google.com", 80)
 
 	// one.one.one.one:53
-	defaultUDPProbeAddress = conn.MustAddrFromDomainPort("one.one.one.one", 53)
+	defaultUDPProbeAddress = conn.MustAddrFromDomainStringAndPort("one.one.one.one", 53)
 )
 
 // ConnectivityProbeConfig is the shared part of the configuration for TCP and UDP connectivity probes.

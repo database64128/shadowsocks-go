@@ -76,7 +76,7 @@ var (
 		'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
 		byte(addrDomainPort >> 8), byte(addrDomainPort & 0xff),
 	}
-	addrDomainConnAddr = conn.MustAddrFromDomainPort(addrDomainHost, addrDomainPort)
+	addrDomainConnAddr = conn.MustAddrFromDomainStringAndPort(addrDomainHost, addrDomainPort)
 )
 
 func testAddrFromReader(t *testing.T, addr []byte) {
@@ -153,7 +153,7 @@ func testConnAddrFromSliceAndReader(t *testing.T, sa []byte, expectedAddr conn.A
 	if n != len(sa) {
 		t.Errorf("ConnAddrFromSlice(b) returned n=%d, expected n=%d.", n, len(sa))
 	}
-	if !addr.Equals(expectedAddr) {
+	if addr != expectedAddr {
 		t.Errorf("ConnAddrFromSlice(b) returned %s, expected %s.", addr, expectedAddr)
 	}
 	if !bytes.Equal(b[n:], expectedTail) {
@@ -165,7 +165,7 @@ func testConnAddrFromSliceAndReader(t *testing.T, sa []byte, expectedAddr conn.A
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !addr.Equals(expectedAddr) {
+	if addr != expectedAddr {
 		t.Errorf("ConnAddrFromReader(r) returned %s, expected %s.", addr, expectedAddr)
 	}
 	tail, err := io.ReadAll(r)
@@ -198,7 +198,7 @@ func testConnAddrFromSliceWithDomainCache(t *testing.T, b, sa []byte, dc *Domain
 	if n != len(sa) {
 		t.Errorf("dc.ConnAddrFromSlice(%x) returned n=%d, expected n=%d", b, n, len(sa))
 	}
-	if !addr.Equals(expectedAddr) {
+	if addr != expectedAddr {
 		t.Errorf("dc.ConnAddrFromSlice(%x) returned %s, expected %s", b, addr, expectedAddr)
 	}
 	if !bytes.Equal(b[n:], expectedTail) {
@@ -226,7 +226,7 @@ func TestConnAddrFromSliceWithDomainCache(t *testing.T) {
 		'w', 'w', 'w', '.', 'g', 'o', 'o', 'g', 'l', 'e', '.', 'c', 'o', 'm',
 		byte(addrDomainPort >> 8), byte(addrDomainPort & 0xff),
 	}
-	addrDomain2ConnAddr := conn.MustAddrFromDomainPort(addrDomain2Host, addrDomainPort)
+	addrDomain2ConnAddr := conn.MustAddrFromDomainStringAndPort(addrDomain2Host, addrDomainPort)
 
 	if n := testing.AllocsPerRun(10, func() {
 		testConnAddrFromSliceWithDomainCache(t, b, addrDomain2[:], &dc, addrDomain2ConnAddr)

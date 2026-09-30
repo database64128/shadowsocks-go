@@ -647,7 +647,7 @@ func (c DestDomainCriterion) Meet(ctx context.Context, network protocol, request
 	if !requestInfo.TargetAddr.IsDomain() {
 		return false, nil
 	}
-	return matchDomainToDomainSets(c, requestInfo.TargetAddr.Domain()), nil
+	return matchDomainToDomainSets(c, requestInfo.TargetAddr.Domain().String()), nil
 }
 
 // DestDomainExpectedIPCriterion restricts the destination domain and its resolved IP address.
@@ -688,7 +688,7 @@ func (c DestResolvedIPCriterion) Meet(ctx context.Context, network protocol, req
 		return c.prefixSet.Contains(requestInfo.TargetAddr.IP()), nil
 	}
 	if requestInfo.TargetAddr.IsDomain() {
-		return matchDomainToPrefixSet(ctx, c.resolvers, requestInfo.TargetAddr.Domain(), c.prefixSet)
+		return matchDomainToPrefixSet(ctx, c.resolvers, requestInfo.TargetAddr.Domain().String(), c.prefixSet)
 	}
 	return false, nil
 }
@@ -722,7 +722,7 @@ func (c DestResolvedGeoIPCountryCriterion) Meet(ctx context.Context, network pro
 		return matchAddrToGeoIPCountries(c.countries, requestInfo.TargetAddr.IP(), c.geoip, c.logger)
 	}
 	if requestInfo.TargetAddr.IsDomain() {
-		return matchDomainToGeoIPCountries(ctx, c.resolvers, requestInfo.TargetAddr.Domain(), c.countries, c.geoip, c.logger)
+		return matchDomainToGeoIPCountries(ctx, c.resolvers, requestInfo.TargetAddr.Domain().String(), c.countries, c.geoip, c.logger)
 	}
 	return false, nil
 }

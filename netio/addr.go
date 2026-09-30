@@ -166,7 +166,7 @@ func ResolveIP(
 		return ip, nil
 
 	case addr.IsDomain():
-		domain := addr.Domain()
+		domain := addr.Domain().String()
 		switch pref {
 		case AddressFamilyPreferenceDefault:
 			return conn.ResolveIP(ctx, "ip", domain, resolver)

@@ -105,7 +105,7 @@ func testUDPClientServer(
 	}
 
 	// Check target address.
-	if !ta.Equals(targetAddr) {
+	if ta != targetAddr {
 		t.Errorf("Target address mismatch: c: %s, s: %s", targetAddr, ta)
 	}
 

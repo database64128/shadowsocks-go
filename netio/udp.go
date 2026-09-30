@@ -114,7 +114,7 @@ func (c *UDPClient) NewSession(ctx context.Context, connectAddr conn.Addr) (Pack
 //
 // UDPClientSession implements [PacketClientSession].
 type UDPClientSession struct {
-	ipByDomain *cache.BoundedCache[string, netip.Addr]
+	ipByDomain *cache.BoundedCache[conn.Domain, netip.Addr]
 	pref       AddressFamilyPreference
 	resolver   conn.Resolver
 }
@@ -130,7 +130,7 @@ func (s *UDPClientSession) AppendPack(ctx context.Context, b, payload []byte, de
 		if s.ipByDomain == nil {
 			// Initialize the cache with a reasonable size.
 			const domainCacheSize = 32
-			s.ipByDomain = cache.NewBoundedCache[string, netip.Addr](domainCacheSize)
+			s.ipByDomain = cache.NewBoundedCache[conn.Domain, netip.Addr](domainCacheSize)
 		}
 		domain := destAddr.Domain()
 		ip, ok := s.ipByDomain.Get(domain)
