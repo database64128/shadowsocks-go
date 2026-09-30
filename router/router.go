@@ -83,32 +83,24 @@ func (rc *Config) Router(
 ) (r *Router, err error) {
 	defaultRoute := Route{name: "default"}
 
-	switch rc.DefaultTCPClientName {
-	case "reject":
-	case "":
-		if len(tcpClientMap) == 1 {
-			for _, tcpClient := range tcpClientMap {
-				defaultRoute.tcpClient = tcpClient
-			}
+	if rc.DefaultTCPClientName == "" && len(tcpClientMap) == 1 {
+		for _, tcpClient := range tcpClientMap {
+			defaultRoute.tcpClient = tcpClient
 		}
-	default:
+	} else {
 		defaultRoute.tcpClient = tcpClientMap[rc.DefaultTCPClientName]
-		if defaultRoute.tcpClient == nil {
+		if defaultRoute.tcpClient == nil && rc.DefaultTCPClientName != "reject" {
 			return nil, fmt.Errorf("default TCP client not found: %q", rc.DefaultTCPClientName)
 		}
 	}
 
-	switch rc.DefaultUDPClientName {
-	case "reject":
-	case "":
-		if len(udpClientMap) == 1 {
-			for _, udpClient := range udpClientMap {
-				defaultRoute.udpClient = udpClient
-			}
+	if rc.DefaultUDPClientName == "" && len(udpClientMap) == 1 {
+		for _, udpClient := range udpClientMap {
+			defaultRoute.udpClient = udpClient
 		}
-	default:
+	} else {
 		defaultRoute.udpClient = udpClientMap[rc.DefaultUDPClientName]
-		if defaultRoute.udpClient == nil {
+		if defaultRoute.udpClient == nil && rc.DefaultUDPClientName != "reject" {
 			return nil, fmt.Errorf("default UDP client not found: %q", rc.DefaultUDPClientName)
 		}
 	}

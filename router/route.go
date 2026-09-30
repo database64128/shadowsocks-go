@@ -187,21 +187,19 @@ func (rc *RouteConfig) Route(geoip *geoip2.Reader, logger *tslog.Logger, resolve
 		return Route{}, fmt.Errorf("invalid network: %s", rc.Network)
 	}
 
-	if rc.Client != "reject" {
-		switch rc.Network {
-		case "", "tcp":
-			route.tcpClient = tcpClientMap[rc.Client]
-			if route.tcpClient == nil {
-				return Route{}, fmt.Errorf("TCP client not found: %s", rc.Client)
-			}
+	switch rc.Network {
+	case "", "tcp":
+		route.tcpClient = tcpClientMap[rc.Client]
+		if route.tcpClient == nil && rc.Client != "reject" {
+			return Route{}, fmt.Errorf("TCP client not found: %s", rc.Client)
 		}
+	}
 
-		switch rc.Network {
-		case "", "udp":
-			route.udpClient = udpClientMap[rc.Client]
-			if route.udpClient == nil {
-				return Route{}, fmt.Errorf("UDP client not found: %s", rc.Client)
-			}
+	switch rc.Network {
+	case "", "udp":
+		route.udpClient = udpClientMap[rc.Client]
+		if route.udpClient == nil && rc.Client != "reject" {
+			return Route{}, fmt.Errorf("UDP client not found: %s", rc.Client)
 		}
 	}
 
