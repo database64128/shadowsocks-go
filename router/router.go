@@ -82,26 +82,28 @@ func (cfg *Config) Router(
 	prefixSetByName map[string]*prefixset.PrefixSet,
 ) (r *Router, err error) {
 	var defaultTCPClient netio.StreamClient
-	if name := cfg.DefaultTCPClientName; name == "" && len(tcpClientMap) == 1 {
-		for _, tcpClient := range tcpClientMap {
-			defaultTCPClient = tcpClient
-		}
-	} else {
+	switch name := cfg.DefaultTCPClientName; {
+	case name != "" || len(tcpClientMap) > 1:
 		defaultTCPClient = tcpClientMap[name]
 		if defaultTCPClient == nil && name != "reject" {
 			return nil, fmt.Errorf("default TCP client not found: %q", name)
 		}
+	case len(tcpClientMap) == 1:
+		for _, tcpClient := range tcpClientMap {
+			defaultTCPClient = tcpClient
+		}
 	}
 
 	var defaultUDPClient zerocopy.UDPClient
-	if name := cfg.DefaultUDPClientName; name == "" && len(udpClientMap) == 1 {
-		for _, udpClient := range udpClientMap {
-			defaultUDPClient = udpClient
-		}
-	} else {
+	switch name := cfg.DefaultUDPClientName; {
+	case name != "" || len(udpClientMap) > 1:
 		defaultUDPClient = udpClientMap[name]
 		if defaultUDPClient == nil && name != "reject" {
 			return nil, fmt.Errorf("default UDP client not found: %q", name)
+		}
+	case len(udpClientMap) == 1:
+		for _, udpClient := range udpClientMap {
+			defaultUDPClient = udpClient
 		}
 	}
 
