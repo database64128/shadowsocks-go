@@ -557,8 +557,10 @@ func BenchmarkAddrPortFromBytes(b *testing.B) {
 func BenchmarkConnAddrFromBytes(b *testing.B) {
 	for _, c := range addrBytesCases {
 		b.Run(c.name, func(b *testing.B) {
+			data := make([]byte, 0, socks5.MaxAddrLen)
 			for b.Loop() {
-				_, _, _ = socks5.ConnAddrFromBytes(c.data)
+				data = append(data[:0], c.data...)
+				_, _, _ = socks5.ConnAddrFromBytes(data)
 			}
 		})
 	}
@@ -568,8 +570,10 @@ func BenchmarkDomainCacheConnAddrFromBytes(b *testing.B) {
 	var dc socks5.DomainCache
 	for _, c := range addrBytesCases {
 		b.Run(c.name, func(b *testing.B) {
+			data := make([]byte, 0, socks5.MaxAddrLen)
 			for b.Loop() {
-				_, _, _ = dc.ConnAddrFromBytes(c.data)
+				data = append(data[:0], c.data...)
+				_, _, _ = dc.ConnAddrFromBytes(data)
 			}
 		})
 	}
@@ -696,10 +700,12 @@ func TestConnAddrFromReaderError(t *testing.T) {
 func TestConnAddrFromBytesError(t *testing.T) {
 	for _, c := range addrBytesErrorCases {
 		t.Run(c.name, func(t *testing.T) {
-			addr, n, err := socks5.ConnAddrFromBytes(c.data)
+			data := make([]byte, 0, socks5.MaxAddrLen)
+			data = append(data, c.data...)
+			addr, n, err := socks5.ConnAddrFromBytes(data)
 			c.checkBytesErr(t, err)
-			if n > len(c.data) {
-				t.Errorf("n = %d, want <= %d", n, len(c.data))
+			if n > len(data) {
+				t.Errorf("n = %d, want <= %d", n, len(data))
 			}
 			if addr.IsValid() {
 				t.Errorf("addr = %q, want zero value", addr)
@@ -712,10 +718,12 @@ func TestDomainCacheConnAddrFromBytesError(t *testing.T) {
 	var dc socks5.DomainCache
 	for _, c := range addrBytesErrorCases {
 		t.Run(c.name, func(t *testing.T) {
-			addr, n, err := dc.ConnAddrFromBytes(c.data)
+			data := make([]byte, 0, socks5.MaxAddrLen)
+			data = append(data, c.data...)
+			addr, n, err := dc.ConnAddrFromBytes(data)
 			c.checkBytesErr(t, err)
-			if n > len(c.data) {
-				t.Errorf("n = %d, want <= %d", n, len(c.data))
+			if n > len(data) {
+				t.Errorf("n = %d, want <= %d", n, len(data))
 			}
 			if addr.IsValid() {
 				t.Errorf("addr = %q, want zero value", addr)
