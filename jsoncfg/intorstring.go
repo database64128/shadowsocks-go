@@ -18,6 +18,7 @@ const (
 
 // IntOrString is a JSON value that can be either an int or a string.
 type IntOrString struct {
+	_    [0]func()
 	kind IntOrStringKind
 	data *byte
 	len  int // also used as storage for int
@@ -82,8 +83,8 @@ func (v IntOrString) String() string {
 	return v.string()
 }
 
-// Equals returns whether the value is equal to other.
-func (v IntOrString) Equals(other IntOrString) bool {
+// Equal returns whether the value is equal to other.
+func (v IntOrString) Equal(other IntOrString) bool {
 	if v.kind != other.kind {
 		return false
 	}

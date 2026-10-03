@@ -106,7 +106,7 @@ func mustPanic(t *testing.T, f func(), name string) {
 	t.Errorf("%s did not panic", name)
 }
 
-func TestIntOrStringEquals(t *testing.T) {
+func TestIntOrStringEqual(t *testing.T) {
 	v0 := jsoncfg.IntOrString{}
 	vi1 := jsoncfg.IntOrStringFromInt(1)
 	vi2 := jsoncfg.IntOrStringFromInt(2)
@@ -143,8 +143,8 @@ func TestIntOrStringEquals(t *testing.T) {
 		{vs2, vs1, false},
 		{vs2, vs2, true},
 	} {
-		if got := c.a.Equals(c.b); got != c.expected {
-			t.Errorf("%#v.Equals(%#v) = %v, want %v", c.a, c.b, got, c.expected)
+		if got := c.a.Equal(c.b); got != c.expected {
+			t.Errorf("%#v.Equal(%#v) = %v, want %v", c.a, c.b, got, c.expected)
 		}
 	}
 }
@@ -186,7 +186,7 @@ func TestIntOrStringUnmarshalJSON(t *testing.T) {
 			if err := json.Unmarshal([]byte(c.input), &v); (err != nil) != c.expectErr {
 				t.Fatalf("json.Unmarshal(%q) failed: %v", c.input, err)
 			}
-			if !v.Equals(c.expected) {
+			if !v.Equal(c.expected) {
 				t.Errorf("json.Unmarshal(%q) = %#v, want %#v", c.input, v, c.expected)
 			}
 		})
