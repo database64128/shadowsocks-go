@@ -170,8 +170,8 @@ func PutTCPRequestFixedLengthHeader(b []byte, now time.Time, length int) {
 //	|  1B  | variable | u16be |     u16be      | variable |    variable     |
 //	+------+----------+-------+----------------+----------+-----------------+
 func ParseTCPRequestVariableLengthHeader(b []byte) (targetAddr conn.Addr, payload []byte, err error) {
-	// SOCKS address
-	targetAddr, n, err := socks5.ConnAddrFromSlice(b)
+	// SOCKS5 address
+	targetAddr, n, err := socks5.ConnAddrFromBytes(b)
 	if err != nil {
 		return
 	}
@@ -209,8 +209,8 @@ func ParseTCPRequestVariableLengthHeader(b []byte) (targetAddr conn.Addr, payloa
 // The buffer size must not exceed [streamMaxPayloadSize].
 // The excess space in the buffer must not be larger than [MaxPaddingLength] bytes.
 func PutTCPRequestVariableLengthHeader(b []byte, targetAddr conn.Addr, payload []byte) {
-	// SOCKS address
-	n := socks5.WriteAddrFromConnAddr(b, targetAddr)
+	// SOCKS5 address
+	n := socks5.PutAddrFromConnAddr(b, targetAddr)
 
 	// Padding length
 	paddingLen := len(b) - n - 2 - len(payload)
@@ -362,9 +362,9 @@ func ParseUDPClientMessageHeader(b []byte, now time.Time, domainCache *socks5.Do
 		return
 	}
 
-	// SOCKS address
+	// SOCKS5 address
 	var n int
-	targetAddr, n, err = domainCache.ConnAddrFromSlice(b[payloadStart:])
+	targetAddr, n, err = domainCache.ConnAddrFromBytes(b[payloadStart:])
 	if err != nil {
 		return
 	}
@@ -388,8 +388,8 @@ func PutUDPClientMessageHeader(b []byte, now time.Time, paddingLen int, targetAd
 	// Padding length
 	binary.BigEndian.PutUint16(b[1+8:], intToUint16(paddingLen))
 
-	// SOCKS address
-	socks5.WriteAddrFromConnAddr(b[1+8+2+paddingLen:], targetAddr)
+	// SOCKS5 address
+	socks5.PutAddrFromConnAddr(b[1+8+2+paddingLen:], targetAddr)
 }
 
 // ParseUDPServerMessageHeader parses a UDP server message header and returns the payload source address
@@ -440,8 +440,8 @@ func ParseUDPServerMessageHeader(b []byte, now time.Time, csid uint64) (payloadS
 		return
 	}
 
-	// SOCKS address
-	payloadSourceAddrPort, n, err := socks5.AddrPortFromSlice(b[payloadStart:])
+	// SOCKS5 address
+	payloadSourceAddrPort, n, err := socks5.AddrPortFromBytes(b[payloadStart:])
 	if err != nil {
 		return
 	}
@@ -468,6 +468,6 @@ func PutUDPServerMessageHeader(b []byte, now time.Time, csid uint64, paddingLen 
 	// Padding length
 	binary.BigEndian.PutUint16(b[1+8+8:], intToUint16(paddingLen))
 
-	// SOCKS address
-	socks5.WriteAddrFromAddrPort(b[1+8+8+2+paddingLen:], sourceAddrPort)
+	// SOCKS5 address
+	socks5.PutAddrFromAddrPort(b[1+8+8+2+paddingLen:], sourceAddrPort)
 }

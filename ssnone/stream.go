@@ -56,7 +56,7 @@ func (c *StreamClient) NewStreamDialer() (netio.StreamDialer, netio.StreamDialer
 func (c *StreamClient) DialStream(ctx context.Context, addr conn.Addr, payload []byte) (netio.Conn, error) {
 	addrLen := socks5.LengthOfAddrFromConnAddr(addr)
 	b := make([]byte, addrLen+len(payload))
-	_ = socks5.WriteAddrFromConnAddr(b, addr)
+	_ = socks5.PutAddrFromConnAddr(b, addr)
 	_ = copy(b[addrLen:], payload)
 	return c.innerClient.DialStream(ctx, c.serverAddr, b)
 }
@@ -79,7 +79,7 @@ func (StreamServer) StreamServerInfo() netio.StreamServerInfo {
 
 // HandleStream implements [netio.StreamServer.HandleStream].
 func (StreamServer) HandleStream(c netio.Conn, _ *tslog.Logger) (netio.ConnRequest, error) {
-	addr, err := socks5.ConnAddrFromReader(c)
+	addr, err := socks5.ConnAddrFromReader(c, nil)
 	if err != nil {
 		return netio.ConnRequest{}, err
 	}

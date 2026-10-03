@@ -293,11 +293,11 @@ func clientDoRequest(rw io.ReadWriter, b []byte, command byte, targetAddr conn.A
 		panic("clientDoRequest: buffer too small")
 	}
 
-	// Put and write VER, CMD, RSV, SOCKS address.
+	// Put and write VER, CMD, RSV, SOCKS5 address.
 	b[0] = Version
 	b[1] = command
 	b[2] = 0
-	n := WriteAddrFromConnAddr(b[3:], targetAddr)
+	n := PutAddrFromConnAddr(b[3:], targetAddr)
 	if _, err = rw.Write(b[:3+n]); err != nil {
 		return conn.Addr{}, err
 	}
@@ -312,12 +312,8 @@ func clientDoRequest(rw io.ReadWriter, b []byte, command byte, targetAddr conn.A
 		return conn.Addr{}, UnsupportedVersionError(b[0])
 	}
 
-	// Read SOCKS address.
-	sa, err := AppendFromReader(b[3:3], newPrefixedReader(b[3:5], rw))
-	if err != nil {
-		return conn.Addr{}, err
-	}
-	addr, _, err = ConnAddrFromSlice(sa)
+	// Read SOCKS5 address.
+	addr, err = ConnAddrFromReader(newPrefixedReader(b[3:5], rw), b[3:3])
 	if err != nil {
 		return conn.Addr{}, err
 	}
@@ -791,12 +787,8 @@ func serverHandleRequest(rw netio.Conn, logger *tslog.Logger, b []byte, enableTC
 		return nil, conn.Addr{}, UnsupportedVersionError(b[0])
 	}
 
-	// Read SOCKS address.
-	sa, err := AppendFromReader(b[3:3], newPrefixedReader(b[3:5], rw))
-	if err != nil {
-		return nil, conn.Addr{}, err
-	}
-	addr, _, err = ConnAddrFromSlice(sa)
+	// Read SOCKS5 address.
+	addr, err = ConnAddrFromReader(newPrefixedReader(b[3:5], rw), b[3:3])
 	if err != nil {
 		return nil, conn.Addr{}, err
 	}

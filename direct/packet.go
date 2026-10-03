@@ -203,7 +203,7 @@ func (p *ShadowsocksNonePacketClientPacker) PackInPlace(ctx context.Context, b [
 	if packetLen > p.maxPacketSize {
 		err = zerocopy.ErrPayloadTooBig
 	}
-	socks5.WriteAddrFromConnAddr(b[packetStart:], targetAddr)
+	socks5.PutAddrFromConnAddr(b[packetStart:], targetAddr)
 	return
 }
 
@@ -234,7 +234,7 @@ func (p *ShadowsocksNonePacketClientUnpacker) UnpackInPlace(b []byte, packetSour
 		return
 	}
 	var payloadSourceAddrLen int
-	payloadSourceAddrPort, payloadSourceAddrLen, err = socks5.AddrPortFromSlice(b[packetStart : packetStart+packetLen])
+	payloadSourceAddrPort, payloadSourceAddrLen, err = socks5.AddrPortFromBytes(b[packetStart : packetStart+packetLen])
 	payloadStart = packetStart + payloadSourceAddrLen
 	payloadLen = packetLen - payloadSourceAddrLen
 	return
@@ -258,7 +258,7 @@ func (ShadowsocksNonePacketServerPacker) PackInPlace(b []byte, sourceAddrPort ne
 	if packetLen > maxPacketLen {
 		err = zerocopy.ErrPayloadTooBig
 	}
-	socks5.WriteAddrFromAddrPort(b[packetStart:], sourceAddrPort)
+	socks5.PutAddrFromAddrPort(b[packetStart:], sourceAddrPort)
 	return
 }
 
@@ -278,7 +278,7 @@ func (ShadowsocksNonePacketServerUnpacker) ServerUnpackerInfo() zerocopy.ServerU
 // UnpackInPlace implements the zerocopy.ServerUnpacker UnpackInPlace method.
 func (p *ShadowsocksNonePacketServerUnpacker) UnpackInPlace(b []byte, sourceAddrPort netip.AddrPort, packetStart, packetLen int) (targetAddr conn.Addr, payloadStart, payloadLen int, err error) {
 	var targetAddrLen int
-	targetAddr, targetAddrLen, err = p.domainCache.ConnAddrFromSlice(b[packetStart : packetStart+packetLen])
+	targetAddr, targetAddrLen, err = p.domainCache.ConnAddrFromBytes(b[packetStart : packetStart+packetLen])
 	payloadStart = packetStart + targetAddrLen
 	payloadLen = packetLen - targetAddrLen
 	return
@@ -336,7 +336,7 @@ func (p *Socks5PacketClientPacker) PackInPlace(ctx context.Context, b []byte, ta
 		err = zerocopy.ErrPayloadTooBig
 	}
 	socks5.WritePacketHeader(b[packetStart:])
-	socks5.WriteAddrFromConnAddr(b[packetStart+3:], targetAddr)
+	socks5.PutAddrFromConnAddr(b[packetStart+3:], targetAddr)
 	return
 }
 
@@ -379,7 +379,7 @@ func (p *Socks5PacketClientUnpacker) UnpackInPlace(b []byte, packetSourceAddrPor
 	}
 
 	var payloadSourceAddrLen int
-	payloadSourceAddrPort, payloadSourceAddrLen, err = socks5.AddrPortFromSlice(pkt[3:])
+	payloadSourceAddrPort, payloadSourceAddrLen, err = socks5.AddrPortFromBytes(pkt[3:])
 	payloadStart = packetStart + payloadSourceAddrLen + 3
 	payloadLen = packetLen - payloadSourceAddrLen - 3
 	return
@@ -404,7 +404,7 @@ func (Socks5PacketServerPacker) PackInPlace(b []byte, sourceAddrPort netip.AddrP
 		err = zerocopy.ErrPayloadTooBig
 	}
 	socks5.WritePacketHeader(b[packetStart:])
-	socks5.WriteAddrFromAddrPort(b[packetStart+3:], sourceAddrPort)
+	socks5.PutAddrFromAddrPort(b[packetStart+3:], sourceAddrPort)
 	return
 }
 
@@ -435,7 +435,7 @@ func (p *Socks5PacketServerUnpacker) UnpackInPlace(b []byte, sourceAddrPort neti
 	}
 
 	var targetAddrLen int
-	targetAddr, targetAddrLen, err = p.domainCache.ConnAddrFromSlice(pkt[3:])
+	targetAddr, targetAddrLen, err = p.domainCache.ConnAddrFromBytes(pkt[3:])
 	payloadStart = packetStart + targetAddrLen + 3
 	payloadLen = packetLen - targetAddrLen - 3
 	return
