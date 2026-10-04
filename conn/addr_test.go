@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"net"
 	"net/netip"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -198,11 +197,11 @@ func TestAddrDomainLen(t *testing.T) {
 		want int
 	}{
 		{
-			addr: AddrFromDomainPort(MustDomainFromString("example.com"), 80),
+			addr: MustAddrFromDomainStringAndPort("example.com", 80),
 			want: len("example.com"),
 		},
 		{
-			addr: AddrFromDomainPort(MustDomainFromString("example.com."), 80),
+			addr: MustAddrFromDomainStringAndPort("example.com.", 80),
 			want: len("example.com."),
 		},
 	} {
@@ -738,32 +737,34 @@ func TestAddrFromDomainPortZeroDomain(t *testing.T) {
 }
 
 var addrFromDomainPortCases = [...]struct {
-	domain           string
-	wantDomain       Domain
-	fromStringAllocs float64
-	port             uint16
+	name       string
+	domain     string
+	wantDomain Domain
+	port       uint16
 }{
 	{
-		domain:     "example.com",
-		wantDomain: MustDomainFromString("example.com"),
+		name:       "Short=6",
+		domain:     "aka.ms",
+		wantDomain: MustDomainFromString("aka.ms"),
 		port:       80,
 	},
 	{
-		domain:     "example.com.",
-		wantDomain: MustDomainFromString("example.com."),
+		name:       "Medium=16",
+		domain:     "www.example.com.",
+		wantDomain: MustDomainFromString("www.example.com."),
 		port:       443,
 	},
 	{
-		domain:           "EXAMPLE.COM",
-		wantDomain:       MustDomainFromString("example.com"),
-		fromStringAllocs: 1,
-		port:             8080,
+		name:       "LongUppercase=50",
+		domain:     "WE.WRITE.EVERYTHING.WITH.CAPS.LOCK.ON.JUST.FOR.FUN",
+		wantDomain: MustDomainFromString("WE.WRITE.EVERYTHING.WITH.CAPS.LOCK.ON.JUST.FOR.FUN"),
+		port:       8080,
 	},
 	{
-		domain:           "Example.Com.",
-		wantDomain:       MustDomainFromString("example.com."),
-		fromStringAllocs: 1,
-		port:             8443,
+		name:       "CrazyLong=144",
+		domain:     "each-label-is-up-to-63-bytes-long.the-higher-two-bits-of-the-length-byte-indicates-compression.oops-getting-real-close-to-that-limit.rfc1035.org",
+		wantDomain: MustDomainFromString("each-label-is-up-to-63-bytes-long.the-higher-two-bits-of-the-length-byte-indicates-compression.oops-getting-real-close-to-that-limit.rfc1035.org"),
+		port:       8443,
 	},
 }
 
@@ -831,35 +832,38 @@ func TestAddrFromDomainBytesAndPortError(t *testing.T) {
 }
 
 func TestAddrFromDomainStringAndPortAllocs(t *testing.T) {
+	if testing.CoverMode() != "" {
+		t.Skip("coverage mode breaks the compiler optimization this depends on")
+	}
 	for _, c := range addrFromDomainPortCases {
 		if n := testing.AllocsPerRun(10, func() {
 			_, _ = AddrFromDomainStringAndPort(c.domain, c.port)
-		}); n > c.fromStringAllocs {
-			t.Errorf("AddrFromDomainStringAndPort(%q, %d) allocs = %f, want <= %f", c.domain, c.port, n, c.fromStringAllocs)
+		}); n > 0 {
+			t.Errorf("AddrFromDomainStringAndPort(%q, %d) allocs = %f, want 0", c.domain, c.port, n)
 		}
 	}
 }
 
 func TestAddrFromDomainBytesAndPortAllocs(t *testing.T) {
+	if testing.CoverMode() != "" {
+		t.Skip("coverage mode breaks the compiler optimization this depends on")
+	}
 	for _, c := range addrFromDomainPortCases {
 		if n := testing.AllocsPerRun(10, func() {
-			_, _ = AddrFromDomainBytesAndPort([]byte(c.domain), c.port)
-		}); n > 1 {
-			t.Errorf("AddrFromDomainBytesAndPort(%q, %d) allocs = %f, want <= 1", c.domain, c.port, n)
+			buf := make([]byte, 0, 255)
+			buf = append(buf, c.domain...)
+			_, _ = AddrFromDomainBytesAndPort(buf, c.port)
+		}); n > 0 {
+			t.Errorf("AddrFromDomainBytesAndPort(%q, %d) allocs = %f, want 0", c.domain, c.port, n)
 		}
 	}
 }
 
-func BenchmarkAddrFromDomainStringAndPort(b *testing.B) {
-	for _, d := range [...]Domain{
-		MustDomainFromString("aka.ms"),
-		MustDomainFromString("example.com"),
-		MustDomainFromString("can.you.believe.how.long.this.domain.name.is"),
-	} {
-		domain := d.String()
-		b.Run(strconv.Itoa(len(domain)), func(b *testing.B) {
+func BenchmarkDomainFromByteString(b *testing.B) {
+	for _, c := range addrFromDomainPortCases {
+		b.Run(c.name, func(b *testing.B) {
 			for b.Loop() {
-				_, _ = AddrFromDomainStringAndPort(domain, 443)
+				_, _ = DomainFromByteString(c.domain)
 			}
 		})
 	}

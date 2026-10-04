@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
-	"strings"
 	"unicode/utf8"
 	"unique"
 	"unsafe"
@@ -356,33 +355,48 @@ type Domain struct {
 	h unique.Handle[string]
 }
 
-// DomainFromString returns a [Domain] normalized from s.
+// DomainFromByteString returns a [Domain] normalized from s.
 //
 // Internationalized domain names (IDNs) must use Punycode encoding.
-func DomainFromString(s string) (Domain, error) {
+func DomainFromByteString[S ~[]byte | ~string](s S) (Domain, error) {
 	if len(s) == 0 || len(s) > 255 {
-		return Domain{}, newDomainLengthError(s)
+		return Domain{}, newDomainLengthError(string(s))
 	}
 	// This could use some SIMD.
 	var hasUpper bool
 	for i := range len(s) {
 		c := s[i]
 		if c >= utf8.RuneSelf {
-			return Domain{}, newDomainNonASCIIError(s)
+			return Domain{}, newDomainNonASCIIError(string(s))
 		}
 		if c == '%' {
-			return Domain{}, newDomainPercentEncodingError(s)
+			return Domain{}, newDomainPercentEncodingError(string(s))
 		}
 		hasUpper = hasUpper || ('A' <= c && c <= 'Z')
 	}
 	if hasUpper {
-		s = asciiToLower(s)
+		b := make([]byte, 0, 255)
+		var pos int
+		for i := range len(s) {
+			c := s[i]
+			if 'A' <= c && c <= 'Z' {
+				c += 'a' - 'A'
+				if pos < i {
+					b = append(b, s[pos:i]...)
+				}
+				b = append(b, c)
+				pos = i + 1
+			}
+		}
+		if pos < len(s) {
+			b = append(b, s[pos:]...)
+		}
+		return domainFromString(string(b)), nil
 	}
-	return domainFromString(s), nil
+	return domainFromString(string(s)), nil
 }
 
-// DomainFromBytes is like [DomainFromString] but takes a byte slice
-// and normalizes it in-place.
+// DomainFromBytes is like [DomainFromByteString] but may modify the contents of b.
 func DomainFromBytes(b []byte) (Domain, error) {
 	if len(b) == 0 || len(b) > 255 {
 		return Domain{}, newDomainLengthError(string(b))
@@ -413,38 +427,15 @@ func newDomainPercentEncodingError(domain string) error {
 	return errors.New("domain " + strconv.Quote(domain) + " contains percent-encoding")
 }
 
-func asciiToLower(s string) string {
-	var (
-		b   strings.Builder
-		pos int
-	)
-	b.Grow(len(s))
-	for i := range len(s) {
-		c := s[i]
-		if 'A' <= c && c <= 'Z' {
-			c += 'a' - 'A'
-			if pos < i {
-				b.WriteString(s[pos:i])
-			}
-			b.WriteByte(c)
-			pos = i + 1
-		}
-	}
-	if pos < len(s) {
-		b.WriteString(s[pos:])
-	}
-	return b.String()
-}
-
 func domainFromString(s string) Domain {
 	return Domain{
 		h: unique.Make(s),
 	}
 }
 
-// MustDomainFromString calls [DomainFromString] and panics on error.
+// MustDomainFromString calls [DomainFromByteString] and panics on error.
 func MustDomainFromString(s string) Domain {
-	d, err := DomainFromString(s)
+	d, err := DomainFromByteString(s)
 	if err != nil {
 		panic(err)
 	}
@@ -513,7 +504,7 @@ func AddrFromDomainPort(domain Domain, port uint16) Addr {
 //
 // Internationalized domain names (IDNs) must use Punycode encoding.
 func AddrFromDomainStringAndPort(domain string, port uint16) (Addr, error) {
-	d, err := DomainFromString(domain)
+	d, err := DomainFromByteString(domain)
 	if err != nil {
 		return Addr{}, err
 	}

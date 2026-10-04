@@ -373,12 +373,8 @@ func (c *DomainCache) ConnAddrFromBytes(b []byte) (conn.Addr, int, error) {
 		domainBytes := b[2:domainEnd]
 		domain, ok := c.handleByDomain.Get(string(domainBytes))
 		if !ok {
-			// We want to be able to use domainBytes as the cache key,
-			// but DomainFromBytes may modify it, so make a copy.
-			bb := make([]byte, 0, 255)
-			bb = append(bb, domainBytes...)
 			var err error
-			domain, err = conn.DomainFromBytes(bb)
+			domain, err = conn.DomainFromByteString(domainBytes)
 			if err != nil {
 				return conn.Addr{}, 0, err
 			}
