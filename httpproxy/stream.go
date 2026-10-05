@@ -2,6 +2,7 @@ package httpproxy
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -219,12 +220,15 @@ type EncryptedClientHelloKey struct {
 //
 // ProxyServer implements [netio.StreamServer].
 type ProxyServer struct {
+	viaReceivedBy   string
 	usernameByToken map[string]string
 }
 
 // NewProxyServer creates a new HTTP proxy server.
 func (c *ServerConfig) NewProxyServer() (netio.StreamServer, error) {
-	var server ProxyServer
+	server := ProxyServer{
+		viaReceivedBy: rand.Text(),
+	}
 
 	if c.EnableBasicAuth {
 		var b []byte
@@ -276,19 +280,6 @@ func (ProxyServer) StreamServerInfo() netio.StreamServerInfo {
 	return netio.StreamServerInfo{
 		NativeInitialPayload: false,
 	}
-}
-
-// HandleStream implements [netio.StreamServer.HandleStream].
-func (s ProxyServer) HandleStream(c netio.Conn, logger *tslog.Logger) (netio.ConnRequest, error) {
-	pc, targetAddr, username, err := ServerHandle(c, logger, s.usernameByToken)
-	if err != nil {
-		return netio.ConnRequest{}, err
-	}
-	return netio.ConnRequest{
-		PendingConn: pc,
-		Addr:        targetAddr,
-		Username:    username,
-	}, nil
 }
 
 // TLSProxyServer is an HTTP proxy server that uses TLS.

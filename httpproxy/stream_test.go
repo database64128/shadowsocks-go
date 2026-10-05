@@ -122,13 +122,27 @@ func TestStreamClientServerBasicAuthBadCredentials(t *testing.T) {
 	clientTargetAddr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 80)
 	clientProxyAuthHeaders := [...]string{
 		"",
-		"\r\nProxy-Authorization: Basic aGVsbG86d29ybGQ=",
-		"\r\nProxy-Authorization: Basic dGVzdDoxMjPCow==",
-		"\r\nProxy-Authorization: Basic aGVsbG86d29ybGQ=",
-		"\r\nProxy-Authorization: Bas1c QWxhZGRpbjpvcGVuIHNlc2FtZQ==",
+		"\r\nProxy-Authorization: Basic aGVsbG86d29ybGQ=",             // "hello:world"
+		"\r\nProxy-Authorization: Basic dGVzdDoxMjPCow==",             // "test:123Â£"
+		"\r\nProxy-Authorization: Basic aGVsbG86d29ybGQ=",             // "hello:world"
+		"\r\nProxy-Authorization: Bas1c QWxhZGRpbjpvcGVuIHNlc2FtZQ==", // "Aladdin:open sesame" with a typo in "Basic"
 		"\r\nProxy-Authorization: Digest",
 	}
 	clientErrors := make([]error, len(clientProxyAuthHeaders))
+
+	serverConfig := ServerConfig{
+		Users: []ServerUserCredentials{
+			{
+				Username: "Aladdin",
+				Password: "open sesame",
+			},
+		},
+		EnableBasicAuth: true,
+	}
+	server, err := serverConfig.NewProxyServer()
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
 
 	var (
 		wg   sync.WaitGroup
@@ -143,7 +157,7 @@ func TestStreamClientServerBasicAuthBadCredentials(t *testing.T) {
 	})
 
 	wg.Go(func() {
-		_, _, _, serr = ServerHandle(pr, logger, map[string]string{"QWxhZGRpbjpvcGVuIHNlc2FtZQ==": "Aladdin"})
+		_, serr = server.HandleStream(pr, logger)
 	})
 
 	wg.Wait()
@@ -254,7 +268,93 @@ func TestWriteConnectRequestAllocs(t *testing.T) {
 	}
 }
 
-func TestHostHeaderToAddr(t *testing.T) {
+func TestDetectRequestLoop(t *testing.T) {
+	const viaReceivedBy = "fred"
+
+	for _, c := range [...]struct {
+		name   string
+		header http.Header
+		want   bool
+	}{
+		{
+			name:   "NoVia",
+			header: http.Header{},
+			want:   false,
+		},
+		{
+			name: "ViaRicky",
+			header: http.Header{
+				"Via": []string{
+					"1.0 ricky",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "ViaRicky,Ethel",
+			header: http.Header{
+				"Via": []string{
+					"1.0 ricky, 1.1 ethel",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "ViaMertzViaLucy",
+			header: http.Header{
+				"Via": []string{
+					"1.1 mertz",
+					"1.0 lucy",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "ViaMertz,Fred",
+			header: http.Header{
+				"Via": []string{
+					"1.1 mertz, 1.0 fred",
+				},
+			},
+			want: true,
+		},
+		{
+			name: "ViaLucyViaFred",
+			header: http.Header{
+				"Via": []string{
+					"1.0 lucy",
+					"1.1 fred",
+				},
+			},
+			want: true,
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := detectRequestLoop(c.header, viaReceivedBy); got != c.want {
+				t.Errorf("detectRequestLoop() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestAddViaHeader(t *testing.T) {
+	const (
+		protoMajor    = 1
+		protoMinor    = 1
+		viaReceivedBy = "caroline"
+		wantVia       = "1.1 caroline"
+	)
+	header := http.Header{}
+	wantHeader := http.Header{
+		"Via": []string{wantVia},
+	}
+	addViaHeader(header, protoMajor, protoMinor, viaReceivedBy)
+	if !maps.EqualFunc(header, wantHeader, slices.Equal) {
+		t.Errorf("header = %v, want %v", header, wantHeader)
+	}
+}
+
+func TestHostToAddr(t *testing.T) {
 	addr4 := netip.AddrFrom4([4]byte{1, 1, 1, 1})
 	addr6 := netip.AddrFrom16([16]byte{0x26, 0x06, 0x47, 0x00, 0x47, 0x00, 14: 0x11, 15: 0x11})
 
@@ -270,10 +370,10 @@ func TestHostHeaderToAddr(t *testing.T) {
 		{"IPv4Port", "1.1.1.1:443", conn.AddrFromIPAndPort(addr4, 443), nil},
 		{"IPv6", "[2606:4700:4700::1111]", conn.AddrFromIPAndPort(addr6, 80), nil},
 		{"IPv6Port", "[2606:4700:4700::1111]:443", conn.AddrFromIPAndPort(addr6, 443), nil},
-		{"Empty", "", conn.Addr{}, errEmptyHostHeader},
+		{"Empty", "", conn.Addr{}, errEmptyHost},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			addr, err := hostHeaderToAddr(c.host)
+			addr, err := hostToAddr(c.host)
 			if addr != c.expectedAddr {
 				t.Errorf("addr = %v, want %v", addr, c.expectedAddr)
 			}

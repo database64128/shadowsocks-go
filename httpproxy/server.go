@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -31,30 +32,32 @@ func (e FailedAuthAttemptsError) Error() string {
 	return fmt.Sprintf("%d failed authentication attempt(s)", e.Attempts)
 }
 
-// ServerHandle handles an HTTP request from rw.
-func ServerHandle(rw netio.Conn, logger *tslog.Logger, usernameByToken map[string]string) (pc netio.PendingConn, targetAddr conn.Addr, username string, err error) {
+// HandleStream implements [netio.StreamServer.HandleStream].
+func (s ProxyServer) HandleStream(c netio.Conn, logger *tslog.Logger) (netio.ConnRequest, error) {
 	var (
 		req                *http.Request
+		username           string
 		failedAuthAttempts int
 	)
 
-	rwbr := bufio.NewReader(rw)
+	rwbr := bufio.NewReader(c)
 
 	for {
+		var err error
 		req, err = http.ReadRequest(rwbr)
 		if err != nil {
 			if failedAuthAttempts > 0 {
-				return nil, conn.Addr{}, "", fmt.Errorf("failed to read HTTP request after %w: %w", newFailedAuthAttemptsError(failedAuthAttempts), err)
+				return netio.ConnRequest{}, fmt.Errorf("failed to read HTTP request after %w: %w", newFailedAuthAttemptsError(failedAuthAttempts), err)
 			}
-			return nil, conn.Addr{}, "", fmt.Errorf("failed to read HTTP request: %w", err)
+			return netio.ConnRequest{}, fmt.Errorf("failed to read HTTP request: %w", err)
 		}
 
-		if usernameByToken == nil {
+		if s.usernameByToken == nil {
 			break
 		}
 
 		var ok bool
-		username, ok = serverHandleBasicAuth(req.Header, usernameByToken)
+		username, ok = serverHandleBasicAuth(req.Header, s.usernameByToken)
 		if ok {
 			break
 		}
@@ -73,12 +76,12 @@ func ServerHandle(rw netio.Conn, logger *tslog.Logger, usernameByToken map[strin
 			)
 		}
 
-		if err = send407(rw); err != nil {
-			return nil, conn.Addr{}, "", fmt.Errorf("failed to send 407 Proxy Authentication Required response after %w: %w", newFailedAuthAttemptsError(failedAuthAttempts), err)
+		if err = send407(c); err != nil {
+			return netio.ConnRequest{}, fmt.Errorf("failed to send 407 Proxy Authentication Required response after %w: %w", newFailedAuthAttemptsError(failedAuthAttempts), err)
 		}
 
 		if req.Close {
-			return nil, conn.Addr{}, "", newFailedAuthAttemptsError(failedAuthAttempts)
+			return netio.ConnRequest{}, newFailedAuthAttemptsError(failedAuthAttempts)
 		}
 	}
 
@@ -104,22 +107,39 @@ func ServerHandle(rw netio.Conn, logger *tslog.Logger, usernameByToken map[strin
 		//
 		//	A server MUST reject a CONNECT request that targets an empty or invalid port number,
 		//	typically by responding with a 400 (Bad Request) status code.
-		targetAddr, err = conn.ParseAddr(req.RequestURI)
+		targetAddr, err := conn.ParseAddr(req.RequestURI)
 		if err != nil {
-			_ = send400(rw)
-			return nil, conn.Addr{}, username, fmt.Errorf("failed to parse request target: %w", err)
+			_ = send400(c)
+			return netio.ConnRequest{Username: username}, fmt.Errorf("failed to parse request target: %w", err)
 		}
-		return newServerConnectPendingConn(rw), targetAddr, username, nil
+		return netio.ConnRequest{
+			PendingConn: newServerConnectPendingConn(c),
+			Addr:        targetAddr,
+			Username:    username,
+		}, nil
+	}
+
+	// Detect request loops after authentication for non-CONNECT requests.
+	//
+	//  - Authentication naturally breaks request loops thanks to header field stripping.
+	//  - CONNECT loops are not infinite and have to be deliberately fabricated by the client.
+	if detectRequestLoop(req.Header, s.viaReceivedBy) {
+		_ = send400(c)
+		return netio.ConnRequest{Username: username}, errRequestLoopDetected
 	}
 
 	// Host -> targetAddr
-	targetAddr, err = hostHeaderToAddr(req.Host)
+	targetAddr, err := hostToAddr(req.Host)
 	if err != nil {
-		_ = send400(rw)
-		return nil, conn.Addr{}, username, fmt.Errorf("failed to parse host header: %w", err)
+		_ = send400(c)
+		return netio.ConnRequest{Username: username}, fmt.Errorf("failed to parse request host: %w", err)
 	}
 
-	return newServerNonConnectPendingConn(rw, logger, rwbr, req), targetAddr, username, nil
+	return netio.ConnRequest{
+		PendingConn: newServerNonConnectPendingConn(c, logger, rwbr, req, s.viaReceivedBy),
+		Addr:        targetAddr,
+		Username:    username,
+	}, nil
 }
 
 // serverConnectPendingConn wraps a [netio.Conn] from which a CONNECT request was received.
@@ -154,19 +174,21 @@ func (c serverConnectPendingConn) Abort(_ conn.DialResult) error {
 //
 // serverNonConnectPendingConn implements [netio.PendingConn].
 type serverNonConnectPendingConn struct {
-	rw     netio.Conn
-	logger *tslog.Logger
-	rwbr   *bufio.Reader
-	req    *http.Request
+	rw            netio.Conn
+	logger        *tslog.Logger
+	rwbr          *bufio.Reader
+	req           *http.Request
+	viaReceivedBy string
 }
 
 // newServerNonConnectPendingConn returns the connection wrapped as a [netio.PendingConn].
-func newServerNonConnectPendingConn(rw netio.Conn, logger *tslog.Logger, rwbr *bufio.Reader, req *http.Request) netio.PendingConn {
+func newServerNonConnectPendingConn(rw netio.Conn, logger *tslog.Logger, rwbr *bufio.Reader, req *http.Request, viaReceivedBy string) netio.PendingConn {
 	return serverNonConnectPendingConn{
-		rw:     rw,
-		logger: logger,
-		rwbr:   rwbr,
-		req:    req,
+		rw:            rw,
+		logger:        logger,
+		rwbr:          rwbr,
+		req:           req,
+		viaReceivedBy: viaReceivedBy,
 	}
 }
 
@@ -189,12 +211,12 @@ func (c serverNonConnectPendingConn) Proceed() (netio.Conn, error) {
 
 		var wg sync.WaitGroup
 		wg.Go(func() {
-			err := serverForwardRequests(c.req, reqCh, respDone, plbw, c.rwbr, c.logger)
+			err := serverForwardRequests(c.req, reqCh, respDone, plbw, c.rwbr, c.logger, c.viaReceivedBy)
 			pl.CloseWriteWithError(err)
 			close(reqCh)
 		})
 
-		err := serverForwardResponses(reqCh, plbr, c.rw, rwbw, rwbwpcw, c.logger)
+		err := serverForwardResponses(reqCh, plbr, c.rw, rwbw, rwbwpcw, c.logger, c.viaReceivedBy)
 		pl.CloseReadWithError(err)
 		_ = c.rw.CloseWrite()
 		close(respDone)
@@ -238,6 +260,7 @@ func serverForwardRequests(
 	plbw *bufio.Writer,
 	rwbr *bufio.Reader,
 	logger *tslog.Logger,
+	viaReceivedBy string,
 ) (err error) {
 	// The current implementation only supports a fixed destination host.
 	fixedHost := req.Host
@@ -251,6 +274,8 @@ func serverForwardRequests(
 		// WebSocket connections. It's not worth the extra complexity to support something
 		// no one uses.
 		delete(req.Header, "Upgrade")
+
+		addViaHeader(req.Header, req.ProtoMajor, req.ProtoMinor, viaReceivedBy)
 
 		// Notify the response forwarding routine about the request before writing it out,
 		// so that a received 1xx informational response can be forwarded back to the client
@@ -335,6 +360,7 @@ func serverForwardResponses(
 	rwbw *bufio.Writer,
 	rwbwpcw *pipeClosingWriter,
 	logger *tslog.Logger,
+	viaReceivedBy string,
 ) error {
 	for {
 		// Use Peek to monitor the remote connection, so that we can close the proxy connection
@@ -424,6 +450,8 @@ func serverForwardResponses(
 			// Remove hop-by-hop header and trailer fields.
 			removeConnectionSpecificFields(resp.Header, resp.Trailer)
 
+			addViaHeader(resp.Header, resp.ProtoMajor, resp.ProtoMinor, viaReceivedBy)
+
 			// Write response.
 			//
 			// The Write method always drains the response body, even when the destination writer returns an error.
@@ -487,9 +515,25 @@ func serverForwardResponses(
 	}
 }
 
-var errEmptyHostHeader = errors.New("empty host header")
+var errRequestLoopDetected = errors.New("request loop detected")
 
-// hostHeaderToAddr parses the Host header into an address.
+func detectRequestLoop(header http.Header, viaReceivedBy string) bool {
+	for _, via := range header["Via"] {
+		if strings.Contains(via, viaReceivedBy) {
+			return true
+		}
+	}
+	return false
+}
+
+func addViaHeader(header http.Header, protoMajor, protoMinor int, viaReceivedBy string) {
+	via := strconv.Itoa(protoMajor) + "." + strconv.Itoa(protoMinor) + " " + viaReceivedBy
+	header["Via"] = append(header["Via"], via)
+}
+
+var errEmptyHost = errors.New("empty host")
+
+// hostToAddr parses the request host into an address.
 //
 // Host may be in any of the following forms:
 //   - example.com
@@ -498,10 +542,10 @@ var errEmptyHostHeader = errors.New("empty host header")
 //   - 1.1.1.1:443
 //   - [2606:4700:4700::1111]
 //   - [2606:4700:4700::1111]:443
-func hostHeaderToAddr(host string) (conn.Addr, error) {
+func hostToAddr(host string) (conn.Addr, error) {
 	switch {
 	case len(host) == 0:
-		return conn.Addr{}, errEmptyHostHeader
+		return conn.Addr{}, errEmptyHost
 	case strings.IndexByte(host, ':') == -1:
 		return conn.AddrFromHostPort(host, 80)
 	case host[0] == '[' && host[len(host)-1] == ']':
