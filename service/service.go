@@ -478,6 +478,7 @@ func (m *Manager) Run(ctx context.Context) bool {
 	for _, s := range runningSvcs {
 		if err := s.Stop(); err != nil {
 			m.logger.Error("Failed to stop service", s.SlogAttr(), tslog.Err(err))
+			ok = false
 		}
 	}
 
