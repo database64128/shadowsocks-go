@@ -2,6 +2,8 @@
 
 package conn
 
+const defaultUDPSocketBufferSize = 0
+
 func (TCPListenSocketOptions) buildSetFns() setFuncSlice {
 	return setFuncSlice{}
 }

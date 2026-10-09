@@ -6,6 +6,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const defaultUDPSocketBufferSize = 2 * 1024 * 1024
+
 func setTransparent(fd int, _ string) error {
 	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_BINDANY, 1); err != nil {
 		return fmt.Errorf("failed to set socket option SO_BINDANY: %w", err)
