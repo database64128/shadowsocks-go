@@ -128,6 +128,14 @@ func (cfg *Config) Router(
 		if err != nil {
 			return nil, fmt.Errorf("failed to open GeoLite2-Country database: %w", err)
 		}
+
+		if logger.Enabled(slog.LevelDebug) {
+			metadata := geoip.Metadata()
+			logger.Debug("Loaded GeoLite2-Country database",
+				slog.String("databaseType", metadata.DatabaseType),
+				slog.Time("buildTime", metadata.BuildTime()),
+			)
+		}
 	}
 
 	cfgRoutes := cfg.Routes
