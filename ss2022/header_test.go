@@ -72,7 +72,8 @@ func TestWriteAndParseTCPRequestVariableLengthHeader(t *testing.T) {
 	rand.Read(payload)
 	targetAddr := conn.AddrFromIPAndPort(netip.IPv6Unspecified(), 443)
 	targetAddrLen := socks5.LengthOfAddrFromConnAddr(targetAddr)
-	noPayloadLen := targetAddrLen + 2 + 1 + mrand.IntN(MaxPaddingLength)
+	// Test 4 requires at least 2 bytes of padding.
+	noPayloadLen := targetAddrLen + 2 + 2 + mrand.IntN(MaxPaddingLength)
 	noPaddingLen := targetAddrLen + 2 + payloadLen
 	bufLen := noPaddingLen + MaxPaddingLength
 	b := make([]byte, bufLen)
