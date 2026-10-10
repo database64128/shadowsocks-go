@@ -43,6 +43,8 @@ type ListenerConfig struct {
 
 	// Address is the address to listen on.
 	Address string `json:"address"`
+
+	SocketBufferSizeConfig
 }
 
 // IPListenerConfig contains configuration options shared by listeners that directly or indirectly utilize the IP stack.
@@ -237,6 +239,11 @@ func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.TCPListenConfigCa
 		return streamRelayTCPListener{}, fmt.Errorf("invalid network: %q", lnc.Network)
 	}
 
+	sndBufSize, rcvBufSize, err := lnc.SocketBufferSizeConfig.genericSocketBufferSizes()
+	if err != nil {
+		return streamRelayTCPListener{}, err
+	}
+
 	ipwCfg, err := lnc.InitialPayloadWaitConfig.Configure(serverNativeInitialPayload)
 	if err != nil {
 		return streamRelayTCPListener{}, err
@@ -244,6 +251,8 @@ func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.TCPListenConfigCa
 
 	return streamRelayTCPListener{
 		listenConfig: listenConfigCache.Get(conn.TCPListenSocketOptions{
+			SendBufferSize:      sndBufSize,
+			ReceiveBufferSize:   rcvBufSize,
 			Fwmark:              lnc.Fwmark,
 			TrafficClass:        lnc.TrafficClass,
 			TCPFastOpenBacklog:  lnc.FastOpenBacklog,
@@ -281,6 +290,11 @@ func (cfg *UnixListenerConfig) Configure(
 		return fmt.Errorf("invalid network: %q", cfg.Network)
 	}
 
+	sndBufSize, rcvBufSize, err := cfg.SocketBufferSizeConfig.genericSocketBufferSizes()
+	if err != nil {
+		return err
+	}
+
 	perms, err := cfg.UnixDomainSocketPermissionsConfig.Build()
 	if err != nil {
 		return err
@@ -292,7 +306,10 @@ func (cfg *UnixListenerConfig) Configure(
 	}
 
 	*lnc = streamRelayUnixListener{
-		listenConfig:             socketConfigCache.Get(conn.UnixDomainSocketOptions{}),
+		listenConfig: socketConfigCache.Get(conn.UnixDomainSocketOptions{
+			SendBufferSize:    sndBufSize,
+			ReceiveBufferSize: rcvBufSize,
+		}),
 		network:                  cfg.Network,
 		address:                  cfg.Address,
 		permissions:              perms,
@@ -336,8 +353,8 @@ func (lnc *UDPListenerConfig) Configure(logger *tslog.Logger, serverName string,
 
 	return udpRelayServerConn{
 		socketConfig: socketConfigCache.Get(conn.UDPSocketOptions{
-			SendBufferSize:          conn.DefaultUDPSocketBufferSize,
-			ReceiveBufferSize:       conn.DefaultUDPSocketBufferSize,
+			SendBufferSize:          lnc.udpSocketSendBufferSize(),
+			ReceiveBufferSize:       lnc.udpSocketReceiveBufferSize(),
 			Fwmark:                  lnc.Fwmark,
 			TrafficClass:            lnc.TrafficClass,
 			ReusePort:               lnc.ReusePort,

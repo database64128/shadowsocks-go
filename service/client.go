@@ -111,6 +111,38 @@ type ClientConfig struct {
 	// to override the dial address of the dialer's DNS resolver.
 	OverrideResolverDialAddress string `json:"overrideResolverDialAddress,omitzero"`
 
+	// TCPSocketSendBufferSize optionally specifies the send buffer size of TCP sockets.
+	//
+	// If zero, the send buffer size is never modified.
+	// Negative values are not allowed.
+	//
+	// Available on POSIX systems.
+	TCPSocketSendBufferSize int `json:"tcpSocketSendBufferSize,omitzero"`
+
+	// TCPSocketReceiveBufferSize optionally specifies the receive buffer size of TCP sockets.
+	//
+	// If zero, the receive buffer size is never modified.
+	// Negative values are not allowed.
+	//
+	// Available on POSIX systems.
+	TCPSocketReceiveBufferSize int `json:"tcpSocketReceiveBufferSize,omitzero"`
+
+	// UDPSocketSendBufferSize optionally specifies the send buffer size of UDP sockets.
+	//
+	// If zero, [conn.DefaultUDPSocketBufferSize] is used.
+	// If negative, the send buffer size is never modified.
+	//
+	// Available on POSIX systems.
+	UDPSocketSendBufferSize int `json:"udpSocketSendBufferSize,omitzero"`
+
+	// UDPSocketReceiveBufferSize optionally specifies the receive buffer size of UDP sockets.
+	//
+	// If zero, [conn.DefaultUDPSocketBufferSize] is used.
+	// If negative, the receive buffer size is never modified.
+	//
+	// Available on POSIX systems.
+	UDPSocketReceiveBufferSize int `json:"udpSocketReceiveBufferSize,omitzero"`
+
 	// DialerFwmark sets the dialer's fwmark on Linux, or user cookie on FreeBSD.
 	//
 	// Available on Linux and FreeBSD.
@@ -279,7 +311,10 @@ func (c *ClientConfig) AddClient(
 
 	var resolver conn.Resolver
 	if overrideResolverDialAddress := c.OverrideResolverDialAddress; overrideResolverDialAddress != "" {
-		tcpDialer := c.tcpDialer(tcpDialerCache)
+		tcpDialer, err := c.tcpDialer(tcpDialerCache)
+		if err != nil {
+			return err
+		}
 		udpSocketConfig := c.udpSocketConfig(udpSocketConfigCache)
 		resolverDialer := conn.NewDialer(tcpDialer, udpSocketConfig, conn.UnixDomainSocketConfig{})
 		resolver = &net.Resolver{
@@ -466,6 +501,10 @@ func (c *ClientConfig) AddClient(
 }
 
 func (c *ClientConfig) innerTCPClient(tcpDialerCache conn.TCPDialerCache, resolver conn.Resolver, ipACL netio.IPAllowDenyList) (*netio.TCPClient, error) {
+	tcpDialer, err := c.tcpDialer(tcpDialerCache)
+	if err != nil {
+		return nil, err
+	}
 	tcc := netio.TCPClientConfig{
 		Name:                    c.Name,
 		AddressFamilyPreference: c.AddressFamilyPreference,
@@ -473,17 +512,28 @@ func (c *ClientConfig) innerTCPClient(tcpDialerCache conn.TCPDialerCache, resolv
 		ConnectionAttemptDelay:  c.ConnectionAttemptDelay.Value(),
 		LocalAddr4:              c.LocalAddr4,
 		LocalAddr6:              c.LocalAddr6,
-		Dialer:                  c.tcpDialer(tcpDialerCache),
+		Dialer:                  tcpDialer,
 		Resolver:                resolver,
 		IPAllowDenyList:         ipACL,
 	}
 	return tcc.NewTCPClient()
 }
 
-func (c *ClientConfig) tcpDialer(tcpDialerCache conn.TCPDialerCache) conn.TCPDialer {
+func (c *ClientConfig) tcpDialer(tcpDialerCache conn.TCPDialerCache) (conn.TCPDialer, error) {
+	soBufCfg := SocketBufferSizeConfig{
+		SendBufferSize:    c.TCPSocketSendBufferSize,
+		ReceiveBufferSize: c.TCPSocketReceiveBufferSize,
+	}
+	sndBufSize, rcvBufSize, err := soBufCfg.genericSocketBufferSizes()
+	if err != nil {
+		return conn.TCPDialer{}, err
+	}
+
 	return tcpDialerCache.Get(conn.TCPConnectSocketOptions{
-		Fwmark:       c.DialerFwmark,
-		TrafficClass: c.DialerTrafficClass,
+		SendBufferSize:    sndBufSize,
+		ReceiveBufferSize: rcvBufSize,
+		Fwmark:            c.DialerFwmark,
+		TrafficClass:      c.DialerTrafficClass,
 		// Unconditionally set to true as a workaround for https://github.com/golang/go/issues/81620.
 		// Once we upgrade to a Go version with the fix, set to c.LocalAddr4.IsValid() || c.LocalAddr6.IsValid().
 		BindAddressNoPort:   true,
@@ -491,13 +541,13 @@ func (c *ClientConfig) tcpDialer(tcpDialerCache conn.TCPDialerCache) conn.TCPDia
 		TCPFastOpen:         c.DialerTFO,
 		TCPFastOpenFallback: c.TCPFastOpenFallback,
 		MultipathTCP:        c.MultipathTCP,
-	})
+	}), nil
 }
 
 func (c *ClientConfig) udpSocketConfig(udpSocketConfigCache conn.UDPSocketConfigCache) conn.UDPSocketConfig {
 	return udpSocketConfigCache.Get(conn.UDPSocketOptions{
-		SendBufferSize:    conn.DefaultUDPSocketBufferSize,
-		ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
+		SendBufferSize:    udpSocketBufferSize(c.UDPSocketSendBufferSize),
+		ReceiveBufferSize: udpSocketBufferSize(c.UDPSocketReceiveBufferSize),
 		Fwmark:            c.DialerFwmark,
 		TrafficClass:      c.DialerTrafficClass,
 		PathMTUDiscovery:  c.UDPPathMTUDiscovery.UDP(),
