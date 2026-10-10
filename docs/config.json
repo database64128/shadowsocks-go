@@ -333,7 +333,16 @@
                     "natTimeout": "3m0s"
                 }
             ],
-            "mtu": 1500
+            "mtu": 1500,
+            "tproxy": {
+                "udp": {
+                    "sendBufferSize": 0,
+                    "receiveBufferSize": 0,
+                    "fwmark": 52140,
+                    "trafficClass": 0,
+                    "pathMTUDiscovery": ""
+                }
+            }
         },
         {
             "name": "redirect",

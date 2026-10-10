@@ -444,6 +444,9 @@ type ServerConfig struct {
 	// Only applicable to Shadowsocks 2022 TCP.
 	AllowSegmentedFixedLengthHeader bool `json:"allowSegmentedFixedLengthHeader,omitzero"`
 
+	// TransparentProxy is the protocol-specific configuration for "tproxy".
+	TransparentProxy TransparentProxyServerConfig `json:"tproxy,omitzero"`
+
 	// Socks5 is the protocol-specific configuration for "socks5".
 	Socks5 Socks5ServerConfig `json:"socks5,omitzero"`
 
@@ -717,13 +720,13 @@ func (sc *ServerConfig) UDPRelay(logger *tslog.Logger, maxClientPackerHeadroom z
 
 	case "tproxy":
 		transparentConnSocketConfig = sc.udpSocketConfigCache.Get(conn.UDPSocketOptions{
-			SendBufferSize:    conn.DefaultUDPSocketBufferSize,
-			ReceiveBufferSize: conn.DefaultUDPSocketBufferSize,
-			Fwmark:            sc.ListenerFwmark,
-			TrafficClass:      sc.ListenerTrafficClass,
+			SendBufferSize:    sc.TransparentProxy.UDPConfig.udpSocketSendBufferSize(),
+			ReceiveBufferSize: sc.TransparentProxy.UDPConfig.udpSocketReceiveBufferSize(),
+			Fwmark:            sc.TransparentProxy.UDPConfig.Fwmark,
+			TrafficClass:      sc.TransparentProxy.UDPConfig.TrafficClass,
 			Transparent:       true,
 			ReusePort:         true,
-			PathMTUDiscovery:  conn.PMTUDModeDo,
+			PathMTUDiscovery:  sc.TransparentProxy.UDPConfig.PathMTUDiscovery.UDP(),
 		})
 		listenerTransparent = true
 
@@ -800,6 +803,29 @@ func (sc *ServerConfig) PostInit(credmgr *cred.Manager, serverByName map[string]
 	}
 
 	return nil
+}
+
+// TransparentProxyServerConfig contains configuration options for a transparent proxy server.
+type TransparentProxyServerConfig struct {
+	// UDPConfig is the UDP configuration.
+	UDPConfig TransparentProxyServerUDPConfig `json:"udp,omitzero"`
+}
+
+// TransparentProxyServerUDPConfig contains configuration options for a transparent proxy server's
+// downlink UDP sockets that forward packets on behalf of remote endpoints.
+type TransparentProxyServerUDPConfig struct {
+	SocketBufferSizeConfig
+
+	// Fwmark optionally specifies SO_MARK on Linux, or SO_USER_COOKIE on FreeBSD.
+	Fwmark int `json:"fwmark,omitzero"`
+
+	// TrafficClass optionally specifies the traffic class socket option.
+	TrafficClass int `json:"trafficClass,omitzero"`
+
+	// PathMTUDiscovery optionally specifies the Path MTU Discovery mode socket option.
+	//
+	// The default is [PMTUDModeAppDefault], which disables IP fragmentation for better performance and reliability.
+	PathMTUDiscovery PMTUDMode `json:"pathMTUDiscovery,omitzero"`
 }
 
 // Socks5ServerConfig is the configuration for a SOCKS5 server.
