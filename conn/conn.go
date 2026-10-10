@@ -543,30 +543,40 @@ func DefaultTCPConnectSocketOptions() TCPConnectSocketOptions {
 
 // Build returns a [TCPDialer] that sets the socket options.
 func (opts TCPConnectSocketOptions) Build() TCPDialer {
-	cfg := TCPDialer{
-		dialer: tfo.Dialer{
-			ControlContext: opts.buildSetFns().controlContextFunc(nil),
-			DisableTFO:     !opts.TCPFastOpen,
-			Fallback:       opts.TCPFastOpenFallback,
-		},
+	return TCPDialer{
+		controlContext: opts.buildSetFns().controlContextFunc(nil),
+		disableTFO:     !opts.TCPFastOpen,
+		tfoFallback:    opts.TCPFastOpenFallback,
+		mptcp:          opts.MultipathTCP,
 	}
-	cfg.dialer.SetMultipathTCP(opts.MultipathTCP)
-	return cfg
 }
 
 // TCPDialer is the constructed configuration for opening TCP connections.
 type TCPDialer struct {
-	dialer tfo.Dialer
+	controlContext func(ctx context.Context, network, address string, c syscall.RawConn) error
+	disableTFO     bool
+	tfoFallback    bool
+	mptcp          bool
+}
+
+func (cfg TCPDialer) dialer() *tfo.Dialer {
+	dialer := &tfo.Dialer{
+		ControlContext: cfg.controlContext,
+		DisableTFO:     cfg.disableTFO,
+		Fallback:       cfg.tfoFallback,
+	}
+	dialer.SetMultipathTCP(cfg.mptcp)
+	return dialer
 }
 
 // TFO returns true if the next Dial call will attempt to enable TFO.
-func (cfg *TCPDialer) TFO() bool {
-	return cfg.dialer.TFO()
+func (cfg TCPDialer) TFO() bool {
+	return cfg.dialer().TFO()
 }
 
 // Dial wraps [tfo.Dialer.DialTCP].
-func (cfg *TCPDialer) Dial(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
-	return cfg.dialer.DialTCP(ctx, network, laddr, raddr, b)
+func (cfg TCPDialer) Dial(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
+	return cfg.dialer().DialTCP(ctx, network, laddr, raddr, b)
 }
 
 // UDPSocketOptions contains socket options for UDP sockets.
@@ -864,7 +874,6 @@ func (cfg UnixDomainSocketConfig) Dial(ctx context.Context, network string, ladd
 // Dialer is [TCPDialer], [UDPSocketConfig], and [UnixDomainSocketConfig] combined into a universal dialer
 // that can open outgoing TCP, UDP, and Unix domain socket connections, each with their own socket options.
 type Dialer struct {
-	resolver                       *net.Resolver
 	tcpDialerControlContext        func(ctx context.Context, network, address string, c syscall.RawConn) error
 	udpSocketConfig                UDPSocketConfig
 	unixDomainSocketControlContext func(ctx context.Context, network, address string, c syscall.RawConn) error
@@ -875,8 +884,7 @@ type Dialer struct {
 // Name resolution uses the resolver of tcpDialer.
 func NewDialer(tcpDialer TCPDialer, udpSocketConfig UDPSocketConfig, unixDomainSocketConfig UnixDomainSocketConfig) Dialer {
 	return Dialer{
-		resolver:                       tcpDialer.dialer.Resolver,
-		tcpDialerControlContext:        tcpDialer.dialer.ControlContext,
+		tcpDialerControlContext:        tcpDialer.controlContext,
 		udpSocketConfig:                udpSocketConfig,
 		unixDomainSocketControlContext: unixDomainSocketConfig.controlContext,
 	}
@@ -884,9 +892,7 @@ func NewDialer(tcpDialer TCPDialer, udpSocketConfig UDPSocketConfig, unixDomainS
 
 // Dial opens a connection to the given network and address, using the appropriate socket options for the network type.
 func (d *Dialer) Dial(ctx context.Context, network, address string) (net.Conn, error) {
-	dialer := net.Dialer{
-		Resolver: d.resolver,
-	}
+	var dialer net.Dialer
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 		dialer.ControlContext = d.tcpDialerControlContext
