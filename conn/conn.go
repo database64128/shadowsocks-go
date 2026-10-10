@@ -713,12 +713,6 @@ func (cfg UDPSocketConfig) Listen(ctx context.Context, network, address string, 
 
 // Dial wraps [net.Dialer.DialUDP].
 func (cfg UDPSocketConfig) Dial(ctx context.Context, network string, laddr, raddr netip.AddrPort, info *SocketInfo) (*net.UDPConn, error) {
-	switch network {
-	case "udp", "udp4", "udp6":
-	default:
-		return nil, &net.OpError{Op: "dial", Net: network, Err: net.UnknownNetworkError(network)}
-	}
-
 	if info != nil {
 		*info = SocketInfo{
 			MaxUDPGSOSegments: 1,
