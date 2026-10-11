@@ -335,14 +335,10 @@ func (m *PMTUDMode) UnmarshalText(text []byte) error {
 type TCPListenSocketOptions struct {
 	// SendBufferSize sets the send buffer size of the socket.
 	//
-	// This is best-effort and does not return an error if the operation fails.
-	//
 	// Available on POSIX systems.
 	SendBufferSize int
 
 	// ReceiveBufferSize sets the receive buffer size of the socket.
-	//
-	// This is best-effort and does not return an error if the operation fails.
 	//
 	// Available on POSIX systems.
 	ReceiveBufferSize int
@@ -461,14 +457,10 @@ func (cfg *TCPListenConfig) Listen(ctx context.Context, network, address string)
 type TCPConnectSocketOptions struct {
 	// SendBufferSize sets the send buffer size of the socket.
 	//
-	// This is best-effort and does not return an error if the operation fails.
-	//
 	// Available on POSIX systems.
 	SendBufferSize int
 
 	// ReceiveBufferSize sets the receive buffer size of the socket.
-	//
-	// This is best-effort and does not return an error if the operation fails.
 	//
 	// Available on POSIX systems.
 	ReceiveBufferSize int
@@ -583,14 +575,10 @@ func (cfg TCPDialer) Dial(ctx context.Context, network string, laddr, raddr neti
 type UDPSocketOptions struct {
 	// SendBufferSize sets the send buffer size of the socket.
 	//
-	// This is best-effort and does not return an error if the operation fails.
-	//
 	// Available on POSIX systems.
 	SendBufferSize int
 
 	// ReceiveBufferSize sets the receive buffer size of the socket.
-	//
-	// This is best-effort and does not return an error if the operation fails.
 	//
 	// Available on POSIX systems.
 	ReceiveBufferSize int
@@ -739,14 +727,10 @@ func (cfg UDPSocketConfig) Dial(ctx context.Context, network string, laddr, radd
 type UnixDomainSocketOptions struct {
 	// SendBufferSize sets the send buffer size of the socket.
 	//
-	// This is best-effort and does not return an error if the operation fails.
-	//
 	// Available on POSIX systems.
 	SendBufferSize int
 
 	// ReceiveBufferSize sets the receive buffer size of the socket.
-	//
-	// This is best-effort and does not return an error if the operation fails.
 	//
 	// Available on POSIX systems.
 	ReceiveBufferSize int
