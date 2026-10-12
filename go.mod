@@ -7,7 +7,7 @@ require (
 	github.com/database64128/tfo-go/v2 v2.4.2
 	github.com/gaissmai/bart v0.30.0
 	github.com/lmittmann/tint v1.2.1
-	github.com/oschwald/geoip2-golang/v2 v2.4.0
+	github.com/oschwald/geoip2-golang/v2 v2.5.0
 	golang.org/x/net v0.61.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
@@ -16,5 +16,5 @@ require (
 
 require (
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
-	github.com/oschwald/maxminddb-golang/v2 v2.6.0 // indirect
+	github.com/oschwald/maxminddb-golang/v2 v2.8.0 // indirect
 )
