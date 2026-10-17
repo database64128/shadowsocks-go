@@ -532,9 +532,9 @@ func testConnPairRoundTripInterleaveReadWriteToWriteReadFrom(t *testing.T, copyS
 
 	var wg sync.WaitGroup
 
-	// Read the first half, then WriteTo the second half.
+	// Read 1/3 of the data, then WriteTo the remaining.
 	readFunc := func(name string, c netio.Conn) {
-		got1 := make([]byte, bufSize/2)
+		got1 := make([]byte, bufSize/3)
 		if _, err := io.ReadFull(c, got1); err != nil {
 			t.Errorf("Read %s -> got1 failed: %v", name, err)
 		}
@@ -543,7 +543,7 @@ func testConnPairRoundTripInterleaveReadWriteToWriteReadFrom(t *testing.T, copyS
 		}
 
 		var buf bytes.Buffer
-		buf.Grow(bufSize / 2)
+		buf.Grow(bufSize - len(got1))
 		if _, err := c.(io.WriterTo).WriteTo(&buf); err != nil {
 			t.Errorf("WriteTo %s -> buf failed: %v", name, err)
 		}
