@@ -363,6 +363,17 @@ func (c *ShadowStreamConn) writeToShadowStreamConn(w *ShadowStreamConn) (n int64
 	writeBuf := w.writeBuf
 	readBuf := writeBuf[2+tagSize : 2+tagSize]
 
+	if c.readBuf != nil {
+		if uint(c.readStart) < uint(len(c.readBuf)) {
+			payload := c.readBuf[c.readStart:]
+			if err := w.write(writeBuf, payload); err != nil {
+				return 0, err
+			}
+			n = int64(len(payload))
+		}
+		c.readBuf = nil
+	}
+
 	for {
 		nr, err := c.read(readBuf)
 		if err != nil {
@@ -379,29 +390,33 @@ func (c *ShadowStreamConn) writeToShadowStreamConn(w *ShadowStreamConn) (n int64
 	}
 }
 
-func (c *ShadowStreamConn) getReadBuf() []byte {
+func (c *ShadowStreamConn) initReadBuf() {
 	if c.readBuf == nil {
-		c.readBuf = slices.Grow(c.readBuf, streamReadMinBufferSize)
+		c.readBuf = slices.Grow([]byte(nil), streamReadMinBufferSize)
 	}
+}
+
+func (c *ShadowStreamConn) getReadBuf() []byte {
+	c.initReadBuf()
 	return c.readBuf
 }
 
 // Read implements [netio.Conn.Read].
 func (c *ShadowStreamConn) Read(b []byte) (n int, err error) {
-	if c.readStart == len(c.readBuf) {
+	if uint(c.readStart) >= uint(len(c.readBuf)) {
 		// Happy path: b is large enough for the read.
 		if len(b) >= streamReadMinBufferSize {
 			return c.read(b)
 		}
 
-		readBuf := c.getReadBuf()
+		c.initReadBuf()
 
-		n, err = c.read(readBuf)
+		n, err = c.read(c.readBuf)
 		if err != nil {
 			return 0, err
 		}
 
-		c.readBuf = readBuf[:n]
+		c.readBuf = c.readBuf[:n]
 		c.readStart = 0
 	}
 
@@ -412,10 +427,20 @@ func (c *ShadowStreamConn) Read(b []byte) (n int, err error) {
 
 // WriteTo implements [io.WriterTo].
 func (c *ShadowStreamConn) WriteTo(w io.Writer) (n int64, err error) {
-	b := c.getReadBuf()
+	if uint(c.readStart) < uint(len(c.readBuf)) {
+		nw, err := w.Write(c.readBuf[c.readStart:])
+		n = int64(nw)
+		// Don't bother advancing c.readStart;
+		// WriteTo is the final read operation.
+		if err != nil {
+			return n, err
+		}
+	} else {
+		c.initReadBuf()
+	}
 
 	for {
-		nr, err := c.read(b)
+		nr, err := c.read(c.readBuf)
 		if err != nil {
 			if err == io.EOF {
 				return n, nil
@@ -423,7 +448,7 @@ func (c *ShadowStreamConn) WriteTo(w io.Writer) (n int64, err error) {
 			return n, err
 		}
 
-		nw, err := w.Write(b[:nr])
+		nw, err := w.Write(c.readBuf[:nr])
 		n += int64(nw)
 		if err != nil {
 			return n, err
