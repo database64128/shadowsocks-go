@@ -330,13 +330,15 @@ func (c *ClientConfig) AddClient(
 		return err
 	}
 
+	socketConfigCache := newSocketConfigCache(tcpDialerCache, udpSocketConfigCache)
+
 	var resolver conn.Resolver
 	if overrideResolverDialAddress := c.OverrideResolverDialAddress; overrideResolverDialAddress != "" {
-		tcpDialer, err := c.tcpDialer(tcpDialerCache)
+		tcpDialer, err := c.tcpDialer(socketConfigCache)
 		if err != nil {
 			return err
 		}
-		udpSocketConfig := c.udpSocketConfig(udpSocketConfigCache)
+		udpSocketConfig := c.udpSocketConfig(socketConfigCache)
 		resolverDialer := conn.NewDialer(tcpDialer, udpSocketConfig, conn.UnixDomainSocketConfig{})
 		resolver = &net.Resolver{
 			PreferGo: true,
@@ -365,7 +367,7 @@ func (c *ClientConfig) AddClient(
 	switch c.Protocol {
 	case "direct":
 		if c.EnableTCP {
-			streamClient, err := c.innerTCPClient(tcpDialerCache, resolver, ipACL)
+			streamClient, err := c.innerTCPClient(socketConfigCache, resolver, ipACL)
 			if err != nil {
 				return err
 			}
@@ -373,12 +375,12 @@ func (c *ClientConfig) AddClient(
 		}
 
 		if c.EnableUDP {
-			udpClientByName[c.Name] = direct.NewDirectUDPClient(c.Name, c.AddressFamilyPreference, resolver, ipACL, c.MTU, c.udpSocketConfig(udpSocketConfigCache))
+			udpClientByName[c.Name] = direct.NewDirectUDPClient(c.Name, c.AddressFamilyPreference, resolver, ipACL, c.MTU, c.udpSocketConfig(socketConfigCache))
 		}
 
 	case "none", "plain":
 		if c.EnableTCP {
-			innerClient, err := c.innerTCPClient(tcpDialerCache, resolver, ipACL)
+			innerClient, err := c.innerTCPClient(socketConfigCache, resolver, ipACL)
 			if err != nil {
 				return err
 			}
@@ -392,11 +394,11 @@ func (c *ClientConfig) AddClient(
 		}
 
 		if c.EnableUDP {
-			udpClientByName[c.Name] = direct.NewShadowsocksNoneUDPClient(c.Name, udpAddr, c.AddressFamilyPreference, resolver, c.MTU, c.udpSocketConfig(udpSocketConfigCache))
+			udpClientByName[c.Name] = direct.NewShadowsocksNoneUDPClient(c.Name, udpAddr, c.AddressFamilyPreference, resolver, c.MTU, c.udpSocketConfig(socketConfigCache))
 		}
 
 	case "socks5":
-		innerClient, err := c.innerTCPClient(tcpDialerCache, resolver, ipACL)
+		innerClient, err := c.innerTCPClient(socketConfigCache, resolver, ipACL)
 		if err != nil {
 			return err
 		}
@@ -428,7 +430,7 @@ func (c *ClientConfig) AddClient(
 				AddressFamilyPreference: c.AddressFamilyPreference,
 				Resolver:                resolver,
 				MTU:                     c.MTU,
-				SocketConfig:            c.udpSocketConfig(udpSocketConfigCache),
+				SocketConfig:            c.udpSocketConfig(socketConfigCache),
 				AuthMsg:                 authMsg,
 			}
 			udpClientByName[c.Name] = cfg.NewClient()
@@ -439,7 +441,7 @@ func (c *ClientConfig) AddClient(
 			return errors.New("HTTP proxy does not support UDP")
 		}
 
-		innerClient, err := c.innerTCPClient(tcpDialerCache, resolver, ipACL)
+		innerClient, err := c.innerTCPClient(socketConfigCache, resolver, ipACL)
 		if err != nil {
 			return err
 		}
@@ -493,7 +495,7 @@ func (c *ClientConfig) AddClient(
 		}
 
 		if c.EnableTCP {
-			innerClient, err := c.innerTCPClient(tcpDialerCache, resolver, ipACL)
+			innerClient, err := c.innerTCPClient(socketConfigCache, resolver, ipACL)
 			if err != nil {
 				return err
 			}
@@ -511,7 +513,7 @@ func (c *ClientConfig) AddClient(
 		}
 
 		if c.EnableUDP {
-			udpClientByName[c.Name] = ss2022.NewUDPClient(c.Name, udpAddr, c.AddressFamilyPreference, resolver, c.MTU, c.udpSocketConfig(udpSocketConfigCache), c.SlidingWindowFilterSize, cipherConfig, c.PaddingPolicy.Policy())
+			udpClientByName[c.Name] = ss2022.NewUDPClient(c.Name, udpAddr, c.AddressFamilyPreference, resolver, c.MTU, c.udpSocketConfig(socketConfigCache), c.SlidingWindowFilterSize, cipherConfig, c.PaddingPolicy.Policy())
 		}
 
 	default:
@@ -521,8 +523,8 @@ func (c *ClientConfig) AddClient(
 	return nil
 }
 
-func (c *ClientConfig) innerTCPClient(tcpDialerCache conn.TCPDialerCache, resolver conn.Resolver, ipACL netio.IPAllowDenyList) (*netio.TCPClient, error) {
-	tcpDialer, err := c.tcpDialer(tcpDialerCache)
+func (c *ClientConfig) innerTCPClient(socketConfigCache *socketConfigCache, resolver conn.Resolver, ipACL netio.IPAllowDenyList) (*netio.TCPClient, error) {
+	tcpDialer, err := c.tcpDialer(socketConfigCache)
 	if err != nil {
 		return nil, err
 	}
@@ -540,7 +542,11 @@ func (c *ClientConfig) innerTCPClient(tcpDialerCache conn.TCPDialerCache, resolv
 	return tcc.NewTCPClient()
 }
 
-func (c *ClientConfig) tcpDialer(tcpDialerCache conn.TCPDialerCache) (conn.TCPDialer, error) {
+func (c *ClientConfig) tcpDialer(socketConfigCache *socketConfigCache) (conn.TCPDialer, error) {
+	if socketConfigCache.hasTCPDialer {
+		return socketConfigCache.tcpDialer, nil
+	}
+
 	soBufCfg := SocketBufferSizeConfig{
 		SendBufferSize:    c.TCPSocketSendBufferSize,
 		ReceiveBufferSize: c.TCPSocketReceiveBufferSize,
@@ -556,7 +562,7 @@ func (c *ClientConfig) tcpDialer(tcpDialerCache conn.TCPDialerCache) (conn.TCPDi
 		return conn.TCPDialer{}, fmt.Errorf("tcp user timeout in milliseconds overflows int: %d", tcpUserTimeoutMsecs64)
 	}
 
-	return tcpDialerCache.Get(conn.TCPConnectSocketOptions{
+	tcpDialer := socketConfigCache.tcpDialerCache.Get(conn.TCPConnectSocketOptions{
 		SendBufferSize:              sndBufSize,
 		ReceiveBufferSize:           rcvBufSize,
 		Fwmark:                      c.DialerFwmark,
@@ -570,11 +576,17 @@ func (c *ClientConfig) tcpDialer(tcpDialerCache conn.TCPDialerCache) (conn.TCPDi
 		TCPFastOpen:         c.DialerTFO,
 		TCPFastOpenFallback: c.TCPFastOpenFallback,
 		MultipathTCP:        c.MultipathTCP,
-	}), nil
+	})
+	socketConfigCache.tcpDialer = tcpDialer
+	socketConfigCache.hasTCPDialer = true
+	return tcpDialer, nil
 }
 
-func (c *ClientConfig) udpSocketConfig(udpSocketConfigCache conn.UDPSocketConfigCache) conn.UDPSocketConfig {
-	return udpSocketConfigCache.Get(conn.UDPSocketOptions{
+func (c *ClientConfig) udpSocketConfig(socketConfigCache *socketConfigCache) conn.UDPSocketConfig {
+	if socketConfigCache.hasUDPSocketConfig {
+		return socketConfigCache.udpSocketConfig
+	}
+	udpSocketConfig := socketConfigCache.udpSocketConfigCache.Get(conn.UDPSocketOptions{
 		SendBufferSize:              udpSocketBufferSize(c.UDPSocketSendBufferSize),
 		ReceiveBufferSize:           udpSocketBufferSize(c.UDPSocketReceiveBufferSize),
 		Fwmark:                      c.DialerFwmark,
@@ -582,6 +594,28 @@ func (c *ClientConfig) udpSocketConfig(udpSocketConfigCache conn.UDPSocketConfig
 		IPv6SourceAddressPreference: c.IPv6SourceAddressPreference,
 		PathMTUDiscovery:            c.UDPPathMTUDiscovery.UDP(),
 	})
+	socketConfigCache.udpSocketConfig = udpSocketConfig
+	socketConfigCache.hasUDPSocketConfig = true
+	return udpSocketConfig
+}
+
+type socketConfigCache struct {
+	tcpDialer            conn.TCPDialer
+	tcpDialerCache       conn.TCPDialerCache
+	udpSocketConfig      conn.UDPSocketConfig
+	udpSocketConfigCache conn.UDPSocketConfigCache
+	hasTCPDialer         bool
+	hasUDPSocketConfig   bool
+}
+
+func newSocketConfigCache(
+	tcpDialerCache conn.TCPDialerCache,
+	udpSocketConfigCache conn.UDPSocketConfigCache,
+) *socketConfigCache {
+	return &socketConfigCache{
+		tcpDialerCache:       tcpDialerCache,
+		udpSocketConfigCache: udpSocketConfigCache,
+	}
 }
 
 // Socks5ClientConfig is the configuration for a SOCKS5 client.
