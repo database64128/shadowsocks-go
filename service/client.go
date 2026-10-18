@@ -177,6 +177,11 @@ type ClientConfig struct {
 	// The default is [PMTUDModeAppDefault], which follows the system default.
 	TCPPathMTUDiscovery PMTUDMode `json:"tcpPathMTUDiscovery,omitzero"`
 
+	// TCPUserTimeout optionally specifies the TCP user timeout socket option.
+	//
+	// Available on Linux.
+	TCPUserTimeout jsoncfg.Duration `json:"tcpUserTimeout,omitzero"`
+
 	// DialerTFO enables TCP Fast Open on the dialer.
 	//
 	// Available on Linux, macOS, FreeBSD, and Windows.
@@ -545,11 +550,18 @@ func (c *ClientConfig) tcpDialer(tcpDialerCache conn.TCPDialerCache) (conn.TCPDi
 		return conn.TCPDialer{}, err
 	}
 
+	tcpUserTimeoutMsecs64 := c.TCPUserTimeout.Value().Milliseconds()
+	tcpUserTimeoutMsecs := int(tcpUserTimeoutMsecs64)
+	if int64(tcpUserTimeoutMsecs) != tcpUserTimeoutMsecs64 {
+		return conn.TCPDialer{}, fmt.Errorf("tcp user timeout in milliseconds overflows int: %d", tcpUserTimeoutMsecs64)
+	}
+
 	return tcpDialerCache.Get(conn.TCPConnectSocketOptions{
 		SendBufferSize:              sndBufSize,
 		ReceiveBufferSize:           rcvBufSize,
 		Fwmark:                      c.DialerFwmark,
 		TrafficClass:                c.DialerTrafficClass,
+		TCPUserTimeoutMsecs:         tcpUserTimeoutMsecs,
 		IPv6SourceAddressPreference: c.IPv6SourceAddressPreference,
 		// Unconditionally set to true as a workaround for https://github.com/golang/go/issues/81620.
 		// Once we upgrade to a Go version with the fix, set to c.LocalAddr4.IsValid() || c.LocalAddr6.IsValid().
