@@ -68,7 +68,7 @@ func (fns setFuncSlice) controlFunc(info *SocketInfo) func(network, address stri
 }
 
 // IPv6SourceAddressPreference is RFC 5014 IPv6 address preference flag.
-type IPv6SourceAddressPreference int
+type IPv6SourceAddressPreference uint8
 
 const (
 	// IPv6SourceAddressPreferencePreferHome indicates preference for home source addresses.
@@ -107,6 +107,7 @@ const (
 	//  - On Solaris, this sets IPV6_SRC_PREFERENCES to IPV6_PREFER_SRC_CGA.
 	//  - On other platforms, this is ignored.
 	IPv6SourceAddressPreferencePreferCGA
+
 	// IPv6SourceAddressPreferencePreferNonCGA indicates preference for non-CGA source addresses.
 	//
 	//  - On Linux and z/OS, this sets IPV6_ADDR_PREFERENCES to IPV6_PREFER_SRC_NONCGA.
@@ -180,25 +181,27 @@ func (p IPv6SourceAddressPreference) MarshalText() ([]byte, error) {
 
 // UnmarshalText implements [encoding.TextUnmarshaler].
 func (p *IPv6SourceAddressPreference) UnmarshalText(text []byte) error {
+	var pref IPv6SourceAddressPreference
 	for name := range bytes.SplitSeq(text, []byte{'|'}) {
 		name = bytes.TrimSpace(name)
 		switch string(name) {
 		case ipv6SourceAddressPreferencePreferHomeString:
-			*p |= IPv6SourceAddressPreferencePreferHome
+			pref |= IPv6SourceAddressPreferencePreferHome
 		case ipv6SourceAddressPreferencePreferCOAString:
-			*p |= IPv6SourceAddressPreferencePreferCOA
+			pref |= IPv6SourceAddressPreferencePreferCOA
 		case ipv6SourceAddressPreferencePreferTemporaryString:
-			*p |= IPv6SourceAddressPreferencePreferTemporary
+			pref |= IPv6SourceAddressPreferencePreferTemporary
 		case ipv6SourceAddressPreferencePreferPublicString:
-			*p |= IPv6SourceAddressPreferencePreferPublic
+			pref |= IPv6SourceAddressPreferencePreferPublic
 		case ipv6SourceAddressPreferencePreferCGAString:
-			*p |= IPv6SourceAddressPreferencePreferCGA
+			pref |= IPv6SourceAddressPreferencePreferCGA
 		case ipv6SourceAddressPreferencePreferNonCGAString:
-			*p |= IPv6SourceAddressPreferencePreferNonCGA
+			pref |= IPv6SourceAddressPreferencePreferNonCGA
 		default:
 			return fmt.Errorf("invalid IPv6 source address preference: %q", name)
 		}
 	}
+	*p = pref
 	return nil
 }
 
@@ -475,15 +478,15 @@ type TCPConnectSocketOptions struct {
 	// Available on most platforms except Windows.
 	TrafficClass int
 
-	// IPv6SourceAddressPreference sets IPv6 source address selection preferences on the socket.
-	//
-	// Available on Linux, Solaris, macOS, DragonFly BSD, and FreeBSD.
-	IPv6SourceAddressPreference IPv6SourceAddressPreference
-
 	// TCPUserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the socket.
 	//
 	// Available on Linux.
 	TCPUserTimeoutMsecs int
+
+	// IPv6SourceAddressPreference sets IPv6 source address selection preferences on the socket.
+	//
+	// Available on Linux, Solaris, macOS, DragonFly BSD, and FreeBSD.
+	IPv6SourceAddressPreference IPv6SourceAddressPreference
 
 	// BindAddressNoPort configures the socket to not reserve an ephemeral port when using bind(2)
 	// with a port number of 0. The port will later be automatically chosen at connect(2) time,
