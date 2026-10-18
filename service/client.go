@@ -153,6 +153,22 @@ type ClientConfig struct {
 	// Available on most platforms except Windows.
 	DialerTrafficClass int `json:"dialerTrafficClass,omitzero"`
 
+	// IPv6SourceAddressPreference sets IPv6 source address selection preferences on IPv6 sockets.
+	//
+	//  - "IPV6_PREFER_SRC_HOME": Prefer home addresses.
+	//  - "IPV6_PREFER_SRC_COA": Prefer care-of addresses.
+	//  - "IPV6_PREFER_SRC_TMP": Prefer temporary addresses.
+	//  - "IPV6_PREFER_SRC_PUBLIC": Prefer public addresses.
+	//  - "IPV6_PREFER_SRC_CGA": Prefer Cryptographically Generated Addresses.
+	//  - "IPV6_PREFER_SRC_NONCGA": Prefer non-CGA addresses.
+	//
+	// Multiple flags can be combined with '|'. Not all combinations are valid.
+	//
+	// Available on Linux, Solaris, macOS, DragonFly BSD, and FreeBSD.
+	//
+	// Platform availability may vary between flags. See [conn.IPv6SourceAddressPreference] for details.
+	IPv6SourceAddressPreference conn.IPv6SourceAddressPreference `json:"ipv6SourceAddressPreference,omitzero"`
+
 	// EnableTCP controls whether to enable TCP on the client.
 	EnableTCP bool `json:"enableTCP,omitzero"`
 
@@ -530,10 +546,11 @@ func (c *ClientConfig) tcpDialer(tcpDialerCache conn.TCPDialerCache) (conn.TCPDi
 	}
 
 	return tcpDialerCache.Get(conn.TCPConnectSocketOptions{
-		SendBufferSize:    sndBufSize,
-		ReceiveBufferSize: rcvBufSize,
-		Fwmark:            c.DialerFwmark,
-		TrafficClass:      c.DialerTrafficClass,
+		SendBufferSize:              sndBufSize,
+		ReceiveBufferSize:           rcvBufSize,
+		Fwmark:                      c.DialerFwmark,
+		TrafficClass:                c.DialerTrafficClass,
+		IPv6SourceAddressPreference: c.IPv6SourceAddressPreference,
 		// Unconditionally set to true as a workaround for https://github.com/golang/go/issues/81620.
 		// Once we upgrade to a Go version with the fix, set to c.LocalAddr4.IsValid() || c.LocalAddr6.IsValid().
 		BindAddressNoPort:   true,
@@ -546,11 +563,12 @@ func (c *ClientConfig) tcpDialer(tcpDialerCache conn.TCPDialerCache) (conn.TCPDi
 
 func (c *ClientConfig) udpSocketConfig(udpSocketConfigCache conn.UDPSocketConfigCache) conn.UDPSocketConfig {
 	return udpSocketConfigCache.Get(conn.UDPSocketOptions{
-		SendBufferSize:    udpSocketBufferSize(c.UDPSocketSendBufferSize),
-		ReceiveBufferSize: udpSocketBufferSize(c.UDPSocketReceiveBufferSize),
-		Fwmark:            c.DialerFwmark,
-		TrafficClass:      c.DialerTrafficClass,
-		PathMTUDiscovery:  c.UDPPathMTUDiscovery.UDP(),
+		SendBufferSize:              udpSocketBufferSize(c.UDPSocketSendBufferSize),
+		ReceiveBufferSize:           udpSocketBufferSize(c.UDPSocketReceiveBufferSize),
+		Fwmark:                      c.DialerFwmark,
+		TrafficClass:                c.DialerTrafficClass,
+		IPv6SourceAddressPreference: c.IPv6SourceAddressPreference,
+		PathMTUDiscovery:            c.UDPPathMTUDiscovery.UDP(),
 	})
 }
 
