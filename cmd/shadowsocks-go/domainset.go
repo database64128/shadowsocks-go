@@ -270,11 +270,10 @@ Flags:
   -concurrency <number>   Number of concurrent conversion jobs (default: auto)
 
 Logging Flags:
-  -logLevel <level>   Log level, one of: DEBUG, INFO, WARN, ERROR (default: INFO)
-  -logNoColor         Disable colored log output
-  -logNoTime          Disable timestamp in log output
-  -logKVPairs         Format logs as key=value pairs
-  -logJSON            Format logs as line-delimited JSON
+  -logLevel <level>       Log level, one of: DEBUG, INFO, WARN, ERROR (default: INFO)
+  -logFormat <format>     Log format, one of: default, slog-text, slog-json, tint-text
+  -logNoColor             Disable colored log output
+  -logNoTime              Disable timestamp in log output
 
 Examples:
   Convert a v2fly/dlc file to text and gob formats:
@@ -292,11 +291,7 @@ func runDomainSetConvert(name string, args []string) int {
 		job         *domainSetConversionJob
 		failCount   atomic.Int32
 		concurrency int
-		logLevel    slog.Level
-		logNoColor  = defaultLogNoColor
-		logNoTime   bool
-		logKVPairs  bool
-		logJSON     bool
+		logCfg      tslog.Config
 	)
 
 	setJobInput := func(inPath string, unmarshal func(text, attr string) (domainset.Builder, error)) error {
@@ -385,11 +380,10 @@ func runDomainSetConvert(name string, args []string) int {
 	fs.Func("tag", "alias for -attr", setJobAttr)
 	fs.BoolFunc("skipRegexp", "skip regular expression rules", setJobSkipRegexp)
 	fs.IntVar(&concurrency, "concurrency", 0, "`number` of concurrent conversion jobs")
-	fs.TextVar(&logLevel, "logLevel", slog.LevelInfo, "log `level`, one of: DEBUG, INFO, WARN, ERROR")
-	fs.BoolVar(&logNoColor, "logNoColor", defaultLogNoColor, "disable colored log output")
-	fs.BoolVar(&logNoTime, "logNoTime", false, "disable timestamp in log output")
-	fs.BoolVar(&logKVPairs, "logKVPairs", false, "format logs as key=value pairs")
-	fs.BoolVar(&logJSON, "logJSON", false, "format logs as line-delimited JSON")
+	fs.TextVar(&logCfg.Level, "logLevel", slog.LevelInfo, "log `level`, one of: DEBUG, INFO, WARN, ERROR")
+	fs.TextVar(&logCfg.Format, "logFormat", tslog.FormatDefault, "log `format`, one of: default, slog-text, slog-json, tint-text")
+	fs.BoolVar(&logCfg.NoColor, "logNoColor", defaultLogNoColor, "disable colored log output")
+	fs.BoolVar(&logCfg.NoTime, "logNoTime", false, "disable timestamp in log output")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -416,13 +410,6 @@ func runDomainSetConvert(name string, args []string) int {
 		concurrency = min(len(jobs), runtime.NumCPU())
 	}
 
-	logCfg := tslog.Config{
-		Level:          logLevel,
-		NoColor:        logNoColor,
-		NoTime:         logNoTime,
-		UseTextHandler: logKVPairs,
-		UseJSONHandler: logJSON,
-	}
 	logger := logCfg.NewLogger(os.Stderr)
 
 	ctx, stopSig := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

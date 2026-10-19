@@ -23,32 +23,26 @@ Arguments:
   [path]...   Paths to the config files (default: "config.json")
 
 Logging Flags:
-  -logLevel <level>   Log level, one of: DEBUG, INFO, WARN, ERROR (default: INFO)
-  -logNoColor         Disable colored log output
-  -logNoTime          Disable timestamp in log output
-  -logKVPairs         Format logs as key=value pairs
-  -logJSON            Format logs as line-delimited JSON
+  -logLevel <level>       Log level, one of: DEBUG, INFO, WARN, ERROR (default: INFO)
+  -logFormat <format>     Log format, one of: default, slog-text, slog-json, tint-text
+  -logNoColor             Disable colored log output
+  -logNoTime              Disable timestamp in log output
 `
 
 func runService(name string, args []string) int {
 	var (
-		fs         flag.FlagSet
-		logLevel   slog.Level
-		logNoColor = defaultLogNoColor
-		logNoTime  bool
-		logKVPairs bool
-		logJSON    bool
+		fs     flag.FlagSet
+		logCfg tslog.Config
 	)
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), usageService, name)
 	}
 	fs.Init(name, flag.ContinueOnError)
-	fs.TextVar(&logLevel, "logLevel", slog.LevelInfo, "log `level`, one of: DEBUG, INFO, WARN, ERROR")
-	fs.BoolVar(&logNoColor, "logNoColor", defaultLogNoColor, "disable colored log output")
-	fs.BoolVar(&logNoTime, "logNoTime", false, "disable timestamp in log output")
-	fs.BoolVar(&logKVPairs, "logKVPairs", false, "format logs as key=value pairs")
-	fs.BoolVar(&logJSON, "logJSON", false, "format logs as line-delimited JSON")
+	fs.TextVar(&logCfg.Level, "logLevel", slog.LevelInfo, "log `level`, one of: DEBUG, INFO, WARN, ERROR")
+	fs.TextVar(&logCfg.Format, "logFormat", tslog.FormatDefault, "log `format`, one of: default, slog-text, slog-json, tint-text")
+	fs.BoolVar(&logCfg.NoColor, "logNoColor", defaultLogNoColor, "disable colored log output")
+	fs.BoolVar(&logCfg.NoTime, "logNoTime", false, "disable timestamp in log output")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -56,13 +50,6 @@ func runService(name string, args []string) int {
 		return 2
 	}
 
-	logCfg := tslog.Config{
-		Level:          logLevel,
-		NoColor:        logNoColor,
-		NoTime:         logNoTime,
-		UseTextHandler: logKVPairs,
-		UseJSONHandler: logJSON,
-	}
 	logger := logCfg.NewLogger(os.Stderr)
 	logger.Info("shadowsocks-go", slog.String("version", shadowsocks.Version))
 
