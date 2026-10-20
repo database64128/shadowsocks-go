@@ -476,9 +476,9 @@ func (s *UDPNATRelay) relayServerConnToNatConnGeneric(ctx context.Context, uplin
 			)
 		}
 
-		s.putQueuedPacket(queuedPacket)
 		packetsSent++
 		payloadBytesSent += uint64(queuedPacket.length)
+		s.putQueuedPacket(queuedPacket)
 	}
 
 	uplink.logger.Info("Finished relay serverConn -> natConn",
