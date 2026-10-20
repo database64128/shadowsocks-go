@@ -51,6 +51,9 @@ type Config struct {
 	// API is the configuration for the HTTP API.
 	API api.Config `json:"api,omitzero"`
 
+	// Log is the configuration for the logger.
+	Log tslog.Config `json:"log,omitzero"`
+
 	// TLSCerts is the configuration for the TLS certificate store.
 	TLSCerts tlscerts.Config `json:"certs,omitzero"`
 }
@@ -201,6 +204,10 @@ func (cfg *Config) Merge(other *Config) {
 
 	if other.API.Enabled {
 		cfg.API = other.API
+	}
+
+	if other.Log != (tslog.Config{}) {
+		cfg.Log = other.Log
 	}
 
 	cfg.TLSCerts.Merge(&other.TLSCerts)

@@ -911,6 +911,13 @@
             }
         ]
     },
+    "log": {
+        "level": "info",
+        "format": "default",
+        "noColor": false,
+        "noTime": false,
+        "addSource": false
+    },
     "certs": {
         "certLists": [
             {

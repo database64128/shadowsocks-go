@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/database64128/shadowsocks-go"
@@ -23,7 +26,7 @@ Arguments:
   [path]...   Paths to the config files (default: "config.json")
 
 Logging Flags:
-  -logLevel <level>       Log level, one of: DEBUG, INFO, WARN, ERROR (default: INFO)
+  -logLevel <level>       Log level, one of: DEBUG, INFO, WARN, ERROR
   -logFormat <format>     Log format, one of: default, slog-text, slog-json, tint-text
   -logNoColor             Disable colored log output
   -logNoTime              Disable timestamp in log output
@@ -31,27 +34,53 @@ Logging Flags:
 
 func runService(name string, args []string) int {
 	var (
-		fs     flag.FlagSet
-		logCfg tslog.Config
+		fs            flag.FlagSet
+		logLevel      slog.Level
+		logFormat     tslog.Format
+		logNoColor    bool
+		logNoTime     bool
+		hasLogLevel   bool
+		hasLogFormat  bool
+		hasLogNoColor bool
+		hasLogNoTime  bool
 	)
+
+	newOptionalTextValue := func(v encoding.TextUnmarshaler, hasValue *bool) func(string) error {
+		return func(s string) error {
+			if err := v.UnmarshalText([]byte(s)); err != nil {
+				return err
+			}
+			*hasValue = true
+			return nil
+		}
+	}
+
+	newOptionalBoolValue := func(v, hasValue *bool) func(string) error {
+		return func(s string) error {
+			parsed, err := strconv.ParseBool(s)
+			if err != nil {
+				return errors.New("parse error") // align with the flag package
+			}
+			*v = parsed
+			*hasValue = true
+			return nil
+		}
+	}
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), usageService, name)
 	}
 	fs.Init(name, flag.ContinueOnError)
-	fs.TextVar(&logCfg.Level, "logLevel", slog.LevelInfo, "log `level`, one of: DEBUG, INFO, WARN, ERROR")
-	fs.TextVar(&logCfg.Format, "logFormat", tslog.FormatDefault, "log `format`, one of: default, slog-text, slog-json, tint-text")
-	fs.BoolVar(&logCfg.NoColor, "logNoColor", defaultLogNoColor, "disable colored log output")
-	fs.BoolVar(&logCfg.NoTime, "logNoTime", false, "disable timestamp in log output")
+	fs.Func("logLevel", "log `level`, one of: DEBUG, INFO, WARN, ERROR", newOptionalTextValue(&logLevel, &hasLogLevel))
+	fs.Func("logFormat", "log `format`, one of: default, slog-text, slog-json, tint-text", newOptionalTextValue(&logFormat, &hasLogFormat))
+	fs.BoolFunc("logNoColor", "disable colored log output", newOptionalBoolValue(&logNoColor, &hasLogNoColor))
+	fs.BoolFunc("logNoTime", "disable timestamp in log output", newOptionalBoolValue(&logNoTime, &hasLogNoTime))
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
 		}
 		return 2
 	}
-
-	logger := logCfg.NewLogger(os.Stderr)
-	logger.Info("shadowsocks-go", slog.String("version", shadowsocks.Version))
 
 	paths := fs.Args()
 	if len(paths) == 0 {
@@ -60,23 +89,33 @@ func runService(name string, args []string) int {
 
 	var svcCfg service.Config
 	if err := jsoncfg.Load(paths[0], &svcCfg); err != nil {
-		logger.Error("Failed to load config",
-			slog.String("path", paths[0]),
-			tslog.Err(err),
-		)
+		fmt.Fprintf(os.Stderr, "Failed to load config file %q: %v\n", paths[0], err)
 		return 1
 	}
 	for _, path := range paths[1:] {
 		var otherCfg service.Config
 		if err := jsoncfg.Load(path, &otherCfg); err != nil {
-			logger.Error("Failed to load config",
-				slog.String("path", path),
-				tslog.Err(err),
-			)
+			fmt.Fprintf(os.Stderr, "Failed to load config file %q: %v\n", path, err)
 			return 1
 		}
 		svcCfg.Merge(&otherCfg)
 	}
+
+	if hasLogLevel {
+		svcCfg.Log.Level = logLevel
+	}
+	if hasLogFormat {
+		svcCfg.Log.Format = logFormat
+	}
+	if hasLogNoColor {
+		svcCfg.Log.NoColor = logNoColor
+	}
+	if hasLogNoTime {
+		svcCfg.Log.NoTime = logNoTime
+	}
+
+	logger := svcCfg.Log.NewLogger(os.Stderr)
+	logger.Info("shadowsocks-go", slog.String("version", shadowsocks.Version))
 
 	m, err := svcCfg.NewManager(logger)
 	if err != nil {
