@@ -19,25 +19,48 @@ type Config struct {
 	X509CertPools []X509CertPoolConfig `json:"x509CertPools,omitzero"`
 }
 
-// Merge merges other into c.
-//
-// For slice fields, if the slice in c is empty but the slice in other is non-empty,
-// the non-empty slice from other is used without cloning; if both are non-empty,
-// the slice from other is appended to the slice in c.
-func (c *Config) Merge(other *Config) {
-	if len(other.CertLists) > 0 {
-		if len(c.CertLists) > 0 {
-			c.CertLists = append(c.CertLists, other.CertLists...)
+// ConfigMergeState keeps track of the merged state across multiple [Config] instances.
+type ConfigMergeState struct {
+	certLists     []TLSCertListConfig
+	x509CertPools []X509CertPoolConfig
+}
+
+// Update adds cfg to the merged state and prepares cfg for the next unmarshaling operation.
+func (s *ConfigMergeState) Update(cfg *Config) {
+	if len(cfg.CertLists) > 0 {
+		if len(s.certLists) > 0 {
+			s.certLists = append(s.certLists, cfg.CertLists...)
 		} else {
-			c.CertLists = other.CertLists
+			s.certLists = cfg.CertLists
+		}
+		cfg.CertLists = s.certLists[len(s.certLists):]
+	}
+
+	if len(cfg.X509CertPools) > 0 {
+		if len(s.x509CertPools) > 0 {
+			s.x509CertPools = append(s.x509CertPools, cfg.X509CertPools...)
+		} else {
+			s.x509CertPools = cfg.X509CertPools
+		}
+		cfg.X509CertPools = s.x509CertPools[len(s.x509CertPools):]
+	}
+}
+
+// Finalize applies the merged state to cfg.
+func (s *ConfigMergeState) Finalize(cfg *Config) {
+	if len(s.certLists) > 0 {
+		if len(cfg.CertLists) > 0 {
+			cfg.CertLists = append(s.certLists, cfg.CertLists...)
+		} else {
+			cfg.CertLists = s.certLists
 		}
 	}
 
-	if len(other.X509CertPools) > 0 {
-		if len(c.X509CertPools) > 0 {
-			c.X509CertPools = append(c.X509CertPools, other.X509CertPools...)
+	if len(s.x509CertPools) > 0 {
+		if len(cfg.X509CertPools) > 0 {
+			cfg.X509CertPools = append(s.x509CertPools, cfg.X509CertPools...)
 		} else {
-			c.X509CertPools = other.X509CertPools
+			cfg.X509CertPools = s.x509CertPools
 		}
 	}
 }

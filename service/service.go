@@ -58,6 +58,132 @@ type Config struct {
 	TLSCerts tlscerts.Config `json:"certs,omitzero"`
 }
 
+// ConfigMergeState keeps track of the merged state across multiple [Config] instances.
+type ConfigMergeState struct {
+	servers      []ServerConfig
+	clients      []ClientConfig
+	clientGroups []clientgroup.Config
+	dns          []dns.ResolverConfig
+	domainSets   []domainset.Config
+	prefixSets   []prefixset.Config
+	router       router.ConfigMergeState
+	tlsCerts     tlscerts.ConfigMergeState
+}
+
+// Update adds cfg to the merged state and prepares cfg for the next unmarshaling operation.
+func (s *ConfigMergeState) Update(cfg *Config) {
+	if len(cfg.Servers) > 0 {
+		if len(s.servers) > 0 {
+			s.servers = append(s.servers, cfg.Servers...)
+		} else {
+			s.servers = cfg.Servers
+		}
+		cfg.Servers = s.servers[len(s.servers):]
+	}
+
+	if len(cfg.Clients) > 0 {
+		if len(s.clients) > 0 {
+			s.clients = append(s.clients, cfg.Clients...)
+		} else {
+			s.clients = cfg.Clients
+		}
+		cfg.Clients = s.clients[len(s.clients):]
+	}
+
+	if len(cfg.ClientGroups) > 0 {
+		if len(s.clientGroups) > 0 {
+			s.clientGroups = append(s.clientGroups, cfg.ClientGroups...)
+		} else {
+			s.clientGroups = cfg.ClientGroups
+		}
+		cfg.ClientGroups = s.clientGroups[len(s.clientGroups):]
+	}
+
+	if len(cfg.DNS) > 0 {
+		if len(s.dns) > 0 {
+			s.dns = append(s.dns, cfg.DNS...)
+		} else {
+			s.dns = cfg.DNS
+		}
+		cfg.DNS = s.dns[len(s.dns):]
+	}
+
+	if len(cfg.DomainSets) > 0 {
+		if len(s.domainSets) > 0 {
+			s.domainSets = append(s.domainSets, cfg.DomainSets...)
+		} else {
+			s.domainSets = cfg.DomainSets
+		}
+		cfg.DomainSets = s.domainSets[len(s.domainSets):]
+	}
+
+	if len(cfg.PrefixSets) > 0 {
+		if len(s.prefixSets) > 0 {
+			s.prefixSets = append(s.prefixSets, cfg.PrefixSets...)
+		} else {
+			s.prefixSets = cfg.PrefixSets
+		}
+		cfg.PrefixSets = s.prefixSets[len(s.prefixSets):]
+	}
+
+	s.router.Update(&cfg.Router)
+	s.tlsCerts.Update(&cfg.TLSCerts)
+}
+
+// Finalize applies the merged state to cfg.
+func (s *ConfigMergeState) Finalize(cfg *Config) {
+	if len(s.servers) > 0 {
+		if len(cfg.Servers) > 0 {
+			cfg.Servers = append(s.servers, cfg.Servers...)
+		} else {
+			cfg.Servers = s.servers
+		}
+	}
+
+	if len(s.clients) > 0 {
+		if len(cfg.Clients) > 0 {
+			cfg.Clients = append(s.clients, cfg.Clients...)
+		} else {
+			cfg.Clients = s.clients
+		}
+	}
+
+	if len(s.clientGroups) > 0 {
+		if len(cfg.ClientGroups) > 0 {
+			cfg.ClientGroups = append(s.clientGroups, cfg.ClientGroups...)
+		} else {
+			cfg.ClientGroups = s.clientGroups
+		}
+	}
+
+	if len(s.dns) > 0 {
+		if len(cfg.DNS) > 0 {
+			cfg.DNS = append(s.dns, cfg.DNS...)
+		} else {
+			cfg.DNS = s.dns
+		}
+	}
+
+	if len(s.domainSets) > 0 {
+		if len(cfg.DomainSets) > 0 {
+			cfg.DomainSets = append(s.domainSets, cfg.DomainSets...)
+		} else {
+			cfg.DomainSets = s.domainSets
+		}
+	}
+
+	if len(s.prefixSets) > 0 {
+		if len(cfg.PrefixSets) > 0 {
+			cfg.PrefixSets = append(s.prefixSets, cfg.PrefixSets...)
+		} else {
+			cfg.PrefixSets = s.prefixSets
+		}
+	}
+
+	s.router.Finalize(&cfg.Router)
+	s.tlsCerts.Finalize(&cfg.TLSCerts)
+}
+
 // Migrate migrates deprecated fields to their new equivalents
 // and removes obsolete fields from the configuration.
 func (cfg *Config) Migrate() {
@@ -140,77 +266,6 @@ func (cfg *Config) Migrate() {
 		}
 		cfg.Router.PrefixSets = nil
 	}
-}
-
-// Merge merges other info cfg.
-//
-// For slice fields, if the slice in cfg is empty but the slice in other is non-empty,
-// the non-empty slice from other is used without cloning; if both are non-empty,
-// the slice from other is appended to the slice in cfg.
-//
-// See [router.Config.Merge] for details on how router configurations are merged.
-//
-// If other has API enabled, it will overwrite the API configuration in cfg.
-func (cfg *Config) Merge(other *Config) {
-	if len(other.Servers) > 0 {
-		if len(cfg.Servers) > 0 {
-			cfg.Servers = append(cfg.Servers, other.Servers...)
-		} else {
-			cfg.Servers = other.Servers
-		}
-	}
-
-	if len(other.Clients) > 0 {
-		if len(cfg.Clients) > 0 {
-			cfg.Clients = append(cfg.Clients, other.Clients...)
-		} else {
-			cfg.Clients = other.Clients
-		}
-	}
-
-	if len(other.ClientGroups) > 0 {
-		if len(cfg.ClientGroups) > 0 {
-			cfg.ClientGroups = append(cfg.ClientGroups, other.ClientGroups...)
-		} else {
-			cfg.ClientGroups = other.ClientGroups
-		}
-	}
-
-	if len(other.DNS) > 0 {
-		if len(cfg.DNS) > 0 {
-			cfg.DNS = append(cfg.DNS, other.DNS...)
-		} else {
-			cfg.DNS = other.DNS
-		}
-	}
-
-	if len(other.DomainSets) > 0 {
-		if len(cfg.DomainSets) > 0 {
-			cfg.DomainSets = append(cfg.DomainSets, other.DomainSets...)
-		} else {
-			cfg.DomainSets = other.DomainSets
-		}
-	}
-
-	if len(other.PrefixSets) > 0 {
-		if len(cfg.PrefixSets) > 0 {
-			cfg.PrefixSets = append(cfg.PrefixSets, other.PrefixSets...)
-		} else {
-			cfg.PrefixSets = other.PrefixSets
-		}
-	}
-
-	cfg.Router.Merge(&other.Router)
-
-	if other.API.Enabled {
-		cfg.API = other.API
-	}
-
-	if other.Log != (tslog.Config{}) {
-		cfg.Log = other.Log
-	}
-
-	cfg.TLSCerts.Merge(&other.TLSCerts)
 }
 
 // NewManager returns a new service manager.

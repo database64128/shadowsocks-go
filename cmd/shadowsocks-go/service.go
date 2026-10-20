@@ -92,13 +92,17 @@ func runService(name string, args []string) int {
 		fmt.Fprintf(os.Stderr, "Failed to load config file %q: %v\n", paths[0], err)
 		return 1
 	}
-	for _, path := range paths[1:] {
-		var otherCfg service.Config
-		if err := jsoncfg.Load(path, &otherCfg); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to load config file %q: %v\n", path, err)
-			return 1
+
+	if len(paths) > 1 {
+		var mergeState service.ConfigMergeState
+		for _, path := range paths[1:] {
+			mergeState.Update(&svcCfg)
+			if err := jsoncfg.Load(path, &svcCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to load config file %q: %v\n", path, err)
+				return 1
+			}
 		}
-		svcCfg.Merge(&otherCfg)
+		mergeState.Finalize(&svcCfg)
 	}
 
 	if hasLogLevel {

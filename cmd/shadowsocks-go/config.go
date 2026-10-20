@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -59,19 +61,33 @@ func runConfig(name string, args []string) int {
 	}
 	logger := logCfg.NewLogger(os.Stderr)
 
-	var svcCfg service.Config
-	if !processConfigFile(paths[0], &svcCfg, logger, format) {
-		return 1
-	}
-	for _, path := range paths[1:] {
-		var otherCfg service.Config
-		if !processConfigFile(path, &otherCfg, logger, format) {
-			return 1
+	if format {
+		for _, path := range paths {
+			if !formatConfigFile(path, logger) {
+				return 1
+			}
 		}
-		svcCfg.Merge(&otherCfg)
 	}
 
 	if test {
+		var svcCfg service.Config
+		if err := jsoncfg.Load(paths[0], &svcCfg); err != nil {
+			logger.Error("Failed to load config file", slog.String("path", paths[0]), tslog.Err(err))
+			return 1
+		}
+
+		if len(paths) > 1 {
+			var mergeState service.ConfigMergeState
+			for _, path := range paths[1:] {
+				mergeState.Update(&svcCfg)
+				if err := jsoncfg.Load(path, &svcCfg); err != nil {
+					logger.Error("Failed to load config file", slog.String("path", path), tslog.Err(err))
+					return 1
+				}
+			}
+			mergeState.Finalize(&svcCfg)
+		}
+
 		m, err := svcCfg.NewManager(logger)
 		if err != nil {
 			logger.Error("Config test failed", tslog.Err(err))
@@ -84,20 +100,35 @@ func runConfig(name string, args []string) int {
 	return 0
 }
 
-func processConfigFile(path string, svcCfg *service.Config, logger *tslog.Logger, format bool) bool {
-	if err := jsoncfg.Load(path, svcCfg); err != nil {
-		logger.Error("Failed to load config file", slog.String("path", path), tslog.Err(err))
+func formatConfigFile(path string, logger *tslog.Logger) bool {
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		logger.Error("Failed to open config file", slog.String("path", path), tslog.Err(err))
+		return false
+	}
+	defer f.Close()
+
+	var svcCfg service.Config
+	if err := json.UnmarshalRead(f, &svcCfg, json.RejectUnknownMembers(true)); err != nil {
+		logger.Error("Failed to unmarshal config file", slog.String("path", path), tslog.Err(err))
 		return false
 	}
 
-	if format {
-		svcCfg.Migrate()
-		if err := jsoncfg.Save(path, svcCfg); err != nil {
-			logger.Error("Failed to save config file", slog.String("path", path), tslog.Err(err))
-			return false
-		}
-		logger.Info("Formatted config file", slog.String("path", path))
+	svcCfg.Migrate()
+
+	if err := f.Truncate(0); err != nil {
+		logger.Error("Failed to truncate config file", slog.String("path", path), tslog.Err(err))
+		return false
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		logger.Error("Failed to seek to start of config file", slog.String("path", path), tslog.Err(err))
+		return false
+	}
+	if err := json.MarshalWrite(f, &svcCfg, jsontext.Multiline(true)); err != nil {
+		logger.Error("Failed to marshal config file", slog.String("path", path), tslog.Err(err))
+		return false
 	}
 
+	logger.Info("Formatted config file", slog.String("path", path))
 	return true
 }

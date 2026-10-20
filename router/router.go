@@ -25,47 +25,66 @@ type Config struct {
 	Routes                []RouteConfig      `json:"routes,omitzero"`
 }
 
-// Merge merges other into cfg.
-//
-// Non-empty string fields in other overwrite the corresponding fields in cfg.
-//
-// For slice fields, if the slice in cfg is empty but the slice in other is non-empty,
-// the non-empty slice from other is used without cloning; if both are non-empty,
-// the slice from other is appended to the slice in cfg.
-func (cfg *Config) Merge(other *Config) {
-	if other.DefaultTCPClientName != "" {
-		cfg.DefaultTCPClientName = other.DefaultTCPClientName
+// ConfigMergeState keeps track of the merged state across multiple [Config] instances.
+type ConfigMergeState struct {
+	domainSets []domainset.Config
+	prefixSets []prefixset.Config
+	routes     []RouteConfig
+}
+
+// Update adds cfg to the merged state and prepares cfg for the next unmarshaling operation.
+func (s *ConfigMergeState) Update(cfg *Config) {
+	if len(cfg.DomainSets) > 0 {
+		if len(s.domainSets) > 0 {
+			s.domainSets = append(s.domainSets, cfg.DomainSets...)
+		} else {
+			s.domainSets = cfg.DomainSets
+		}
+		cfg.DomainSets = s.domainSets[len(s.domainSets):]
 	}
 
-	if other.DefaultUDPClientName != "" {
-		cfg.DefaultUDPClientName = other.DefaultUDPClientName
+	if len(cfg.PrefixSets) > 0 {
+		if len(s.prefixSets) > 0 {
+			s.prefixSets = append(s.prefixSets, cfg.PrefixSets...)
+		} else {
+			s.prefixSets = cfg.PrefixSets
+		}
+		cfg.PrefixSets = s.prefixSets[len(s.prefixSets):]
 	}
 
-	if other.GeoLite2CountryDbPath != "" {
-		cfg.GeoLite2CountryDbPath = other.GeoLite2CountryDbPath
+	if len(cfg.Routes) > 0 {
+		if len(s.routes) > 0 {
+			s.routes = append(s.routes, cfg.Routes...)
+		} else {
+			s.routes = cfg.Routes
+		}
+		cfg.Routes = s.routes[len(s.routes):]
 	}
+}
 
-	if len(other.DomainSets) > 0 {
+// Finalize applies the merged state to cfg.
+func (s *ConfigMergeState) Finalize(cfg *Config) {
+	if len(s.domainSets) > 0 {
 		if len(cfg.DomainSets) > 0 {
-			cfg.DomainSets = append(cfg.DomainSets, other.DomainSets...)
+			cfg.DomainSets = append(s.domainSets, cfg.DomainSets...)
 		} else {
-			cfg.DomainSets = other.DomainSets
+			cfg.DomainSets = s.domainSets
 		}
 	}
 
-	if len(other.PrefixSets) > 0 {
+	if len(s.prefixSets) > 0 {
 		if len(cfg.PrefixSets) > 0 {
-			cfg.PrefixSets = append(cfg.PrefixSets, other.PrefixSets...)
+			cfg.PrefixSets = append(s.prefixSets, cfg.PrefixSets...)
 		} else {
-			cfg.PrefixSets = other.PrefixSets
+			cfg.PrefixSets = s.prefixSets
 		}
 	}
 
-	if len(other.Routes) > 0 {
+	if len(s.routes) > 0 {
 		if len(cfg.Routes) > 0 {
-			cfg.Routes = append(cfg.Routes, other.Routes...)
+			cfg.Routes = append(s.routes, cfg.Routes...)
 		} else {
-			cfg.Routes = other.Routes
+			cfg.Routes = s.routes
 		}
 	}
 }
