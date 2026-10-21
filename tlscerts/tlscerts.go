@@ -75,21 +75,25 @@ type Store struct {
 
 // NewStore creates a new store for TLS certificates.
 func (c *Config) NewStore() (*Store, error) {
-	if len(c.CertLists) == 0 && len(c.X509CertPools) == 0 {
+	cfgCertLists := c.CertLists
+	cfgX509CertPools := c.X509CertPools
+	if len(cfgCertLists) == 0 && len(cfgX509CertPools) == 0 {
 		return &Store{}, nil
 	}
 
-	certListByName := make(map[string]TLSCertList, len(c.CertLists))
+	certListByName := make(map[string]TLSCertList, len(cfgCertLists))
 
 	var reloadableCertListCount int
-	for _, certListCfg := range c.CertLists {
+	for _, certListCfg := range cfgCertLists {
 		if certListCfg.Reloadable {
 			reloadableCertListCount++
 		}
 	}
 	reloadableCertLists := make([]TLSCertList, 0, reloadableCertListCount)
 
-	for _, certListCfg := range c.CertLists {
+	for i := range cfgCertLists {
+		certListCfg := &cfgCertLists[i]
+
 		if _, ok := certListByName[certListCfg.Name]; ok {
 			return nil, fmt.Errorf("duplicate TLS certificate list name: %q", certListCfg.Name)
 		}
@@ -105,9 +109,9 @@ func (c *Config) NewStore() (*Store, error) {
 		}
 	}
 
-	x509CertPoolByName := make(map[string]*x509.CertPool, len(c.X509CertPools))
+	x509CertPoolByName := make(map[string]*x509.CertPool, len(cfgX509CertPools))
 
-	for _, x509CertPool := range c.X509CertPools {
+	for _, x509CertPool := range cfgX509CertPools {
 		if _, ok := x509CertPoolByName[x509CertPool.Name]; ok {
 			return nil, fmt.Errorf("duplicate X.509 certificate pool name: %q", x509CertPool.Name)
 		}
@@ -141,7 +145,7 @@ func (s *Store) GetCertList(name string) (TLSCertList, bool) {
 // GetX509CertPool gets an X.509 certificate pool by name.
 func (s *Store) GetX509CertPool(name string) (pool *x509.CertPool, ok bool) {
 	pool, ok = s.x509CertPoolByName[name]
-	return
+	return pool, ok
 }
 
 // ReloadableCertLists returns the list of reloadable TLS certificate lists.
@@ -162,13 +166,15 @@ type TLSCertListConfig struct {
 }
 
 // Load loads the TLS certificate list.
-func (c *TLSCertListConfig) Load() (certs []tls.Certificate, err error) {
-	certs = make([]tls.Certificate, len(c.Certs))
-	for i, cert := range c.Certs {
-		certs[i], err = cert.Load()
+func (c *TLSCertListConfig) Load() ([]tls.Certificate, error) {
+	cfgCerts := c.Certs
+	certs := make([]tls.Certificate, len(cfgCerts))
+	for i, certCfg := range cfgCerts {
+		cert, err := certCfg.Load()
 		if err != nil {
 			return nil, fmt.Errorf("failed to load certificate at index %d: %w", i, err)
 		}
+		certs[i] = cert
 	}
 	return certs, nil
 }
@@ -252,7 +258,7 @@ func (ReloadDisabledError) Is(target error) bool {
 }
 
 // Reload implements [TLSCertList.Reload].
-func (cl *StaticTLSCertList) Reload() error {
+func (*StaticTLSCertList) Reload() error {
 	return ReloadDisabledError{}
 }
 
