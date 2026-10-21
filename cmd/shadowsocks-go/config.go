@@ -23,6 +23,12 @@ Arguments:
 Flags:
   -format     Format the config files
   -test       Test the config files
+
+Logging Flags:
+  -logLevel <level>       Log level, one of: DEBUG, INFO, WARN, ERROR (default: INFO)
+  -logFormat <format>     Log format, one of: default, slog-text, slog-json, tint-text
+  -logNoColor             Disable colored log output
+  -logNoTime              Disable timestamp in log output
 `
 
 func runConfig(name string, args []string) int {
@@ -30,6 +36,7 @@ func runConfig(name string, args []string) int {
 		fs     flag.FlagSet
 		format bool
 		test   bool
+		logCfg tslog.Config
 	)
 
 	fs.Usage = func() {
@@ -38,6 +45,10 @@ func runConfig(name string, args []string) int {
 	fs.Init(name, flag.ContinueOnError)
 	fs.BoolVar(&format, "format", false, "format the config files")
 	fs.BoolVar(&test, "test", false, "test the config files")
+	fs.TextVar(&logCfg.Level, "logLevel", slog.LevelInfo, "log `level`, one of: DEBUG, INFO, WARN, ERROR")
+	fs.TextVar(&logCfg.Format, "logFormat", tslog.FormatDefault, "log `format`, one of: default, slog-text, slog-json, tint-text")
+	fs.BoolVar(&logCfg.NoColor, "logNoColor", defaultLogNoColor, "disable colored log output")
+	fs.BoolVar(&logCfg.NoTime, "logNoTime", false, "disable timestamp in log output")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -55,10 +66,6 @@ func runConfig(name string, args []string) int {
 		paths = []string{"config.json"}
 	}
 
-	logCfg := tslog.Config{
-		Level:   slog.LevelInfo,
-		NoColor: defaultLogNoColor,
-	}
 	logger := logCfg.NewLogger(os.Stderr)
 
 	if format {
