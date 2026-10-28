@@ -175,7 +175,7 @@ type ServerConfig struct {
 
 	// EncryptedClientHelloKeys are the ECH keys to use when a client attempts ECH.
 	// See [tls.Config.EncryptedClientHelloKeys].
-	EncryptedClientHelloKeys []EncryptedClientHelloKey
+	EncryptedClientHelloKeys []tls.EncryptedClientHelloKey
 
 	// EnableBasicAuth controls whether to enable HTTP Basic Authentication.
 	EnableBasicAuth bool
@@ -194,26 +194,6 @@ type ServerUserCredentials struct {
 
 	// Password is the password.
 	Password string `json:"password"`
-}
-
-// EncryptedClientHelloKey holds a private key that is associated
-// with a specific ECH config known to a client.
-type EncryptedClientHelloKey struct {
-	// Config should be a marshalled ECHConfig associated with PrivateKey. This
-	// must match the config provided to clients byte-for-byte. The config
-	// should only specify the DHKEM(X25519, HKDF-SHA256) KEM ID (0x0020), the
-	// HKDF-SHA256 KDF ID (0x0001), and a subset of the following AEAD IDs:
-	// AES-128-GCM (0x0000), AES-256-GCM (0x0001), ChaCha20Poly1305 (0x0002).
-	Config []byte `json:"config"`
-
-	// PrivateKey should be a marshalled private key. Currently, we expect
-	// this to be the output of [ecdh.PrivateKey.Bytes].
-	PrivateKey []byte `json:"privateKey"`
-
-	// SendAsRetry indicates if Config should be sent as part of the list of
-	// retry configs when ECH is requested by the client but rejected by the
-	// server.
-	SendAsRetry bool `json:"sendAsRetry"`
 }
 
 // ProxyServer is an HTTP proxy server.
@@ -249,21 +229,13 @@ func (c *ServerConfig) NewProxyServer() (netio.StreamServer, error) {
 	}
 
 	if c.EnableTLS {
-		echKeys := make([]tls.EncryptedClientHelloKey, len(c.EncryptedClientHelloKeys))
-		for i, key := range c.EncryptedClientHelloKeys {
-			echKeys[i] = tls.EncryptedClientHelloKey{
-				Config:      key.Config,
-				PrivateKey:  key.PrivateKey,
-				SendAsRetry: key.SendAsRetry,
-			}
-		}
 		tlsServer := TLSProxyServer{
 			plainServer: server,
 			tlsConfig: &tls.Config{
 				Certificates:             c.Certificates,
 				GetCertificate:           c.GetCertificate,
 				ClientCAs:                c.ClientCAs,
-				EncryptedClientHelloKeys: echKeys,
+				EncryptedClientHelloKeys: c.EncryptedClientHelloKeys,
 			},
 		}
 		if c.RequireAndVerifyClientCert {

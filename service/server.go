@@ -1,6 +1,7 @@
 package service
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -633,7 +634,6 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 	case "http":
 		hpsc := httpproxy.ServerConfig{
 			Users:                      sc.HTTP.Users,
-			EncryptedClientHelloKeys:   sc.HTTP.EncryptedClientHelloKeys,
 			EnableBasicAuth:            sc.HTTP.EnableBasicAuth,
 			EnableTLS:                  sc.HTTP.EnableTLS,
 			RequireAndVerifyClientCert: sc.HTTP.RequireAndVerifyClientCert,
@@ -653,6 +653,18 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 				return nil, fmt.Errorf("client CA X.509 certificate pool %q not found", sc.HTTP.ClientCAs)
 			}
 			hpsc.ClientCAs = pool
+		}
+
+		if cfgECHKeys := sc.HTTP.EncryptedClientHelloKeys; cfgECHKeys != nil {
+			tlsECHKeys := make([]tls.EncryptedClientHelloKey, len(cfgECHKeys))
+			for i, key := range cfgECHKeys {
+				tlsECHKeys[i] = tls.EncryptedClientHelloKey{
+					Config:      key.Config,
+					PrivateKey:  key.PrivateKey,
+					SendAsRetry: key.SendAsRetry,
+				}
+			}
+			hpsc.EncryptedClientHelloKeys = tlsECHKeys
 		}
 
 		server, err = hpsc.NewProxyServer()
@@ -855,7 +867,7 @@ type HTTPProxyServerConfig struct {
 	ClientCAs string `json:"clientCAs,omitzero"`
 
 	// EncryptedClientHelloKeys are the ECH keys to use when a client attempts ECH.
-	EncryptedClientHelloKeys []httpproxy.EncryptedClientHelloKey `json:"encryptedClientHelloKeys,omitzero"`
+	EncryptedClientHelloKeys []EncryptedClientHelloKey `json:"encryptedClientHelloKeys,omitzero"`
 
 	// EnableBasicAuth controls whether to enable HTTP Basic Authentication.
 	EnableBasicAuth bool `json:"enableBasicAuth,omitzero"`
@@ -873,4 +885,11 @@ func (c *HTTPProxyServerConfig) Validate() error {
 		return errors.New("certificate list is required for HTTPS")
 	}
 	return nil
+}
+
+// EncryptedClientHelloKey is [tls.EncryptedClientHelloKey] for JSON serialization.
+type EncryptedClientHelloKey struct {
+	Config      []byte `json:"config"`
+	PrivateKey  []byte `json:"privateKey"`
+	SendAsRetry bool   `json:"sendAsRetry"`
 }
