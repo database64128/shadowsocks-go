@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"maps"
 	"net/http"
 	"net/netip"
@@ -16,7 +15,7 @@ import (
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/netiotest"
-	"github.com/database64128/shadowsocks-go/tslog"
+	"github.com/database64128/shadowsocks-go/tslogtest"
 )
 
 func TestStreamClientServer(t *testing.T) {
@@ -114,8 +113,7 @@ func TestStreamClientServer(t *testing.T) {
 }
 
 func TestStreamClientServerBasicAuthBadCredentials(t *testing.T) {
-	logCfg := tslog.Config{Level: slog.LevelDebug}
-	logger := logCfg.NewLogger(t.Output())
+	logger := tslogtest.NewLogger(t)
 
 	pl, pr := netio.NewPipe()
 

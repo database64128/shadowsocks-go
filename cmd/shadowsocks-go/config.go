@@ -66,7 +66,11 @@ func runConfig(name string, args []string) int {
 		paths = []string{"config.json"}
 	}
 
-	logger := logCfg.NewLogger(os.Stderr)
+	logger, err := logCfg.NewLogger(os.Stderr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
+		return 1
+	}
 
 	if format {
 		for _, path := range paths {

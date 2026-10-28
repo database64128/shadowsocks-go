@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
-	"log/slog"
 	"net/netip"
 	"sync"
 	"testing"
@@ -14,6 +13,7 @@ import (
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/netiotest"
 	"github.com/database64128/shadowsocks-go/tslog"
+	"github.com/database64128/shadowsocks-go/tslogtest"
 )
 
 func TestStreamClientError(t *testing.T) {
@@ -196,8 +196,7 @@ func testStreamClientError(
 }
 
 func TestStreamServerError(t *testing.T) {
-	logCfg := tslog.Config{Level: slog.LevelDebug}
-	logger := logCfg.NewLogger(t.Output())
+	logger := tslogtest.NewLogger(t)
 
 	for _, c := range []struct {
 		name                     string

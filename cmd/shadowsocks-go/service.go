@@ -118,7 +118,11 @@ func runService(name string, args []string) int {
 		svcCfg.Log.NoTime = logNoTime
 	}
 
-	logger := svcCfg.Log.NewLogger(os.Stderr)
+	logger, err := svcCfg.Log.NewLogger(os.Stderr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
+		return 1
+	}
 	logger.Info("shadowsocks-go", slog.String("version", shadowsocks.Version))
 
 	m, err := svcCfg.NewManager(logger)

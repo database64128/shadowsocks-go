@@ -410,7 +410,11 @@ func runDomainSetConvert(name string, args []string) int {
 		concurrency = min(len(jobs), runtime.NumCPU())
 	}
 
-	logger := logCfg.NewLogger(os.Stderr)
+	logger, err := logCfg.NewLogger(os.Stderr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
+		return 1
+	}
 
 	ctx, stopSig := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	stopAF := context.AfterFunc(ctx, func() {

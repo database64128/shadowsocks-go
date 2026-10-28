@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
-	"log/slog"
 	"net"
 	"net/netip"
 	"slices"
@@ -16,7 +15,7 @@ import (
 
 	"github.com/database64128/shadowsocks-go/conn"
 	"github.com/database64128/shadowsocks-go/netio"
-	"github.com/database64128/shadowsocks-go/tslog"
+	"github.com/database64128/shadowsocks-go/tslogtest"
 )
 
 // PipeStreamClient handles stream connection requests by creating a pipe
@@ -183,8 +182,7 @@ func testPreambleStreamClientServerProceed(
 	expectedUsername string,
 ) {
 	ctx := t.Context()
-	logCfg := tslog.Config{Level: slog.LevelDebug}
-	logger := logCfg.NewLogger(t.Output())
+	logger := tslogtest.NewLogger(t)
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
 		Name:                 "test",
@@ -308,8 +306,7 @@ func testWrapConnStreamClientServerProceed(
 	expectedUsername string,
 ) {
 	ctx := t.Context()
-	logCfg := tslog.Config{Level: slog.LevelDebug}
-	logger := logCfg.NewLogger(t.Output())
+	logger := tslogtest.NewLogger(t)
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
 		Name:                 "test",
@@ -756,8 +753,7 @@ func testStreamClientServerAbort(
 	checkDialErr func(t *testing.T, dialResult conn.DialResult, err error),
 ) {
 	ctx := t.Context()
-	logCfg := tslog.Config{Level: slog.LevelDebug}
-	logger := logCfg.NewLogger(t.Output())
+	logger := tslogtest.NewLogger(t)
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
 		Name:                 "test",
@@ -806,8 +802,7 @@ func BenchmarkStreamClientServer(
 	writeSize int,
 ) {
 	ctx := b.Context()
-	logCfg := tslog.Config{Level: slog.LevelDebug}
-	logger := logCfg.NewLogger(b.Output())
+	logger := tslogtest.NewLogger(b)
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
 		Name:                 "test",
@@ -932,8 +927,7 @@ func BenchmarkStreamClientDialServerHandle(
 	server netio.StreamServer,
 ) {
 	ctx := b.Context()
-	logCfg := tslog.Config{Level: slog.LevelDebug}
-	logger := logCfg.NewLogger(b.Output())
+	logger := tslogtest.NewLogger(b)
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
 		Name:                 "test",

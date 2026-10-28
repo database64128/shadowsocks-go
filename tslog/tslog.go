@@ -101,31 +101,35 @@ type Config struct {
 }
 
 // NewLogger creates a new [*Logger] that writes to w.
-func (c Config) NewLogger(w io.Writer) *Logger {
-	return c.NewLoggerWithHandler(c.NewHandler(w))
+func (c Config) NewLogger(w io.Writer) (*Logger, error) {
+	handler, err := c.NewHandler(w)
+	if err != nil {
+		return nil, err
+	}
+	return c.NewLoggerWithHandler(handler), nil
 }
 
 // NewHandler creates a new [slog.Handler] that writes to w.
-func (c Config) NewHandler(w io.Writer) slog.Handler {
+func (c Config) NewHandler(w io.Writer) (slog.Handler, error) {
 	switch c.Format {
 	case FormatSlogText:
 		return slog.NewTextHandler(w, &slog.HandlerOptions{
 			AddSource: c.AddSource,
 			Level:     c.Level,
-		})
+		}), nil
 	case FormatSlogJSON:
 		return slog.NewJSONHandler(w, &slog.HandlerOptions{
 			AddSource: c.AddSource,
 			Level:     c.Level,
-		})
+		}), nil
 	case FormatTintText, FormatDefault:
 		return tint.NewTextHandler(w, &tint.Options{
 			AddSource: c.AddSource,
 			Level:     c.Level,
 			NoColor:   c.NoColor,
-		})
+		}), nil
 	default:
-		panic(fmt.Sprintf("tslog.Config.NewHandler: invalid format: %d", c.Format))
+		return nil, fmt.Errorf("invalid format: %d", c.Format)
 	}
 }
 

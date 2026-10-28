@@ -3,7 +3,6 @@ package ss2022
 import (
 	"crypto/rand"
 	"io"
-	"log/slog"
 	"net/netip"
 	"testing"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/netiotest"
 	"github.com/database64128/shadowsocks-go/tslog"
+	"github.com/database64128/shadowsocks-go/tslogtest"
 )
 
 func testStreamClientServer(
@@ -67,8 +67,7 @@ func testStreamClientServerReplay(
 	unsafeRequestStreamPrefix, unsafeResponseStreamPrefix []byte,
 ) {
 	ctx := t.Context()
-	logCfg := tslog.Config{Level: slog.LevelDebug}
-	logger := logCfg.NewLogger(t.Output())
+	logger := tslogtest.NewLogger(t)
 
 	psc, ch := netiotest.NewPipeStreamClient(netio.StreamDialerInfo{
 		Name:                 "test",
