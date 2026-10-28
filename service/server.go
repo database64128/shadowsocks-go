@@ -620,10 +620,20 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 
 	case "socks5":
 		ssc := socks5.StreamServerConfig{
-			Users:              sc.Socks5.Users,
 			EnableUserPassAuth: sc.Socks5.EnableUserPassAuth,
 			EnableTCP:          sc.tcpEnabled,
 			EnableUDP:          sc.udpEnabled,
+		}
+
+		if cfgUsers := sc.Socks5.Users; cfgUsers != nil {
+			users := make([]socks5.UserInfo, len(cfgUsers))
+			for i, user := range cfgUsers {
+				users[i] = socks5.UserInfo{
+					Username: user.Username,
+					Password: user.Password,
+				}
+			}
+			ssc.Users = users
 		}
 
 		server, err = ssc.NewStreamServer()
@@ -633,10 +643,20 @@ func (sc *ServerConfig) TCPRelay() (*TCPRelay, error) {
 
 	case "http":
 		hpsc := httpproxy.ServerConfig{
-			Users:                      sc.HTTP.Users,
 			EnableBasicAuth:            sc.HTTP.EnableBasicAuth,
 			EnableTLS:                  sc.HTTP.EnableTLS,
 			RequireAndVerifyClientCert: sc.HTTP.RequireAndVerifyClientCert,
+		}
+
+		if cfgUsers := sc.HTTP.Users; cfgUsers != nil {
+			users := make([]httpproxy.ServerUserCredentials, len(cfgUsers))
+			for i, user := range cfgUsers {
+				users[i] = httpproxy.ServerUserCredentials{
+					Username: user.Username,
+					Password: user.Password,
+				}
+			}
+			hpsc.Users = users
 		}
 
 		if sc.HTTP.CertList != "" {
@@ -844,7 +864,9 @@ type TransparentProxyServerUDPConfig struct {
 type Socks5ServerConfig struct {
 	// Users is a list of users allowed to connect to the server.
 	// It is ignored if none of the authentication methods are enabled.
-	Users []socks5.UserInfo `json:"users,omitzero"`
+	//
+	// Both username and password must be non-empty and at most 255 bytes long.
+	Users []UserInfo `json:"users,omitzero"`
 
 	// EnableUserPassAuth controls whether to enable username/password authentication.
 	//
@@ -856,7 +878,7 @@ type Socks5ServerConfig struct {
 type HTTPProxyServerConfig struct {
 	// Users is a list of users allowed to connect to the server.
 	// It is ignored if none of the authentication methods are enabled.
-	Users []httpproxy.ServerUserCredentials `json:"users,omitzero"`
+	Users []UserInfo `json:"users,omitzero"`
 
 	// CertList is the name of the certificate list in the certificate store,
 	// used as the server certificate for HTTPS.
@@ -885,6 +907,12 @@ func (c *HTTPProxyServerConfig) Validate() error {
 		return errors.New("certificate list is required for HTTPS")
 	}
 	return nil
+}
+
+// UserInfo is a username/password pair.
+type UserInfo struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 // EncryptedClientHelloKey is [tls.EncryptedClientHelloKey] for JSON serialization.

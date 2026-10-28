@@ -189,11 +189,8 @@ type ServerConfig struct {
 
 // ServerUserCredentials contains the username and password for a server user.
 type ServerUserCredentials struct {
-	// Username is the username.
-	Username string `json:"username"`
-
-	// Password is the password.
-	Password string `json:"password"`
+	Username string
+	Password string
 }
 
 // ProxyServer is an HTTP proxy server.

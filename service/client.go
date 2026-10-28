@@ -405,10 +405,14 @@ func (c *ClientConfig) AddClient(
 
 		var authMsg []byte
 		if c.Socks5.EnableUserPassAuth {
-			if err := c.Socks5.Validate(); err != nil {
+			userInfo := socks5.UserInfo{
+				Username: c.Socks5.Username,
+				Password: c.Socks5.Password,
+			}
+			if err := userInfo.Validate(); err != nil {
 				return fmt.Errorf("bad user credentials: %w", err)
 			}
-			authMsg = c.Socks5.AppendAuthMsg(nil)
+			authMsg = userInfo.AppendAuthMsg(nil)
 		}
 
 		if c.EnableTCP {
@@ -621,7 +625,7 @@ func newSocketConfigCache(
 // Socks5ClientConfig is the configuration for a SOCKS5 client.
 type Socks5ClientConfig struct {
 	// UserInfo is a username/password pair for authentication.
-	socks5.UserInfo
+	UserInfo
 
 	// EnableUserPassAuth controls whether to enable username/password authentication.
 	EnableUserPassAuth bool `json:"enableUserPassAuth,omitzero"`

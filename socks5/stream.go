@@ -169,14 +169,11 @@ var (
 )
 
 // UserInfo is a username/password pair.
+//
+// Both username and password must be non-empty and at most 255 bytes long.
 type UserInfo struct {
-	// Username is the username.
-	// It must be non-empty and at most 255 bytes long.
-	Username string `json:"username"`
-
-	// Password is the password.
-	// It must be non-empty and at most 255 bytes long.
-	Password string `json:"password"`
+	Username string
+	Password string
 }
 
 // Validate checks if the username and password are valid.
