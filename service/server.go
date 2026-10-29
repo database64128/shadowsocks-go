@@ -71,6 +71,51 @@ type IPListenerConfig struct {
 	PathMTUDiscovery PMTUDMode `json:"pathMTUDiscovery,omitzero"`
 }
 
+// TCPListenerConfig contains configuration options shared by TCP listeners.
+type TCPListenerConfig struct {
+	// FastOpen enables TCP Fast Open on the listener.
+	//
+	// Available on Linux, macOS, FreeBSD, and Windows.
+	FastOpen bool `json:"fastOpen,omitzero"`
+
+	// FastOpenFallback enables runtime detection of TCP Fast Open support on the listener.
+	//
+	// When enabled, the listener will start without TFO if TFO is not available on the system.
+	// When disabled, the listener will abort if TFO cannot be enabled on the socket.
+	//
+	// Available on all platforms.
+	FastOpenFallback bool `json:"fastOpenFallback,omitzero"`
+
+	// Multipath enables multipath TCP on the listener.
+	//
+	// Unlike Go std, we make MPTCP strictly opt-in.
+	// That is, if this field is false, MPTCP will be explicitly disabled.
+	// This ensures that if Go std suddenly decides to enable MPTCP by default,
+	// existing configurations won't encounter issues due to missing features in the kernel MPTCP stack,
+	// such as TCP keepalive (as of Linux 6.5), and failed connect attempts won't always be retried once.
+	//
+	// Available on platforms supported by Go std's MPTCP implementation.
+	Multipath bool `json:"multipath,omitzero"`
+
+	// FastOpenBacklog specifies the maximum number of pending TFO connections on Linux.
+	// If the value is 0, Go std's listen(2) backlog is used.
+	//
+	// On other platforms, a non-negative value is ignored, as they do not have the option to set the TFO backlog.
+	//
+	// On all platforms, a negative value disables TFO.
+	FastOpenBacklog int `json:"fastOpenBacklog,omitzero"`
+
+	// DeferAcceptSecs sets TCP_DEFER_ACCEPT to the given number of seconds on the listener.
+	//
+	// Available on Linux.
+	DeferAcceptSecs int `json:"deferAcceptSecs,omitzero"`
+
+	// UserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the listener.
+	//
+	// Available on Linux.
+	UserTimeoutMsecs int `json:"userTimeoutMsecs,omitzero"`
+}
+
 // UnixDomainSocketPermissionsConfig configures the permissions of a Unix domain socket.
 type UnixDomainSocketPermissionsConfig struct {
 	// Owner optionally sets the owner of the Unix domain socket.
@@ -182,58 +227,16 @@ func (cfg InitialPayloadWaitConfig) Configure(serverNativeInitialPayload bool) (
 	}, nil
 }
 
-// TCPListenerConfig is the configuration for a TCP listener.
-type TCPListenerConfig struct {
+// RelayTCPListenerConfig is the configuration for a stream relay's TCP listener.
+type RelayTCPListenerConfig struct {
 	ListenerConfig
 	IPListenerConfig
-
-	// FastOpen enables TCP Fast Open on the listener.
-	//
-	// Available on Linux, macOS, FreeBSD, and Windows.
-	FastOpen bool `json:"fastOpen,omitzero"`
-
-	// FastOpenFallback enables runtime detection of TCP Fast Open support on the listener.
-	//
-	// When enabled, the listener will start without TFO if TFO is not available on the system.
-	// When disabled, the listener will abort if TFO cannot be enabled on the socket.
-	//
-	// Available on all platforms.
-	FastOpenFallback bool `json:"fastOpenFallback,omitzero"`
-
-	// Multipath enables multipath TCP on the listener.
-	//
-	// Unlike Go std, we make MPTCP strictly opt-in.
-	// That is, if this field is false, MPTCP will be explicitly disabled.
-	// This ensures that if Go std suddenly decides to enable MPTCP by default,
-	// existing configurations won't encounter issues due to missing features in the kernel MPTCP stack,
-	// such as TCP keepalive (as of Linux 6.5), and failed connect attempts won't always be retried once.
-	//
-	// Available on platforms supported by Go std's MPTCP implementation.
-	Multipath bool `json:"multipath,omitzero"`
-
-	// FastOpenBacklog specifies the maximum number of pending TFO connections on Linux.
-	// If the value is 0, Go std's listen(2) backlog is used.
-	//
-	// On other platforms, a non-negative value is ignored, as they do not have the option to set the TFO backlog.
-	//
-	// On all platforms, a negative value disables TFO.
-	FastOpenBacklog int `json:"fastOpenBacklog,omitzero"`
-
-	// DeferAcceptSecs sets TCP_DEFER_ACCEPT to the given number of seconds on the listener.
-	//
-	// Available on Linux.
-	DeferAcceptSecs int `json:"deferAcceptSecs,omitzero"`
-
-	// UserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the listener.
-	//
-	// Available on Linux.
-	UserTimeoutMsecs int `json:"userTimeoutMsecs,omitzero"`
-
+	TCPListenerConfig
 	InitialPayloadWaitConfig
 }
 
 // Configure returns a TCP listener configuration.
-func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.TCPListenConfigCache, transparent, serverNativeInitialPayload bool) (streamRelayTCPListener, error) {
+func (lnc *RelayTCPListenerConfig) Configure(listenConfigCache conn.TCPListenConfigCache, transparent, serverNativeInitialPayload bool) (streamRelayTCPListener, error) {
 	switch lnc.Network {
 	case "tcp", "tcp4", "tcp6":
 	default:
@@ -272,15 +275,16 @@ func (lnc *TCPListenerConfig) Configure(listenConfigCache conn.TCPListenConfigCa
 	}, nil
 }
 
-// UnixListenerConfig contains configuration options for a SOCK_STREAM or SOCK_SEQPACKET Unix domain socket listener.
-type UnixListenerConfig struct {
+// RelayUnixListenerConfig contains configuration options for a stream relay's
+// SOCK_STREAM or SOCK_SEQPACKET Unix domain socket listener.
+type RelayUnixListenerConfig struct {
 	ListenerConfig
 	UnixDomainSocketPermissionsConfig
 	InitialPayloadWaitConfig
 }
 
 // Configure applies the configuration.
-func (cfg *UnixListenerConfig) Configure(
+func (cfg *RelayUnixListenerConfig) Configure(
 	lnc *streamRelayUnixListener,
 	socketConfigCache conn.UnixDomainSocketConfigCache,
 	serverNativeInitialPayload bool,
@@ -320,8 +324,8 @@ func (cfg *UnixListenerConfig) Configure(
 	return nil
 }
 
-// UDPListenerConfig is the configuration for a UDP server socket.
-type UDPListenerConfig struct {
+// RelayUDPListenerConfig is the configuration for a packet relay's UDP server socket.
+type RelayUDPListenerConfig struct {
 	ListenerConfig
 	IPListenerConfig
 	UDPPerfConfig
@@ -333,7 +337,7 @@ type UDPListenerConfig struct {
 }
 
 // Configure returns a UDP server socket configuration.
-func (lnc *UDPListenerConfig) Configure(logger *tslog.Logger, serverName string, socketConfigCache conn.UDPSocketConfigCache, minNATTimeout time.Duration, transparent bool) (udpRelayServerConn, error) {
+func (lnc *RelayUDPListenerConfig) Configure(logger *tslog.Logger, serverName string, socketConfigCache conn.UDPSocketConfigCache, minNATTimeout time.Duration, transparent bool) (udpRelayServerConn, error) {
 	switch lnc.Network {
 	case "udp", "udp4", "udp6":
 	default:
@@ -390,13 +394,13 @@ type ServerConfig struct {
 	Protocol string `json:"protocol"`
 
 	// TCPListeners is the list of TCP listeners.
-	TCPListeners []TCPListenerConfig `json:"tcpListeners,omitzero"`
+	TCPListeners []RelayTCPListenerConfig `json:"tcpListeners,omitzero"`
 
 	// UDPListeners is the list of UDP listeners.
-	UDPListeners []UDPListenerConfig `json:"udpListeners,omitzero"`
+	UDPListeners []RelayUDPListenerConfig `json:"udpListeners,omitzero"`
 
 	// UnixListeners is the list of SOCK_STREAM and SOCK_SEQPACKET Unix domain socket listeners.
-	UnixListeners []UnixListenerConfig `json:"unixListeners,omitzero"`
+	UnixListeners []RelayUnixListenerConfig `json:"unixListeners,omitzero"`
 
 	// MTU is the MTU of the server's designated network path.
 	// The value is used for calculating UDP receive buffer size.
@@ -549,7 +553,7 @@ func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, tcpListenConfig
 	}
 
 	if sc.EnableTCP {
-		sc.TCPListeners = append(sc.TCPListeners, TCPListenerConfig{
+		sc.TCPListeners = append(sc.TCPListeners, RelayTCPListenerConfig{
 			Network:                   "tcp",
 			Address:                   sc.Listen,
 			Fwmark:                    sc.ListenerFwmark,
@@ -560,7 +564,7 @@ func (sc *ServerConfig) Initialize(tlsCertStore *tlscerts.Store, tcpListenConfig
 	}
 
 	if sc.EnableUDP {
-		sc.UDPListeners = append(sc.UDPListeners, UDPListenerConfig{
+		sc.UDPListeners = append(sc.UDPListeners, RelayUDPListenerConfig{
 			Network:             "udp",
 			Address:             sc.Listen,
 			Fwmark:              sc.ListenerFwmark,
@@ -880,25 +884,10 @@ type HTTPProxyServerConfig struct {
 	// It is ignored if none of the authentication methods are enabled.
 	Users []UserInfo `json:"users,omitzero"`
 
-	// CertList is the name of the certificate list in the certificate store,
-	// used as the server certificate for HTTPS.
-	CertList string `json:"certList,omitzero"`
-
-	// ClientCAs is the name of the X.509 certificate pool in the certificate store,
-	// used as the root CA set for verifying client certificates.
-	ClientCAs string `json:"clientCAs,omitzero"`
-
-	// EncryptedClientHelloKeys are the ECH keys to use when a client attempts ECH.
-	EncryptedClientHelloKeys []EncryptedClientHelloKey `json:"encryptedClientHelloKeys,omitzero"`
-
 	// EnableBasicAuth controls whether to enable HTTP Basic Authentication.
 	EnableBasicAuth bool `json:"enableBasicAuth,omitzero"`
 
-	// EnableTLS controls whether to enable TLS.
-	EnableTLS bool `json:"enableTLS,omitzero"`
-
-	// RequireAndVerifyClientCert controls whether to require and verify client certificates.
-	RequireAndVerifyClientCert bool `json:"requireAndVerifyClientCert,omitzero"`
+	TLSServerConfig
 }
 
 // Validate validates the configuration.
@@ -913,6 +902,26 @@ func (c *HTTPProxyServerConfig) Validate() error {
 type UserInfo struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+}
+
+// TLSServerConfig is the TLS server-side configuration.
+type TLSServerConfig struct {
+	// EnableTLS controls whether to enable TLS.
+	EnableTLS bool `json:"enableTLS,omitzero"`
+
+	// RequireAndVerifyClientCert controls whether to require and verify client certificates.
+	RequireAndVerifyClientCert bool `json:"requireAndVerifyClientCert,omitzero"`
+
+	// CertList is the name of the certificate list in the certificate store,
+	// used as the server certificate for TLS.
+	CertList string `json:"certList,omitzero"`
+
+	// ClientCAs is the name of the X.509 certificate pool in the certificate store,
+	// used as the root CA set for verifying client certificates.
+	ClientCAs string `json:"clientCAs,omitzero"`
+
+	// EncryptedClientHelloKeys are the ECH keys to use when a client attempts ECH.
+	EncryptedClientHelloKeys []EncryptedClientHelloKey `json:"encryptedClientHelloKeys,omitzero"`
 }
 
 // EncryptedClientHelloKey is [tls.EncryptedClientHelloKey] for JSON serialization.

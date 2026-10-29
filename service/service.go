@@ -192,7 +192,7 @@ func (cfg *Config) Migrate() {
 		sc := &cfgServers[i]
 
 		if sc.EnableTCP {
-			sc.TCPListeners = append(sc.TCPListeners, TCPListenerConfig{
+			sc.TCPListeners = append(sc.TCPListeners, RelayTCPListenerConfig{
 				Network:                   "tcp",
 				Address:                   sc.Listen,
 				Fwmark:                    sc.ListenerFwmark,
@@ -203,7 +203,7 @@ func (cfg *Config) Migrate() {
 		}
 
 		if sc.EnableUDP {
-			sc.UDPListeners = append(sc.UDPListeners, UDPListenerConfig{
+			sc.UDPListeners = append(sc.UDPListeners, RelayUDPListenerConfig{
 				Network:             "udp",
 				Address:             sc.Listen,
 				Fwmark:              sc.ListenerFwmark,
