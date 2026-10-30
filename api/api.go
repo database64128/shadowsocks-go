@@ -25,214 +25,68 @@ import (
 	"github.com/database64128/shadowsocks-go/tslog"
 )
 
-// Config stores the configuration for the RESTful API.
+// Config is the configuration for the HTTP API server.
 type Config struct {
-	// Enabled controls whether the API server is enabled.
-	Enabled bool `json:"enabled"`
-
 	// DebugPprof enables pprof endpoints for debugging and profiling.
-	DebugPprof bool `json:"debugPprof,omitzero"`
+	DebugPprof bool
 
 	// StaticAllowEscapingSymlinks controls whether to allow serving static files
 	// that escape the static path via symlinks.
-	StaticAllowEscapingSymlinks bool `json:"staticAllowEscapingSymlinks,omitzero"`
+	StaticAllowEscapingSymlinks bool
 
 	// TrustedProxies specifies the IP address prefixes of trusted proxies.
 	// Requests from these proxies will be trusted to contain the real IP address
 	// in the specified header field.
 	// If empty, all proxies are trusted.
-	TrustedProxies []netip.Prefix `json:"trustedProxies,omitzero"`
+	TrustedProxies []netip.Prefix
 
 	// RealIPHeaderKey specifies the header field to use for determining
 	// the client's real IP address when the request is from a trusted proxy.
 	// If empty, the real IP address is not appended to [http.Request.RemoteAddr].
-	RealIPHeaderKey string `json:"realIPHeaderKey,omitzero"`
+	RealIPHeaderKey string
 
 	// StaticPath is the path where static files are served from.
 	// If empty, static file serving is disabled.
-	StaticPath string `json:"staticPath,omitzero"`
+	StaticPath string
 
 	// SecretPath adds a secret path prefix to API and pprof endpoints.
 	// Static files are not affected. If empty, no secret path is added.
-	SecretPath string `json:"secretPath,omitzero"`
+	SecretPath string
 
-	// Listeners is the list of server listeners.
-	Listeners []ListenerConfig `json:"listeners"`
+	// TCPListeners is the list of TCP listeners.
+	TCPListeners []TCPListenerConfig
 }
 
-// ListenerConfig is the configuration for a server listener.
-type ListenerConfig struct {
-	// Network is the network type.
-	Network string `json:"network"`
+// TCPListenerConfig is the configuration for a TCP listener.
+type TCPListenerConfig struct {
+	// TCPListenConfig is the configuration for the TCP listener socket.
+	TCPListenConfig conn.TCPListenConfig
 
-	// Address is the address to listen on.
-	Address string `json:"address"`
-
-	// Fwmark sets the listener's fwmark on Linux, or user cookie on FreeBSD.
+	// Network specifies the address family of the listener.
 	//
-	// Available on Linux and FreeBSD.
-	Fwmark int `json:"fwmark,omitzero"`
+	//  - "tcp": TCP listener. Dual-stack on supported platforms. IPv4 on platforms without IPV6_V6ONLY.
+	//  - "tcp4": IPv4 TCP listener.
+	//  - "tcp6": IPv6-only TCP listener.
+	Network string
 
-	// TrafficClass sets the traffic class of the listener.
+	// Address specifies the address to listen on.
+	Address string
+
+	// TLSConfig specifies the TLS configuration for the listener.
 	//
-	// Available on most platforms except Windows.
-	TrafficClass int `json:"trafficClass,omitzero"`
-
-	// FastOpenBacklog specifies the maximum number of pending TFO connections on Linux.
-	// If the value is 0, Go std's listen(2) backlog is used.
-	//
-	// On other platforms, a non-negative value is ignored, as they do not have the option to set the TFO backlog.
-	//
-	// On all platforms, a negative value disables TFO.
-	FastOpenBacklog int `json:"fastOpenBacklog,omitzero"`
-
-	// DeferAcceptSecs sets TCP_DEFER_ACCEPT to the given number of seconds on the listener.
-	//
-	// Available on Linux.
-	DeferAcceptSecs int `json:"deferAcceptSecs,omitzero"`
-
-	// UserTimeoutMsecs sets TCP_USER_TIMEOUT to the given number of milliseconds on the listener.
-	//
-	// Available on Linux.
-	UserTimeoutMsecs int `json:"userTimeoutMsecs,omitzero"`
-
-	// CertList is the name of the certificate list in the certificate store,
-	// used as the server certificate for HTTPS.
-	CertList string `json:"certList,omitzero"`
-
-	// ClientCAs is the name of the X.509 certificate pool in the certificate store,
-	// used as the root CA set for verifying client certificates.
-	ClientCAs string `json:"clientCAs,omitzero"`
-
-	// EncryptedClientHelloKeys are the ECH keys to use when a client attempts ECH.
-	EncryptedClientHelloKeys []EncryptedClientHelloKey `json:"encryptedClientHelloKeys,omitzero"`
-
-	// EnableTLS controls whether to enable TLS.
-	EnableTLS bool `json:"enableTLS,omitzero"`
-
-	// RequireAndVerifyClientCert controls whether to require and verify client certificates.
-	RequireAndVerifyClientCert bool `json:"requireAndVerifyClientCert,omitzero"`
-
-	// ReusePort enables SO_REUSEPORT on the listener.
-	//
-	// Available on Linux and the BSDs.
-	ReusePort bool `json:"reusePort,omitzero"`
-
-	// FastOpen enables TCP Fast Open on the listener.
-	//
-	// Available on Linux, macOS, FreeBSD, and Windows.
-	FastOpen bool `json:"fastOpen,omitzero"`
-
-	// FastOpenFallback enables runtime detection of TCP Fast Open support on the listener.
-	//
-	// When enabled, the listener will start without TFO if TFO is not available on the system.
-	// When disabled, the listener will abort if TFO cannot be enabled on the socket.
-	//
-	// Available on all platforms.
-	FastOpenFallback bool `json:"fastOpenFallback,omitzero"`
-
-	// Multipath enables multipath TCP on the listener.
-	//
-	// Unlike Go std, we make MPTCP strictly opt-in.
-	// That is, if this field is false, MPTCP will be explicitly disabled.
-	// This ensures that if Go std suddenly decides to enable MPTCP by default,
-	// existing configurations won't encounter issues due to missing features in the kernel MPTCP stack,
-	// such as TCP keepalive (as of Linux 6.5), and failed connect attempts won't always be retried once.
-	//
-	// Available on platforms supported by Go std's MPTCP implementation.
-	Multipath bool `json:"multipath,omitzero"`
-}
-
-// EncryptedClientHelloKey holds a private key that is associated
-// with a specific ECH config known to a client.
-type EncryptedClientHelloKey struct {
-	// Config should be a marshalled ECHConfig associated with PrivateKey. This
-	// must match the config provided to clients byte-for-byte. The config
-	// should only specify the DHKEM(X25519, HKDF-SHA256) KEM ID (0x0020), the
-	// HKDF-SHA256 KDF ID (0x0001), and a subset of the following AEAD IDs:
-	// AES-128-GCM (0x0000), AES-256-GCM (0x0001), ChaCha20Poly1305 (0x0002).
-	Config []byte `json:"config"`
-
-	// PrivateKey should be a marshalled private key. Currently, we expect
-	// this to be the output of [ecdh.PrivateKey.Bytes].
-	PrivateKey []byte `json:"privateKey"`
-
-	// SendAsRetry indicates if Config should be sent as part of the list of
-	// retry configs when ECH is requested by the client but rejected by the
-	// server.
-	SendAsRetry bool `json:"sendAsRetry"`
+	// If nil, TLS is not enabled.
+	TLSConfig *tls.Config
 }
 
 // NewServer returns a new API server from the config.
 func (c *Config) NewServer(
 	logger *tslog.Logger,
-	tcpListenConfigCache conn.TCPListenConfigCache,
 	tlsCertStore *tlscerts.Store,
 	serverByName map[string]ssm.Server,
 	serverNames []string,
 ) (*Server, error) {
-	cfgListeners := c.Listeners
-	if len(cfgListeners) == 0 {
+	if len(c.TCPListeners) == 0 {
 		return nil, errors.New("no listeners specified")
-	}
-
-	lcs := make([]listenConfig, len(cfgListeners))
-	for i := range cfgListeners {
-		lnc := &cfgListeners[i]
-
-		var tlsConfig *tls.Config
-		if lnc.EnableTLS {
-			tlsConfig = &tls.Config{}
-
-			if lnc.CertList != "" {
-				certList, ok := tlsCertStore.GetCertList(lnc.CertList)
-				if !ok {
-					return nil, fmt.Errorf("certificate list %q not found", lnc.CertList)
-				}
-				tlsConfig.Certificates, tlsConfig.GetCertificate = certList.GetCertificateFunc()
-			}
-
-			if lnc.ClientCAs != "" {
-				pool, ok := tlsCertStore.GetX509CertPool(lnc.ClientCAs)
-				if !ok {
-					return nil, fmt.Errorf("client CA X.509 certificate pool %q not found", lnc.ClientCAs)
-				}
-				tlsConfig.ClientCAs = pool
-			}
-
-			if lncECHKeys := lnc.EncryptedClientHelloKeys; len(lncECHKeys) > 0 {
-				tlsECHKeys := make([]tls.EncryptedClientHelloKey, len(lncECHKeys))
-				for j, key := range lncECHKeys {
-					tlsECHKeys[j] = tls.EncryptedClientHelloKey{
-						Config:      key.Config,
-						PrivateKey:  key.PrivateKey,
-						SendAsRetry: key.SendAsRetry,
-					}
-				}
-				tlsConfig.EncryptedClientHelloKeys = tlsECHKeys
-			}
-
-			if lnc.RequireAndVerifyClientCert {
-				tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
-			}
-		}
-
-		lcs[i] = listenConfig{
-			listenConfig: tcpListenConfigCache.Get(conn.TCPListenSocketOptions{
-				Fwmark:              lnc.Fwmark,
-				TrafficClass:        lnc.TrafficClass,
-				TCPFastOpenBacklog:  lnc.FastOpenBacklog,
-				TCPDeferAcceptSecs:  lnc.DeferAcceptSecs,
-				TCPUserTimeoutMsecs: lnc.UserTimeoutMsecs,
-				ReusePort:           lnc.ReusePort,
-				TCPFastOpen:         lnc.FastOpen,
-				TCPFastOpenFallback: lnc.FastOpenFallback,
-				MultipathTCP:        lnc.Multipath,
-			}),
-			network:   lnc.Network,
-			address:   lnc.Address,
-			tlsConfig: tlsConfig,
-		}
 	}
 
 	mux := http.NewServeMux()
@@ -293,7 +147,7 @@ func (c *Config) NewServer(
 
 	return &Server{
 		logger:         logger,
-		lcs:            lcs,
+		tcpLnCfgs:      c.TCPListeners,
 		staticFileRoot: staticFileRoot,
 		server: http.Server{
 			Handler:  mux,
@@ -419,17 +273,10 @@ func logFileServerRequests(logger *tslog.Logger, h http.Handler) http.Handler {
 	})
 }
 
-type listenConfig struct {
-	listenConfig conn.TCPListenConfig
-	network      string
-	address      string
-	tlsConfig    *tls.Config
-}
-
 // Server is the RESTful API server.
 type Server struct {
 	logger         *tslog.Logger
-	lcs            []listenConfig
+	tcpLnCfgs      []TCPListenerConfig
 	server         http.Server
 	staticFileRoot *os.Root
 }
@@ -445,29 +292,28 @@ func (*Server) SlogAttr() slog.Attr {
 //
 // Start implements [shadowsocks.Service.Start].
 func (s *Server) Start(ctx context.Context) error {
-	lcs := s.lcs
-	for i := range lcs {
-		lc := &lcs[i]
+	tcpLnCfgs := s.tcpLnCfgs
+	for i := range tcpLnCfgs {
+		lc := &tcpLnCfgs[i]
 
-		var ln net.Listener
-		ln, err := lc.listenConfig.Listen(ctx, lc.network, lc.address)
+		ln, err := lc.TCPListenConfig.Listen(ctx, lc.Network, lc.Address)
 		if err != nil {
 			return err
 		}
+		go s.serve(ln, lc.TLSConfig)
 
-		if lc.tlsConfig != nil {
-			ln = tls.NewListener(ln, lc.tlsConfig)
-		}
-
-		go func() {
-			if err := s.server.Serve(ln); err != nil && err != http.ErrServerClosed {
-				s.logger.Error("Failed to serve API", tslog.Err(err))
-			}
-		}()
-
-		s.logger.Info("Started API server listener", slog.Any("listenAddress", ln.Addr()))
+		s.logger.Info("Started API server TCP listener", slog.Any("listenAddress", ln.Addr()))
 	}
 	return nil
+}
+
+func (s *Server) serve(ln net.Listener, tlsConfig *tls.Config) {
+	if tlsConfig != nil {
+		ln = tls.NewListener(ln, tlsConfig)
+	}
+	if err := s.server.Serve(ln); err != nil && err != http.ErrServerClosed {
+		s.logger.Error("Failed to serve API", tslog.Err(err))
+	}
 }
 
 // Stop stops the API server.

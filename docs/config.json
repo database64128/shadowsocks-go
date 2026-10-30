@@ -888,26 +888,29 @@
             {
                 "network": "tcp",
                 "address": ":20221",
+                "sendBufferSize": 0,
+                "receiveBufferSize": 0,
                 "fwmark": 52140,
                 "trafficClass": 0,
                 "reusePort": false,
+                "pathMTUDiscovery": "",
                 "fastOpen": true,
-                "fastOpenBacklog": 0,
                 "fastOpenFallback": true,
                 "multipath": false,
+                "fastOpenBacklog": 0,
                 "deferAcceptSecs": 0,
                 "userTimeoutMsecs": 0,
+                "enableTLS": true,
+                "requireAndVerifyClientCert": true,
                 "certList": "example.com",
                 "clientCAs": "my-root-ca",
                 "encryptedClientHelloKeys": [
                     {
-                        "config": "",
-                        "privateKey": "",
-                        "sendAsRetry": false
+                        "config": "AD7+DQA65wAgACA8wVN2BtscOl3vQheUzHeIkVmKIiydUhDCliA4iyQRCwAEAAEAAQALZXhhbXBsZS5jb20AAA==",
+                        "privateKey": "MC4CAQAwBQYDK2VuBCIEICjd4yGRdsoP9gU7YT7My8DHx1Tjme8GYDXrOMCi8v1V",
+                        "sendAsRetry": true
                     }
-                ],
-                "enableTLS": false,
-                "requireAndVerifyClientCert": false
+                ]
             }
         ]
     },

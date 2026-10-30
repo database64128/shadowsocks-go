@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/database64128/shadowsocks-go"
-	"github.com/database64128/shadowsocks-go/api"
 	"github.com/database64128/shadowsocks-go/api/ssm"
 	"github.com/database64128/shadowsocks-go/clientgroup"
 	"github.com/database64128/shadowsocks-go/conn"
@@ -49,7 +48,7 @@ type Config struct {
 	Router router.Config `json:"router,omitzero"`
 
 	// API is the configuration for the HTTP API.
-	API api.Config `json:"api,omitzero"`
+	API APIConfig `json:"api,omitzero"`
 
 	// Log is the configuration for the logger.
 	Log tslog.Config `json:"log,omitzero"`
