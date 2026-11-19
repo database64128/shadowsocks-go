@@ -1,6 +1,6 @@
 module github.com/database64128/shadowsocks-go
 
-go 1.27.0
+go 1.27.4
 
 require (
 	github.com/database64128/netx-go v0.1.1

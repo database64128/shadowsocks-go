@@ -573,13 +573,11 @@ func (c *ClientConfig) tcpDialer(socketConfigCache *socketConfigCache) (conn.TCP
 		TrafficClass:                c.DialerTrafficClass,
 		TCPUserTimeoutMsecs:         tcpUserTimeoutMsecs,
 		IPv6SourceAddressPreference: c.IPv6SourceAddressPreference,
-		// Unconditionally set to true as a workaround for https://github.com/golang/go/issues/81620.
-		// Once we upgrade to a Go version with the fix, set to c.LocalAddr4.IsValid() || c.LocalAddr6.IsValid().
-		BindAddressNoPort:   true,
-		PathMTUDiscovery:    c.TCPPathMTUDiscovery.TCP(),
-		TCPFastOpen:         c.DialerTFO,
-		TCPFastOpenFallback: c.TCPFastOpenFallback,
-		MultipathTCP:        c.MultipathTCP,
+		BindAddressNoPort:           c.LocalAddr4.IsValid() || c.LocalAddr6.IsValid(),
+		PathMTUDiscovery:            c.TCPPathMTUDiscovery.TCP(),
+		TCPFastOpen:                 c.DialerTFO,
+		TCPFastOpenFallback:         c.TCPFastOpenFallback,
+		MultipathTCP:                c.MultipathTCP,
 	})
 	socketConfigCache.tcpDialer = tcpDialer
 	socketConfigCache.hasTCPDialer = true
