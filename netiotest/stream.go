@@ -367,7 +367,7 @@ func testWrapConnStreamClientServerProceed(
 	client := newClient(psc)
 
 	t.Run("RoundTrip", func(t *testing.T) {
-		TestConnPairRoundTrip(t, func() (c1, c2 netio.Conn) {
+		TestConnPairRoundTrip(t, func(t *testing.T) (c1, c2 netio.Conn) {
 			clientConn, err := client.DialStream(ctx, addr, initialPayload)
 			if err != nil {
 				t.Fatalf("DialStream failed: %v", err)
@@ -391,7 +391,7 @@ func testWrapConnStreamClientServerProceed(
 }
 
 // TestConnPairRoundTrip tests a pair of connections for round-trip communication.
-func TestConnPairRoundTrip(t *testing.T, newConnPair func() (c1, c2 netio.Conn)) {
+func TestConnPairRoundTrip(t *testing.T, newConnPair func(t *testing.T) (c1, c2 netio.Conn)) {
 	for _, sizeCase := range [...]struct {
 		name     string
 		copySize int
@@ -403,7 +403,7 @@ func TestConnPairRoundTrip(t *testing.T, newConnPair func() (c1, c2 netio.Conn))
 	} {
 		t.Run(sizeCase.name, func(t *testing.T) {
 			t.Parallel()
-			c1, c2 := newConnPair()
+			c1, c2 := newConnPair(t)
 			testConnPairRoundTrip(t, sizeCase.copySize, c1, c2)
 
 			_, c1wt := c1.(io.WriterTo)
@@ -414,7 +414,7 @@ func TestConnPairRoundTrip(t *testing.T, newConnPair func() (c1, c2 netio.Conn))
 			if c1wt || c2wt {
 				t.Run("HideWriteTo", func(t *testing.T) {
 					t.Parallel()
-					c1, c2 := newConnPair()
+					c1, c2 := newConnPair(t)
 					testConnPairRoundTrip(t, sizeCase.copySize, hideConnWriteTo(c1), hideConnWriteTo(c2))
 				})
 			}
@@ -422,7 +422,7 @@ func TestConnPairRoundTrip(t *testing.T, newConnPair func() (c1, c2 netio.Conn))
 			if c1rf || c2rf {
 				t.Run("HideWriteToReadFrom", func(t *testing.T) {
 					t.Parallel()
-					c1, c2 := newConnPair()
+					c1, c2 := newConnPair(t)
 					testConnPairRoundTrip(t, sizeCase.copySize, hideConnWriteToReadFrom(c1), hideConnWriteToReadFrom(c2))
 				})
 			}
@@ -430,15 +430,15 @@ func TestConnPairRoundTrip(t *testing.T, newConnPair func() (c1, c2 netio.Conn))
 			if c1wt || c2wt || c1rf || c2rf {
 				t.Run("BidirectionalCopy", func(t *testing.T) {
 					t.Parallel()
-					c1, c3 := newConnPair()
-					c4, c2 := newConnPair()
+					c1, c3 := newConnPair(t)
+					c4, c2 := newConnPair(t)
 					testConnPairRoundTripBidirectionalCopy(t, sizeCase.copySize, c1, c2, c3, c4, netio.BidirectionalCopy)
 				})
 
 				t.Run("BidirectionalCopyNoWriteTo", func(t *testing.T) {
 					t.Parallel()
-					c1, c3 := newConnPair()
-					c4, c2 := newConnPair()
+					c1, c3 := newConnPair(t)
+					c4, c2 := newConnPair(t)
 					testConnPairRoundTripBidirectionalCopy(t, sizeCase.copySize, c1, c2, c3, c4, bidirectionalCopyNoWriteTo)
 				})
 			}
@@ -446,7 +446,7 @@ func TestConnPairRoundTrip(t *testing.T, newConnPair func() (c1, c2 netio.Conn))
 			if c1wt && c2wt && c1rf && c2rf {
 				t.Run("InterleaveReadWriteToWriteReadFrom", func(t *testing.T) {
 					t.Parallel()
-					c1, c2 := newConnPair()
+					c1, c2 := newConnPair(t)
 					testConnPairRoundTripInterleaveReadWriteToWriteReadFrom(t, sizeCase.copySize, c1, c2)
 				})
 			}
