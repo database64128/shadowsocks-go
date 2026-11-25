@@ -181,7 +181,6 @@ func testPreambleStreamClientServerProceed(
 	expectedServerAddr conn.Addr,
 	expectedUsername string,
 ) {
-	ctx := t.Context()
 	logger := tslogtest.NewLogger(t)
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
@@ -191,15 +190,12 @@ func testPreambleStreamClientServerProceed(
 
 	expectedInitialPayload := slices.Clone(initialPayload)
 
-	go func() {
-		defer psc.Close()
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		var dialCount int
+		for pc := range ch {
+			dialCount++
 
-		select {
-		case <-ctx.Done():
-			t.Error("DialStream not called")
-			return
-
-		case pc := <-ch:
 			if pc.LocalConnAddr() != expectedServerAddr {
 				t.Errorf("pc.LocalConnAddr() = %v, want %v", pc.LocalConnAddr(), expectedServerAddr)
 			}
@@ -240,11 +236,18 @@ func testPreambleStreamClientServerProceed(
 				t.Errorf("buf.Bytes() = %v, want %v", got, expectedInitialPayload)
 			}
 		}
-	}()
+		if dialCount != 1 {
+			t.Errorf("dialCount = %v, want 1", dialCount)
+		}
+	})
+	t.Cleanup(func() {
+		_ = psc.Close()
+		wg.Wait()
+	})
 
 	client := newClient(psc)
 
-	clientConn, err := client.DialStream(ctx, addr, initialPayload)
+	clientConn, err := client.DialStream(t.Context(), addr, initialPayload)
 	if err != nil {
 		t.Fatalf("DialStream failed: %v", err)
 	}
@@ -258,11 +261,6 @@ func testPreambleStreamClientServerProceed(
 
 	if _, err := clientConn.Read(nil); err != io.EOF {
 		t.Errorf("clientConn.Read() = %v, want io.EOF", err)
-	}
-
-	// This also synchronizes the exit of the server goroutine.
-	if _, ok := <-ch; ok {
-		t.Error("DialStream called more than once")
 	}
 }
 
@@ -305,7 +303,6 @@ func testWrapConnStreamClientServerProceed(
 	expectedServerAddr conn.Addr,
 	expectedUsername string,
 ) {
-	ctx := t.Context()
 	logger := tslogtest.NewLogger(t)
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
@@ -322,7 +319,8 @@ func testWrapConnStreamClientServerProceed(
 
 	serverConnOrErrCh := make(chan serverConnOrErr)
 
-	go func() {
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		for pc := range ch {
 			if pc.LocalConnAddr() != expectedServerAddr {
 				t.Errorf("pc.LocalConnAddr() = %v, want %v", pc.LocalConnAddr(), expectedServerAddr)
@@ -362,13 +360,17 @@ func testWrapConnStreamClientServerProceed(
 
 			serverConnOrErrCh <- serverConnOrErr{serverConn: serverConn}
 		}
-	}()
+	})
+	t.Cleanup(func() {
+		_ = psc.Close()
+		wg.Wait()
+	})
 
 	client := newClient(psc)
 
 	t.Run("RoundTrip", func(t *testing.T) {
 		TestConnPairRoundTrip(t, func(t *testing.T) (c1, c2 netio.Conn) {
-			clientConn, err := client.DialStream(ctx, addr, initialPayload)
+			clientConn, err := client.DialStream(t.Context(), addr, initialPayload)
 			if err != nil {
 				t.Fatalf("DialStream failed: %v", err)
 			}
@@ -381,13 +383,6 @@ func testWrapConnStreamClientServerProceed(
 			return clientConn, serverConnOrErr.serverConn
 		})
 	})
-
-	_ = psc.Close()
-
-	// This also synchronizes the exit of the server goroutine.
-	if _, ok := <-ch; ok {
-		t.Error("DialStream called more than expected")
-	}
 }
 
 // TestConnPairRoundTrip tests a pair of connections for round-trip communication.
@@ -752,7 +747,6 @@ func testStreamClientServerAbort(
 	dialResult conn.DialResult,
 	checkDialErr func(t *testing.T, dialResult conn.DialResult, err error),
 ) {
-	ctx := t.Context()
 	logger := tslogtest.NewLogger(t)
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
@@ -760,38 +754,38 @@ func testStreamClientServerAbort(
 		NativeInitialPayload: true,
 	})
 
-	go func() {
-		defer psc.Close()
-
-		select {
-		case <-ctx.Done():
-			t.Error("DialStream not called")
-			return
-
-		case pc := <-ch:
-			defer pc.Close()
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		var dialCount int
+		for pc := range ch {
+			dialCount++
 
 			req, err := server.HandleStream(pc, logger)
 			if err != nil {
 				t.Errorf("server.HandleStream failed: %v", err)
+				_ = pc.Close()
 				return
 			}
 
 			if err = req.Abort(dialResult); err != nil {
 				t.Errorf("req.Abort failed: %v", err)
 			}
+
+			_ = pc.Close()
 		}
-	}()
+		if dialCount != 1 {
+			t.Errorf("dialCount = %v, want 1", dialCount)
+		}
+	})
+	t.Cleanup(func() {
+		_ = psc.Close()
+		wg.Wait()
+	})
 
 	client := newClient(psc)
 
-	_, err := client.DialStream(ctx, addr, initialPayload)
+	_, err := client.DialStream(t.Context(), addr, initialPayload)
 	checkDialErr(t, dialResult, err)
-
-	// This also synchronizes the exit of the server goroutine.
-	if _, ok := <-ch; ok {
-		t.Error("DialStream called more than once")
-	}
 }
 
 // BenchmarkStreamClientServer tests the performance of the stream client and server connections.
@@ -801,7 +795,6 @@ func BenchmarkStreamClientServer(
 	server netio.StreamServer,
 	writeSize int,
 ) {
-	ctx := b.Context()
 	logger := tslogtest.NewLogger(b)
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
@@ -809,15 +802,9 @@ func BenchmarkStreamClientServer(
 		NativeInitialPayload: true,
 	})
 
-	go func() {
-		defer psc.Close()
-
-		select {
-		case <-ctx.Done():
-			b.Error("DialStream not called")
-			return
-
-		case pc := <-ch:
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for pc := range ch {
 			req, err := server.HandleStream(pc, logger)
 			if err != nil {
 				b.Errorf("server.HandleStream failed: %v", err)
@@ -864,11 +851,15 @@ func BenchmarkStreamClientServer(
 
 			_ = serverConn.CloseWrite()
 		}
-	}()
+	})
+	b.Cleanup(func() {
+		_ = psc.Close()
+		wg.Wait()
+	})
 
 	client := newClient(psc)
 	addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 5201)
-	clientConn, err := client.DialStream(ctx, addr, nil)
+	clientConn, err := client.DialStream(b.Context(), addr, nil)
 	if err != nil {
 		b.Fatalf("DialStream failed: %v", err)
 	}
@@ -906,11 +897,6 @@ func BenchmarkStreamClientServer(
 	if _, err := io.Copy(io.Discard, clientConn); err != nil {
 		b.Errorf("io.Copy(io.Discard, clientConn) failed: %v", err)
 	}
-
-	// This also synchronizes the exit of the server goroutine.
-	if _, ok := <-ch; ok {
-		b.Error("DialStream called more than once")
-	}
 }
 
 type benchReader struct{}
@@ -926,7 +912,6 @@ func BenchmarkStreamClientDialServerHandle(
 	newClient func(psc *PipeStreamClient) netio.StreamClient,
 	server netio.StreamServer,
 ) {
-	ctx := b.Context()
 	logger := tslogtest.NewLogger(b)
 
 	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
@@ -936,8 +921,8 @@ func BenchmarkStreamClientDialServerHandle(
 
 	serverDrainBuf := make([]byte, 1)
 
-	go func() {
-		var wg sync.WaitGroup
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		for pc := range ch {
 			wg.Go(func() {
 				req, err := server.HandleStream(pc, logger)
@@ -960,8 +945,11 @@ func BenchmarkStreamClientDialServerHandle(
 				_ = serverConn.Close()
 			})
 		}
+	})
+	b.Cleanup(func() {
+		_ = psc.Close()
 		wg.Wait()
-	}()
+	})
 
 	client := newClient(psc)
 	addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 5201)
@@ -972,7 +960,7 @@ func BenchmarkStreamClientDialServerHandle(
 			b.SetParallelism(parallelism)
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
-					clientConn, err := client.DialStream(ctx, addr, nil)
+					clientConn, err := client.DialStream(b.Context(), addr, nil)
 					if err != nil {
 						b.Errorf("DialStream failed: %v", err)
 						continue
@@ -989,12 +977,5 @@ func BenchmarkStreamClientDialServerHandle(
 				}
 			})
 		})
-	}
-
-	_ = psc.Close()
-
-	// This also synchronizes the exit of the server goroutine.
-	if _, ok := <-ch; ok {
-		b.Error("DialStream called more than once")
 	}
 }

@@ -2,6 +2,7 @@ package dns
 
 import (
 	"net/netip"
+	"sync"
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -76,40 +77,36 @@ func TestResolverTCPBoundedRetry(t *testing.T) {
 	serverAddrPort := netip.AddrPortFrom(netip.IPv6Loopback(), 53)
 	expectedServerAddr := conn.AddrFromIPPort(serverAddrPort)
 
-	go func() {
-		defer psc.Close()
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		var dialCount int
+		for pc := range ch {
+			dialCount++
 
-		b := make([]byte, 2+512)
-
-		for range 2 {
-			select {
-			case <-ctx.Done():
-				t.Error("DialStream not called")
-				return
-
-			case pc := <-ch:
-				if pc.LocalConnAddr() != expectedServerAddr {
-					t.Errorf("pc.LocalConnAddr() = %v, want %v", pc.LocalConnAddr(), expectedServerAddr)
-				}
-
-				if _, err := pc.Read(b); err != nil {
-					t.Errorf("pc.Read failed: %v", err)
-				}
-
-				// After reading the query, close the connection without sending a response.
-				_ = pc.Close()
+			if pc.LocalConnAddr() != expectedServerAddr {
+				t.Errorf("pc.LocalConnAddr() = %v, want %v", pc.LocalConnAddr(), expectedServerAddr)
 			}
+
+			b := make([]byte, 2+512)
+			if _, err := pc.Read(b); err != nil {
+				t.Errorf("pc.Read failed: %v", err)
+			}
+
+			// After reading the query, close the connection without sending a response.
+			_ = pc.Close()
 		}
-	}()
+		if dialCount != 2 {
+			t.Errorf("dialCount = %d, want 2", dialCount)
+		}
+	})
+	t.Cleanup(func() {
+		_ = psc.Close()
+		wg.Wait()
+	})
 
 	r := NewResolver("test", defaultCacheSize, serverAddrPort, psc, nil, logger)
 
 	if _, err := r.Lookup(ctx, "example.com"); err == nil {
 		t.Error("r.Lookup should have failed")
-	}
-
-	// This also synchronizes the exit of the server goroutine.
-	if _, ok := <-ch; ok {
-		t.Error("DialStream called more than expected")
 	}
 }

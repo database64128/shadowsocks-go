@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"io"
 	"net/netip"
+	"sync"
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
@@ -86,50 +87,43 @@ func testStreamClientServerReplay(
 	server := serverConfig.NewStreamServer()
 	server.ReplaceUserLookupMap(userLookupMap)
 
-	go func() {
-		defer psc.Close()
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		var dialCount int
+		for pc := range ch {
+			dialCount++
+			switch dialCount {
+			case 1: // Hijack client request and send it to reqCh.
+				req, err := io.ReadAll(pc)
+				if err != nil {
+					t.Errorf("io.ReadAll failed: %v", err)
+				}
+				select {
+				case <-ctx.Done():
+					break
+				case reqCh <- req:
+				}
 
-		// 1. Hijack client request and send it to reqCh.
-		select {
-		case <-ctx.Done():
-			t.Error("DialStream not called")
-			return
+			case 2: // Server sees it for the first time.
+				if _, err := server.HandleStream(pc, logger); err != nil {
+					t.Errorf("server.HandleStream failed: %v", err)
+				}
 
-		case pc := <-ch:
-			req, err := io.ReadAll(pc)
-			if err != nil {
-				t.Errorf("io.ReadAll failed: %v", err)
-			}
-			_ = pc.Close()
-			reqCh <- req
-		}
-
-		// 2. Server sees it for the first time.
-		select {
-		case <-ctx.Done():
-			t.Error("DialStream not called")
-			return
-
-		case pc := <-ch:
-			if _, err := server.HandleStream(pc, logger); err != nil {
-				t.Errorf("server.HandleStream failed: %v", err)
-			}
-			_ = pc.Close()
-		}
-
-		// 3. Server sees it again.
-		select {
-		case <-ctx.Done():
-			t.Error("DialStream not called")
-			return
-
-		case pc := <-ch:
-			if _, err := server.HandleStream(pc, logger); err != ErrRepeatedSalt {
-				t.Errorf("server.HandleStream = %v, want %v", err, ErrRepeatedSalt)
+			case 3: // Server sees it again.
+				if _, err := server.HandleStream(pc, logger); err != ErrRepeatedSalt {
+					t.Errorf("server.HandleStream = %v, want %v", err, ErrRepeatedSalt)
+				}
 			}
 			_ = pc.Close()
 		}
-	}()
+		if dialCount != 3 {
+			t.Errorf("dialCount = %d, want 3", dialCount)
+		}
+	})
+	t.Cleanup(func() {
+		_ = psc.Close()
+		wg.Wait()
+	})
 
 	serverAddr := conn.AddrFromIPAndPort(netip.IPv6Unspecified(), 20220)
 	clientTargetAddr := conn.AddrFromIPAndPort(netip.IPv6Unspecified(), 53)
@@ -163,11 +157,6 @@ func testStreamClientServerReplay(
 		if err == nil {
 			_ = clientConn.Close()
 		}
-	}
-
-	// This also synchronizes the exit of the server goroutine.
-	if _, ok := <-ch; ok {
-		t.Error("DialStream called more than expected")
 	}
 }
 
