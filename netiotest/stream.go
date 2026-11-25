@@ -146,7 +146,7 @@ var testInitialPayloadCases = [...]struct {
 // simply return the underlying connection to the caller.
 func TestPreambleStreamClientServerProceed(
 	t *testing.T,
-	newClient func(psc *PipeStreamClient) netio.StreamClient,
+	newClient func(t *testing.T, psc *PipeStreamClient) netio.StreamClient,
 	server netio.StreamServer,
 	expectedServerAddr conn.Addr,
 	expectedUsername string,
@@ -174,7 +174,7 @@ func TestPreambleStreamClientServerProceed(
 
 func testPreambleStreamClientServerProceed(
 	t *testing.T,
-	newClient func(psc *PipeStreamClient) netio.StreamClient,
+	newClient func(t *testing.T, psc *PipeStreamClient) netio.StreamClient,
 	addr conn.Addr,
 	initialPayload []byte,
 	server netio.StreamServer,
@@ -245,7 +245,7 @@ func testPreambleStreamClientServerProceed(
 		wg.Wait()
 	})
 
-	client := newClient(psc)
+	client := newClient(t, psc)
 
 	clientConn, err := client.DialStream(t.Context(), addr, initialPayload)
 	if err != nil {
@@ -268,7 +268,7 @@ func testPreambleStreamClientServerProceed(
 // implementations that return wrapper connections over the underlying connection.
 func TestWrapConnStreamClientServerProceed(
 	t *testing.T,
-	newClient func(psc *PipeStreamClient) netio.StreamClient,
+	newClient func(t *testing.T, psc *PipeStreamClient) netio.StreamClient,
 	server netio.StreamServer,
 	expectedServerAddr conn.Addr,
 	expectedUsername string,
@@ -296,7 +296,7 @@ func TestWrapConnStreamClientServerProceed(
 
 func testWrapConnStreamClientServerProceed(
 	t *testing.T,
-	newClient func(psc *PipeStreamClient) netio.StreamClient,
+	newClient func(t *testing.T, psc *PipeStreamClient) netio.StreamClient,
 	addr conn.Addr,
 	initialPayload []byte,
 	server netio.StreamServer,
@@ -366,7 +366,7 @@ func testWrapConnStreamClientServerProceed(
 		wg.Wait()
 	})
 
-	client := newClient(psc)
+	client := newClient(t, psc)
 
 	t.Run("RoundTrip", func(t *testing.T) {
 		TestConnPairRoundTrip(t, func(t *testing.T) (c1, c2 netio.Conn) {
@@ -624,7 +624,7 @@ func hideConnWriteToReadFrom(c netio.Conn) netio.Conn {
 // implementations for handling aborted connection requests.
 func TestStreamClientServerAbort(
 	t *testing.T,
-	newClient func(psc *PipeStreamClient) netio.StreamClient,
+	newClient func(t *testing.T, psc *PipeStreamClient) netio.StreamClient,
 	server netio.StreamServer,
 	checkDialErr func(t *testing.T, dialResult conn.DialResult, err error),
 ) {
@@ -740,7 +740,7 @@ func TestStreamClientServerAbort(
 
 func testStreamClientServerAbort(
 	t *testing.T,
-	newClient func(psc *PipeStreamClient) netio.StreamClient,
+	newClient func(t *testing.T, psc *PipeStreamClient) netio.StreamClient,
 	addr conn.Addr,
 	initialPayload []byte,
 	server netio.StreamServer,
@@ -782,7 +782,7 @@ func testStreamClientServerAbort(
 		wg.Wait()
 	})
 
-	client := newClient(psc)
+	client := newClient(t, psc)
 
 	_, err := client.DialStream(t.Context(), addr, initialPayload)
 	checkDialErr(t, dialResult, err)
@@ -791,7 +791,7 @@ func testStreamClientServerAbort(
 // BenchmarkStreamClientServer tests the performance of the stream client and server connections.
 func BenchmarkStreamClientServer(
 	b *testing.B,
-	newClient func(psc *PipeStreamClient) netio.StreamClient,
+	newClient func(b *testing.B, psc *PipeStreamClient) netio.StreamClient,
 	server netio.StreamServer,
 	writeSize int,
 ) {
@@ -857,7 +857,7 @@ func BenchmarkStreamClientServer(
 		wg.Wait()
 	})
 
-	client := newClient(psc)
+	client := newClient(b, psc)
 	addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 5201)
 	clientConn, err := client.DialStream(b.Context(), addr, nil)
 	if err != nil {
@@ -909,7 +909,7 @@ func (benchReader) Read(p []byte) (n int, err error) {
 // stream client and server establishing and closing connections.
 func BenchmarkStreamClientDialServerHandle(
 	b *testing.B,
-	newClient func(psc *PipeStreamClient) netio.StreamClient,
+	newClient func(b *testing.B, psc *PipeStreamClient) netio.StreamClient,
 	server netio.StreamServer,
 ) {
 	logger := tslogtest.NewLogger(b)
@@ -951,7 +951,7 @@ func BenchmarkStreamClientDialServerHandle(
 		wg.Wait()
 	})
 
-	client := newClient(psc)
+	client := newClient(b, psc)
 	addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 5201)
 	clientDrainBuf := make([]byte, 1)
 

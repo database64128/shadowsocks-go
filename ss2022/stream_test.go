@@ -26,7 +26,7 @@ func testStreamClientServer(
 ) {
 	addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 20220)
 
-	newClient := func(psc *netiotest.PipeStreamClient) netio.StreamClient {
+	newClient := func(t *testing.T, psc *netiotest.PipeStreamClient) netio.StreamClient {
 		clientConfig := StreamClientConfig{
 			Name:                            "test",
 			InnerClient:                     psc,
@@ -280,7 +280,7 @@ func BenchmarkStreamClientServer(b *testing.B) {
 
 			addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 20220)
 
-			newClient := func(psc *netiotest.PipeStreamClient) netio.StreamClient {
+			newClient := func(b *testing.B, psc *netiotest.PipeStreamClient) netio.StreamClient {
 				clientConfig := StreamClientConfig{
 					Name:         "test",
 					InnerClient:  psc,
@@ -319,7 +319,7 @@ func BenchmarkStreamClientDialServerHandleStream(b *testing.B) {
 
 					addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 20220)
 
-					newClient := func(psc *netiotest.PipeStreamClient) netio.StreamClient {
+					newClient := func(b *testing.B, psc *netiotest.PipeStreamClient) netio.StreamClient {
 						clientConfig := StreamClientConfig{
 							Name:         "test",
 							InnerClient:  psc,

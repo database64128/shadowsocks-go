@@ -726,7 +726,7 @@ func TestStreamClientServer(t *testing.T) {
 					t.Parallel()
 					addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 1080)
 
-					newClient := func(psc *netiotest.PipeStreamClient) netio.StreamClient {
+					newClient := func(t *testing.T, psc *netiotest.PipeStreamClient) netio.StreamClient {
 						clientConfig := StreamClientConfig{
 							InnerClient: psc,
 							Addr:        addr,

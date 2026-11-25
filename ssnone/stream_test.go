@@ -13,7 +13,7 @@ import (
 func TestStreamClientServer(t *testing.T) {
 	addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 8388)
 
-	newClient := func(psc *netiotest.PipeStreamClient) netio.StreamClient {
+	newClient := func(t *testing.T, psc *netiotest.PipeStreamClient) netio.StreamClient {
 		clientConfig := ssnone.StreamClientConfig{
 			Name:        "test",
 			InnerClient: psc,
