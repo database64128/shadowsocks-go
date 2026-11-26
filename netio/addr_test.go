@@ -229,6 +229,7 @@ func TestResolveIPPort(t *testing.T) {
 func TestResolveIPPortError(t *testing.T) {
 	expectAddressFamilyPreferenceMismatchError := func(wantPref netio.AddressFamilyPreference) func(*testing.T, error) {
 		return func(t *testing.T, err error) {
+			t.Helper()
 			e, ok := errors.AsType[netio.AddressFamilyPreferenceMismatchError](err)
 			if !ok {
 				t.Errorf("error = %v, want %T", err, e)
@@ -241,6 +242,7 @@ func TestResolveIPPortError(t *testing.T) {
 	}
 
 	expectDNSErr := func(t *testing.T, err error) {
+		t.Helper()
 		if e, ok := errors.AsType[*net.DNSError](err); !ok {
 			t.Errorf("error = %v, want %T", err, e)
 		}

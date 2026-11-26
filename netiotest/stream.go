@@ -422,6 +422,8 @@ func testWrapConnStreamClientServerProceed(
 
 	t.Run("RoundTrip", func(t *testing.T) {
 		TestConnPairRoundTrip(t, func(t *testing.T) (c1, c2 netio.Conn) {
+			t.Helper()
+
 			cancelCh := make(chan struct{})
 			serverConnOrErrCh := make(chan serverConnOrErr)
 			ctx := context.WithValue(t.Context(), dialContextKey{}, dialContextValue{

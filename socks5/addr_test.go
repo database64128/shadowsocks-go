@@ -626,6 +626,7 @@ var addrBytesErrorCases = [...]struct {
 }
 
 func expectNonNilError(t *testing.T, err error) {
+	t.Helper()
 	if err == nil {
 		t.Error("err = nil, want non-nil error")
 	}
@@ -757,6 +758,7 @@ func TestAddrPortFromBytesError(t *testing.T) {
 			name: "Domain",
 			data: addrDomain[:],
 			checkErr: func(t *testing.T, err error) {
+				t.Helper()
 				if !errors.Is(err, socks5.ErrAddrDomain) {
 					t.Errorf("err = %v, want socks5.ErrAddrDomain", err)
 				}

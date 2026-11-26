@@ -32,15 +32,7 @@ func TestStreamClientError(t *testing.T) {
 			serverMsgs: [][]byte{
 				{4, 1},
 			},
-			checkClientErr: func(t *testing.T, err error) {
-				e, ok := errors.AsType[UnsupportedVersionError](err)
-				if !ok {
-					t.Fatalf("err = %v, want %T", err, e)
-				}
-				if e != 4 {
-					t.Errorf("e = %d, want 4", e)
-				}
-			},
+			checkClientErr: expectByteError[UnsupportedVersionError](4),
 		},
 		{
 			name:          "UnsupportedAuthMethod",
@@ -51,15 +43,7 @@ func TestStreamClientError(t *testing.T) {
 			serverMsgs: [][]byte{
 				{Version, MethodNoAcceptable},
 			},
-			checkClientErr: func(t *testing.T, err error) {
-				e, ok := errors.AsType[UnsupportedAuthMethodError](err)
-				if !ok {
-					t.Fatalf("err = %v, want %T", err, e)
-				}
-				if e != MethodNoAcceptable {
-					t.Errorf("e = %d, want %d", e, MethodNoAcceptable)
-				}
-			},
+			checkClientErr: expectByteError[UnsupportedAuthMethodError](MethodNoAcceptable),
 		},
 		{
 			name:          "UnsupportedUsernamePasswordAuthVersion",
@@ -72,15 +56,7 @@ func TestStreamClientError(t *testing.T) {
 				{Version, MethodUsernamePassword},
 				{4, 1},
 			},
-			checkClientErr: func(t *testing.T, err error) {
-				e, ok := errors.AsType[UnsupportedUsernamePasswordAuthVersionError](err)
-				if !ok {
-					t.Fatalf("err = %v, want %T", err, e)
-				}
-				if e != 4 {
-					t.Errorf("e = %d, want 4", e)
-				}
-			},
+			checkClientErr: expectByteError[UnsupportedUsernamePasswordAuthVersionError](4),
 		},
 		{
 			name:          "IncorrectUsernamePassword",
@@ -93,11 +69,7 @@ func TestStreamClientError(t *testing.T) {
 				{Version, MethodUsernamePassword},
 				{UsernamePasswordAuthVersion, 1},
 			},
-			checkClientErr: func(t *testing.T, err error) {
-				if err != ErrIncorrectUsernamePassword {
-					t.Errorf("err = %v, want %v", err, ErrIncorrectUsernamePassword)
-				}
-			},
+			checkClientErr: expectComparableError(ErrIncorrectUsernamePassword),
 		},
 		{
 			name:          "ReplyError",
@@ -111,14 +83,8 @@ func TestStreamClientError(t *testing.T) {
 				{Version, ReplyConnectionRefused, 0, AtypIPv4, 0, 0, 0, 0, 0, 0},
 			},
 			checkClientErr: func(t *testing.T, err error) {
-				e, ok := errors.AsType[ReplyError](err)
-				if !ok {
-					t.Fatalf("err = %v, want %T", err, e)
-				}
-				if e != ReplyConnectionRefused {
-					t.Errorf("e.Reply = %d, want %d", e, ReplyConnectionRefused)
-				}
-
+				t.Helper()
+				expectByteError[ReplyError](ReplyConnectionRefused)(t, err)
 				if code := conn.DialResultCodeFromError(err); code != conn.DialResultCodeECONNREFUSED {
 					t.Errorf("conn.DialResultCodeFromError(err) = %v, want %v", code, conn.DialResultCodeECONNREFUSED)
 				}
@@ -215,15 +181,7 @@ func TestStreamServerError(t *testing.T) {
 			serverUserInfoByUsername: nil,
 			serverEnableTCP:          true,
 			serverEnableUDP:          false,
-			checkServerErr: func(t *testing.T, err error) {
-				e, ok := errors.AsType[UnsupportedVersionError](err)
-				if !ok {
-					t.Fatalf("err = %v, want %T", err, e)
-				}
-				if e != 4 {
-					t.Errorf("e = %d, want 4", e)
-				}
-			},
+			checkServerErr:           expectByteError[UnsupportedVersionError](4),
 		},
 		{
 			name: "ZeroNMETHODS",
@@ -234,11 +192,7 @@ func TestStreamServerError(t *testing.T) {
 			serverUserInfoByUsername: nil,
 			serverEnableTCP:          true,
 			serverEnableUDP:          false,
-			checkServerErr: func(t *testing.T, err error) {
-				if err != errZeroNMETHODS {
-					t.Errorf("err = %v, want %v", err, errZeroNMETHODS)
-				}
-			},
+			checkServerErr:           expectComparableError(errZeroNMETHODS),
 		},
 		{
 			name: "NoAcceptableAuthMethod/RejectClientNoAuth",
@@ -256,11 +210,7 @@ func TestStreamServerError(t *testing.T) {
 			},
 			serverEnableTCP: true,
 			serverEnableUDP: false,
-			checkServerErr: func(t *testing.T, err error) {
-				if err != ErrNoAcceptableAuthMethod {
-					t.Errorf("err = %v, want %v", err, ErrNoAcceptableAuthMethod)
-				}
-			},
+			checkServerErr:  expectComparableError(ErrNoAcceptableAuthMethod),
 		},
 		{
 			name: "NoAcceptableAuthMethod/RejectClientUsernamePassword",
@@ -273,11 +223,7 @@ func TestStreamServerError(t *testing.T) {
 			serverUserInfoByUsername: nil,
 			serverEnableTCP:          true,
 			serverEnableUDP:          false,
-			checkServerErr: func(t *testing.T, err error) {
-				if err != ErrNoAcceptableAuthMethod {
-					t.Errorf("err = %v, want %v", err, ErrNoAcceptableAuthMethod)
-				}
-			},
+			checkServerErr:           expectComparableError(ErrNoAcceptableAuthMethod),
 		},
 		{
 			name: "UnsupportedUsernamePasswordAuthVersion",
@@ -296,15 +242,7 @@ func TestStreamServerError(t *testing.T) {
 			},
 			serverEnableTCP: true,
 			serverEnableUDP: false,
-			checkServerErr: func(t *testing.T, err error) {
-				e, ok := errors.AsType[UnsupportedUsernamePasswordAuthVersionError](err)
-				if !ok {
-					t.Fatalf("err = %v, want %T", err, e)
-				}
-				if e != 5 {
-					t.Errorf("e = %d, want 5", e)
-				}
-			},
+			checkServerErr:  expectByteError[UnsupportedUsernamePasswordAuthVersionError](5),
 		},
 		{
 			name: "ZeroULEN",
@@ -323,11 +261,7 @@ func TestStreamServerError(t *testing.T) {
 			},
 			serverEnableTCP: true,
 			serverEnableUDP: false,
-			checkServerErr: func(t *testing.T, err error) {
-				if err != errZeroULEN {
-					t.Errorf("err = %v, want %v", err, errZeroULEN)
-				}
-			},
+			checkServerErr:  expectComparableError(errZeroULEN),
 		},
 		{
 			name: "ZeroPLEN",
@@ -346,11 +280,7 @@ func TestStreamServerError(t *testing.T) {
 			},
 			serverEnableTCP: true,
 			serverEnableUDP: false,
-			checkServerErr: func(t *testing.T, err error) {
-				if err != errZeroPLEN {
-					t.Errorf("err = %v, want %v", err, errZeroPLEN)
-				}
-			},
+			checkServerErr:  expectComparableError(errZeroPLEN),
 		},
 		{
 			name: "IncorrectUsername",
@@ -370,11 +300,7 @@ func TestStreamServerError(t *testing.T) {
 			},
 			serverEnableTCP: true,
 			serverEnableUDP: false,
-			checkServerErr: func(t *testing.T, err error) {
-				if err != ErrIncorrectUsernamePassword {
-					t.Errorf("err = %v, want %v", err, ErrIncorrectUsernamePassword)
-				}
-			},
+			checkServerErr:  expectComparableError(ErrIncorrectUsernamePassword),
 		},
 		{
 			name: "IncorrectPassword",
@@ -394,11 +320,7 @@ func TestStreamServerError(t *testing.T) {
 			},
 			serverEnableTCP: true,
 			serverEnableUDP: false,
-			checkServerErr: func(t *testing.T, err error) {
-				if err != ErrIncorrectUsernamePassword {
-					t.Errorf("err = %v, want %v", err, ErrIncorrectUsernamePassword)
-				}
-			},
+			checkServerErr:  expectComparableError(ErrIncorrectUsernamePassword),
 		},
 		{
 			name: "UnsupportedCommand/Connect",
@@ -413,15 +335,7 @@ func TestStreamServerError(t *testing.T) {
 			serverUserInfoByUsername: nil,
 			serverEnableTCP:          false,
 			serverEnableUDP:          true,
-			checkServerErr: func(t *testing.T, err error) {
-				e, ok := errors.AsType[UnsupportedCommandError](err)
-				if !ok {
-					t.Fatalf("err = %v, want %T", err, e)
-				}
-				if e != CmdConnect {
-					t.Errorf("e = %d, want %d", e, CmdConnect)
-				}
-			},
+			checkServerErr:           expectByteError[UnsupportedCommandError](CmdConnect),
 		},
 		{
 			name: "UnsupportedCommand/Bind",
@@ -436,15 +350,7 @@ func TestStreamServerError(t *testing.T) {
 			serverUserInfoByUsername: nil,
 			serverEnableTCP:          true,
 			serverEnableUDP:          true,
-			checkServerErr: func(t *testing.T, err error) {
-				e, ok := errors.AsType[UnsupportedCommandError](err)
-				if !ok {
-					t.Fatalf("err = %v, want %T", err, e)
-				}
-				if e != CmdBind {
-					t.Errorf("e = %d, want %d", e, CmdBind)
-				}
-			},
+			checkServerErr:           expectByteError[UnsupportedCommandError](CmdBind),
 		},
 		{
 			name: "UnsupportedCommand/UDPAssociate",
@@ -459,15 +365,7 @@ func TestStreamServerError(t *testing.T) {
 			serverUserInfoByUsername: nil,
 			serverEnableTCP:          true,
 			serverEnableUDP:          false,
-			checkServerErr: func(t *testing.T, err error) {
-				e, ok := errors.AsType[UnsupportedCommandError](err)
-				if !ok {
-					t.Fatalf("err = %v, want %T", err, e)
-				}
-				if e != CmdUDPAssociate {
-					t.Errorf("e = %d, want %d", e, CmdUDPAssociate)
-				}
-			},
+			checkServerErr:           expectByteError[UnsupportedCommandError](CmdUDPAssociate),
 		},
 		{
 			name: "LocalAddrNotTCPAddr",
@@ -482,6 +380,7 @@ func TestStreamServerError(t *testing.T) {
 			serverEnableTCP:          false,
 			serverEnableUDP:          true,
 			checkServerErr: func(t *testing.T, err error) {
+				t.Helper()
 				if !errors.Is(err, errLocalAddrNotTCPAddr) {
 					t.Errorf("err = %v, want %v", err, errLocalAddrNotTCPAddr)
 				}
@@ -763,25 +662,44 @@ func TestStreamClientServer(t *testing.T) {
 							newClient,
 							server,
 							func(t *testing.T, dialResult conn.DialResult, err error) {
+								t.Helper()
 								reply := ReplyFromDialResultCode(dialResult.Code)
 								if reply == ReplySucceeded {
 									// err is initial payload write error, which is undefined.
 									return
 								}
-
-								e, ok := errors.AsType[ReplyError](err)
-								if !ok {
-									t.Errorf("err = %v, want %T", err, e)
-									return
-								}
-								if byte(e) != reply {
-									t.Errorf("e = %d, want %d", e, reply)
-								}
+								expectByteError(ReplyError(reply))(t, err)
 							},
 						)
 					})
 				})
 			}
 		})
+	}
+}
+
+func expectByteError[E interface {
+	error
+	~byte
+}](want E) func(*testing.T, error) {
+	return func(t *testing.T, err error) {
+		t.Helper()
+		e, ok := errors.AsType[E](err)
+		if !ok {
+			t.Errorf("err = %v, want %T", err, e)
+			return
+		}
+		if e != want {
+			t.Errorf("e = %d, want %d", e, want)
+		}
+	}
+}
+
+func expectComparableError(want error) func(*testing.T, error) {
+	return func(t *testing.T, err error) {
+		t.Helper()
+		if err != want {
+			t.Errorf("err = %v, want %v", err, want)
+		}
 	}
 }

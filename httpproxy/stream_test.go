@@ -55,6 +55,7 @@ func TestStreamClientServer(t *testing.T) {
 			addr := conn.AddrFromIPAndPort(netip.IPv6Loopback(), 8080)
 
 			newClient := func(t *testing.T, psc *netiotest.PipeStreamClient) netio.StreamClient {
+				t.Helper()
 				clientConfig := ClientConfig{
 					Name:         "test",
 					InnerClient:  psc,
@@ -97,6 +98,7 @@ func TestStreamClientServer(t *testing.T) {
 					newClient,
 					server,
 					func(t *testing.T, dialResult conn.DialResult, err error) {
+						t.Helper()
 						e, ok := errors.AsType[ConnectNonSuccessfulResponseError](err)
 						if !ok {
 							t.Errorf("err = %v, want %T", err, e)

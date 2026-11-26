@@ -466,12 +466,14 @@ func TestPrefixSetUnmarshalReadBinaryError(t *testing.T) {
 	}
 
 	expectErrUnexpectedEOF := func(t *testing.T, err error) {
+		t.Helper()
 		if !errors.Is(err, io.ErrUnexpectedEOF) {
 			t.Errorf("err = %v, want io.ErrUnexpectedEOF", err)
 		}
 	}
 
 	expectNonNilErr := func(t *testing.T, err error) {
+		t.Helper()
 		if err == nil {
 			t.Errorf("err = nil, want non-nil error")
 		}
