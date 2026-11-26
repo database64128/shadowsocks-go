@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/database64128/shadowsocks-go/conn"
+	"github.com/database64128/shadowsocks-go/internal/nettest"
 	"github.com/database64128/shadowsocks-go/netio"
 	"github.com/database64128/shadowsocks-go/tslogtest"
 )
@@ -21,17 +22,17 @@ import (
 // PipeStreamClient handles stream connection requests by creating a pipe
 // for each DialStream call and sending the server end to a channel.
 type PipeStreamClient struct {
-	ch   chan<- *PipeConn
-	info netio.StreamDialerInfo
+	ch       chan<- *PipeConn
+	buffered bool
 }
 
 // NewPipeStreamClient returns a new [*PipeStreamClient] and a channel for
 // receiving server ends of the pipes.
-func NewPipeStreamClient(info netio.StreamDialerInfo) (*PipeStreamClient, <-chan *PipeConn) {
+func NewPipeStreamClient(buffered bool) (*PipeStreamClient, <-chan *PipeConn) {
 	ch := make(chan *PipeConn)
 	return &PipeStreamClient{
-		ch:   ch,
-		info: info,
+		ch:       ch,
+		buffered: buffered,
 	}, ch
 }
 
@@ -43,18 +44,26 @@ func (c *PipeStreamClient) Close() error {
 
 // NewStreamDialer implements [netio.StreamClient.NewStreamDialer].
 func (c *PipeStreamClient) NewStreamDialer() (netio.StreamDialer, netio.StreamDialerInfo) {
-	return c, c.info
+	return c, netio.StreamDialerInfo{
+		Name:                 "test",
+		NativeInitialPayload: true,
+	}
 }
 
 // DialStream implements [netio.StreamDialer.DialStream].
 func (c *PipeStreamClient) DialStream(ctx context.Context, addr conn.Addr, payload []byte) (plc netio.Conn, err error) {
-	pl, pr := netio.NewPipe()
+	var pl, pr netio.Conn
+	if !c.buffered {
+		pl, pr = netio.NewPipe()
+	} else {
+		pl, pr = nettest.NewConnPair()
+	}
 
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case c.ch <- &PipeConn{
-		PipeConn:      pr,
+		Conn:          pr,
 		ctx:           ctx,
 		localConnAddr: addr,
 	}:
@@ -68,15 +77,15 @@ func (c *PipeStreamClient) DialStream(ctx context.Context, addr conn.Addr, paylo
 	}
 
 	return &PipeConn{
-		PipeConn:       pl,
+		Conn:           pl,
 		ctx:            ctx,
 		remoteConnAddr: addr,
 	}, nil
 }
 
-// PipeConn is [*netio.PipeConn] with additional local and remote addresses.
+// PipeConn is [netio.Conn] with additional testing metadata.
 type PipeConn struct {
-	*netio.PipeConn
+	netio.Conn
 	ctx            context.Context
 	localConnAddr  conn.Addr
 	remoteConnAddr conn.Addr
@@ -191,10 +200,7 @@ func testPreambleStreamClientServerProceed(
 ) {
 	logger := tslogtest.NewLogger(t)
 
-	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
-		Name:                 "test",
-		NativeInitialPayload: true,
-	})
+	psc, ch := NewPipeStreamClient(true)
 
 	expectedInitialPayload := slices.Clone(initialPayload)
 	if !expectedServerAddr.IsValid() {
@@ -316,10 +322,7 @@ func testWrapConnStreamClientServerProceed(
 ) {
 	logger := tslogtest.NewLogger(t)
 
-	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
-		Name:                 "test",
-		NativeInitialPayload: true,
-	})
+	psc, ch := NewPipeStreamClient(true)
 
 	expectedInitialPayload := slices.Clone(initialPayload)
 	if !expectedServerAddr.IsValid() {
@@ -813,10 +816,7 @@ func testStreamClientServerAbort(
 ) {
 	logger := tslogtest.NewLogger(t)
 
-	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
-		Name:                 "test",
-		NativeInitialPayload: true,
-	})
+	psc, ch := NewPipeStreamClient(true)
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -861,10 +861,7 @@ func BenchmarkStreamClientServer(
 ) {
 	logger := tslogtest.NewLogger(b)
 
-	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
-		Name:                 "test",
-		NativeInitialPayload: true,
-	})
+	psc, ch := NewPipeStreamClient(false)
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -978,10 +975,7 @@ func BenchmarkStreamClientDialServerHandle(
 ) {
 	logger := tslogtest.NewLogger(b)
 
-	psc, ch := NewPipeStreamClient(netio.StreamDialerInfo{
-		Name:                 "test",
-		NativeInitialPayload: true,
-	})
+	psc, ch := NewPipeStreamClient(false)
 
 	serverDrainBuf := make([]byte, 1)
 

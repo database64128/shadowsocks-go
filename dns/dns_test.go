@@ -69,10 +69,7 @@ func TestResolverTCPBoundedRetry(t *testing.T) {
 	ctx := t.Context()
 	logger := tslogtest.NewLogger(t)
 
-	psc, ch := netiotest.NewPipeStreamClient(netio.StreamDialerInfo{
-		Name:                 "test",
-		NativeInitialPayload: true,
-	})
+	psc, ch := netiotest.NewPipeStreamClient(false)
 
 	serverAddrPort := netip.AddrPortFrom(netip.IPv6Loopback(), 53)
 	expectedServerAddr := conn.AddrFromIPPort(serverAddrPort)

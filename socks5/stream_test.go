@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/rand"
 	"errors"
-	"io"
 	"net/netip"
 	"sync"
 	"testing"
@@ -766,9 +765,7 @@ func TestStreamClientServer(t *testing.T) {
 							func(t *testing.T, dialResult conn.DialResult, err error) {
 								reply := ReplyFromDialResultCode(dialResult.Code)
 								if reply == ReplySucceeded {
-									if err != nil && err != io.ErrClosedPipe {
-										t.Errorf("err = %v, want nil or io.ErrClosedPipe", err)
-									}
+									// err is initial payload write error, which is undefined.
 									return
 								}
 

@@ -70,10 +70,7 @@ func testStreamClientServerReplay(
 	ctx := t.Context()
 	logger := tslogtest.NewLogger(t)
 
-	psc, ch := netiotest.NewPipeStreamClient(netio.StreamDialerInfo{
-		Name:                 "test",
-		NativeInitialPayload: true,
-	})
+	psc, ch := netiotest.NewPipeStreamClient(false)
 
 	reqCh := make(chan []byte)
 
@@ -100,7 +97,6 @@ func testStreamClientServerReplay(
 				}
 				select {
 				case <-ctx.Done():
-					break
 				case reqCh <- req:
 				}
 
