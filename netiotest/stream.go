@@ -28,7 +28,7 @@ type PipeStreamClient struct {
 // NewPipeStreamClient returns a new [*PipeStreamClient] and a channel for
 // receiving server ends of the pipes.
 func NewPipeStreamClient(info netio.StreamDialerInfo) (*PipeStreamClient, <-chan *PipeConn) {
-	ch := make(chan *PipeConn, 1)
+	ch := make(chan *PipeConn)
 	return &PipeStreamClient{
 		ch:   ch,
 		info: info,
@@ -48,26 +48,28 @@ func (c *PipeStreamClient) NewStreamDialer() (netio.StreamDialer, netio.StreamDi
 
 // DialStream implements [netio.StreamDialer.DialStream].
 func (c *PipeStreamClient) DialStream(ctx context.Context, addr conn.Addr, payload []byte) (plc netio.Conn, err error) {
-	ctxDone := ctx.Done()
 	pl, pr := netio.NewPipe()
 
 	select {
-	case <-ctxDone:
+	case <-ctx.Done():
 		return nil, ctx.Err()
 	case c.ch <- &PipeConn{
 		PipeConn:      pr,
+		ctx:           ctx,
 		localConnAddr: addr,
 	}:
 	}
 
 	if len(payload) > 0 {
 		if _, err = netio.ConnWriteContext(ctx, pl, payload); err != nil {
+			_ = pl.Close()
 			return nil, err
 		}
 	}
 
 	return &PipeConn{
 		PipeConn:       pl,
+		ctx:            ctx,
 		remoteConnAddr: addr,
 	}, nil
 }
@@ -75,8 +77,14 @@ func (c *PipeStreamClient) DialStream(ctx context.Context, addr conn.Addr, paylo
 // PipeConn is [*netio.PipeConn] with additional local and remote addresses.
 type PipeConn struct {
 	*netio.PipeConn
+	ctx            context.Context
 	localConnAddr  conn.Addr
 	remoteConnAddr conn.Addr
+}
+
+// Context returns the context passed to DialStream when opening the pipe.
+func (c *PipeConn) Context() context.Context {
+	return c.ctx
 }
 
 // LocalConnAddr returns the local address of the connection, if known.
@@ -189,6 +197,9 @@ func testPreambleStreamClientServerProceed(
 	})
 
 	expectedInitialPayload := slices.Clone(initialPayload)
+	if !expectedServerAddr.IsValid() {
+		expectedServerAddr = addr
+	}
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -311,17 +322,30 @@ func testWrapConnStreamClientServerProceed(
 	})
 
 	expectedInitialPayload := slices.Clone(initialPayload)
+	if !expectedServerAddr.IsValid() {
+		expectedServerAddr = addr
+	}
 
 	type serverConnOrErr struct {
 		serverConn netio.Conn
 		err        error
 	}
 
-	serverConnOrErrCh := make(chan serverConnOrErr)
+	type dialContextKey struct{}
+
+	type dialContextValue struct {
+		cancelCh          <-chan struct{}
+		serverConnOrErrCh chan<- serverConnOrErr
+	}
+
+	badDialCtxCh := make(chan struct{})
+	closeBadDialCtxCh := sync.OnceFunc(func() {
+		close(badDialCtxCh)
+	})
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		for pc := range ch {
+		handlePipeConn := func(pc *PipeConn) (netio.Conn, error) {
 			if pc.LocalConnAddr() != expectedServerAddr {
 				t.Errorf("pc.LocalConnAddr() = %v, want %v", pc.LocalConnAddr(), expectedServerAddr)
 			}
@@ -329,8 +353,7 @@ func testWrapConnStreamClientServerProceed(
 			req, err := server.HandleStream(pc, logger)
 			if err != nil {
 				t.Errorf("server.HandleStream failed: %v", err)
-				serverConnOrErrCh <- serverConnOrErr{err: err}
-				return
+				return nil, err
 			}
 			if req.Addr != addr {
 				t.Errorf("req.Addr = %v, want %v", req.Addr, addr)
@@ -345,8 +368,7 @@ func testWrapConnStreamClientServerProceed(
 			serverConn, err := req.Proceed()
 			if err != nil {
 				t.Errorf("req.Proceed failed: %v", err)
-				serverConnOrErrCh <- serverConnOrErr{err: err}
-				return
+				return nil, err
 			}
 
 			b := slices.Grow(req.Payload, len(expectedInitialPayload)-len(req.Payload))[:len(expectedInitialPayload)]
@@ -358,7 +380,34 @@ func testWrapConnStreamClientServerProceed(
 				t.Errorf("b = %v, want %v", b, expectedInitialPayload)
 			}
 
-			serverConnOrErrCh <- serverConnOrErr{serverConn: serverConn}
+			return serverConn, nil
+		}
+
+		for pc := range ch {
+			wg.Go(func() {
+				serverConn, err := handlePipeConn(pc)
+				if err != nil {
+					_ = pc.Close()
+				}
+
+				dialCtxValue, ok := pc.Context().Value(dialContextKey{}).(dialContextValue)
+				if !ok {
+					t.Error("Missing dial context value")
+					closeBadDialCtxCh()
+					if serverConn != nil {
+						_ = serverConn.Close()
+					}
+					return
+				}
+
+				select {
+				case <-dialCtxValue.cancelCh:
+					if serverConn != nil {
+						_ = serverConn.Close()
+					}
+				case dialCtxValue.serverConnOrErrCh <- serverConnOrErr{serverConn: serverConn, err: err}:
+				}
+			})
 		}
 	})
 	t.Cleanup(func() {
@@ -370,17 +419,32 @@ func testWrapConnStreamClientServerProceed(
 
 	t.Run("RoundTrip", func(t *testing.T) {
 		TestConnPairRoundTrip(t, func(t *testing.T) (c1, c2 netio.Conn) {
-			clientConn, err := client.DialStream(t.Context(), addr, initialPayload)
+			cancelCh := make(chan struct{})
+			serverConnOrErrCh := make(chan serverConnOrErr)
+			ctx := context.WithValue(t.Context(), dialContextKey{}, dialContextValue{
+				cancelCh:          cancelCh,
+				serverConnOrErrCh: serverConnOrErrCh,
+			})
+
+			clientConn, err := client.DialStream(ctx, addr, initialPayload)
 			if err != nil {
+				close(cancelCh)
 				t.Fatalf("DialStream failed: %v", err)
 			}
 
-			serverConnOrErr := <-serverConnOrErrCh
-			if serverConnOrErr.err != nil {
+			select {
+			case <-badDialCtxCh:
+				_ = clientConn.Close()
+				close(cancelCh)
 				t.FailNow()
+				panic("unreachable")
+			case serverConnOrErr := <-serverConnOrErrCh:
+				if serverConnOrErr.err != nil {
+					_ = clientConn.Close()
+					t.FailNow()
+				}
+				return clientConn, serverConnOrErr.serverConn
 			}
-
-			return clientConn, serverConnOrErr.serverConn
 		})
 	})
 }
