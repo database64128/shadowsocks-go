@@ -424,7 +424,7 @@ func (c *StreamClient) DialStream(ctx context.Context, addr conn.Addr, payload [
 		return nil, err
 	}
 
-	if err = netio.ConnWriteContextFunc(ctx, rw, func(rw netio.Conn) (err error) {
+	if err = netio.ConnReadWriteContextFunc(ctx, rw, func(rw netio.Conn) (err error) {
 		if err = ClientConnect(rw, addr); err != nil {
 			return err
 		}
@@ -469,7 +469,7 @@ func (c *AuthStreamClient) DialStream(ctx context.Context, addr conn.Addr, paylo
 		return nil, err
 	}
 
-	if err = netio.ConnWriteContextFunc(ctx, rw, func(rw netio.Conn) (err error) {
+	if err = netio.ConnReadWriteContextFunc(ctx, rw, func(rw netio.Conn) (err error) {
 		if err = ClientConnectUsernamePassword(rw, c.authMsg, addr); err != nil {
 			return err
 		}

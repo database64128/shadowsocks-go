@@ -134,7 +134,7 @@ func (c *ProxyClient) DialStream(ctx context.Context, targetAddr conn.Addr, payl
 		innerConn = tls.Client(innerConn, c.tlsConfig)
 	}
 
-	if err = netio.ConnWriteContextFunc(ctx, innerConn, func(innerConn netio.Conn) (err error) {
+	if err = netio.ConnReadWriteContextFunc(ctx, innerConn, func(innerConn netio.Conn) (err error) {
 		clientConn, err = ClientConnect(innerConn, targetAddr, c.proxyAuthHeader)
 		if err != nil {
 			return err

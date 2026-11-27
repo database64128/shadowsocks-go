@@ -60,9 +60,22 @@ type Conn interface {
 	CloseWrite() error
 }
 
-// ConnWriteContextFunc calls f on c to execute any arbitrary write operation.
-// If ctx can be canceled, an interruptor goroutine is spun up to cancel the write operation
-// when ctx is done.
+// ConnReadWriteContextFunc calls f on c to execute any arbitrary read/write operation,
+// using ctx as the cancellation signal.
+func ConnReadWriteContextFunc(ctx context.Context, c Conn, f func(Conn) error) (err error) {
+	stop := context.AfterFunc(ctx, func() {
+		_ = c.SetDeadline(conn.ALongTimeAgo)
+	})
+	defer func() {
+		if !stop() && err == nil {
+			err = ctx.Err()
+		}
+	}()
+	return f(c)
+}
+
+// ConnWriteContextFunc calls f on c to execute any arbitrary write operation,
+// using ctx as the cancellation signal.
 func ConnWriteContextFunc(ctx context.Context, c Conn, f func(Conn) error) (err error) {
 	stop := context.AfterFunc(ctx, func() {
 		_ = c.SetWriteDeadline(conn.ALongTimeAgo)
